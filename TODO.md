@@ -1,8 +1,13 @@
+# ui
+- viewChats: add binding L - to enter chat
 # code:
 - xmpp lib: mellium.im/xmpp
 # e2ee: OpenPGP https://xmpp.org/extensions/xep-0374.html
 # calls: Jingle (XEP-0166) https://xmpp.org/extensions/xep-0166.html
 - sound: https://github.com/ebitengine/oto
+
+# storage
+- sqlite, modernc.org/sqlite, sqlc
 
 ### Features to implement
 - send/receive messages: text, images, files
