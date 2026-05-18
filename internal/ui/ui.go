@@ -38,23 +38,15 @@ type Chat struct {
 func (c Chat) Title() string { return c.Name }
 func (c Chat) Description() string {
 	switch {
-	case c.Address != "" && c.LastMessage != "":
-		// return c.Address + " • " + c.LastMessage
+	case c.LastMessage != "":
 		return c.LastMessage
 	case c.Address != "":
 		return c.Address
 	default:
-		return c.LastMessage
+		return ""
 	}
 }
 func (c Chat) FilterValue() string { return c.Name }
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const (
-	sidebarStatusHeight = 1
-	chatStatusHeight    = 1
-)
 
 // ── Focus state ───────────────────────────────────────────────────────────────
 

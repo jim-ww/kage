@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    queries: "internal/storage/queries.sql"
+    schema: "internal/storage/schema.sql"
+    gen:
+      go:
+        package: "storage"
+        out: "internal/storage"
+        emit_db_tags: true

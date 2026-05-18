@@ -9,6 +9,11 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+const (
+	sidebarStatusHeight = 1
+	chatStatusHeight    = 1
+)
+
 type uiColors struct {
 	// appBg       color.Color
 	// panelBg     color.Color
