@@ -85,7 +85,7 @@ func main() {
 			{Author: myName, Content: "works for me", SentAt: now.Add(-4 * time.Hour), IsMe: true},
 		},
 		1: {
-			{Author: "Mom", Content: "call when free", SentAt: now.Add(-26 * time.Hour), IsMe: false},
+			{Author: "Morgan", Content: "boe", SentAt: now.Add(-26 * time.Hour), IsMe: false},
 		},
 	}
 

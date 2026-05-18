@@ -15,56 +15,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// ── Data ──────────────────────────────────────────────────────────────────────
-
-type Theme struct {
-	AppBg       string
-	PanelBg     string
-	PanelAltBg  string
-	PanelEdge   string
-	LogBg       string
-	ThemFg      string
-	TextMuted   string
-	Time        string
-	BorderD     string
-	BorderA     string
-	AccentCyan  string
-	ReplyFg     string
-	PopupBg     string
-	PopupDanger string
-	FilterMatch string
-	NickMe      string
-	NickThem    string
-	StatusFg    string
-	NoticeBg    string
-	NoticeFg    string
-}
-
-func DefaultTheme() Theme {
-	return Theme{
-		AppBg:       "#1a1b26",
-		PanelBg:     "#1f2335",
-		PanelAltBg:  "#24283b",
-		PanelEdge:   "#292e42",
-		LogBg:       "#1b1f2f",
-		ThemFg:      "#c0caf5",
-		TextMuted:   "#a9b1d6",
-		Time:        "#565f89",
-		BorderD:     "#3b4261",
-		BorderA:     "#f7768e",
-		AccentCyan:  "#7dcfff",
-		ReplyFg:     "#73daca",
-		PopupBg:     "#1f2335",
-		PopupDanger: "#f7768e",
-		FilterMatch: "#e0af68",
-		NickMe:      "#7dcfff",
-		NickThem:    "#bb9af7",
-		StatusFg:    "#9ece6a",
-		NoticeBg:    "#292e42",
-		NoticeFg:    "#c0caf5",
-	}
-}
-
 type Message struct {
 	Author  string
 	Content string
@@ -99,63 +49,6 @@ func (c Chat) Description() string {
 }
 func (c Chat) FilterValue() string { return c.Name }
 
-// ── Key bindings ──────────────────────────────────────────────────────────────
-
-type KeyMap struct {
-	Quit          key.Binding
-	Back          key.Binding
-	Switch        key.Binding
-	FocusChats    key.Binding
-	ChatOpen      key.Binding
-	SelectSend    key.Binding
-	MsgUp         key.Binding // k — navigate to previous message
-	MsgDown       key.Binding // j — navigate to next message
-	DeleteMsg     key.Binding // d — delete selected message (with popup)
-	YankMsg       key.Binding // y — yank selected message
-	EditMsg       key.Binding // e — edit (only last own message)
-	ReplyMsg      key.Binding // r — reply to selected message
-	ConfirmYes    key.Binding // y — confirm popup
-	ConfirmNo     key.Binding // n / esc — cancel popup
-	ListKeys      list.KeyMap
-	TextInputKeys textinput.KeyMap
-}
-
-func NewBinding(keys []string, desc string) key.Binding {
-	return key.NewBinding(key.WithKeys(keys...), key.WithHelp(strings.Join(keys, "/"), desc))
-}
-
-var DefaultKeyMap = KeyMap{
-	Quit:       NewBinding([]string{"q", "ctrl+c"}, "quit"),
-	Back:       NewBinding([]string{"esc"}, "back to chats"),
-	Switch:     NewBinding([]string{"tab"}, "switch focus"),
-	FocusChats: NewBinding([]string{"\\"}, "focus chats"),
-	ChatOpen:   NewBinding([]string{"l", "right"}, "open chat"),
-	SelectSend: NewBinding([]string{"enter"}, "select/send"),
-	MsgUp:      NewBinding([]string{"k", "up"}, "prev msg"),
-	MsgDown:    NewBinding([]string{"j", "down"}, "next msg"),
-	DeleteMsg:  NewBinding([]string{"d"}, "delete"),
-	YankMsg:    NewBinding([]string{"y"}, "yank"),
-	EditMsg:    NewBinding([]string{"e"}, "edit (own last)"),
-	ReplyMsg:   NewBinding([]string{"r"}, "reply"),
-	ConfirmYes: NewBinding([]string{"y"}, "yes"),
-	ConfirmNo:  NewBinding([]string{"n", "esc"}, "no"),
-
-	ListKeys:      list.DefaultKeyMap(),
-	TextInputKeys: textinput.DefaultKeyMap(),
-}
-
-func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Quit, k.Back, k.Switch, k.SelectSend}
-}
-
-func (k KeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
-		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
-		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
-	}
-}
-
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const sidebarStatusHeight = 1
@@ -167,8 +60,7 @@ type selectedView int
 const (
 	viewAccounts selectedView = iota
 	viewChats
-	viewViewport // scroll + message navigation
-	viewInput    // type and send / edit
+	viewChat // viewport + input
 )
 
 type confirmTarget int
@@ -279,7 +171,7 @@ func New(accounts []Account, keys KeyMap, theme Theme) Model {
 	ti.SetStyles(tiStyles)
 
 	return Model{
-		selectedView:   viewInput,
+		selectedView:   viewChat,
 		keys:           keys,
 		theme:          theme,
 		accounts:       accounts,
@@ -343,7 +235,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// ── Global ────────────────────────────────────────────────────────
 		case key.Matches(msg, m.keys.Quit):
-			if msg.String() == "ctrl+c" || m.selectedView != viewInput {
+			if msg.String() == "ctrl+c" || m.selectedView != viewChat {
 				return m, tea.Quit
 			}
 
@@ -369,7 +261,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.selectedView {
 			case viewChats:
 				return m.openCurrentChat()
-			case viewInput:
+			case viewChat:
 				text := strings.TrimSpace(m.input.Value())
 				if text == "" {
 					return m, nil
@@ -409,7 +301,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateSizes()
 				m.refreshViewport()
 				m.viewport.GotoBottom()
-				cmds = append(cmds, m.showNotification("message sent"))
+				// cmds = append(cmds, m.showNotification("message sent")) # TODO: only show notification on error
 				return m, tea.Batch(cmds...)
 			}
 
@@ -421,23 +313,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case viewChats:
 				m.selectedView = viewAccounts
 				return m, nil
-			case viewViewport:
-				m.selectedView = viewInput
-				cmds = append(cmds, m.input.Focus())
-				return m, tea.Batch(cmds...)
-			case viewInput:
-				m.selectedView = viewViewport
-				m.input.Blur()
-				return m, nil
 			}
 
-		// ── Message navigation (viewport only) ────────────────────────────
+		// ── Viewport paging (chat view) ───────────────────────────────────
+		case isViewportPagingKey(msg):
+			if m.selectedView == viewChat {
+				var viewportCmd tea.Cmd
+				m.viewport, viewportCmd = m.viewport.Update(msg)
+				cmds = append(cmds, viewportCmd)
+				return m, tea.Batch(cmds...)
+			}
+
+		// ── Message navigation ─────────────────────────────────────────────
 		case key.Matches(msg, m.keys.MsgUp):
 			if m.selectedView == viewAccounts && m.currentAccount > 0 {
 				cmds = append(cmds, m.switchAccount(m.currentAccount-1))
 				return m, tea.Batch(cmds...)
 			}
-			if m.selectedView == viewViewport && m.selectedMsg > 0 {
+			if m.selectedView == viewChat && m.selectedMsg > 0 {
 				m.selectedMsg--
 				m.refreshViewportScrollTo(m.selectedMsg)
 				return m, nil
@@ -448,7 +341,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.switchAccount(m.currentAccount+1))
 				return m, tea.Batch(cmds...)
 			}
-			if m.selectedView == viewViewport {
+			if m.selectedView == viewChat {
 				chatIdx := m.currentChatIndex()
 				if chatIdx < 0 {
 					return m, nil
@@ -460,9 +353,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		// ── Message actions (viewport only) ───────────────────────────────
+		// ── Message actions ────────────────────────────────────────────────
 		case key.Matches(msg, m.keys.DeleteMsg):
-			if m.selectedView == viewViewport {
+			if m.selectedView == viewChat {
 				chatIdx := m.currentChatIndex()
 				if chatIdx < 0 {
 					return m, nil
@@ -478,7 +371,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.YankMsg):
-			if m.selectedView == viewViewport {
+			if m.selectedView == viewChat {
 				if err := m.yankSelectedMsg(); err != nil {
 					cmds = append(cmds, m.showNotification("copy failed"))
 				} else {
@@ -488,7 +381,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.EditMsg):
-			if m.selectedView == viewViewport {
+			if m.selectedView == viewChat {
 				if m.currentChatIndex() < 0 {
 					return m, nil
 				}
@@ -497,20 +390,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editingMsgIdx = m.selectedMsg
 					m.input.SetValue(msgs[m.selectedMsg].Content)
 					m.input.Placeholder = "edit message..."
-					m.selectedView = viewInput
 					cmds = append(cmds, m.input.Focus())
 					return m, tea.Batch(cmds...)
 				}
 			}
 
 		case key.Matches(msg, m.keys.ReplyMsg):
-			if m.selectedView == viewViewport {
+			if m.selectedView == viewChat {
 				if m.currentChatIndex() < 0 {
 					return m, nil
 				}
 				if len(m.currentMessages()) > 0 {
 					m.replyToIdx = m.selectedMsg
-					m.selectedView = viewInput
 					m.updateSizes()
 					m.refreshViewport()
 					cmds = append(cmds, m.input.Focus())
@@ -545,10 +436,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
-	case viewViewport:
-		m.viewport, cmd = m.viewport.Update(msg)
-		cmds = append(cmds, cmd)
-	case viewInput:
+	case viewChat:
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
 	}
@@ -575,6 +463,15 @@ func (m Model) currentMessages() []Message {
 		return nil
 	}
 	return m.accounts[m.currentAccount].Messages[chatIdx]
+}
+
+func isViewportPagingKey(msg tea.KeyMsg) bool {
+	switch msg.String() {
+	case "pgup", "pgdown", "pageup", "pagedown":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Model) setCurrentMessages(msgs []Message) {
@@ -618,13 +515,12 @@ func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	if m.currentChatIndex() < 0 {
 		return m, nil
 	}
-	m.selectedView = viewViewport
-	m.input.Blur()
+	m.selectedView = viewChat
 	if msgs := m.currentMessages(); len(msgs) > 0 {
 		m.selectedMsg = len(msgs) - 1
 	}
 	m.refreshViewport()
-	return m, nil
+	return m, m.input.Focus()
 }
 
 // canEdit returns true only when selectedMsg is the last "IsMe" message.
@@ -825,7 +721,7 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 }
 
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
-	isSelected := m.selectedView == viewViewport && msgIdx == m.selectedMsg
+	isSelected := msgIdx == m.selectedMsg
 	clrBorderA := lipgloss.Color(m.theme.BorderA)
 	clrNickThem := lipgloss.Color(m.theme.NickThem)
 	clrNickMe := lipgloss.Color(m.theme.NickMe)
@@ -953,7 +849,7 @@ func (m Model) View() tea.View {
 
 	// ── Input box ──────────────────────────────────────────────────────────
 	inputBorder := clrBorderD
-	if m.selectedView == viewInput {
+	if m.selectedView == viewChat {
 		inputBorder = clrAccentCyan
 	}
 
