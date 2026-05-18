@@ -190,7 +190,6 @@ type noticeClearMsg struct {
 
 func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account string, theme Theme) Model {
 	clrPanelBg := lipgloss.Color(theme.PanelBg)
-	clrPanelEdge := lipgloss.Color(theme.PanelEdge)
 	clrThemFg := lipgloss.Color(theme.ThemFg)
 	clrTextMuted := lipgloss.Color(theme.TextMuted)
 	clrTime := lipgloss.Color(theme.Time)
@@ -201,24 +200,20 @@ func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account
 	delegate := list.NewDefaultDelegate()
 	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
 		Foreground(clrThemFg).
-		Background(clrPanelBg).
 		PaddingLeft(1)
 	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
 		Foreground(clrTextMuted).
-		Background(clrPanelBg).
 		PaddingLeft(1)
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(clrBorderA).
 		Foreground(clrThemFg).
-		Background(clrPanelEdge).
 		Bold(true).
 		PaddingLeft(1)
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(clrBorderA).
 		Foreground(clrTextMuted).
-		Background(clrPanelEdge).
 		PaddingLeft(1)
 	delegate.Styles.DimmedTitle = delegate.Styles.DimmedTitle.Foreground(clrTime)
 	delegate.Styles.DimmedDesc = delegate.Styles.DimmedDesc.Foreground(clrTime)
@@ -233,12 +228,12 @@ func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account
 	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(clrTime).Background(clrPanelBg)
 	l.Styles.DefaultFilterCharacterMatch = l.Styles.DefaultFilterCharacterMatch.Foreground(clrFilterMatch).Bold(true)
 	filterStyles := l.Styles.Filter
-	filterStyles.Focused.Prompt = filterStyles.Focused.Prompt.Foreground(clrAccentCyan).Background(clrPanelBg)
-	filterStyles.Focused.Text = filterStyles.Focused.Text.Foreground(clrThemFg).Background(clrPanelBg)
-	filterStyles.Focused.Placeholder = filterStyles.Focused.Placeholder.Foreground(clrTime).Background(clrPanelBg)
-	filterStyles.Blurred.Prompt = filterStyles.Blurred.Prompt.Foreground(clrAccentCyan).Background(clrPanelBg)
-	filterStyles.Blurred.Text = filterStyles.Blurred.Text.Foreground(clrThemFg).Background(clrPanelBg)
-	filterStyles.Blurred.Placeholder = filterStyles.Blurred.Placeholder.Foreground(clrTime).Background(clrPanelBg)
+	filterStyles.Focused.Prompt = filterStyles.Focused.Prompt.Foreground(clrAccentCyan)
+	filterStyles.Focused.Text = filterStyles.Focused.Text.Foreground(clrThemFg)
+	filterStyles.Focused.Placeholder = filterStyles.Focused.Placeholder.Foreground(clrTime)
+	filterStyles.Blurred.Prompt = filterStyles.Blurred.Prompt.Foreground(clrAccentCyan)
+	filterStyles.Blurred.Text = filterStyles.Blurred.Text.Foreground(clrThemFg)
+	filterStyles.Blurred.Placeholder = filterStyles.Blurred.Placeholder.Foreground(clrTime)
 	filterStyles.Cursor.Color = clrAccentCyan
 	l.Styles.Filter = filterStyles
 
@@ -746,7 +741,6 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
 	isSelected := m.selectedView == viewViewport && msgIdx == m.selectedMsg
 	clrBorderA := lipgloss.Color(m.theme.BorderA)
-	clrPanelEdge := lipgloss.Color(m.theme.PanelEdge)
 	clrNickThem := lipgloss.Color(m.theme.NickThem)
 	clrNickMe := lipgloss.Color(m.theme.NickMe)
 	stTime := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.Time))
@@ -793,14 +787,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		lines = append(lines, "  "+indent+line)
 	}
 
-	block := strings.Join(lines, "\n")
-	if !isSelected {
-		return block
-	}
-	return lipgloss.NewStyle().
-		Background(clrPanelEdge).
-		Width(totalWidth).
-		Render(block)
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) replyPreview(idx int, allMsgs []Message) string {
@@ -866,7 +853,11 @@ func (m Model) View() tea.View {
 			Height(max(0, m.height-sidebarStatusHeight)).
 			Background(clrPanelBg).
 			Foreground(clrThemFg).
-			Render(m.chats.View()),
+			Render(lipgloss.NewStyle().
+				Background(clrPanelBg).
+				Foreground(clrThemFg).
+				Width(sw).
+				Render(m.chats.View())),
 	)
 	sidebar := lipgloss.NewStyle().
 		Width(sw).
@@ -896,15 +887,35 @@ func (m Model) View() tea.View {
 					preview = string(runes[:37]) + "…"
 				}
 				hint := stReply.Render(fmt.Sprintf("↩ %s: %s", orig.Author, preview))
-				inputInner = hint + "\n" + m.input.View()
+				inputInner = lipgloss.NewStyle().
+					Background(clrPanelAltBg).
+					Foreground(clrThemFg).
+					Width(m.chatAreaWidth()-2).
+					Render(hint) + "\n" + lipgloss.NewStyle().
+					Background(clrPanelAltBg).
+					Foreground(clrThemFg).
+					Width(m.chatAreaWidth()-2).
+					Render(m.input.View())
 			} else {
-				inputInner = m.input.View()
+				inputInner = lipgloss.NewStyle().
+					Background(clrPanelAltBg).
+					Foreground(clrThemFg).
+					Width(m.chatAreaWidth() - 2).
+					Render(m.input.View())
 			}
 		} else {
-			inputInner = m.input.View()
+			inputInner = lipgloss.NewStyle().
+				Background(clrPanelAltBg).
+				Foreground(clrThemFg).
+				Width(m.chatAreaWidth() - 2).
+				Render(m.input.View())
 		}
 	} else {
-		inputInner = m.input.View()
+		inputInner = lipgloss.NewStyle().
+			Background(clrPanelAltBg).
+			Foreground(clrThemFg).
+			Width(m.chatAreaWidth() - 2).
+			Render(m.input.View())
 	}
 
 	inputBox := lipgloss.NewStyle().
