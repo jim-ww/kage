@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ── Data ──────────────────────────────────────────────────────────────────────
@@ -51,18 +52,22 @@ type KeyMap struct {
 	TextInputKeys textinput.KeyMap
 }
 
+func NewBinding(keys []string, desc string) key.Binding {
+	return key.NewBinding(key.WithKeys(keys...), key.WithHelp(strings.Join(keys, "/"), desc))
+}
+
 var DefaultKeyMap = KeyMap{
-	Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q/ctrl+c", "quit")),
-	Back:       key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back to chats")),
-	Switch:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "switch focus")),
-	SelectSend: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select/send")),
-	MsgUp:      key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "prev msg")),
-	MsgDown:    key.NewBinding(key.WithKeys("j"), key.WithHelp("j", "next msg")),
-	DeleteMsg:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
-	EditMsg:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit (own last)")),
-	ReplyMsg:   key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
-	ConfirmYes: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
-	ConfirmNo:  key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n/esc", "no")),
+	Quit:       NewBinding([]string{"q", "ctrl+c"}, "quit"),
+	Back:       NewBinding([]string{"esc"}, "back to chats"),
+	Switch:     NewBinding([]string{"tab"}, "switch focus"),
+	SelectSend: NewBinding([]string{"enter"}, "select/send"),
+	MsgUp:      NewBinding([]string{"k"}, "prev msg"),
+	MsgDown:    NewBinding([]string{"j"}, "next msg"),
+	DeleteMsg:  NewBinding([]string{"d"}, "delete"),
+	EditMsg:    NewBinding([]string{"e"}, "edit (own last)"),
+	ReplyMsg:   NewBinding([]string{"r"}, "reply"),
+	ConfirmYes: NewBinding([]string{"y"}, "yes"),
+	ConfirmNo:  NewBinding([]string{"n", "esc"}, "no"),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -83,20 +88,23 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 var (
-	clrMeBg    = lipgloss.Color("#1a3a5c")
-	clrMeFg    = lipgloss.Color("#a8d4f5")
-	clrThemBg  = lipgloss.Color("#2d2d2d")
-	clrThemFg  = lipgloss.Color("#c8c8c8")
-	clrTime    = lipgloss.Color("#555555")
-	clrBorderD = lipgloss.Color("#333333")
-	clrBorderA = lipgloss.Color("#4fc3f7")
-	clrReplyFg = lipgloss.Color("#6699aa")
-	clrPopupBg = lipgloss.Color("#1e1e1e")
-
-	// stBubble is a value type — safe to chain without mutation.
-	stBubble = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			Padding(0, 1)
+	clrAppBg       = lipgloss.Color("#1a1b26")
+	clrPanelBg     = lipgloss.Color("#1f2335")
+	clrPanelAltBg  = lipgloss.Color("#24283b")
+	clrPanelEdge   = lipgloss.Color("#292e42")
+	clrMeBg        = lipgloss.Color("#7aa2f7")
+	clrMeFg        = lipgloss.Color("#1a1b26")
+	clrThemBg      = lipgloss.Color("#2a2f46")
+	clrThemFg      = lipgloss.Color("#c0caf5")
+	clrTextMuted   = lipgloss.Color("#a9b1d6")
+	clrTime        = lipgloss.Color("#565f89")
+	clrBorderD     = lipgloss.Color("#3b4261")
+	clrBorderA     = lipgloss.Color("#f7768e")
+	clrAccentCyan  = lipgloss.Color("#7dcfff")
+	clrReplyFg     = lipgloss.Color("#73daca")
+	clrPopupBg     = lipgloss.Color("#1f2335")
+	clrPopupDanger = lipgloss.Color("#f7768e")
+	clrFilterMatch = lipgloss.Color("#e0af68")
 
 	stTime  = lipgloss.NewStyle().Foreground(clrTime)
 	stReply = lipgloss.NewStyle().
@@ -104,8 +112,10 @@ var (
 		Italic(true)
 )
 
-// bubble geometry constants: rounded border adds 1 col each side, padding adds 1 each side → 4 total.
-const bubbleDecorationWidth = 4
+const (
+	bubbleHPad     = 1
+	bubbleMinWidth = 4
+)
 
 // ── Focus state ───────────────────────────────────────────────────────────────
 
@@ -115,6 +125,14 @@ const (
 	viewChats    selectedView = iota
 	viewViewport              // scroll + message navigation
 	viewInput                 // type and send / edit
+)
+
+type confirmTarget int
+
+const (
+	confirmNone confirmTarget = iota
+	confirmDeleteMessage
+	confirmDeleteChat
 )
 
 // ── Model ─────────────────────────────────────────────────────────────────────
@@ -131,27 +149,76 @@ type Model struct {
 	viewport viewport.Model
 
 	// message interaction state
-	selectedMsg       int // index of highlighted message (meaningful in viewViewport)
-	editingMsgIdx     int // >= 0 while editing a message; -1 otherwise
-	replyToIdx        int // >= 0 while composing a reply; -1 otherwise
-	showDeleteConfirm bool
-	msgOffsets        []int // line offset of each message inside viewport content
+	selectedMsg   int // index of highlighted message (meaningful in viewViewport)
+	editingMsgIdx int // >= 0 while editing a message; -1 otherwise
+	replyToIdx    int // >= 0 while composing a reply; -1 otherwise
+	confirmTarget confirmTarget
+	msgOffsets    []int // line offset of each message inside viewport content
 }
 
-func New(chatItems []list.Item, messages map[int][]Message) Model {
-	l := list.New(chatItems, list.NewDefaultDelegate(), 0, 0)
+func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap) Model {
+	delegate := list.NewDefaultDelegate()
+	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
+		Foreground(clrThemFg).
+		Background(clrPanelBg).
+		PaddingLeft(1)
+	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
+		Foreground(clrTextMuted).
+		Background(clrPanelBg).
+		PaddingLeft(1)
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(clrBorderA).
+		Foreground(clrThemFg).
+		Background(clrPanelEdge).
+		Bold(true).
+		PaddingLeft(1)
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(clrBorderA).
+		Foreground(clrTextMuted).
+		Background(clrPanelEdge).
+		PaddingLeft(1)
+	delegate.Styles.DimmedTitle = delegate.Styles.DimmedTitle.Foreground(clrTime)
+	delegate.Styles.DimmedDesc = delegate.Styles.DimmedDesc.Foreground(clrTime)
+	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(clrFilterMatch).Bold(true)
+
+	l := list.New(chatItems, delegate, 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.InfiniteScrolling = true
+	l.Styles.HelpStyle = l.Styles.HelpStyle.Foreground(clrTime).Background(clrPanelBg)
+	l.Styles.NoItems = l.Styles.NoItems.Foreground(clrTime).Background(clrPanelBg)
+	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(clrTime).Background(clrPanelBg)
+	l.Styles.DefaultFilterCharacterMatch = l.Styles.DefaultFilterCharacterMatch.Foreground(clrFilterMatch).Bold(true)
+	filterStyles := l.Styles.Filter
+	filterStyles.Focused.Prompt = filterStyles.Focused.Prompt.Foreground(clrAccentCyan).Background(clrPanelBg)
+	filterStyles.Focused.Text = filterStyles.Focused.Text.Foreground(clrThemFg).Background(clrPanelBg)
+	filterStyles.Focused.Placeholder = filterStyles.Focused.Placeholder.Foreground(clrTime).Background(clrPanelBg)
+	filterStyles.Blurred.Prompt = filterStyles.Blurred.Prompt.Foreground(clrAccentCyan).Background(clrPanelBg)
+	filterStyles.Blurred.Text = filterStyles.Blurred.Text.Foreground(clrThemFg).Background(clrPanelBg)
+	filterStyles.Blurred.Placeholder = filterStyles.Blurred.Placeholder.Foreground(clrTime).Background(clrPanelBg)
+	filterStyles.Cursor.Color = clrAccentCyan
+	l.Styles.Filter = filterStyles
 
 	ti := textinput.New()
 	ti.Placeholder = "message..."
-	ti.KeyMap = DefaultKeyMap.TextInputKeys
+	ti.Prompt = "› "
+	ti.KeyMap = keys.TextInputKeys
 	ti.Focus()
+	tiStyles := ti.Styles()
+	tiStyles.Focused.Prompt = tiStyles.Focused.Prompt.Foreground(clrAccentCyan)
+	tiStyles.Focused.Text = tiStyles.Focused.Text.Foreground(clrThemFg)
+	tiStyles.Focused.Placeholder = tiStyles.Focused.Placeholder.Foreground(clrTime)
+	tiStyles.Blurred.Prompt = tiStyles.Blurred.Prompt.Foreground(clrBorderD)
+	tiStyles.Blurred.Text = tiStyles.Blurred.Text.Foreground(clrTextMuted)
+	tiStyles.Blurred.Placeholder = tiStyles.Blurred.Placeholder.Foreground(clrTime)
+	tiStyles.Cursor.Color = clrAccentCyan
+	ti.SetStyles(tiStyles)
 
 	return Model{
 		selectedView:  viewInput,
-		keys:          DefaultKeyMap,
+		keys:          keys,
 		chats:         l,
 		messages:      messages,
 		input:         ti,
@@ -184,14 +251,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// ── Delete confirmation popup intercepts all input ─────────────────
-		if m.showDeleteConfirm {
+		if m.confirmTarget != confirmNone {
 			switch {
 			case key.Matches(msg, m.keys.ConfirmYes):
-				m.deleteSelectedMsg()
-				m.showDeleteConfirm = false
+				if m.confirmTarget == confirmDeleteMessage {
+					m.deleteSelectedMsg()
+				} else if m.confirmTarget == confirmDeleteChat {
+					cmds = append(cmds, m.deleteSelectedChat())
+				}
+				m.confirmTarget = confirmNone
 				m.refreshViewport()
+				return m, tea.Batch(cmds...)
 			case key.Matches(msg, m.keys.ConfirmNo):
-				m.showDeleteConfirm = false
+				m.confirmTarget = confirmNone
 			}
 			return m, nil
 		}
@@ -216,9 +288,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.selectedView {
 
 			case viewChats:
+				if m.currentChatIndex() < 0 {
+					return m, nil
+				}
 				m.selectedView = viewViewport
 				m.input.Blur()
-				chatIdx := m.chats.Index()
+				chatIdx := m.currentChatIndex()
 				if msgs := m.messages[chatIdx]; len(msgs) > 0 {
 					m.selectedMsg = len(msgs) - 1
 				}
@@ -230,7 +305,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if text == "" {
 					return m, nil
 				}
-				chatIdx := m.chats.Index()
+				chatIdx := m.currentChatIndex()
+				if chatIdx < 0 {
+					return m, nil
+				}
 
 				if m.editingMsgIdx >= 0 {
 					// Apply edit in-place.
@@ -285,7 +363,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.MsgDown):
 			if m.selectedView == viewViewport {
-				chatIdx := m.chats.Index()
+				chatIdx := m.currentChatIndex()
+				if chatIdx < 0 {
+					return m, nil
+				}
 				if m.selectedMsg < len(m.messages[chatIdx])-1 {
 					m.selectedMsg++
 					m.refreshViewportScrollTo(m.selectedMsg)
@@ -296,16 +377,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ── Message actions (viewport only) ───────────────────────────────
 		case key.Matches(msg, m.keys.DeleteMsg):
 			if m.selectedView == viewViewport {
-				chatIdx := m.chats.Index()
-				if len(m.messages[chatIdx]) > 0 {
-					m.showDeleteConfirm = true
+				chatIdx := m.currentChatIndex()
+				if chatIdx < 0 {
+					return m, nil
 				}
+				if len(m.messages[chatIdx]) > 0 {
+					m.confirmTarget = confirmDeleteMessage
+				}
+				return m, nil
+			}
+			if m.selectedView == viewChats && m.currentChatIndex() >= 0 {
+				m.confirmTarget = confirmDeleteChat
 				return m, nil
 			}
 
 		case key.Matches(msg, m.keys.EditMsg):
 			if m.selectedView == viewViewport {
-				chatIdx := m.chats.Index()
+				chatIdx := m.currentChatIndex()
+				if chatIdx < 0 {
+					return m, nil
+				}
 				msgs := m.messages[chatIdx]
 				if m.canEdit(msgs) {
 					m.editingMsgIdx = m.selectedMsg
@@ -320,7 +411,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.ReplyMsg):
 			if m.selectedView == viewViewport {
-				chatIdx := m.chats.Index()
+				chatIdx := m.currentChatIndex()
+				if chatIdx < 0 {
+					return m, nil
+				}
 				if len(m.messages[chatIdx]) > 0 {
 					m.replyToIdx = m.selectedMsg
 					m.selectedView = viewInput
@@ -342,7 +436,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chats, cmd = m.chats.Update(msg)
 		cmds = append(cmds, cmd)
 		if m.chats.Index() != prev {
-			chatIdx := m.chats.Index()
+			chatIdx := m.currentChatIndex()
+			if chatIdx < 0 {
+				m.selectedMsg = 0
+				m.refreshViewport()
+				break
+			}
 			msgs := m.messages[chatIdx]
 			if len(msgs) > 0 {
 				m.selectedMsg = len(msgs) - 1
@@ -365,6 +464,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+func (m Model) currentChatIndex() int {
+	idx := m.chats.GlobalIndex()
+	if idx < 0 || idx >= len(m.chats.Items()) {
+		return -1
+	}
+	return idx
+}
+
 // canEdit returns true only when selectedMsg is the last "IsMe" message.
 func (m Model) canEdit(msgs []Message) bool {
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
@@ -383,7 +490,10 @@ func (m Model) canEdit(msgs []Message) bool {
 
 // deleteSelectedMsg removes the current message and fixes up ReplyTo indices.
 func (m *Model) deleteSelectedMsg() {
-	chatIdx := m.chats.Index()
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return
+	}
 	msgs := m.messages[chatIdx]
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return
@@ -412,6 +522,53 @@ func (m *Model) deleteSelectedMsg() {
 	}
 }
 
+func (m *Model) deleteSelectedChat() tea.Cmd {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return nil
+	}
+
+	items := m.chats.Items()
+	newItems := make([]list.Item, 0, len(items)-1)
+	newItems = append(newItems, items[:chatIdx]...)
+	newItems = append(newItems, items[chatIdx+1:]...)
+
+	newMessages := make(map[int][]Message, len(newItems))
+	for i := 0; i < len(items); i++ {
+		switch {
+		case i < chatIdx:
+			newMessages[i] = m.messages[i]
+		case i > chatIdx:
+			newMessages[i-1] = m.messages[i]
+		}
+	}
+	m.messages = newMessages
+
+	cmd := m.chats.SetItems(newItems)
+	if len(newItems) == 0 {
+		m.selectedView = viewChats
+		m.selectedMsg = 0
+		m.cancelPending()
+		m.refreshViewport()
+		return cmd
+	}
+
+	if chatIdx >= len(newItems) {
+		chatIdx = len(newItems) - 1
+	}
+	m.chats.Select(chatIdx)
+	msgs := m.messages[chatIdx]
+	if len(msgs) > 0 {
+		m.selectedMsg = len(msgs) - 1
+	} else {
+		m.selectedMsg = 0
+	}
+	m.cancelPending()
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+	return cmd
+}
+
 // cancelPending clears any in-progress edit or reply.
 func (m *Model) cancelPending() {
 	m.editingMsgIdx = -1
@@ -423,6 +580,11 @@ func (m *Model) cancelPending() {
 
 // refreshViewport re-renders all messages and updates the viewport content.
 func (m *Model) refreshViewport() {
+	if m.currentChatIndex() < 0 {
+		m.msgOffsets = nil
+		m.viewport.SetContent("")
+		return
+	}
 	content, offsets := m.renderMessagesWithOffsets()
 	m.msgOffsets = offsets
 	m.viewport.SetContent(content)
@@ -473,10 +635,12 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 	}
 
 	// Bubbles fill at most 60 % of the chat area.
-	// Content width = maxBubble - bubbleDecorationWidth (border + padding).
 	maxBubble := cw * 3 / 5
 
-	chatIdx := m.chats.Index()
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return "", nil
+	}
 	msgs := m.messages[chatIdx]
 	offsets := make([]int, len(msgs))
 
@@ -504,64 +668,37 @@ func (m Model) renderBubble(msg Message, msgIdx, maxBubble, totalWidth int, allM
 	ts := stTime.Render(msg.SentAt.Format("15:04"))
 	content := m.buildContent(msg, allMsgs)
 
-	// The Width() style method sets the content area width (inside border+padding).
-	// lipgloss wraps text automatically to fit this width.
-	contentW := maxBubble - bubbleDecorationWidth
-	if contentW < 4 {
-		contentW = 4
+	contentW := maxBubble - (bubbleHPad * 2) - 2
+	if contentW < bubbleMinWidth {
+		contentW = bubbleMinWidth
 	}
 
-	borderClr := func(defaultClr color.Color) color.Color {
+	borderClr := func() color.Color {
 		if isSelected {
-			return clrBorderA // cyan highlight when selected
+			return clrBorderA
 		}
-		return defaultClr
+		if msg.IsMe {
+			return clrMeBg
+		}
+		return clrThemBg
+	}
+
+	fillClr := func() color.Color {
+		if msg.IsMe {
+			return clrMeBg
+		}
+		return clrThemBg
 	}
 
 	if msg.IsMe {
-		bubble := stBubble.
-			Background(clrMeBg).
-			Foreground(clrMeFg).
-			BorderForeground(borderClr(clrMeBg)).
-			Width(contentW).
-			Render(content)
-
+		bubble := renderBubbleBlock(content, contentW, clrMeFg, fillClr(), borderClr())
 		tw := lipgloss.Width(ts)
-		// Small right-side indicator for selected outgoing message.
-		indicator := ""
-		if isSelected {
-			indicator = lipgloss.NewStyle().Foreground(clrBorderA).Render(" ▐")
-		}
-		tsLine := spaces(totalWidth-tw-2) + ts + indicator
+		tsLine := spaces(totalWidth-tw) + ts
 		return rightAlignBlock(bubble, totalWidth) + "\n" + tsLine
 	}
 
-	// Incoming message.
-	bubble := stBubble.
-		Background(clrThemBg).
-		Foreground(clrThemFg).
-		BorderForeground(borderClr(clrThemBg)).
-		Width(contentW).
-		Render(content)
-
-	// Prefix the first line with a selection indicator; remaining lines get
-	// the same-width blank so text stays aligned.
-	prefix := "  "
-	if isSelected {
-		prefix = lipgloss.NewStyle().Foreground(clrBorderA).Render("▌") + " "
-	}
-	lines := strings.Split(bubble, "\n")
-	var sb strings.Builder
-	for i, line := range lines {
-		if i > 0 {
-			sb.WriteByte('\n')
-			sb.WriteString("  ") // 2-space blank to match prefix width
-		} else {
-			sb.WriteString(prefix)
-		}
-		sb.WriteString(line)
-	}
-	return sb.String() + "\n" + "  " + ts
+	bubble := renderBubbleBlock(content, contentW, clrThemFg, fillClr(), borderClr())
+	return bubble + "\n" + ts
 }
 
 // buildContent assembles the content string: optional reply quote followed by
@@ -594,7 +731,7 @@ func rightAlignBlock(block string, totalWidth int) string {
 			sb.WriteByte('\n')
 		}
 		lw := lipgloss.Width(line)
-		if p := totalWidth - lw - 2; p > 0 {
+		if p := totalWidth - lw; p > 0 {
 			sb.WriteString(strings.Repeat(" ", p))
 		}
 		sb.WriteString(line)
@@ -628,6 +765,8 @@ func (m Model) View() tea.View {
 	sidebar := lipgloss.NewStyle().
 		Width(sw).
 		Height(m.height).
+		Background(clrPanelBg).
+		Foreground(clrThemFg).
 		Border(lipgloss.NormalBorder(), false, true, false, false).
 		BorderForeground(sidebarBorder).
 		Render(m.chats.View())
@@ -635,22 +774,26 @@ func (m Model) View() tea.View {
 	// ── Input box ──────────────────────────────────────────────────────────
 	inputBorder := clrBorderD
 	if m.selectedView == viewInput {
-		inputBorder = clrBorderA
+		inputBorder = clrAccentCyan
 	}
 
 	var inputInner string
 	if m.replyToIdx >= 0 {
-		chatIdx := m.chats.Index()
-		msgs := m.messages[chatIdx]
-		if m.replyToIdx < len(msgs) {
-			orig := msgs[m.replyToIdx]
-			preview := strings.ReplaceAll(orig.Content, "\n", " ")
-			runes := []rune(preview)
-			if len(runes) > 40 {
-				preview = string(runes[:37]) + "…"
+		chatIdx := m.currentChatIndex()
+		if chatIdx >= 0 {
+			msgs := m.messages[chatIdx]
+			if m.replyToIdx < len(msgs) {
+				orig := msgs[m.replyToIdx]
+				preview := strings.ReplaceAll(orig.Content, "\n", " ")
+				runes := []rune(preview)
+				if len(runes) > 40 {
+					preview = string(runes[:37]) + "…"
+				}
+				hint := stReply.Render(fmt.Sprintf("↩ %s: %s", orig.Author, preview))
+				inputInner = hint + "\n" + m.input.View()
+			} else {
+				inputInner = m.input.View()
 			}
-			hint := stReply.Render(fmt.Sprintf("↩ %s: %s", orig.Author, preview))
-			inputInner = hint + "\n" + m.input.View()
 		} else {
 			inputInner = m.input.View()
 		}
@@ -659,6 +802,8 @@ func (m Model) View() tea.View {
 	}
 
 	inputBox := lipgloss.NewStyle().
+		Background(clrPanelAltBg).
+		Foreground(clrThemFg).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
 		BorderForeground(inputBorder).
 		Padding(0, 1).
@@ -666,15 +811,23 @@ func (m Model) View() tea.View {
 
 	// ── Viewport / popup ───────────────────────────────────────────────────
 	var viewportArea string
-	if m.showDeleteConfirm {
+	if m.confirmTarget != confirmNone {
 		viewportArea = m.renderDeletePopup()
 	} else {
-		viewportArea = m.viewport.View()
+		viewportArea = lipgloss.NewStyle().
+			Background(clrAppBg).
+			Foreground(clrThemFg).
+			Render(m.viewport.View())
 	}
 
 	chatArea := lipgloss.JoinVertical(lipgloss.Left, viewportArea, inputBox)
 
-	v := tea.NewView(lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea))
+	root := lipgloss.NewStyle().
+		Background(clrAppBg).
+		Foreground(clrThemFg).
+		Render(lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea))
+
+	v := tea.NewView(root)
 	v.AltScreen = true
 	return v
 }
@@ -689,9 +842,48 @@ func (m Model) renderDeletePopup() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(clrBorderA).
 		Background(clrPopupBg).
-		Foreground(lipgloss.Color("#e0e0e0")).
+		Foreground(clrThemFg).
 		Padding(1, 4).
-		Render("Delete message?\n\n  [y] yes    [n] no")
+		Render(m.deletePrompt())
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+func renderBubbleBlock(content string, contentW int, fg, bg, border color.Color) string {
+	wrapped := ansi.Wordwrap(content, contentW, " ")
+	lines := strings.Split(wrapped, "\n")
+	innerWidth := bubbleMinWidth
+	for _, line := range lines {
+		if lw := lipgloss.Width(line); lw > innerWidth {
+			innerWidth = lw
+		}
+	}
+
+	fill := lipgloss.NewStyle().Foreground(fg).Background(bg)
+	edge := lipgloss.NewStyle().Foreground(border)
+
+	top := edge.Render("╭" + strings.Repeat("─", innerWidth+(bubbleHPad*2)) + "╮")
+	bottom := edge.Render("╰" + strings.Repeat("─", innerWidth+(bubbleHPad*2)) + "╯")
+
+	var sb strings.Builder
+	sb.WriteString(top)
+	for _, line := range lines {
+		sb.WriteByte('\n')
+		sb.WriteString(edge.Render("│"))
+		sb.WriteString(fill.Render(" " + lipgloss.NewStyle().Width(innerWidth).Render(line) + " "))
+		sb.WriteString(edge.Render("│"))
+	}
+	sb.WriteByte('\n')
+	sb.WriteString(bottom)
+
+	return sb.String()
+}
+
+func (m Model) deletePrompt() string {
+	switch m.confirmTarget {
+	case confirmDeleteChat:
+		return lipgloss.NewStyle().Foreground(clrPopupDanger).Bold(true).Render("Leave chat?") + "\n\n  [y] yes    [n] no"
+	default:
+		return lipgloss.NewStyle().Foreground(clrPopupDanger).Bold(true).Render("Delete message?") + "\n\n  [y] yes    [n] no"
+	}
 }

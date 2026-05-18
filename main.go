@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"codeberg.org/jim-ww/kage/config"
 	"codeberg.org/jim-ww/kage/ui"
 )
 
@@ -58,7 +59,13 @@ func main() {
 		},
 	}
 
-	model := ui.New(chatItems, messages)
+	keys, err := config.LoadKeyMap()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	model := ui.New(chatItems, messages, keys)
 	p := tea.NewProgram(model)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
