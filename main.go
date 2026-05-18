@@ -6,8 +6,8 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
-	"codeberg.org/jim-ww/kage/config"
-	"codeberg.org/jim-ww/kage/ui"
+	"codeberg.org/jim-ww/kage/internal/config"
+	"codeberg.org/jim-ww/kage/internal/ui"
 )
 
 func main() {

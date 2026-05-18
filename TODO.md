@@ -10,6 +10,7 @@
 - sqlite, modernc.org/sqlite, sqlc
 
 ### Features to implement
+- account management: status ('● Online', '◐ Away', '○ Offline')
 - message status? 'sent' / 'delivered'?
 - send/receive messages: text, images, files
 - edit messages? mark as deleted?(hide)

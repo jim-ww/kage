@@ -756,7 +756,7 @@ func (m Model) View() tea.View {
 	accountFg := colors.statusFg
 	if m.selectedView == viewAccounts {
 		accountBg = colors.borderA
-		accountFg = colors.appBg
+		// accountFg = colors.appBg
 	}
 	statusLine := m.styles.sidebarStatusLine(sw, accountBg, accountFg, m.renderAccountBar(sw))
 	sidebarInner := lipgloss.JoinVertical(lipgloss.Left,

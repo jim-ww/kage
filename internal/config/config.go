@@ -8,7 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"codeberg.org/jim-ww/kage/ui"
+	"codeberg.org/jim-ww/kage/internal/ui"
 )
 
 type fileConfig struct {
@@ -38,7 +38,7 @@ func Load(path string) (UIConfig, error) {
 				return cfgOut, err
 			}
 			cfgOut.KeyMap = keys
-			cfgOut.Theme = cfg.Theme // mergeTheme(ui.DefaultTheme(), cfg.Theme)
+			cfgOut.Theme = mergeTheme(ui.DefaultTheme(), cfg.Theme)
 			return cfgOut, nil
 		}
 	}

@@ -10,50 +10,50 @@ import (
 )
 
 type uiColors struct {
-	appBg       color.Color
-	panelBg     color.Color
-	panelAltBg  color.Color
-	panelEdge   color.Color
-	logBg       color.Color
-	themFg      color.Color
-	textMuted   color.Color
-	time        color.Color
-	borderD     color.Color
-	borderA     color.Color
-	accentCyan  color.Color
-	replyFg     color.Color
-	popupBg     color.Color
+	// appBg       color.Color
+	// panelBg     color.Color
+	// panelAltBg  color.Color
+	panelEdge color.Color
+	// logBg       color.Color
+	themFg     color.Color
+	textMuted  color.Color
+	time       color.Color
+	borderD    color.Color
+	borderA    color.Color
+	accentCyan color.Color
+	replyFg    color.Color
+	// popupBg     color.Color
 	popupDanger color.Color
 	filterMatch color.Color
 	nickMe      color.Color
 	nickThem    color.Color
 	statusFg    color.Color
-	noticeBg    color.Color
-	noticeFg    color.Color
+	// noticeBg    color.Color
+	noticeFg color.Color
 }
 
 func newUIColors(theme Theme) uiColors {
 	return uiColors{
-		appBg:       lipgloss.Color(theme.AppBg),
-		panelBg:     lipgloss.Color(theme.PanelBg),
-		panelAltBg:  lipgloss.Color(theme.PanelAltBg),
-		panelEdge:   lipgloss.Color(theme.PanelEdge),
-		logBg:       lipgloss.Color(theme.LogBg),
-		themFg:      lipgloss.Color(theme.ThemFg),
-		textMuted:   lipgloss.Color(theme.TextMuted),
-		time:        lipgloss.Color(theme.Time),
-		borderD:     lipgloss.Color(theme.BorderD),
-		borderA:     lipgloss.Color(theme.BorderA),
-		accentCyan:  lipgloss.Color(theme.AccentCyan),
-		replyFg:     lipgloss.Color(theme.ReplyFg),
-		popupBg:     lipgloss.Color(theme.PopupBg),
+		// appBg:      lipgloss.Color(theme.AppBg),
+		// panelBg:    lipgloss.Color(theme.PanelBg),
+		// panelAltBg: lipgloss.Color(theme.PanelAltBg),
+		panelEdge: lipgloss.Color(theme.PanelEdge),
+		// logBg:      lipgloss.Color(theme.LogBg),
+		themFg:     lipgloss.Color(theme.ThemFg),
+		textMuted:  lipgloss.Color(theme.TextMuted),
+		time:       lipgloss.Color(theme.Time),
+		borderD:    lipgloss.Color(theme.BorderD),
+		borderA:    lipgloss.Color(theme.BorderA),
+		accentCyan: lipgloss.Color(theme.AccentCyan),
+		replyFg:    lipgloss.Color(theme.ReplyFg),
+		// popupBg:     lipgloss.Color(theme.PopupBg),
 		popupDanger: lipgloss.Color(theme.PopupDanger),
 		filterMatch: lipgloss.Color(theme.FilterMatch),
 		nickMe:      lipgloss.Color(theme.NickMe),
 		nickThem:    lipgloss.Color(theme.NickThem),
 		statusFg:    lipgloss.Color(theme.StatusFg),
-		noticeBg:    lipgloss.Color(theme.NoticeBg),
-		noticeFg:    lipgloss.Color(theme.NoticeFg),
+		// noticeBg:    lipgloss.Color(theme.NoticeBg),
+		noticeFg: lipgloss.Color(theme.NoticeFg),
 	}
 }
 
@@ -97,39 +97,29 @@ func newUIStyles(theme Theme) uiStyles {
 			Bold(true).
 			Padding(0, 1),
 		sidebarPanel: lipgloss.NewStyle().
-			// Background(colors.panelBg).
 			Foreground(colors.themFg),
 		sidebarList: lipgloss.NewStyle().
-			// Background(colors.panelBg).
 			Foreground(colors.themFg),
 		sidebar: lipgloss.NewStyle().
-			// Background(colors.panelBg).
 			Foreground(colors.themFg).
 			Border(lipgloss.NormalBorder(), false, true, false, false),
 		inputInner: lipgloss.NewStyle().
-			// Background(colors.panelAltBg).
 			Foreground(colors.themFg),
 		inputBox: lipgloss.NewStyle().
-			// Background(colors.panelAltBg).
 			Foreground(colors.themFg).
 			Border(lipgloss.NormalBorder(), true, false, false, false).
 			Padding(0, 1),
 		viewportBody: lipgloss.NewStyle().
-			// Background(colors.logBg).
 			Foreground(colors.themFg),
 		notice: lipgloss.NewStyle().
-			// Background(colors.noticeBg).
 			Foreground(colors.noticeFg).
 			Padding(0, 1),
 		viewportArea: lipgloss.NewStyle().
-			// Background(colors.appBg).
 			Foreground(colors.themFg),
 		root: lipgloss.NewStyle().
-			// Background(colors.appBg).
 			Foreground(colors.themFg),
 		popup: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			// Background(colors.popupBg).
 			Foreground(colors.themFg).
 			Padding(1, 4),
 		popupDanger: lipgloss.NewStyle().
@@ -166,9 +156,9 @@ func newChatListDelegate(colors uiColors) list.DefaultDelegate {
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {
-	l.Styles.HelpStyle = l.Styles.HelpStyle.Foreground(colors.time)             //.Background(colors.panelBg)
-	l.Styles.NoItems = l.Styles.NoItems.Foreground(colors.time)                 //.Background(colors.panelBg)
-	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(colors.time) //.Background(colors.panelBg)
+	l.Styles.HelpStyle = l.Styles.HelpStyle.Foreground(colors.time)
+	l.Styles.NoItems = l.Styles.NoItems.Foreground(colors.time)
+	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(colors.time)
 	l.Styles.DefaultFilterCharacterMatch = l.Styles.DefaultFilterCharacterMatch.Foreground(colors.filterMatch).Bold(true)
 
 	filterStyles := l.Styles.Filter
