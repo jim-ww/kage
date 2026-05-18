@@ -73,6 +73,8 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 			keys.Back = ui.NewBinding(override, "back to chats")
 		case "switch":
 			keys.Switch = ui.NewBinding(override, "switch focus")
+		case "chat_open":
+			keys.ChatOpen = ui.NewBinding(override, "open chat")
 		case "select_send":
 			keys.SelectSend = ui.NewBinding(override, "select/send")
 		case "message_up":
@@ -81,6 +83,8 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 			keys.MsgDown = ui.NewBinding(override, "next msg")
 		case "delete":
 			keys.DeleteMsg = ui.NewBinding(override, "delete")
+		case "yank":
+			keys.YankMsg = ui.NewBinding(override, "yank")
 		case "edit":
 			keys.EditMsg = ui.NewBinding(override, "edit (own last)")
 		case "reply":

@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -39,10 +40,12 @@ type KeyMap struct {
 	Quit          key.Binding
 	Back          key.Binding
 	Switch        key.Binding
+	ChatOpen      key.Binding
 	SelectSend    key.Binding
 	MsgUp         key.Binding // k — navigate to previous message
 	MsgDown       key.Binding // j — navigate to next message
 	DeleteMsg     key.Binding // d — delete selected message (with popup)
+	YankMsg       key.Binding // y — yank selected message
 	EditMsg       key.Binding // e — edit (only last own message)
 	ReplyMsg      key.Binding // r — reply to selected message
 	ConfirmYes    key.Binding // y — confirm popup
@@ -59,10 +62,12 @@ var DefaultKeyMap = KeyMap{
 	Quit:       NewBinding([]string{"q", "ctrl+c"}, "quit"),
 	Back:       NewBinding([]string{"esc"}, "back to chats"),
 	Switch:     NewBinding([]string{"tab"}, "switch focus"),
+	ChatOpen:   NewBinding([]string{"l"}, "open chat"),
 	SelectSend: NewBinding([]string{"enter"}, "select/send"),
-	MsgUp:      NewBinding([]string{"k"}, "prev msg"),
-	MsgDown:    NewBinding([]string{"j"}, "next msg"),
+	MsgUp:      NewBinding([]string{"k", "up"}, "prev msg"),
+	MsgDown:    NewBinding([]string{"j", "down"}, "next msg"),
 	DeleteMsg:  NewBinding([]string{"d"}, "delete"),
+	YankMsg:    NewBinding([]string{"y"}, "yank"),
 	EditMsg:    NewBinding([]string{"e"}, "edit (own last)"),
 	ReplyMsg:   NewBinding([]string{"r"}, "reply"),
 	ConfirmYes: NewBinding([]string{"y"}, "yes"),
@@ -78,8 +83,8 @@ func (k KeyMap) ShortHelp() []key.Binding {
 
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Quit, k.Back, k.Switch, k.SelectSend},
-		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.EditMsg, k.ReplyMsg},
+		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
+		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -283,22 +288,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		case key.Matches(msg, m.keys.ChatOpen):
+			if m.selectedView == viewChats {
+				return m.openCurrentChat()
+			}
+
 		case key.Matches(msg, m.keys.SelectSend):
 			switch m.selectedView {
-
 			case viewChats:
-				if m.currentChatIndex() < 0 {
-					return m, nil
-				}
-				m.selectedView = viewViewport
-				m.input.Blur()
-				chatIdx := m.currentChatIndex()
-				if msgs := m.messages[chatIdx]; len(msgs) > 0 {
-					m.selectedMsg = len(msgs) - 1
-				}
-				m.refreshViewport()
-				return m, nil
-
+				return m.openCurrentChat()
 			case viewInput:
 				text := strings.TrimSpace(m.input.Value())
 				if text == "" {
@@ -357,8 +355,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedView == viewViewport && m.selectedMsg > 0 {
 				m.selectedMsg--
 				m.refreshViewportScrollTo(m.selectedMsg)
+				return m, nil
 			}
-			return m, nil
 
 		case key.Matches(msg, m.keys.MsgDown):
 			if m.selectedView == viewViewport {
@@ -369,9 +367,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedMsg < len(m.messages[chatIdx])-1 {
 					m.selectedMsg++
 					m.refreshViewportScrollTo(m.selectedMsg)
+					return m, nil
 				}
 			}
-			return m, nil
 
 		// ── Message actions (viewport only) ───────────────────────────────
 		case key.Matches(msg, m.keys.DeleteMsg):
@@ -387,6 +385,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.selectedView == viewChats && m.currentChatIndex() >= 0 {
 				m.confirmTarget = confirmDeleteChat
+				return m, nil
+			}
+
+		case key.Matches(msg, m.keys.YankMsg):
+			if m.selectedView == viewViewport {
+				_ = m.yankSelectedMsg()
 				return m, nil
 			}
 
@@ -406,7 +410,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(cmds...)
 				}
 			}
-			return m, nil
 
 		case key.Matches(msg, m.keys.ReplyMsg):
 			if m.selectedView == viewViewport {
@@ -423,7 +426,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(cmds...)
 				}
 			}
-			return m, nil
 		}
 	}
 
@@ -469,6 +471,20 @@ func (m Model) currentChatIndex() int {
 		return -1
 	}
 	return idx
+}
+
+func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
+	if m.currentChatIndex() < 0 {
+		return m, nil
+	}
+	m.selectedView = viewViewport
+	m.input.Blur()
+	chatIdx := m.currentChatIndex()
+	if msgs := m.messages[chatIdx]; len(msgs) > 0 {
+		m.selectedMsg = len(msgs) - 1
+	}
+	m.refreshViewport()
+	return m, nil
 }
 
 // canEdit returns true only when selectedMsg is the last "IsMe" message.
@@ -519,6 +535,18 @@ func (m *Model) deleteSelectedMsg() {
 	if m.selectedMsg >= len(newMsgs) && len(newMsgs) > 0 {
 		m.selectedMsg = len(newMsgs) - 1
 	}
+}
+
+func (m Model) yankSelectedMsg() error {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return nil
+	}
+	msgs := m.messages[chatIdx]
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return nil
+	}
+	return clipboard.WriteAll(msgs[m.selectedMsg].Content)
 }
 
 func (m *Model) deleteSelectedChat() tea.Cmd {
