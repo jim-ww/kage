@@ -73,6 +73,12 @@ type Message struct {
 	ReplyTo *int // index into the message slice; nil = not a reply
 }
 
+type Account struct {
+	Name     string
+	Chats    []list.Item
+	Messages map[int][]Message
+}
+
 type Chat struct {
 	Name        string
 	LastMessage string
@@ -110,7 +116,7 @@ var DefaultKeyMap = KeyMap{
 	Quit:       NewBinding([]string{"q", "ctrl+c"}, "quit"),
 	Back:       NewBinding([]string{"esc"}, "back to chats"),
 	Switch:     NewBinding([]string{"tab"}, "switch focus"),
-	ChatOpen:   NewBinding([]string{"l"}, "open chat"),
+	ChatOpen:   NewBinding([]string{"l", "right"}, "open chat"),
 	SelectSend: NewBinding([]string{"enter"}, "select/send"),
 	MsgUp:      NewBinding([]string{"k", "up"}, "prev msg"),
 	MsgDown:    NewBinding([]string{"j", "down"}, "next msg"),
@@ -146,9 +152,10 @@ const sidebarStatusHeight = 1
 type selectedView int
 
 const (
-	viewChats    selectedView = iota
-	viewViewport              // scroll + message navigation
-	viewInput                 // type and send / edit
+	viewAccounts selectedView = iota
+	viewChats
+	viewViewport // scroll + message navigation
+	viewInput    // type and send / edit
 )
 
 type confirmTarget int
@@ -164,12 +171,12 @@ const (
 type Model struct {
 	width, height int
 	selectedView
-	keys    KeyMap
-	account string
-	theme   Theme
+	keys  KeyMap
+	theme Theme
 
-	chats    list.Model
-	messages map[int][]Message
+	accounts       []Account
+	currentAccount int
+	chats          list.Model
 
 	input    textinput.Model
 	viewport viewport.Model
@@ -188,7 +195,7 @@ type noticeClearMsg struct {
 	id int
 }
 
-func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account string, theme Theme) Model {
+func New(accounts []Account, keys KeyMap, theme Theme) Model {
 	clrPanelBg := lipgloss.Color(theme.PanelBg)
 	clrThemFg := lipgloss.Color(theme.ThemFg)
 	clrTextMuted := lipgloss.Color(theme.TextMuted)
@@ -219,7 +226,11 @@ func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account
 	delegate.Styles.DimmedDesc = delegate.Styles.DimmedDesc.Foreground(clrTime)
 	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(clrFilterMatch).Bold(true)
 
-	l := list.New(chatItems, delegate, 0, 0)
+	initialChats := []list.Item(nil)
+	if len(accounts) > 0 {
+		initialChats = accounts[0].Chats
+	}
+	l := list.New(initialChats, delegate, 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.InfiniteScrolling = true
@@ -253,16 +264,16 @@ func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account
 	ti.SetStyles(tiStyles)
 
 	return Model{
-		selectedView:  viewInput,
-		keys:          keys,
-		account:       account,
-		theme:         theme,
-		chats:         l,
-		messages:      messages,
-		input:         ti,
-		viewport:      viewport.New(),
-		editingMsgIdx: -1,
-		replyToIdx:    -1,
+		selectedView:   viewInput,
+		keys:           keys,
+		theme:          theme,
+		accounts:       accounts,
+		currentAccount: 0,
+		chats:          l,
+		input:          ti,
+		viewport:       viewport.New(),
+		editingMsgIdx:  -1,
+		replyToIdx:     -1,
 	}
 }
 
@@ -321,7 +332,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Back):
-			if m.selectedView != viewChats {
+			if m.selectedView != viewAccounts && m.selectedView != viewChats {
 				m.cancelPending()
 				m.selectedView = viewChats
 				m.input.Blur()
@@ -349,9 +360,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if m.editingMsgIdx >= 0 {
 					// Apply edit in-place.
-					msgs := m.messages[chatIdx]
+					msgs := m.currentMessages()
 					if m.editingMsgIdx < len(msgs) {
 						msgs[m.editingMsgIdx].Content = text
+						m.setCurrentMessages(msgs)
 					}
 					m.editingMsgIdx = -1
 					m.input.Placeholder = "message..."
@@ -368,7 +380,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						newMsg.ReplyTo = &rt
 						m.replyToIdx = -1
 					}
-					m.messages[chatIdx] = append(m.messages[chatIdx], newMsg)
+					msgs := append(m.currentMessages(), newMsg)
+					m.setCurrentMessages(msgs)
 				}
 
 				m.input.SetValue("")
@@ -381,6 +394,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Switch):
 			switch m.selectedView {
+			case viewAccounts:
+				m.selectedView = viewChats
+				return m, nil
+			case viewChats:
+				m.selectedView = viewAccounts
+				return m, nil
 			case viewViewport:
 				m.selectedView = viewInput
 				cmds = append(cmds, m.input.Focus())
@@ -393,6 +412,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// ── Message navigation (viewport only) ────────────────────────────
 		case key.Matches(msg, m.keys.MsgUp):
+			if m.selectedView == viewAccounts && m.currentAccount > 0 {
+				cmds = append(cmds, m.switchAccount(m.currentAccount-1))
+				return m, tea.Batch(cmds...)
+			}
 			if m.selectedView == viewViewport && m.selectedMsg > 0 {
 				m.selectedMsg--
 				m.refreshViewportScrollTo(m.selectedMsg)
@@ -400,12 +423,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.MsgDown):
+			if m.selectedView == viewAccounts && m.currentAccount < len(m.accounts)-1 {
+				cmds = append(cmds, m.switchAccount(m.currentAccount+1))
+				return m, tea.Batch(cmds...)
+			}
 			if m.selectedView == viewViewport {
 				chatIdx := m.currentChatIndex()
 				if chatIdx < 0 {
 					return m, nil
 				}
-				if m.selectedMsg < len(m.messages[chatIdx])-1 {
+				if m.selectedMsg < len(m.currentMessages())-1 {
 					m.selectedMsg++
 					m.refreshViewportScrollTo(m.selectedMsg)
 					return m, nil
@@ -419,7 +446,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if chatIdx < 0 {
 					return m, nil
 				}
-				if len(m.messages[chatIdx]) > 0 {
+				if len(m.currentMessages()) > 0 {
 					m.confirmTarget = confirmDeleteMessage
 				}
 				return m, nil
@@ -441,11 +468,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.EditMsg):
 			if m.selectedView == viewViewport {
-				chatIdx := m.currentChatIndex()
-				if chatIdx < 0 {
+				if m.currentChatIndex() < 0 {
 					return m, nil
 				}
-				msgs := m.messages[chatIdx]
+				msgs := m.currentMessages()
 				if m.canEdit(msgs) {
 					m.editingMsgIdx = m.selectedMsg
 					m.input.SetValue(msgs[m.selectedMsg].Content)
@@ -458,11 +484,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.ReplyMsg):
 			if m.selectedView == viewViewport {
-				chatIdx := m.currentChatIndex()
-				if chatIdx < 0 {
+				if m.currentChatIndex() < 0 {
 					return m, nil
 				}
-				if len(m.messages[chatIdx]) > 0 {
+				if len(m.currentMessages()) > 0 {
 					m.replyToIdx = m.selectedMsg
 					m.selectedView = viewInput
 					m.updateSizes()
@@ -477,6 +502,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Route remaining events to the focused component.
 	var cmd tea.Cmd
 	switch m.selectedView {
+	case viewAccounts:
+		// Account focus is handled by global keys only.
 	case viewChats:
 		prev := m.chats.Index()
 		m.chats, cmd = m.chats.Update(msg)
@@ -488,7 +515,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshViewport()
 				break
 			}
-			msgs := m.messages[chatIdx]
+			msgs := m.currentMessages()
 			if len(msgs) > 0 {
 				m.selectedMsg = len(msgs) - 1
 			} else {
@@ -518,6 +545,52 @@ func (m Model) currentChatIndex() int {
 	return idx
 }
 
+func (m Model) currentAccountName() string {
+	if m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return ""
+	}
+	return m.accounts[m.currentAccount].Name
+}
+
+func (m Model) currentMessages() []Message {
+	if m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return nil
+	}
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return nil
+	}
+	return m.accounts[m.currentAccount].Messages[chatIdx]
+}
+
+func (m *Model) setCurrentMessages(msgs []Message) {
+	if m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return
+	}
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return
+	}
+	m.accounts[m.currentAccount].Messages[chatIdx] = msgs
+}
+
+func (m *Model) switchAccount(index int) tea.Cmd {
+	if index < 0 || index >= len(m.accounts) || index == m.currentAccount {
+		return nil
+	}
+	m.currentAccount = index
+	m.cancelPending()
+	m.chats.Select(0)
+	m.selectedMsg = 0
+	cmd := m.chats.SetItems(m.accounts[index].Chats)
+	if msgs := m.currentMessages(); len(msgs) > 0 {
+		m.selectedMsg = len(msgs) - 1
+	}
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+	return cmd
+}
+
 func (m *Model) showNotification(text string) tea.Cmd {
 	m.noticeID++
 	m.noticeText = text
@@ -533,8 +606,7 @@ func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	}
 	m.selectedView = viewViewport
 	m.input.Blur()
-	chatIdx := m.currentChatIndex()
-	if msgs := m.messages[chatIdx]; len(msgs) > 0 {
+	if msgs := m.currentMessages(); len(msgs) > 0 {
 		m.selectedMsg = len(msgs) - 1
 	}
 	m.refreshViewport()
@@ -559,11 +631,10 @@ func (m Model) canEdit(msgs []Message) bool {
 
 // deleteSelectedMsg removes the current message and fixes up ReplyTo indices.
 func (m *Model) deleteSelectedMsg() {
-	chatIdx := m.currentChatIndex()
-	if chatIdx < 0 {
+	if m.currentChatIndex() < 0 {
 		return
 	}
-	msgs := m.messages[chatIdx]
+	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return
 	}
@@ -585,18 +656,17 @@ func (m *Model) deleteSelectedMsg() {
 		}
 		newMsgs = append(newMsgs, msg)
 	}
-	m.messages[chatIdx] = newMsgs
+	m.setCurrentMessages(newMsgs)
 	if m.selectedMsg >= len(newMsgs) && len(newMsgs) > 0 {
 		m.selectedMsg = len(newMsgs) - 1
 	}
 }
 
 func (m Model) yankSelectedMsg() error {
-	chatIdx := m.currentChatIndex()
-	if chatIdx < 0 {
+	if m.currentChatIndex() < 0 {
 		return nil
 	}
-	msgs := m.messages[chatIdx]
+	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return nil
 	}
@@ -615,15 +685,17 @@ func (m *Model) deleteSelectedChat() tea.Cmd {
 	newItems = append(newItems, items[chatIdx+1:]...)
 
 	newMessages := make(map[int][]Message, len(newItems))
+	oldMessages := m.accounts[m.currentAccount].Messages
 	for i := 0; i < len(items); i++ {
 		switch {
 		case i < chatIdx:
-			newMessages[i] = m.messages[i]
+			newMessages[i] = oldMessages[i]
 		case i > chatIdx:
-			newMessages[i-1] = m.messages[i]
+			newMessages[i-1] = oldMessages[i]
 		}
 	}
-	m.messages = newMessages
+	m.accounts[m.currentAccount].Chats = newItems
+	m.accounts[m.currentAccount].Messages = newMessages
 
 	cmd := m.chats.SetItems(newItems)
 	if len(newItems) == 0 {
@@ -638,7 +710,7 @@ func (m *Model) deleteSelectedChat() tea.Cmd {
 		chatIdx = len(newItems) - 1
 	}
 	m.chats.Select(chatIdx)
-	msgs := m.messages[chatIdx]
+	msgs := m.currentMessages()
 	if len(msgs) > 0 {
 		m.selectedMsg = len(msgs) - 1
 	} else {
@@ -719,7 +791,7 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 	if chatIdx < 0 {
 		return "", nil
 	}
-	msgs := m.messages[chatIdx]
+	msgs := m.currentMessages()
 	offsets := make([]int, len(msgs))
 
 	var sb strings.Builder
@@ -836,16 +908,22 @@ func (m Model) View() tea.View {
 
 	// ── Sidebar ────────────────────────────────────────────────────────────
 	sidebarBorder := clrBorderD
-	if m.selectedView == viewChats {
+	if m.selectedView == viewChats || m.selectedView == viewAccounts {
 		sidebarBorder = clrBorderA
+	}
+	accountBg := clrPanelEdge
+	accountFg := clrStatusFg
+	if m.selectedView == viewAccounts {
+		accountBg = clrBorderA
+		accountFg = lipgloss.Color(m.theme.AppBg)
 	}
 	statusLine := lipgloss.NewStyle().
 		Width(sw).
-		Background(clrPanelEdge).
-		Foreground(clrStatusFg).
+		Background(accountBg).
+		Foreground(accountFg).
 		Bold(true).
 		Padding(0, 1).
-		Render("account: " + m.account)
+		Render(m.renderAccountBar(sw))
 	sidebarInner := lipgloss.JoinVertical(lipgloss.Left,
 		statusLine,
 		lipgloss.NewStyle().
@@ -878,7 +956,7 @@ func (m Model) View() tea.View {
 	if m.replyToIdx >= 0 {
 		chatIdx := m.currentChatIndex()
 		if chatIdx >= 0 {
-			msgs := m.messages[chatIdx]
+			msgs := m.currentMessages()
 			if m.replyToIdx < len(msgs) {
 				orig := msgs[m.replyToIdx]
 				preview := strings.ReplaceAll(orig.Content, "\n", " ")
@@ -1011,4 +1089,23 @@ func sameDay(a, b time.Time) bool {
 	ay, am, ad := a.Date()
 	by, bm, bd := b.Date()
 	return ay == by && am == bm && ad == bd
+}
+
+func (m Model) renderAccountBar(width int) string {
+	if len(m.accounts) == 0 {
+		return "accounts: none"
+	}
+	parts := make([]string, 0, len(m.accounts)+1)
+	parts = append(parts, "accounts:")
+	for i, account := range m.accounts {
+		name := account.Name
+		switch {
+		case i == m.currentAccount && m.selectedView == viewAccounts:
+			name = "[" + name + "]"
+		case i == m.currentAccount:
+			name = "<" + name + ">"
+		}
+		parts = append(parts, name)
+	}
+	return ansi.Truncate(strings.Join(parts, " "), max(1, width-2), "…")
 }

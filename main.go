@@ -13,18 +13,25 @@ import (
 
 func main() {
 	const myName = "me"
-	const accountName = "user@server"
-
-	chatItems := []list.Item{
+	chatItemsA := []list.Item{
 		ui.Chat{Name: "Emma", LastMessage: "see you at the meeting"},
 		ui.Chat{Name: "Lucas", LastMessage: "almost there"},
 		ui.Chat{Name: "Olivia", LastMessage: "thanks, looks good"},
 		ui.Chat{Name: "Ethan", LastMessage: "production is green"},
 		ui.Chat{Name: "Sophia", LastMessage: "call at 5?"},
 	}
+	chatItemsB := []list.Item{
+		ui.Chat{Name: "#ops", LastMessage: "deploy wrapped cleanly"},
+		ui.Chat{Name: "#infra", LastMessage: "cpu spike is gone"},
+		ui.Chat{Name: "Nina", LastMessage: "pushed the patch"},
+	}
+	chatItemsC := []list.Item{
+		ui.Chat{Name: "#friends", LastMessage: "dinner on friday?"},
+		ui.Chat{Name: "Mom", LastMessage: "call when free"},
+	}
 
 	now := time.Now()
-	messages := map[int][]ui.Message{
+	messagesA := map[int][]ui.Message{
 		0: { // Emma - made longer
 			{Author: "Emma", Content: "hey! are we still meeting at 3?", SentAt: now.Add(-50 * time.Minute), IsMe: false},
 			{Author: myName, Content: "yes, I'll be there", SentAt: now.Add(-48 * time.Minute), IsMe: true},
@@ -59,6 +66,28 @@ func main() {
 			{Author: myName, Content: "yes, ping me at 5pm", SentAt: now.Add(-34 * time.Minute), IsMe: true},
 		},
 	}
+	messagesB := map[int][]ui.Message{
+		0: {
+			{Author: "drew", Content: "deploy wrapped cleanly", SentAt: now.Add(-12 * time.Minute), IsMe: false},
+			{Author: myName, Content: "nice, keeping an eye on error rate", SentAt: now.Add(-10 * time.Minute), IsMe: true},
+		},
+		1: {
+			{Author: "sre-bot", Content: "cpu spike resolved after cache warmup", SentAt: now.Add(-45 * time.Minute), IsMe: false},
+			{Author: myName, Content: "good, closing the incident", SentAt: now.Add(-42 * time.Minute), IsMe: true},
+		},
+		2: {
+			{Author: "Nina", Content: "pushed the patch, can you review later?", SentAt: now.Add(-90 * time.Minute), IsMe: false},
+		},
+	}
+	messagesC := map[int][]ui.Message{
+		0: {
+			{Author: "Alex", Content: "dinner on friday?", SentAt: now.Add(-5 * time.Hour), IsMe: false},
+			{Author: myName, Content: "works for me", SentAt: now.Add(-4 * time.Hour), IsMe: true},
+		},
+		1: {
+			{Author: "Mom", Content: "call when free", SentAt: now.Add(-26 * time.Hour), IsMe: false},
+		},
+	}
 
 	uiCfg, err := config.Load()
 	if err != nil {
@@ -66,7 +95,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	model := ui.New(chatItems, messages, uiCfg.KeyMap, accountName, uiCfg.Theme)
+	accounts := []ui.Account{
+		{Name: "user@server", Chats: chatItemsA, Messages: messagesA},
+		{Name: "work@irc", Chats: chatItemsB, Messages: messagesB},
+		{Name: "social@chat", Chats: chatItemsC, Messages: messagesC},
+	}
+
+	model := ui.New(accounts, uiCfg.KeyMap, uiCfg.Theme)
 	p := tea.NewProgram(model)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

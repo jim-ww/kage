@@ -2,7 +2,7 @@
 quit = ["q", "ctrl+c"]
 back = ["esc"]
 switch = ["tab"]
-chat_open = ["l"]
+chat_open = ["l", "right"]
 select_send = ["enter"]
 message_up = ["k", "up"]
 message_down = ["j", "down"]
