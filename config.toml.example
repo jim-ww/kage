@@ -2,6 +2,7 @@
 quit = ["q", "ctrl+c"]
 back = ["esc"]
 switch = ["tab"]
+focus_chats = ["\\"]
 chat_open = ["l", "right"]
 select_send = ["enter"]
 message_up = ["k", "up"]

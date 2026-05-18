@@ -89,6 +89,8 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 			keys.Back = ui.NewBinding(override, "back to chats")
 		case "switch":
 			keys.Switch = ui.NewBinding(override, "switch focus")
+		case "focus_chats":
+			keys.FocusChats = ui.NewBinding(override, "focus chats")
 		case "chat_open":
 			keys.ChatOpen = ui.NewBinding(override, "open chat")
 		case "select_send":

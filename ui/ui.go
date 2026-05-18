@@ -94,6 +94,7 @@ type KeyMap struct {
 	Quit          key.Binding
 	Back          key.Binding
 	Switch        key.Binding
+	FocusChats    key.Binding
 	ChatOpen      key.Binding
 	SelectSend    key.Binding
 	MsgUp         key.Binding // k — navigate to previous message
@@ -116,6 +117,7 @@ var DefaultKeyMap = KeyMap{
 	Quit:       NewBinding([]string{"q", "ctrl+c"}, "quit"),
 	Back:       NewBinding([]string{"esc"}, "back to chats"),
 	Switch:     NewBinding([]string{"tab"}, "switch focus"),
+	FocusChats: NewBinding([]string{"\\"}, "focus chats"),
 	ChatOpen:   NewBinding([]string{"l", "right"}, "open chat"),
 	SelectSend: NewBinding([]string{"enter"}, "select/send"),
 	MsgUp:      NewBinding([]string{"k", "up"}, "prev msg"),
@@ -338,6 +340,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input.Blur()
 				return m, nil
 			}
+
+		case key.Matches(msg, m.keys.FocusChats):
+			m.selectedView = viewChats
+			m.input.Blur()
+			return m, nil
 
 		case key.Matches(msg, m.keys.ChatOpen):
 			if m.selectedView == viewChats {
