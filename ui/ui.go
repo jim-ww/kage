@@ -17,6 +17,54 @@ import (
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
+type Theme struct {
+	AppBg       string
+	PanelBg     string
+	PanelAltBg  string
+	PanelEdge   string
+	LogBg       string
+	ThemFg      string
+	TextMuted   string
+	Time        string
+	BorderD     string
+	BorderA     string
+	AccentCyan  string
+	ReplyFg     string
+	PopupBg     string
+	PopupDanger string
+	FilterMatch string
+	NickMe      string
+	NickThem    string
+	StatusFg    string
+	NoticeBg    string
+	NoticeFg    string
+}
+
+func DefaultTheme() Theme {
+	return Theme{
+		AppBg:       "#1a1b26",
+		PanelBg:     "#1f2335",
+		PanelAltBg:  "#24283b",
+		PanelEdge:   "#292e42",
+		LogBg:       "#1b1f2f",
+		ThemFg:      "#c0caf5",
+		TextMuted:   "#a9b1d6",
+		Time:        "#565f89",
+		BorderD:     "#3b4261",
+		BorderA:     "#f7768e",
+		AccentCyan:  "#7dcfff",
+		ReplyFg:     "#73daca",
+		PopupBg:     "#1f2335",
+		PopupDanger: "#f7768e",
+		FilterMatch: "#e0af68",
+		NickMe:      "#7dcfff",
+		NickThem:    "#bb9af7",
+		StatusFg:    "#9ece6a",
+		NoticeBg:    "#292e42",
+		NoticeFg:    "#c0caf5",
+	}
+}
+
 type Message struct {
 	Author  string
 	Content string
@@ -91,32 +139,6 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-var (
-	clrAppBg       = lipgloss.Color("#1a1b26")
-	clrPanelBg     = lipgloss.Color("#1f2335")
-	clrPanelAltBg  = lipgloss.Color("#24283b")
-	clrPanelEdge   = lipgloss.Color("#292e42")
-	clrLogBg       = lipgloss.Color("#1b1f2f")
-	clrThemFg      = lipgloss.Color("#c0caf5")
-	clrTextMuted   = lipgloss.Color("#a9b1d6")
-	clrTime        = lipgloss.Color("#565f89")
-	clrBorderD     = lipgloss.Color("#3b4261")
-	clrBorderA     = lipgloss.Color("#f7768e")
-	clrAccentCyan  = lipgloss.Color("#7dcfff")
-	clrReplyFg     = lipgloss.Color("#73daca")
-	clrPopupBg     = lipgloss.Color("#1f2335")
-	clrPopupDanger = lipgloss.Color("#f7768e")
-	clrFilterMatch = lipgloss.Color("#e0af68")
-	clrNickMe      = lipgloss.Color("#7dcfff")
-	clrNickThem    = lipgloss.Color("#bb9af7")
-	clrStatusFg    = lipgloss.Color("#9ece6a")
-
-	stTime  = lipgloss.NewStyle().Foreground(clrTime)
-	stReply = lipgloss.NewStyle().
-		Foreground(clrReplyFg).
-		Italic(true)
-)
-
 const sidebarStatusHeight = 1
 
 // ── Focus state ───────────────────────────────────────────────────────────────
@@ -144,6 +166,7 @@ type Model struct {
 	selectedView
 	keys    KeyMap
 	account string
+	theme   Theme
 
 	chats    list.Model
 	messages map[int][]Message
@@ -157,9 +180,24 @@ type Model struct {
 	replyToIdx    int // >= 0 while composing a reply; -1 otherwise
 	confirmTarget confirmTarget
 	msgOffsets    []int // line offset of each message inside viewport content
+	noticeText    string
+	noticeID      int
 }
 
-func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account string) Model {
+type noticeClearMsg struct {
+	id int
+}
+
+func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account string, theme Theme) Model {
+	clrPanelBg := lipgloss.Color(theme.PanelBg)
+	clrPanelEdge := lipgloss.Color(theme.PanelEdge)
+	clrThemFg := lipgloss.Color(theme.ThemFg)
+	clrTextMuted := lipgloss.Color(theme.TextMuted)
+	clrTime := lipgloss.Color(theme.Time)
+	clrBorderD := lipgloss.Color(theme.BorderD)
+	clrBorderA := lipgloss.Color(theme.BorderA)
+	clrAccentCyan := lipgloss.Color(theme.AccentCyan)
+	clrFilterMatch := lipgloss.Color(theme.FilterMatch)
 	delegate := list.NewDefaultDelegate()
 	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
 		Foreground(clrThemFg).
@@ -223,6 +261,7 @@ func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account
 		selectedView:  viewInput,
 		keys:          keys,
 		account:       account,
+		theme:         theme,
 		chats:         l,
 		messages:      messages,
 		input:         ti,
@@ -251,6 +290,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateSizes()
 		m.refreshViewport()
 		m.viewport.GotoBottom()
+		return m, nil
+
+	case noticeClearMsg:
+		if msg.id == m.noticeID {
+			m.noticeText = ""
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -335,7 +380,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateSizes()
 				m.refreshViewport()
 				m.viewport.GotoBottom()
-				return m, nil
+				cmds = append(cmds, m.showNotification("message sent"))
+				return m, tea.Batch(cmds...)
 			}
 
 		case key.Matches(msg, m.keys.Switch):
@@ -390,8 +436,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.YankMsg):
 			if m.selectedView == viewViewport {
-				_ = m.yankSelectedMsg()
-				return m, nil
+				if err := m.yankSelectedMsg(); err != nil {
+					cmds = append(cmds, m.showNotification("copy failed"))
+				} else {
+					cmds = append(cmds, m.showNotification("message copied"))
+				}
+				return m, tea.Batch(cmds...)
 			}
 
 		case key.Matches(msg, m.keys.EditMsg):
@@ -471,6 +521,15 @@ func (m Model) currentChatIndex() int {
 		return -1
 	}
 	return idx
+}
+
+func (m *Model) showNotification(text string) tea.Cmd {
+	m.noticeID++
+	m.noticeText = text
+	id := m.noticeID
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+		return noticeClearMsg{id: id}
+	})
 }
 
 func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
@@ -686,6 +745,12 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
 	isSelected := m.selectedView == viewViewport && msgIdx == m.selectedMsg
+	clrBorderA := lipgloss.Color(m.theme.BorderA)
+	clrPanelEdge := lipgloss.Color(m.theme.PanelEdge)
+	clrNickThem := lipgloss.Color(m.theme.NickThem)
+	clrNickMe := lipgloss.Color(m.theme.NickMe)
+	stTime := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.Time))
+	stReply := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.ReplyFg)).Italic(true)
 	prefix := "  "
 	if isSelected {
 		prefix = lipgloss.NewStyle().Foreground(clrBorderA).Render("> ")
@@ -697,8 +762,12 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		nickStyle = lipgloss.NewStyle().Foreground(clrNickMe)
 	}
 
-	headerPlain := fmt.Sprintf("[%s] <%s> ", msg.SentAt.Format("15:04"), nick)
-	header := stTime.Render("["+msg.SentAt.Format("15:04")+"]") + " " + nickStyle.Render("<"+nick+">") + " "
+	timeLabel := msg.SentAt.Format("15:04")
+	if !sameDay(msg.SentAt, time.Now()) {
+		timeLabel = msg.SentAt.Format("2006-01-02 15:04")
+	}
+	headerPlain := fmt.Sprintf("[%s] <%s> ", timeLabel, nick)
+	header := stTime.Render("["+timeLabel+"]") + " " + nickStyle.Render("<"+nick+">") + " "
 	indent := strings.Repeat(" ", lipgloss.Width(headerPlain))
 	wrapWidth := totalWidth - lipgloss.Width(prefix) - lipgloss.Width(indent)
 	if wrapWidth < 8 {
@@ -708,14 +777,14 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	var lines []string
 	if msg.ReplyTo != nil {
 		reply := m.replyPreview(*msg.ReplyTo, allMsgs)
-		replyWrapped := strings.Split(ansi.Wordwrap(reply, totalWidth-lipgloss.Width(prefix)-2, " "), "\n")
+		replyWrapped := strings.Split(ansi.Wrap(reply, max(8, totalWidth-lipgloss.Width(prefix)-2), " "), "\n")
 		for _, line := range replyWrapped {
 			lines = append(lines, prefix+stReply.Render(line))
 			prefix = "  "
 		}
 	}
 
-	bodyLines := strings.Split(ansi.Wordwrap(msg.Content, wrapWidth, " "), "\n")
+	bodyLines := strings.Split(ansi.Wrap(msg.Content, wrapWidth, " "), "\n")
 	for i, line := range bodyLines {
 		if i == 0 {
 			lines = append(lines, prefix+header+line)
@@ -763,6 +832,19 @@ func (m Model) View() tea.View {
 		return v
 	}
 
+	clrAppBg := lipgloss.Color(m.theme.AppBg)
+	clrPanelBg := lipgloss.Color(m.theme.PanelBg)
+	clrPanelAltBg := lipgloss.Color(m.theme.PanelAltBg)
+	clrPanelEdge := lipgloss.Color(m.theme.PanelEdge)
+	clrLogBg := lipgloss.Color(m.theme.LogBg)
+	clrThemFg := lipgloss.Color(m.theme.ThemFg)
+	clrBorderD := lipgloss.Color(m.theme.BorderD)
+	clrBorderA := lipgloss.Color(m.theme.BorderA)
+	clrAccentCyan := lipgloss.Color(m.theme.AccentCyan)
+	clrStatusFg := lipgloss.Color(m.theme.StatusFg)
+	clrNoticeBg := lipgloss.Color(m.theme.NoticeBg)
+	clrNoticeFg := lipgloss.Color(m.theme.NoticeFg)
+	stReply := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.ReplyFg)).Italic(true)
 	sw := m.sidebarWidth()
 
 	// ── Sidebar ────────────────────────────────────────────────────────────
@@ -838,17 +920,32 @@ func (m Model) View() tea.View {
 	if m.confirmTarget != confirmNone {
 		viewportArea = m.renderDeletePopup()
 	} else {
+		viewportHeight := m.height - m.inputAreaHeight()
+		contentHeight := viewportHeight
+		if m.noticeText != "" && contentHeight > 1 {
+			contentHeight--
+		}
+		viewportBody := lipgloss.NewStyle().
+			Background(clrLogBg).
+			Foreground(clrThemFg).
+			Width(m.chatAreaWidth()).
+			Height(contentHeight).
+			Render(m.viewport.View())
+		if m.noticeText != "" {
+			notice := lipgloss.NewStyle().
+				Background(clrNoticeBg).
+				Foreground(clrNoticeFg).
+				Width(m.chatAreaWidth()).
+				Padding(0, 1).
+				Render(m.noticeText)
+			viewportBody = lipgloss.JoinVertical(lipgloss.Left, viewportBody, notice)
+		}
 		viewportArea = lipgloss.NewStyle().
 			Width(m.chatAreaWidth()).
-			Height(m.height - m.inputAreaHeight()).
+			Height(viewportHeight).
 			Background(clrAppBg).
 			Foreground(clrThemFg).
-			Render(lipgloss.NewStyle().
-				Background(clrLogBg).
-				Foreground(clrThemFg).
-				Width(m.chatAreaWidth()).
-				Height(m.height - m.inputAreaHeight()).
-				Render(m.viewport.View()))
+			Render(viewportBody)
 	}
 
 	chatArea := lipgloss.JoinVertical(lipgloss.Left, viewportArea, inputBox)
@@ -866,6 +963,9 @@ func (m Model) View() tea.View {
 // renderDeletePopup renders a centered confirmation dialog inside the viewport
 // area instead of overlaying raw ANSI (simpler and more portable).
 func (m Model) renderDeletePopup() string {
+	clrBorderA := lipgloss.Color(m.theme.BorderA)
+	clrPopupBg := lipgloss.Color(m.theme.PopupBg)
+	clrThemFg := lipgloss.Color(m.theme.ThemFg)
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
@@ -880,6 +980,7 @@ func (m Model) renderDeletePopup() string {
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 func (m Model) deletePrompt() string {
+	clrPopupDanger := lipgloss.Color(m.theme.PopupDanger)
 	switch m.confirmTarget {
 	case confirmDeleteChat:
 		return lipgloss.NewStyle().Foreground(clrPopupDanger).Bold(true).Render("Leave chat?") + "\n\n  [y] yes    [n] no"
@@ -893,4 +994,10 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
 }

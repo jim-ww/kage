@@ -12,3 +12,25 @@ edit = ["e"]
 reply = ["r"]
 confirm_yes = ["y"]
 confirm_no = ["n", "esc"]
+
+[theme]
+app_bg = "#1a1b26"
+panel_bg = "#1f2335"
+panel_alt_bg = "#24283b"
+panel_edge = "#292e42"
+log_bg = "#1b1f2f"
+them_fg = "#c0caf5"
+text_muted = "#a9b1d6"
+time = "#565f89"
+border_d = "#3b4261"
+border_a = "#f7768e"
+accent_cyan = "#7dcfff"
+reply_fg = "#73daca"
+popup_bg = "#1f2335"
+popup_danger = "#f7768e"
+filter_match = "#e0af68"
+nick_me = "#7dcfff"
+nick_them = "#bb9af7"
+status_fg = "#9ece6a"
+notice_bg = "#292e42"
+notice_fg = "#c0caf5"

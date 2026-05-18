@@ -60,13 +60,13 @@ func main() {
 		},
 	}
 
-	keys, err := config.LoadKeyMap()
+	uiCfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
-	model := ui.New(chatItems, messages, keys, accountName)
+	model := ui.New(chatItems, messages, uiCfg.KeyMap, accountName, uiCfg.Theme)
 	p := tea.NewProgram(model)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

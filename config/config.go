@@ -13,19 +13,35 @@ import (
 
 type fileConfig struct {
 	Keybinds map[string]any `toml:"keybinds"`
+	Theme    ui.Theme       `toml:"theme"`
 }
 
-func LoadKeyMap() (ui.KeyMap, error) {
+type UIConfig struct {
+	KeyMap ui.KeyMap
+	Theme  ui.Theme
+}
+
+func Load() (UIConfig, error) {
+	cfgOut := UIConfig{
+		KeyMap: ui.DefaultKeyMap,
+		Theme:  ui.DefaultTheme(),
+	}
 	for _, path := range candidatePaths() {
 		cfg, err := loadFile(path)
 		if err != nil {
-			return ui.DefaultKeyMap, err
+			return cfgOut, err
 		}
 		if cfg != nil {
-			return applyKeybinds(ui.DefaultKeyMap, cfg.Keybinds)
+			keys, err := applyKeybinds(ui.DefaultKeyMap, cfg.Keybinds)
+			if err != nil {
+				return cfgOut, err
+			}
+			cfgOut.KeyMap = keys
+			cfgOut.Theme = mergeTheme(ui.DefaultTheme(), cfg.Theme)
+			return cfgOut, nil
 		}
 	}
-	return ui.DefaultKeyMap, nil
+	return cfgOut, nil
 }
 
 func candidatePaths() []string {
@@ -121,4 +137,68 @@ func normalizeKeys(raw any) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("expected string or string array")
 	}
+}
+
+func mergeTheme(base, override ui.Theme) ui.Theme {
+	if override.AppBg != "" {
+		base.AppBg = override.AppBg
+	}
+	if override.PanelBg != "" {
+		base.PanelBg = override.PanelBg
+	}
+	if override.PanelAltBg != "" {
+		base.PanelAltBg = override.PanelAltBg
+	}
+	if override.PanelEdge != "" {
+		base.PanelEdge = override.PanelEdge
+	}
+	if override.LogBg != "" {
+		base.LogBg = override.LogBg
+	}
+	if override.ThemFg != "" {
+		base.ThemFg = override.ThemFg
+	}
+	if override.TextMuted != "" {
+		base.TextMuted = override.TextMuted
+	}
+	if override.Time != "" {
+		base.Time = override.Time
+	}
+	if override.BorderD != "" {
+		base.BorderD = override.BorderD
+	}
+	if override.BorderA != "" {
+		base.BorderA = override.BorderA
+	}
+	if override.AccentCyan != "" {
+		base.AccentCyan = override.AccentCyan
+	}
+	if override.ReplyFg != "" {
+		base.ReplyFg = override.ReplyFg
+	}
+	if override.PopupBg != "" {
+		base.PopupBg = override.PopupBg
+	}
+	if override.PopupDanger != "" {
+		base.PopupDanger = override.PopupDanger
+	}
+	if override.FilterMatch != "" {
+		base.FilterMatch = override.FilterMatch
+	}
+	if override.NickMe != "" {
+		base.NickMe = override.NickMe
+	}
+	if override.NickThem != "" {
+		base.NickThem = override.NickThem
+	}
+	if override.StatusFg != "" {
+		base.StatusFg = override.StatusFg
+	}
+	if override.NoticeBg != "" {
+		base.NoticeBg = override.NoticeBg
+	}
+	if override.NoticeFg != "" {
+		base.NoticeFg = override.NoticeFg
+	}
+	return base
 }
