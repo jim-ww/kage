@@ -81,11 +81,22 @@ type Account struct {
 
 type Chat struct {
 	Name        string
+	Address     string
 	LastMessage string
 }
 
-func (c Chat) Title() string       { return c.Name }
-func (c Chat) Description() string { return c.LastMessage }
+func (c Chat) Title() string { return c.Name }
+func (c Chat) Description() string {
+	switch {
+	case c.Address != "" && c.LastMessage != "":
+		// return c.Address + " • " + c.LastMessage
+		return c.LastMessage
+	case c.Address != "":
+		return c.Address
+	default:
+		return c.LastMessage
+	}
+}
 func (c Chat) FilterValue() string { return c.Name }
 
 // ── Key bindings ──────────────────────────────────────────────────────────────
@@ -207,6 +218,8 @@ func New(accounts []Account, keys KeyMap, theme Theme) Model {
 	clrAccentCyan := lipgloss.Color(theme.AccentCyan)
 	clrFilterMatch := lipgloss.Color(theme.FilterMatch)
 	delegate := list.NewDefaultDelegate()
+	delegate.SetSpacing(0)
+	delegate.SetHeight(2)
 	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
 		Foreground(clrThemFg).
 		PaddingLeft(1)
@@ -311,9 +324,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.confirmTarget != confirmNone {
 			switch {
 			case key.Matches(msg, m.keys.ConfirmYes):
-				if m.confirmTarget == confirmDeleteMessage {
+				switch m.confirmTarget {
+				case confirmDeleteMessage:
 					m.deleteSelectedMsg()
-				} else if m.confirmTarget == confirmDeleteChat {
+				case confirmDeleteChat:
 					cmds = append(cmds, m.deleteSelectedChat())
 				}
 				m.confirmTarget = confirmNone
@@ -552,13 +566,6 @@ func (m Model) currentChatIndex() int {
 	return idx
 }
 
-func (m Model) currentAccountName() string {
-	if m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
-		return ""
-	}
-	return m.accounts[m.currentAccount].Name
-}
-
 func (m Model) currentMessages() []Message {
 	if m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
 		return nil
@@ -693,7 +700,7 @@ func (m *Model) deleteSelectedChat() tea.Cmd {
 
 	newMessages := make(map[int][]Message, len(newItems))
 	oldMessages := m.accounts[m.currentAccount].Messages
-	for i := 0; i < len(items); i++ {
+	for i := range items {
 		switch {
 		case i < chatIdx:
 			newMessages[i] = oldMessages[i]
@@ -843,15 +850,13 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	header := stTime.Render("["+timeLabel+"]") + " " + nickStyle.Render("<"+nick+">") + " "
 	indent := strings.Repeat(" ", lipgloss.Width(headerPlain))
 	wrapWidth := totalWidth - lipgloss.Width(prefix) - lipgloss.Width(indent)
-	if wrapWidth < 8 {
-		wrapWidth = 8
-	}
+	wrapWidth = max(wrapWidth, 8)
 
 	var lines []string
 	if msg.ReplyTo != nil {
 		reply := m.replyPreview(*msg.ReplyTo, allMsgs)
-		replyWrapped := strings.Split(ansi.Wrap(reply, max(8, totalWidth-lipgloss.Width(prefix)-2), " "), "\n")
-		for _, line := range replyWrapped {
+		replyWrapped := strings.SplitSeq(ansi.Wrap(reply, max(8, totalWidth-lipgloss.Width(prefix)-2), " "), "\n")
+		for line := range replyWrapped {
 			lines = append(lines, prefix+stReply.Render(line))
 			prefix = "  "
 		}
@@ -880,13 +885,6 @@ func (m Model) replyPreview(idx int, allMsgs []Message) string {
 		preview = string(runes[:27]) + "…"
 	}
 	return fmt.Sprintf("↪ %s: %s", orig.Author, preview)
-}
-
-func spaces(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	return strings.Repeat(" ", n)
 }
 
 // ── View ──────────────────────────────────────────────────────────────────────
@@ -1075,6 +1073,7 @@ func (m Model) renderDeletePopup() string {
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
+
 func (m Model) deletePrompt() string {
 	clrPopupDanger := lipgloss.Color(m.theme.PopupDanger)
 	switch m.confirmTarget {
@@ -1083,13 +1082,6 @@ func (m Model) deletePrompt() string {
 	default:
 		return lipgloss.NewStyle().Foreground(clrPopupDanger).Bold(true).Render("Delete message?") + "\n\n  [y] yes    [n] no"
 	}
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func sameDay(a, b time.Time) bool {

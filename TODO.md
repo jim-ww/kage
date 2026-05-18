@@ -1,5 +1,5 @@
 # ui
-- viewChats: add binding L - to enter chat
+- fix: long messages in textinput show empty notification
 # code:
 - xmpp lib: mellium.im/xmpp
 # e2ee: OpenPGP https://xmpp.org/extensions/xep-0374.html

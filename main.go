@@ -14,20 +14,20 @@ import (
 func main() {
 	const myName = "me"
 	chatItemsA := []list.Item{
-		ui.Chat{Name: "Emma", LastMessage: "see you at the meeting"},
-		ui.Chat{Name: "Lucas", LastMessage: "almost there"},
-		ui.Chat{Name: "Olivia", LastMessage: "thanks, looks good"},
-		ui.Chat{Name: "Ethan", LastMessage: "production is green"},
-		ui.Chat{Name: "Sophia", LastMessage: "call at 5?"},
+		ui.Chat{Name: "Emma", Address: "emma@chat.example", LastMessage: "see you at the meeting"},
+		ui.Chat{Name: "Lucas", Address: "lucas@chat.example", LastMessage: "almost there"},
+		ui.Chat{Name: "Olivia", Address: "olivia@chat.example", LastMessage: "thanks, looks good"},
+		ui.Chat{Name: "Ethan", Address: "ethan@chat.example", LastMessage: "production is green"},
+		ui.Chat{Name: "Sophia", Address: "sophia@chat.example", LastMessage: "call at 5?"},
 	}
 	chatItemsB := []list.Item{
 		ui.Chat{Name: "#ops", LastMessage: "deploy wrapped cleanly"},
 		ui.Chat{Name: "#infra", LastMessage: "cpu spike is gone"},
-		ui.Chat{Name: "Nina", LastMessage: "pushed the patch"},
+		ui.Chat{Name: "Nina", Address: "nina@work.example", LastMessage: "pushed the patch"},
 	}
 	chatItemsC := []list.Item{
 		ui.Chat{Name: "#friends", LastMessage: "dinner on friday?"},
-		ui.Chat{Name: "Mom", LastMessage: "call when free"},
+		ui.Chat{Name: "Arthur", Address: "morgan@family.example", LastMessage: "call when free"},
 	}
 
 	now := time.Now()
