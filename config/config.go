@@ -21,12 +21,13 @@ type UIConfig struct {
 	Theme  ui.Theme
 }
 
-func Load() (UIConfig, error) {
+func Load(path string) (UIConfig, error) {
 	cfgOut := UIConfig{
 		KeyMap: ui.DefaultKeyMap,
 		Theme:  ui.DefaultTheme(),
 	}
-	for _, path := range candidatePaths() {
+	paths := append([]string{path}, candidatePaths()...)
+	for _, path := range paths {
 		cfg, err := loadFile(path)
 		if err != nil {
 			return cfgOut, err
