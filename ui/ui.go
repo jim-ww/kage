@@ -76,8 +76,9 @@ const (
 type Model struct {
 	width, height int
 	selectedView
-	keys  KeyMap
-	theme Theme
+	keys   KeyMap
+	theme  Theme
+	styles uiStyles
 
 	accounts       []Account
 	currentAccount int
@@ -101,37 +102,8 @@ type noticeClearMsg struct {
 }
 
 func New(accounts []Account, keys KeyMap, theme Theme) Model {
-	clrPanelBg := lipgloss.Color(theme.PanelBg)
-	clrThemFg := lipgloss.Color(theme.ThemFg)
-	clrTextMuted := lipgloss.Color(theme.TextMuted)
-	clrTime := lipgloss.Color(theme.Time)
-	clrBorderD := lipgloss.Color(theme.BorderD)
-	clrBorderA := lipgloss.Color(theme.BorderA)
-	clrAccentCyan := lipgloss.Color(theme.AccentCyan)
-	clrFilterMatch := lipgloss.Color(theme.FilterMatch)
-	delegate := list.NewDefaultDelegate()
-	delegate.SetSpacing(0)
-	delegate.SetHeight(2)
-	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
-		Foreground(clrThemFg).
-		PaddingLeft(1)
-	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
-		Foreground(clrTextMuted).
-		PaddingLeft(1)
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(clrBorderA).
-		Foreground(clrThemFg).
-		Bold(true).
-		PaddingLeft(1)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(clrBorderA).
-		Foreground(clrTextMuted).
-		PaddingLeft(1)
-	delegate.Styles.DimmedTitle = delegate.Styles.DimmedTitle.Foreground(clrTime)
-	delegate.Styles.DimmedDesc = delegate.Styles.DimmedDesc.Foreground(clrTime)
-	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(clrFilterMatch).Bold(true)
+	styles := newUIStyles(theme)
+	delegate := newChatListDelegate(styles.colors)
 
 	initialChats := []list.Item(nil)
 	if len(accounts) > 0 {
@@ -141,39 +113,20 @@ func New(accounts []Account, keys KeyMap, theme Theme) Model {
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.InfiniteScrolling = true
-	l.Styles.HelpStyle = l.Styles.HelpStyle.Foreground(clrTime).Background(clrPanelBg)
-	l.Styles.NoItems = l.Styles.NoItems.Foreground(clrTime).Background(clrPanelBg)
-	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(clrTime).Background(clrPanelBg)
-	l.Styles.DefaultFilterCharacterMatch = l.Styles.DefaultFilterCharacterMatch.Foreground(clrFilterMatch).Bold(true)
-	filterStyles := l.Styles.Filter
-	filterStyles.Focused.Prompt = filterStyles.Focused.Prompt.Foreground(clrAccentCyan)
-	filterStyles.Focused.Text = filterStyles.Focused.Text.Foreground(clrThemFg)
-	filterStyles.Focused.Placeholder = filterStyles.Focused.Placeholder.Foreground(clrTime)
-	filterStyles.Blurred.Prompt = filterStyles.Blurred.Prompt.Foreground(clrAccentCyan)
-	filterStyles.Blurred.Text = filterStyles.Blurred.Text.Foreground(clrThemFg)
-	filterStyles.Blurred.Placeholder = filterStyles.Blurred.Placeholder.Foreground(clrTime)
-	filterStyles.Cursor.Color = clrAccentCyan
-	l.Styles.Filter = filterStyles
+	applyChatListStyles(&l, styles.colors)
 
 	ti := textinput.New()
 	ti.Placeholder = "message..."
 	ti.Prompt = "› "
 	ti.KeyMap = keys.TextInputKeys
 	ti.Focus()
-	tiStyles := ti.Styles()
-	tiStyles.Focused.Prompt = tiStyles.Focused.Prompt.Foreground(clrAccentCyan)
-	tiStyles.Focused.Text = tiStyles.Focused.Text.Foreground(clrThemFg)
-	tiStyles.Focused.Placeholder = tiStyles.Focused.Placeholder.Foreground(clrTime)
-	tiStyles.Blurred.Prompt = tiStyles.Blurred.Prompt.Foreground(clrBorderD)
-	tiStyles.Blurred.Text = tiStyles.Blurred.Text.Foreground(clrTextMuted)
-	tiStyles.Blurred.Placeholder = tiStyles.Blurred.Placeholder.Foreground(clrTime)
-	tiStyles.Cursor.Color = clrAccentCyan
-	ti.SetStyles(tiStyles)
+	applyTextInputStyles(&ti, styles.colors)
 
 	return Model{
 		selectedView:   viewChat,
 		keys:           keys,
 		theme:          theme,
+		styles:         styles,
 		accounts:       accounts,
 		currentAccount: 0,
 		chats:          l,
@@ -722,28 +675,15 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
 	isSelected := msgIdx == m.selectedMsg
-	clrBorderA := lipgloss.Color(m.theme.BorderA)
-	clrNickThem := lipgloss.Color(m.theme.NickThem)
-	clrNickMe := lipgloss.Color(m.theme.NickMe)
-	stTime := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.Time))
-	stReply := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.ReplyFg)).Italic(true)
-	prefix := "  "
-	if isSelected {
-		prefix = lipgloss.NewStyle().Foreground(clrBorderA).Render("> ")
-	}
+	prefix := m.styles.renderMessagePrefix(isSelected)
 
 	nick := msg.Author
-	nickStyle := lipgloss.NewStyle().Foreground(clrNickThem)
-	if msg.IsMe {
-		nickStyle = lipgloss.NewStyle().Foreground(clrNickMe)
-	}
-
 	timeLabel := msg.SentAt.Format("15:04")
 	if !sameDay(msg.SentAt, time.Now()) {
 		timeLabel = msg.SentAt.Format("2006-01-02 15:04")
 	}
 	headerPlain := fmt.Sprintf("[%s] <%s> ", timeLabel, nick)
-	header := stTime.Render("["+timeLabel+"]") + " " + nickStyle.Render("<"+nick+">") + " "
+	header := m.styles.renderMessageHeader(timeLabel, nick, msg.IsMe)
 	indent := strings.Repeat(" ", lipgloss.Width(headerPlain))
 	wrapWidth := totalWidth - lipgloss.Width(prefix) - lipgloss.Width(indent)
 	wrapWidth = max(wrapWidth, 8)
@@ -753,7 +693,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		reply := m.replyPreview(*msg.ReplyTo, allMsgs)
 		replyWrapped := strings.SplitSeq(ansi.Wrap(reply, max(8, totalWidth-lipgloss.Width(prefix)-2), " "), "\n")
 		for line := range replyWrapped {
-			lines = append(lines, prefix+stReply.Render(line))
+			lines = append(lines, prefix+m.styles.messageReply.Render(line))
 			prefix = "  "
 		}
 	}
@@ -792,68 +732,35 @@ func (m Model) View() tea.View {
 		return v
 	}
 
-	clrAppBg := lipgloss.Color(m.theme.AppBg)
-	clrPanelBg := lipgloss.Color(m.theme.PanelBg)
-	clrPanelAltBg := lipgloss.Color(m.theme.PanelAltBg)
-	clrPanelEdge := lipgloss.Color(m.theme.PanelEdge)
-	clrLogBg := lipgloss.Color(m.theme.LogBg)
-	clrThemFg := lipgloss.Color(m.theme.ThemFg)
-	clrBorderD := lipgloss.Color(m.theme.BorderD)
-	clrBorderA := lipgloss.Color(m.theme.BorderA)
-	clrAccentCyan := lipgloss.Color(m.theme.AccentCyan)
-	clrStatusFg := lipgloss.Color(m.theme.StatusFg)
-	clrNoticeBg := lipgloss.Color(m.theme.NoticeBg)
-	clrNoticeFg := lipgloss.Color(m.theme.NoticeFg)
-	stReply := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.ReplyFg)).Italic(true)
+	colors := m.styles.colors
 	sw := m.sidebarWidth()
 
 	// ── Sidebar ────────────────────────────────────────────────────────────
-	sidebarBorder := clrBorderD
+	sidebarBorder := colors.borderD
 	if m.selectedView == viewChats || m.selectedView == viewAccounts {
-		sidebarBorder = clrBorderA
+		sidebarBorder = colors.borderA
 	}
-	accountBg := clrPanelEdge
-	accountFg := clrStatusFg
+	accountBg := colors.panelEdge
+	accountFg := colors.statusFg
 	if m.selectedView == viewAccounts {
-		accountBg = clrBorderA
-		accountFg = lipgloss.Color(m.theme.AppBg)
+		accountBg = colors.borderA
+		accountFg = colors.appBg
 	}
-	statusLine := lipgloss.NewStyle().
-		Width(sw).
-		Background(accountBg).
-		Foreground(accountFg).
-		Bold(true).
-		Padding(0, 1).
-		Render(m.renderAccountBar(sw))
+	statusLine := m.styles.sidebarStatusLine(sw, accountBg, accountFg, m.renderAccountBar(sw))
 	sidebarInner := lipgloss.JoinVertical(lipgloss.Left,
 		statusLine,
-		lipgloss.NewStyle().
-			Width(sw).
-			Height(max(0, m.height-sidebarStatusHeight)).
-			Background(clrPanelBg).
-			Foreground(clrThemFg).
-			Render(lipgloss.NewStyle().
-				Background(clrPanelBg).
-				Foreground(clrThemFg).
-				Width(sw).
-				Render(m.chats.View())),
+		m.styles.sidebarInner(sw, max(0, m.height-sidebarStatusHeight), m.chats.View()),
 	)
-	sidebar := lipgloss.NewStyle().
-		Width(sw).
-		Height(m.height).
-		Background(clrPanelBg).
-		Foreground(clrThemFg).
-		Border(lipgloss.NormalBorder(), false, true, false, false).
-		BorderForeground(sidebarBorder).
-		Render(sidebarInner)
+	sidebar := m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner)
 
 	// ── Input box ──────────────────────────────────────────────────────────
-	inputBorder := clrBorderD
+	inputBorder := colors.borderD
 	if m.selectedView == viewChat {
-		inputBorder = clrAccentCyan
+		inputBorder = colors.accentCyan
 	}
 
 	var inputInner string
+	inputWidth := m.chatAreaWidth() - 2
 	if m.replyToIdx >= 0 {
 		chatIdx := m.currentChatIndex()
 		if chatIdx >= 0 {
@@ -865,45 +772,19 @@ func (m Model) View() tea.View {
 				if len(runes) > 40 {
 					preview = string(runes[:37]) + "…"
 				}
-				hint := stReply.Render(fmt.Sprintf("↩ %s: %s", orig.Author, preview))
-				inputInner = lipgloss.NewStyle().
-					Background(clrPanelAltBg).
-					Foreground(clrThemFg).
-					Width(m.chatAreaWidth()-2).
-					Render(hint) + "\n" + lipgloss.NewStyle().
-					Background(clrPanelAltBg).
-					Foreground(clrThemFg).
-					Width(m.chatAreaWidth()-2).
-					Render(m.input.View())
+				hint := m.styles.renderReplyHint(orig.Author, preview)
+				inputInner = m.styles.inputInnerBox(inputWidth, hint) + "\n" + m.styles.inputInnerBox(inputWidth, m.input.View())
 			} else {
-				inputInner = lipgloss.NewStyle().
-					Background(clrPanelAltBg).
-					Foreground(clrThemFg).
-					Width(m.chatAreaWidth() - 2).
-					Render(m.input.View())
+				inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
 			}
 		} else {
-			inputInner = lipgloss.NewStyle().
-				Background(clrPanelAltBg).
-				Foreground(clrThemFg).
-				Width(m.chatAreaWidth() - 2).
-				Render(m.input.View())
+			inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
 		}
 	} else {
-		inputInner = lipgloss.NewStyle().
-			Background(clrPanelAltBg).
-			Foreground(clrThemFg).
-			Width(m.chatAreaWidth() - 2).
-			Render(m.input.View())
+		inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
 	}
 
-	inputBox := lipgloss.NewStyle().
-		Background(clrPanelAltBg).
-		Foreground(clrThemFg).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(inputBorder).
-		Padding(0, 1).
-		Render(inputInner)
+	inputBox := m.styles.inputContainer(inputBorder, inputInner)
 
 	// ── Viewport / popup ───────────────────────────────────────────────────
 	var viewportArea string
@@ -915,35 +796,17 @@ func (m Model) View() tea.View {
 		if m.noticeText != "" && contentHeight > 1 {
 			contentHeight--
 		}
-		viewportBody := lipgloss.NewStyle().
-			Background(clrLogBg).
-			Foreground(clrThemFg).
-			Width(m.chatAreaWidth()).
-			Height(contentHeight).
-			Render(m.viewport.View())
+		viewportBody := m.styles.viewportContent(m.chatAreaWidth(), contentHeight, m.viewport.View())
 		if m.noticeText != "" {
-			notice := lipgloss.NewStyle().
-				Background(clrNoticeBg).
-				Foreground(clrNoticeFg).
-				Width(m.chatAreaWidth()).
-				Padding(0, 1).
-				Render(m.noticeText)
+			notice := m.styles.noticeBar(m.chatAreaWidth(), m.noticeText)
 			viewportBody = lipgloss.JoinVertical(lipgloss.Left, viewportBody, notice)
 		}
-		viewportArea = lipgloss.NewStyle().
-			Width(m.chatAreaWidth()).
-			Height(viewportHeight).
-			Background(clrAppBg).
-			Foreground(clrThemFg).
-			Render(viewportBody)
+		viewportArea = m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody)
 	}
 
 	chatArea := lipgloss.JoinVertical(lipgloss.Left, viewportArea, inputBox)
 
-	root := lipgloss.NewStyle().
-		Background(clrAppBg).
-		Foreground(clrThemFg).
-		Render(lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea))
+	root := m.styles.rootView(lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea))
 
 	v := tea.NewView(root)
 	v.AltScreen = true
@@ -953,30 +816,20 @@ func (m Model) View() tea.View {
 // renderDeletePopup renders a centered confirmation dialog inside the viewport
 // area instead of overlaying raw ANSI (simpler and more portable).
 func (m Model) renderDeletePopup() string {
-	clrBorderA := lipgloss.Color(m.theme.BorderA)
-	clrPopupBg := lipgloss.Color(m.theme.PopupBg)
-	clrThemFg := lipgloss.Color(m.theme.ThemFg)
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	popup := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(clrBorderA).
-		Background(clrPopupBg).
-		Foreground(clrThemFg).
-		Padding(1, 4).
-		Render(m.deletePrompt())
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.deletePrompt())
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
 func (m Model) deletePrompt() string {
-	clrPopupDanger := lipgloss.Color(m.theme.PopupDanger)
 	switch m.confirmTarget {
 	case confirmDeleteChat:
-		return lipgloss.NewStyle().Foreground(clrPopupDanger).Bold(true).Render("Leave chat?") + "\n\n  [y] yes    [n] no"
+		return m.styles.deletePrompt("Leave chat?")
 	default:
-		return lipgloss.NewStyle().Foreground(clrPopupDanger).Bold(true).Render("Delete message?") + "\n\n  [y] yes    [n] no"
+		return m.styles.deletePrompt("Delete message?")
 	}
 }
 

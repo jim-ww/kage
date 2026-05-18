@@ -23,6 +23,7 @@ type Theme struct {
 	NoticeFg    string `toml:"notice_fg"`
 }
 
+// Tokyo Night
 func DefaultTheme() Theme {
 	return Theme{
 		AppBg:       "#1a1b26",
