@@ -10,7 +10,8 @@
 - sqlite, modernc.org/sqlite, sqlc
 
 ### Features to implement
-- account management: status ('● Online', '◐ Away', '○ Offline')
+- list chat participants, ability to see info about them, start chat with them
+- account management: status ('● Online', '◐ Away', '○ Offline') and manage it
 - message status? 'sent' / 'delivered'?
 - send/receive messages: text, images, files
 - edit messages? mark as deleted?(hide)
