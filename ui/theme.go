@@ -1,26 +1,26 @@
 package ui
 
 type Theme struct {
-	AppBg       string
-	PanelBg     string
-	PanelAltBg  string
-	PanelEdge   string
-	LogBg       string
-	ThemFg      string
-	TextMuted   string
-	Time        string
-	BorderD     string
-	BorderA     string
-	AccentCyan  string
-	ReplyFg     string
-	PopupBg     string
-	PopupDanger string
-	FilterMatch string
-	NickMe      string
-	NickThem    string
-	StatusFg    string
-	NoticeBg    string
-	NoticeFg    string
+	AppBg       string `toml:"app_bg"`
+	PanelBg     string `toml:"panel_bg"`
+	PanelAltBg  string `toml:"panel_alt_bg"`
+	PanelEdge   string `toml:"panel_edge"`
+	LogBg       string `toml:"log_bg"`
+	ThemFg      string `toml:"them_fg"`
+	TextMuted   string `toml:"text_muted"`
+	Time        string `toml:"time"`
+	BorderD     string `toml:"border_d"`
+	BorderA     string `toml:"border_a"`
+	AccentCyan  string `toml:"accent_cyan"`
+	ReplyFg     string `toml:"reply_fg"`
+	PopupBg     string `toml:"popup_bg"`
+	PopupDanger string `toml:"popup_danger"`
+	FilterMatch string `toml:"filter_match"`
+	NickMe      string `toml:"nick_me"`
+	NickThem    string `toml:"nick_them"`
+	StatusFg    string `toml:"status_fg"`
+	NoticeBg    string `toml:"notice_bg"`
+	NoticeFg    string `toml:"notice_fg"`
 }
 
 func DefaultTheme() Theme {

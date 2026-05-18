@@ -37,7 +37,7 @@ func Load() (UIConfig, error) {
 				return cfgOut, err
 			}
 			cfgOut.KeyMap = keys
-			cfgOut.Theme = mergeTheme(ui.DefaultTheme(), cfg.Theme)
+			cfgOut.Theme = cfg.Theme // mergeTheme(ui.DefaultTheme(), cfg.Theme)
 			return cfgOut, nil
 		}
 	}

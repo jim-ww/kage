@@ -10,6 +10,7 @@
 - sqlite, modernc.org/sqlite, sqlc
 
 ### Features to implement
+- message status? 'sent' / 'delivered'?
 - send/receive messages: text, images, files
 - edit messages? mark as deleted?(hide)
 - copy message text
