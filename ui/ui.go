@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"image/color"
 	"strings"
 	"time"
 
@@ -92,9 +91,7 @@ var (
 	clrPanelBg     = lipgloss.Color("#1f2335")
 	clrPanelAltBg  = lipgloss.Color("#24283b")
 	clrPanelEdge   = lipgloss.Color("#292e42")
-	clrMeBg        = lipgloss.Color("#7aa2f7")
-	clrMeFg        = lipgloss.Color("#1a1b26")
-	clrThemBg      = lipgloss.Color("#2a2f46")
+	clrLogBg       = lipgloss.Color("#1b1f2f")
 	clrThemFg      = lipgloss.Color("#c0caf5")
 	clrTextMuted   = lipgloss.Color("#a9b1d6")
 	clrTime        = lipgloss.Color("#565f89")
@@ -105,6 +102,9 @@ var (
 	clrPopupBg     = lipgloss.Color("#1f2335")
 	clrPopupDanger = lipgloss.Color("#f7768e")
 	clrFilterMatch = lipgloss.Color("#e0af68")
+	clrNickMe      = lipgloss.Color("#7dcfff")
+	clrNickThem    = lipgloss.Color("#bb9af7")
+	clrStatusFg    = lipgloss.Color("#9ece6a")
 
 	stTime  = lipgloss.NewStyle().Foreground(clrTime)
 	stReply = lipgloss.NewStyle().
@@ -112,10 +112,7 @@ var (
 		Italic(true)
 )
 
-const (
-	bubbleHPad     = 1
-	bubbleMinWidth = 4
-)
+const sidebarStatusHeight = 1
 
 // ── Focus state ───────────────────────────────────────────────────────────────
 
@@ -140,7 +137,8 @@ const (
 type Model struct {
 	width, height int
 	selectedView
-	keys KeyMap
+	keys    KeyMap
+	account string
 
 	chats    list.Model
 	messages map[int][]Message
@@ -156,7 +154,7 @@ type Model struct {
 	msgOffsets    []int // line offset of each message inside viewport content
 }
 
-func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap) Model {
+func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap, account string) Model {
 	delegate := list.NewDefaultDelegate()
 	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
 		Foreground(clrThemFg).
@@ -219,6 +217,7 @@ func New(chatItems []list.Item, messages map[int][]Message, keys KeyMap) Model {
 	return Model{
 		selectedView:  viewInput,
 		keys:          keys,
+		account:       account,
 		chats:         l,
 		messages:      messages,
 		input:         ti,
@@ -605,7 +604,7 @@ func (m *Model) updateSizes() {
 	cw := m.chatAreaWidth()
 	ih := m.inputAreaHeight()
 
-	m.chats.SetHeight(m.height)
+	m.chats.SetHeight(max(0, m.height-sidebarStatusHeight))
 	m.chats.SetWidth(sw)
 
 	m.input.SetWidth(cw - 2) // -2 for Padding(0,1) on the input box
@@ -634,9 +633,6 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 		return "", nil
 	}
 
-	// Bubbles fill at most 60 % of the chat area.
-	maxBubble := cw * 3 / 5
-
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
 		return "", nil
@@ -649,67 +645,70 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 
 	for i, msg := range msgs {
 		if i > 0 {
-			sb.WriteString("\n\n")
-			currentLine += 2
+			sb.WriteByte('\n')
+			currentLine++
 		}
 		offsets[i] = currentLine
-		rendered := m.renderBubble(msg, i, maxBubble, cw, msgs)
+		rendered := m.renderMessage(msg, i, cw, msgs)
 		sb.WriteString(rendered)
 		currentLine += strings.Count(rendered, "\n") + 1
 	}
 	return sb.String(), offsets
 }
 
-// renderBubble renders a single message bubble with its timestamp.
-// Incoming messages are left-aligned; outgoing are right-aligned.
-func (m Model) renderBubble(msg Message, msgIdx, maxBubble, totalWidth int, allMsgs []Message) string {
+func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
 	isSelected := m.selectedView == viewViewport && msgIdx == m.selectedMsg
-
-	ts := stTime.Render(msg.SentAt.Format("15:04"))
-	content := m.buildContent(msg, allMsgs)
-
-	contentW := maxBubble - (bubbleHPad * 2) - 2
-	if contentW < bubbleMinWidth {
-		contentW = bubbleMinWidth
+	prefix := "  "
+	if isSelected {
+		prefix = lipgloss.NewStyle().Foreground(clrBorderA).Render("> ")
 	}
 
-	borderClr := func() color.Color {
-		if isSelected {
-			return clrBorderA
-		}
-		if msg.IsMe {
-			return clrMeBg
-		}
-		return clrThemBg
-	}
-
-	fillClr := func() color.Color {
-		if msg.IsMe {
-			return clrMeBg
-		}
-		return clrThemBg
-	}
-
+	nick := msg.Author
+	nickStyle := lipgloss.NewStyle().Foreground(clrNickThem)
 	if msg.IsMe {
-		bubble := renderBubbleBlock(content, contentW, clrMeFg, fillClr(), borderClr())
-		tw := lipgloss.Width(ts)
-		tsLine := spaces(totalWidth-tw) + ts
-		return rightAlignBlock(bubble, totalWidth) + "\n" + tsLine
+		nickStyle = lipgloss.NewStyle().Foreground(clrNickMe)
 	}
 
-	bubble := renderBubbleBlock(content, contentW, clrThemFg, fillClr(), borderClr())
-	return bubble + "\n" + ts
+	headerPlain := fmt.Sprintf("[%s] <%s> ", msg.SentAt.Format("15:04"), nick)
+	header := stTime.Render("["+msg.SentAt.Format("15:04")+"]") + " " + nickStyle.Render("<"+nick+">") + " "
+	indent := strings.Repeat(" ", lipgloss.Width(headerPlain))
+	wrapWidth := totalWidth - lipgloss.Width(prefix) - lipgloss.Width(indent)
+	if wrapWidth < 8 {
+		wrapWidth = 8
+	}
+
+	var lines []string
+	if msg.ReplyTo != nil {
+		reply := m.replyPreview(*msg.ReplyTo, allMsgs)
+		replyWrapped := strings.Split(ansi.Wordwrap(reply, totalWidth-lipgloss.Width(prefix)-2, " "), "\n")
+		for _, line := range replyWrapped {
+			lines = append(lines, prefix+stReply.Render(line))
+			prefix = "  "
+		}
+	}
+
+	bodyLines := strings.Split(ansi.Wordwrap(msg.Content, wrapWidth, " "), "\n")
+	for i, line := range bodyLines {
+		if i == 0 {
+			lines = append(lines, prefix+header+line)
+			continue
+		}
+		lines = append(lines, "  "+indent+line)
+	}
+
+	block := strings.Join(lines, "\n")
+	if !isSelected {
+		return block
+	}
+	return lipgloss.NewStyle().
+		Background(clrPanelEdge).
+		Width(totalWidth).
+		Render(block)
 }
 
-// buildContent assembles the content string: optional reply quote followed by
-// the message body. lipgloss Width() on the bubble will wrap the whole thing.
-func (m Model) buildContent(msg Message, allMsgs []Message) string {
-	if msg.ReplyTo == nil {
-		return msg.Content
-	}
-	idx := *msg.ReplyTo
+func (m Model) replyPreview(idx int, allMsgs []Message) string {
 	if idx < 0 || idx >= len(allMsgs) {
-		return msg.Content
+		return ""
 	}
 	orig := allMsgs[idx]
 	preview := strings.ReplaceAll(orig.Content, "\n", " ")
@@ -717,26 +716,7 @@ func (m Model) buildContent(msg Message, allMsgs []Message) string {
 	if len(runes) > 30 {
 		preview = string(runes[:27]) + "…"
 	}
-	quote := stReply.Render(fmt.Sprintf("↩ %s: %s", orig.Author, preview))
-	return quote + "\n" + msg.Content
-}
-
-// rightAlignBlock pads every line of a multi-line string so the widest line
-// ends at totalWidth-2, preserving the visual alignment of rounded borders.
-func rightAlignBlock(block string, totalWidth int) string {
-	lines := strings.Split(block, "\n")
-	var sb strings.Builder
-	for i, line := range lines {
-		if i > 0 {
-			sb.WriteByte('\n')
-		}
-		lw := lipgloss.Width(line)
-		if p := totalWidth - lw; p > 0 {
-			sb.WriteString(strings.Repeat(" ", p))
-		}
-		sb.WriteString(line)
-	}
-	return sb.String()
+	return fmt.Sprintf("↪ %s: %s", orig.Author, preview)
 }
 
 func spaces(n int) string {
@@ -762,6 +742,22 @@ func (m Model) View() tea.View {
 	if m.selectedView == viewChats {
 		sidebarBorder = clrBorderA
 	}
+	statusLine := lipgloss.NewStyle().
+		Width(sw).
+		Background(clrPanelEdge).
+		Foreground(clrStatusFg).
+		Bold(true).
+		Padding(0, 1).
+		Render("account: " + m.account)
+	sidebarInner := lipgloss.JoinVertical(lipgloss.Left,
+		statusLine,
+		lipgloss.NewStyle().
+			Width(sw).
+			Height(max(0, m.height-sidebarStatusHeight)).
+			Background(clrPanelBg).
+			Foreground(clrThemFg).
+			Render(m.chats.View()),
+	)
 	sidebar := lipgloss.NewStyle().
 		Width(sw).
 		Height(m.height).
@@ -769,7 +765,7 @@ func (m Model) View() tea.View {
 		Foreground(clrThemFg).
 		Border(lipgloss.NormalBorder(), false, true, false, false).
 		BorderForeground(sidebarBorder).
-		Render(m.chats.View())
+		Render(sidebarInner)
 
 	// ── Input box ──────────────────────────────────────────────────────────
 	inputBorder := clrBorderD
@@ -815,9 +811,16 @@ func (m Model) View() tea.View {
 		viewportArea = m.renderDeletePopup()
 	} else {
 		viewportArea = lipgloss.NewStyle().
+			Width(m.chatAreaWidth()).
+			Height(m.height - m.inputAreaHeight()).
 			Background(clrAppBg).
 			Foreground(clrThemFg).
-			Render(m.viewport.View())
+			Render(lipgloss.NewStyle().
+				Background(clrLogBg).
+				Foreground(clrThemFg).
+				Width(m.chatAreaWidth()).
+				Height(m.height - m.inputAreaHeight()).
+				Render(m.viewport.View()))
 	}
 
 	chatArea := lipgloss.JoinVertical(lipgloss.Left, viewportArea, inputBox)
@@ -848,37 +851,6 @@ func (m Model) renderDeletePopup() string {
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
-
-func renderBubbleBlock(content string, contentW int, fg, bg, border color.Color) string {
-	wrapped := ansi.Wordwrap(content, contentW, " ")
-	lines := strings.Split(wrapped, "\n")
-	innerWidth := bubbleMinWidth
-	for _, line := range lines {
-		if lw := lipgloss.Width(line); lw > innerWidth {
-			innerWidth = lw
-		}
-	}
-
-	fill := lipgloss.NewStyle().Foreground(fg).Background(bg)
-	edge := lipgloss.NewStyle().Foreground(border)
-
-	top := edge.Render("╭" + strings.Repeat("─", innerWidth+(bubbleHPad*2)) + "╮")
-	bottom := edge.Render("╰" + strings.Repeat("─", innerWidth+(bubbleHPad*2)) + "╯")
-
-	var sb strings.Builder
-	sb.WriteString(top)
-	for _, line := range lines {
-		sb.WriteByte('\n')
-		sb.WriteString(edge.Render("│"))
-		sb.WriteString(fill.Render(" " + lipgloss.NewStyle().Width(innerWidth).Render(line) + " "))
-		sb.WriteString(edge.Render("│"))
-	}
-	sb.WriteByte('\n')
-	sb.WriteString(bottom)
-
-	return sb.String()
-}
-
 func (m Model) deletePrompt() string {
 	switch m.confirmTarget {
 	case confirmDeleteChat:
@@ -886,4 +858,11 @@ func (m Model) deletePrompt() string {
 	default:
 		return lipgloss.NewStyle().Foreground(clrPopupDanger).Bold(true).Render("Delete message?") + "\n\n  [y] yes    [n] no"
 	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

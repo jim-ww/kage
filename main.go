@@ -13,6 +13,7 @@ import (
 
 func main() {
 	const myName = "me"
+	const accountName = "user@server"
 
 	chatItems := []list.Item{
 		ui.Chat{Name: "Emma", LastMessage: "see you at the meeting"},
@@ -65,7 +66,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	model := ui.New(chatItems, messages, keys)
+	model := ui.New(chatItems, messages, keys, accountName)
 	p := tea.NewProgram(model)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
