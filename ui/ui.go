@@ -51,7 +51,10 @@ func (c Chat) FilterValue() string { return c.Name }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const sidebarStatusHeight = 1
+const (
+	sidebarStatusHeight = 1
+	chatStatusHeight    = 1
+)
 
 // ── Focus state ───────────────────────────────────────────────────────────────
 
@@ -418,6 +421,15 @@ func (m Model) currentMessages() []Message {
 	return m.accounts[m.currentAccount].Messages[chatIdx]
 }
 
+func (m Model) currentChat() (Chat, bool) {
+	if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+		if chat, ok := m.chats.Items()[chatIdx].(Chat); ok {
+			return chat, true
+		}
+	}
+	return Chat{}, false
+}
+
 func isViewportPagingKey(msg tea.KeyMsg) bool {
 	switch msg.String() {
 	case "pgup", "pgdown", "pageup", "pagedown":
@@ -626,7 +638,7 @@ func (m *Model) updateSizes() {
 
 	m.input.SetWidth(cw - 2) // -2 for Padding(0,1) on the input box
 	m.viewport.SetWidth(cw)
-	m.viewport.SetHeight(m.height - ih)
+	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
 }
 
 func (m Model) sidebarWidth() int  { return m.width / 3 }
@@ -791,7 +803,7 @@ func (m Model) View() tea.View {
 	if m.confirmTarget != confirmNone {
 		viewportArea = m.renderDeletePopup()
 	} else {
-		viewportHeight := m.height - m.inputAreaHeight()
+		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
 		contentHeight := viewportHeight
 		if m.noticeText != "" && contentHeight > 1 {
 			contentHeight--
@@ -804,7 +816,13 @@ func (m Model) View() tea.View {
 		viewportArea = m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody)
 	}
 
-	chatArea := lipgloss.JoinVertical(lipgloss.Left, viewportArea, inputBox)
+	chatStatus := m.styles.sidebarStatusLine(
+		m.chatAreaWidth(),
+		colors.panelEdge,
+		colors.statusFg,
+		m.renderChatStatusBar(m.chatAreaWidth()),
+	)
+	chatArea := lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 
 	root := m.styles.rootView(lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea))
 
@@ -856,4 +874,21 @@ func (m Model) renderAccountBar(width int) string {
 		parts = append(parts, name)
 	}
 	return ansi.Truncate(strings.Join(parts, " "), max(1, width-2), "…")
+}
+
+func (m Model) renderChatStatusBar(width int) string {
+	chat, ok := m.currentChat()
+	if !ok {
+		return ""
+	}
+
+	label := chat.Name
+	switch {
+	case chat.Address != "":
+		label = fmt.Sprintf("%s <%s>", chat.Name, chat.Address)
+	case strings.HasPrefix(chat.Name, "#"):
+		label = chat.Name
+	}
+
+	return ansi.Truncate(label, max(1, width-2), "…")
 }
