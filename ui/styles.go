@@ -97,39 +97,39 @@ func newUIStyles(theme Theme) uiStyles {
 			Bold(true).
 			Padding(0, 1),
 		sidebarPanel: lipgloss.NewStyle().
-			Background(colors.panelBg).
+			// Background(colors.panelBg).
 			Foreground(colors.themFg),
 		sidebarList: lipgloss.NewStyle().
-			Background(colors.panelBg).
+			// Background(colors.panelBg).
 			Foreground(colors.themFg),
 		sidebar: lipgloss.NewStyle().
-			Background(colors.panelBg).
+			// Background(colors.panelBg).
 			Foreground(colors.themFg).
 			Border(lipgloss.NormalBorder(), false, true, false, false),
 		inputInner: lipgloss.NewStyle().
-			Background(colors.panelAltBg).
+			// Background(colors.panelAltBg).
 			Foreground(colors.themFg),
 		inputBox: lipgloss.NewStyle().
-			Background(colors.panelAltBg).
+			// Background(colors.panelAltBg).
 			Foreground(colors.themFg).
 			Border(lipgloss.NormalBorder(), true, false, false, false).
 			Padding(0, 1),
 		viewportBody: lipgloss.NewStyle().
-			Background(colors.logBg).
+			// Background(colors.logBg).
 			Foreground(colors.themFg),
 		notice: lipgloss.NewStyle().
-			Background(colors.noticeBg).
+			// Background(colors.noticeBg).
 			Foreground(colors.noticeFg).
 			Padding(0, 1),
 		viewportArea: lipgloss.NewStyle().
-			Background(colors.appBg).
+			// Background(colors.appBg).
 			Foreground(colors.themFg),
 		root: lipgloss.NewStyle().
-			Background(colors.appBg).
+			// Background(colors.appBg).
 			Foreground(colors.themFg),
 		popup: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			Background(colors.popupBg).
+			// Background(colors.popupBg).
 			Foreground(colors.themFg).
 			Padding(1, 4),
 		popupDanger: lipgloss.NewStyle().
@@ -166,9 +166,9 @@ func newChatListDelegate(colors uiColors) list.DefaultDelegate {
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {
-	l.Styles.HelpStyle = l.Styles.HelpStyle.Foreground(colors.time).Background(colors.panelBg)
-	l.Styles.NoItems = l.Styles.NoItems.Foreground(colors.time).Background(colors.panelBg)
-	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(colors.time).Background(colors.panelBg)
+	l.Styles.HelpStyle = l.Styles.HelpStyle.Foreground(colors.time)             //.Background(colors.panelBg)
+	l.Styles.NoItems = l.Styles.NoItems.Foreground(colors.time)                 //.Background(colors.panelBg)
+	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(colors.time) //.Background(colors.panelBg)
 	l.Styles.DefaultFilterCharacterMatch = l.Styles.DefaultFilterCharacterMatch.Foreground(colors.filterMatch).Bold(true)
 
 	filterStyles := l.Styles.Filter
@@ -197,7 +197,7 @@ func applyTextInputStyles(ti *textinput.Model, colors uiColors) {
 func (s uiStyles) sidebarStatusLine(width int, bg, fg color.Color, content string) string {
 	return s.sidebarStatus.
 		Width(width).
-		Background(bg).
+		// Background(bg).
 		Foreground(fg).
 		Render(content)
 }
