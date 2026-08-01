@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
-	"codeberg.org/jim-ww/kage/internal/ui"
+	"codeberg.org/jim-ww/kage/ui"
 )
 
 const myName = "me"
