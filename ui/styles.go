@@ -12,6 +12,7 @@ import (
 const (
 	sidebarStatusHeight = 1
 	chatStatusHeight    = 1
+	footerHeight        = 1
 )
 
 type uiColors struct {
@@ -81,6 +82,7 @@ type uiStyles struct {
 	root                  lipgloss.Style
 	popup                 lipgloss.Style
 	popupDanger           lipgloss.Style
+	footer                lipgloss.Style
 }
 
 func newUIStyles(theme Theme) uiStyles {
@@ -130,6 +132,9 @@ func newUIStyles(theme Theme) uiStyles {
 		popupDanger: lipgloss.NewStyle().
 			Foreground(colors.popupDanger).
 			Bold(true),
+		footer: lipgloss.NewStyle().
+			Foreground(colors.time).
+			Padding(0, 1),
 	}
 }
 
@@ -244,6 +249,10 @@ func (s uiStyles) rootView(content string) string {
 
 func (s uiStyles) popupDialog(border color.Color, content string) string {
 	return s.popup.BorderForeground(border).Render(content)
+}
+
+func (s uiStyles) footerBar(width int, content string) string {
+	return s.footer.Width(width).Render(content)
 }
 
 func (s uiStyles) deletePrompt(title string) string {

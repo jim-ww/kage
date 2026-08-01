@@ -15,7 +15,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = msg.Height
+		m.height = max(0, msg.Height-footerHeight)
 		m.updateSizes()
 		m.refreshViewport()
 		m.viewport.GotoBottom()

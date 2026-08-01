@@ -62,3 +62,44 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
+
+// helpHint returns a compact, view-specific key hint for the app-wide footer.
+// Key labels are pulled from the (possibly user-remapped) bindings; the
+// descriptions are tailored to what each key does in that particular view.
+func (k KeyMap) helpHint(view selectedView) string {
+	part := func(b key.Binding, desc string) string {
+		return b.Help().Key + " " + desc
+	}
+
+	switch view {
+	case viewAccounts:
+		return strings.Join([]string{
+			part(k.MsgUp, "prev account"),
+			part(k.MsgDown, "next account"),
+			part(k.Switch, "chats"),
+			part(k.Quit, "quit"),
+		}, " · ")
+	case viewChats:
+		return strings.Join([]string{
+			part(k.ListKeys.CursorUp, "up"),
+			part(k.ListKeys.CursorDown, "down"),
+			part(k.ChatOpen, "open"),
+			part(k.DeleteMsg, "delete"),
+			part(k.Switch, "accounts"),
+			part(k.Quit, "quit"),
+		}, " · ")
+	case viewChat:
+		return strings.Join([]string{
+			part(k.SelectSend, "send"),
+			part(k.MsgUp, "up"),
+			part(k.MsgDown, "down"),
+			part(k.ReplyMsg, "reply"),
+			part(k.EditMsg, "edit"),
+			part(k.DeleteMsg, "delete"),
+			part(k.YankMsg, "yank"),
+			part(k.Back, "back"),
+		}, " · ")
+	default:
+		return ""
+	}
+}

@@ -101,6 +101,7 @@ func New(accounts []Account, keys KeyMap, theme Theme) Model {
 	l := list.New(initialChats, delegate, 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
+	l.SetShowHelp(false) // superseded by the app-wide footer hint
 	l.InfiniteScrolling = true
 	applyChatListStyles(&l, styles.colors)
 

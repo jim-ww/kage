@@ -96,7 +96,10 @@ func (m Model) View() tea.View {
 	)
 	chatArea := lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 
-	root := m.styles.rootView(lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea))
+	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea)
+	footerText := ansi.Truncate(m.keys.helpHint(m.selectedView), max(1, m.width-2), "…")
+	footer := m.styles.footerBar(m.width, footerText)
+	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, footer))
 
 	v := tea.NewView(root)
 	v.AltScreen = true
