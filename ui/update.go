@@ -172,18 +172,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ── Message actions ────────────────────────────────────────────────
 		case key.Matches(msg, m.keys.DeleteMsg):
 			if m.selectedView == viewChat {
-				chatIdx := m.currentChatIndex()
-				if chatIdx < 0 {
+				if m.currentChatIndex() < 0 {
 					return m, nil
 				}
 				if len(m.currentMessages()) > 0 {
 					m.confirmTarget = confirmDeleteMessage
+				} else {
+					cmds = append(cmds, m.showNotification("no messages to delete"))
 				}
-				return m, nil
+				return m, tea.Batch(cmds...)
 			}
-			if m.selectedView == viewChats && m.currentChatIndex() >= 0 {
-				m.confirmTarget = confirmDeleteChat
-				return m, nil
+			if m.selectedView == viewChats {
+				if m.currentChatIndex() >= 0 {
+					m.confirmTarget = confirmDeleteChat
+				} else {
+					cmds = append(cmds, m.showNotification("no chat selected"))
+				}
+				return m, tea.Batch(cmds...)
 			}
 
 		case key.Matches(msg, m.keys.YankMsg):
@@ -207,8 +212,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.input.SetValue(msgs[m.selectedMsg].Content)
 					m.input.Placeholder = "edit message..."
 					cmds = append(cmds, m.input.Focus())
-					return m, tea.Batch(cmds...)
+				} else {
+					cmds = append(cmds, m.showNotification("can only edit your last message"))
 				}
+				return m, tea.Batch(cmds...)
 			}
 
 		case key.Matches(msg, m.keys.ReplyMsg):
@@ -221,8 +228,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateSizes()
 					m.refreshViewport()
 					cmds = append(cmds, m.input.Focus())
-					return m, tea.Batch(cmds...)
+				} else {
+					cmds = append(cmds, m.showNotification("no message to reply to"))
 				}
+				return m, tea.Batch(cmds...)
 			}
 		}
 	}
