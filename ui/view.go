@@ -68,6 +68,8 @@ func (m Model) View() tea.View {
 		viewportArea = m.renderAddAccountPopup()
 	case len(m.openItems) > 0:
 		viewportArea = m.renderOpenPopup()
+	case m.pickingFile:
+		viewportArea = m.renderFilePickerPopup()
 	default:
 		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
 		contentHeight := viewportHeight
@@ -181,16 +183,29 @@ func (m Model) renderOpenPopup() string {
 		rows[i] = fmt.Sprintf("%d. %s", i+1, previewText(item, previewLen))
 	}
 
+	verb := "open"
 	title := "Open — pick one"
-	footer := "[1-9] open  ·  [esc] cancel"
+	if m.openMode == pickerModeSave {
+		verb = "save"
+		title = "Save — pick one"
+	}
+	footer := "[1-9] " + verb + "  ·  [esc] cancel"
 	if pages := openPageCount(len(m.openItems)); pages > 1 {
 		title = fmt.Sprintf("%s (page %d/%d)", title, m.openPage+1, pages)
-		footer = "[1-9] open  ·  [←/→] page  ·  [esc] cancel"
+		footer = "[1-9] " + verb + "  ·  [←/→] page  ·  [esc] cancel"
 	}
 
 	body := m.styles.listPopup(title, rows, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
+	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+func (m Model) renderFilePickerPopup() string {
+	cw := m.chatAreaWidth()
+	vh := m.height - m.inputAreaHeight()
+	body := m.styles.listPopup("Attach file — "+m.filePicker.CurrentDirectory, []string{m.filePicker.View()}, "[enter] open/select  ·  [esc] cancel")
+	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 

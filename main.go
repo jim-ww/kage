@@ -585,11 +585,17 @@ func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
 }
 
 func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
+	return a.send(context.Background(), accountIdx, to, body, opts)
+}
+
+// send is the context-aware implementation behind Send. File uploads use it
+// with their deadline so a subsequent peer-key lookup or stanza send cannot
+// outlive the operation that initiated it.
+func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
 	s, valid := a.session(accountIdx)
 	if !valid {
 		return "", fmt.Errorf("unknown account %d", accountIdx)
 	}
-	ctx := context.Background()
 
 	if opts.ReactionTargetID != "" {
 		id, err := s.client.Load().Send(ctx, to, "", xmpp.SendOptions{
@@ -666,6 +672,33 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 		fmt.Fprintf(os.Stderr, "warning: persisting sent message: %v\n", err)
 	}
 	return id, nil
+}
+
+// SendFile implements ui.FileSender. Uploading and the follow-up message send
+// run as a Bubble Tea command, so the terminal remains responsive while a
+// slot is discovered and the file is transferred.
+func (a *adapter) SendFile(accountIdx int, to, path string) tea.Msg {
+	result := ui.FileSendResultMsg{AccountIdx: accountIdx, To: to, Path: path}
+	s, ok := a.session(accountIdx)
+	if !ok {
+		result.Err = fmt.Errorf("unknown account %d", accountIdx)
+		return result
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	url, err := s.client.Load().UploadFile(ctx, path)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	id, err := a.send(ctx, accountIdx, to, url, ui.SendOptions{})
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	result.URL = url
+	result.ID = id
+	return result
 }
 
 // superviseAccount runs listen for s, and on an unexpected disconnect (the
@@ -841,13 +874,25 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		From:       from,
 		ReplyToID:  msgEv.ReplyToID,
 		Message: ui.Message{
-			ID:      msgEv.ID,
-			Author:  msgEv.From,
-			Content: body,
-			SentAt:  msgEv.SentAt,
-			IsMe:    false,
+			ID:          msgEv.ID,
+			Author:      msgEv.From,
+			Content:     body,
+			SentAt:      msgEv.SentAt,
+			IsMe:        false,
+			Attachments: attachmentURLs(body),
 		},
 	})
+}
+
+// attachmentURLs recognizes the URL-only message produced by SendFile. A
+// plain link body remains visible as fallback text for every XMPP client,
+// while Kage additionally exposes it as a downloadable attachment.
+func attachmentURLs(body string) []string {
+	body = strings.TrimSpace(body)
+	if strings.HasPrefix(body, "https://") || strings.HasPrefix(body, "http://") {
+		return []string{body}
+	}
+	return nil
 }
 
 func dataFilePath(jid string) (string, error) {

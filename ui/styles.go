@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"strings"
 
+	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
@@ -225,6 +226,20 @@ func applyTextInputStyles(ti *textinput.Model, colors uiColors) {
 	tiStyles.Blurred.Placeholder = tiStyles.Blurred.Placeholder.Foreground(colors.time)
 	tiStyles.Cursor.Color = colors.accentCyan
 	ti.SetStyles(tiStyles)
+}
+
+func applyFilePickerStyles(p *filepicker.Model, colors uiColors) {
+	p.Styles.Cursor = p.Styles.Cursor.Foreground(colors.accentCyan)
+	p.Styles.Selected = p.Styles.Selected.Foreground(colors.accentCyan).Bold(true)
+	p.Styles.DisabledSelected = p.Styles.DisabledSelected.Foreground(colors.textMuted)
+	p.Styles.DisabledCursor = p.Styles.DisabledCursor.Foreground(colors.textMuted)
+	p.Styles.Directory = p.Styles.Directory.Foreground(colors.replyFg)
+	p.Styles.Symlink = p.Styles.Symlink.Foreground(colors.filterMatch)
+	p.Styles.File = p.Styles.File.Foreground(colors.themFg)
+	p.Styles.DisabledFile = p.Styles.DisabledFile.Foreground(colors.textMuted)
+	p.Styles.Permission = p.Styles.Permission.Foreground(colors.time)
+	p.Styles.FileSize = p.Styles.FileSize.Foreground(colors.time)
+	p.Styles.EmptyDirectory = p.Styles.EmptyDirectory.Foreground(colors.time)
 }
 
 func (s uiStyles) sidebarStatusLine(width int, bg, fg color.Color, content string) string {

@@ -44,6 +44,9 @@ func (m *Model) setCurrentMessages(msgs []Message) {
 	if chatIdx < 0 {
 		return
 	}
+	if m.accounts[m.currentAccount].Messages == nil {
+		m.accounts[m.currentAccount].Messages = make(map[int][]Message)
+	}
 	m.accounts[m.currentAccount].Messages[chatIdx] = msgs
 }
 

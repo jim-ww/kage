@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,10 +35,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.showNotification("opened " + msg.target)
 
+	case saveResultMsg:
+		if msg.err != nil {
+			return m, m.showNotification("save failed: " + msg.err.Error())
+		}
+		return m, m.showNotification("saved " + msg.path)
+
+	case FileSendResultMsg:
+		if msg.Err != nil {
+			return m, m.showNotification("file send failed: " + msg.Err.Error())
+		}
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
+		if chatIdx < 0 {
+			return m, m.showNotification("file sent: " + filepath.Base(msg.Path))
+		}
+		if m.accounts[msg.AccountIdx].Messages == nil {
+			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		msgs = append(msgs, Message{
+			ID:          msg.ID,
+			Author:      "me",
+			Content:     msg.URL,
+			SentAt:      time.Now(),
+			IsMe:        true,
+			Attachments: []string{msg.URL},
+		})
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.selectedMsg = len(msgs) - 1
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+		}
+		return m, m.showNotification("file sent: " + filepath.Base(msg.Path))
+
 	case IncomingMessageMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
 			return m, nil
+		}
+		if m.accounts[msg.AccountIdx].Messages == nil {
+			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
 		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
 		newMsg := msg.Message
@@ -206,6 +244,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateAddAccountForm(msg)
 		}
 
+		// ── File picker intercepts all input until selected or canceled ─────
+		if m.pickingFile {
+			if key.Matches(msg, m.keys.AttachFile) || key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.ConfirmNo) {
+				m.pickingFile = false
+				return m, nil
+			}
+			var pickerCmd tea.Cmd
+			m.filePicker, pickerCmd = m.filePicker.Update(msg)
+			if selected, path := m.filePicker.DidSelectFile(msg); selected {
+				m.pickingFile = false
+				if m.fileSender == nil {
+					return m, m.showNotification("file sending unavailable")
+				}
+				chat, ok := m.currentChat()
+				if !ok || chat.Address == "" {
+					return m, m.showNotification("no chat selected")
+				}
+				accountIdx, to := m.currentAccount, chat.Address
+				// Uploading can take a while and runs asynchronously; make the
+				// accepted selection visible immediately instead of leaving the
+				// user looking at an unchanged chat.
+				m.noticeID++
+				m.noticeText = "uploading " + filepath.Base(path) + "..."
+				return m, func() tea.Msg { return m.fileSender.SendFile(accountIdx, to, path) }
+			}
+			if disabled, _ := m.filePicker.DidSelectDisabledFile(msg); disabled {
+				cmds = append(cmds, m.showNotification("that file type cannot be selected"))
+			}
+			return m, tea.Batch(append(cmds, pickerCmd)...)
+		}
+
 		// ── Open-item picker intercepts all input until a choice is made ───
 		if len(m.openItems) > 0 {
 			start, end := openPageBounds(len(m.openItems), m.openPage)
@@ -213,6 +282,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				target := m.openItems[start+i-1]
 				m.openItems = nil
 				m.openPage = 0
+				if m.openMode == pickerModeSave {
+					return m, saveURLToDownloads(target)
+				}
 				return m, openWithXDGOpen(target)
 			}
 			switch msg.String() {
@@ -390,6 +462,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, textinput.Blink
 			}
 
+		case key.Matches(msg, m.keys.AttachFile):
+			if m.selectedView == viewChat {
+				if m.currentChatIndex() < 0 {
+					cmds = append(cmds, m.showNotification("no chat selected"))
+					return m, tea.Batch(cmds...)
+				}
+				m.pickingFile = true
+				m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+				return m, m.filePicker.Init()
+			}
+
 		case key.Matches(msg, m.keys.Switch):
 			switch m.selectedView {
 			case viewAccounts:
@@ -547,6 +630,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				default:
 					m.openItems = items
 					m.openPage = 0
+					m.openMode = pickerModeOpen
+				}
+				return m, tea.Batch(cmds...)
+			}
+
+		case key.Matches(msg, m.keys.SaveMsg):
+			if m.selectedView == viewChat {
+				msgs := m.currentMessages()
+				if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+					cmds = append(cmds, m.showNotification("no message selected"))
+					return m, tea.Batch(cmds...)
+				}
+				items := openableItems(msgs[m.selectedMsg])
+				switch len(items) {
+				case 0:
+					cmds = append(cmds, m.showNotification("nothing to save"))
+				case 1:
+					cmds = append(cmds, saveURLToDownloads(items[0]))
+				default:
+					m.openItems = items
+					m.openPage = 0
+					m.openMode = pickerModeSave
 				}
 				return m, tea.Batch(cmds...)
 			}
@@ -579,6 +684,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.addingAccount {
 		var cmd tea.Cmd
 		m.addAccountInputs[m.addAccountFocus], cmd = m.addAccountInputs[m.addAccountFocus].Update(msg)
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+	if m.pickingFile {
+		// Directory reads are asynchronous messages, not key presses, so they
+		// bypass the key-interception block above and must still reach the
+		// picker. Without this, the picker remains permanently empty.
+		var cmd tea.Cmd
+		m.filePicker, cmd = m.filePicker.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
 

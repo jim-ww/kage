@@ -23,10 +23,12 @@ type KeyMap struct {
 	ReplyMsg      key.Binding // Ctrl+R — reply to selected message
 	InfoMsg       key.Binding // Ctrl+G — show message info popup
 	OpenMsg       key.Binding // Ctrl+O — open links/attachments in selected message
+	SaveMsg       key.Binding // Ctrl+W — save links/attachments in selected message to disk
 	ReactMsg      key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
 	ConfirmYes    key.Binding // y — confirm popup
 	ConfirmNo     key.Binding // n / esc — cancel popup
 	AddAccount    key.Binding // a — open the add-account form (only while accounts panel is focused)
+	AttachFile    key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
 	ListKeys      list.KeyMap
 	TextInputKeys textinput.KeyMap
 }
@@ -50,10 +52,12 @@ var DefaultKeyMap = KeyMap{
 	ReplyMsg:   NewBinding([]string{"ctrl+r"}, "reply"),
 	InfoMsg:    NewBinding([]string{"ctrl+g"}, "message info"),
 	OpenMsg:    NewBinding([]string{"ctrl+o"}, "open links/attachments"),
+	SaveMsg:    NewBinding([]string{"ctrl+w"}, "save links/attachments"),
 	ReactMsg:   NewBinding([]string{"ctrl+t"}, "react"),
 	ConfirmYes: NewBinding([]string{"y"}, "yes"),
 	ConfirmNo:  NewBinding([]string{"n", "esc"}, "no"),
 	AddAccount: NewBinding([]string{"a"}, "add account"),
+	AttachFile: NewBinding([]string{"ctrl+f"}, "attach file"),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -67,8 +71,8 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
-		{k.InfoMsg, k.OpenMsg, k.ReactMsg},
-		{k.AddAccount},
+		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.ReactMsg},
+		{k.AddAccount, k.AttachFile},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }

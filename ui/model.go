@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"os"
 	"time"
 
+	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
@@ -136,6 +138,22 @@ type MessageSender interface {
 	SetTyping(accountIdx int, to string, composing bool) error
 }
 
+// FileSender uploads a local file and sends its download URL to a chat. It is
+// separate from MessageSender so text-only senders remain compatible.
+type FileSender interface {
+	SendFile(accountIdx int, to, path string) tea.Msg
+}
+
+// FileSendResultMsg reports completion of an asynchronous upload and send.
+type FileSendResultMsg struct {
+	AccountIdx int
+	To         string
+	Path       string
+	URL        string
+	ID         string
+	Err        error
+}
+
 // IncomingMessageMsg is sent into the Bubble Tea loop when a message arrives
 // from the network for one of the configured accounts.
 type IncomingMessageMsg struct {
@@ -255,14 +273,18 @@ type Model struct {
 	emojiSuggestions []emojiSuggestion // live fuzzy matches for the shortcode being typed, while reactingMsgIdx >= 0
 	emojiSuggestIdx  int               // which suggestion is highlighted; left/right to move, tab to accept it
 	confirmTarget    confirmTarget
-	showMsgInfo      bool     // true while the message-info popup is open
-	openItems        []string // non-empty while the open-link/attachment picker is open
-	openPage         int      // current page (of openItemsPerPage items) in the open picker
-	msgOffsets       []int    // line offset of each message inside viewport content
+	showMsgInfo      bool       // true while the message-info popup is open
+	openItems        []string   // non-empty while the open-link/attachment picker is open
+	openPage         int        // current page (of openItemsPerPage items) in the open picker
+	openMode         pickerMode // what picking an item from openItems actually does: open or save
+	filePicker       filepicker.Model
+	pickingFile      bool  // true while the Bubble file picker is open
+	msgOffsets       []int // line offset of each message inside viewport content
 	noticeText       string
 	noticeID         int
 
 	sender       MessageSender
+	fileSender   FileSender
 	accountAdder AccountAdder
 
 	// typingActiveTo is the address of the chat we're currently marked as
@@ -307,6 +329,13 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 	ti.KeyMap = keys.TextInputKeys
 	ti.Focus()
 	applyTextInputStyles(&ti, styles.colors)
+	picker := filepicker.New()
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		picker.CurrentDirectory = home
+	}
+	picker.ShowPermissions = false
+	applyFilePickerStyles(&picker, styles.colors)
+	fileSender, _ := sender.(FileSender)
 
 	return Model{
 		selectedView:   viewChat,
@@ -322,7 +351,9 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 		replyToIdx:     -1,
 		reactingMsgIdx: -1,
 		sender:         sender,
+		fileSender:     fileSender,
 		accountAdder:   accountAdder,
+		filePicker:     picker,
 	}
 }
 
