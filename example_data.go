@@ -40,7 +40,7 @@ var messagesA = map[int][]ui.Message{
 	0: { // Emma - made longer
 		{Author: "Emma", Content: "hey! are we still meeting at 3?", SentAt: now.Add(-50 * time.Minute), IsMe: false},
 		{Author: myName, Content: "yes, I'll be there", SentAt: now.Add(-48 * time.Minute), IsMe: true},
-		{Author: "Emma", Content: "great — bringing the docs", SentAt: now.Add(-47 * time.Minute), IsMe: false},
+		{Author: "Emma", Content: "great — bringing the docs, see https://go.dev/doc/ for reference", SentAt: now.Add(-47 * time.Minute), IsMe: false},
 		{Author: myName, Content: "perfect", SentAt: now.Add(-46 * time.Minute), IsMe: true},
 		{Author: "Emma", Content: "should I prepare the slides too?", SentAt: now.Add(-45 * time.Minute), IsMe: false},
 		{Author: myName, Content: "yes please, that would help", SentAt: now.Add(-44 * time.Minute), IsMe: true},
@@ -55,7 +55,7 @@ var messagesA = map[int][]ui.Message{
 	},
 	2: { // Olivia - made longer
 		{Author: "Olivia", Content: "can you upload the report to Drive?", SentAt: now.Add(-2 * time.Hour), IsMe: false},
-		{Author: myName, Content: "uploaded it to the project folder", SentAt: now.Add(-119 * time.Minute), IsMe: true},
+		{Author: myName, Content: "uploaded it to the project folder", SentAt: now.Add(-119 * time.Minute), IsMe: true, Attachments: []string{"/tmp/report.pdf"}},
 		{Author: "Olivia", Content: "perfect, thanks!", SentAt: now.Add(-118 * time.Minute), IsMe: false},
 		{Author: myName, Content: "let me know if you need anything else", SentAt: now.Add(-117 * time.Minute), IsMe: true},
 		{Author: "Olivia", Content: "actually, can you also share the raw data?", SentAt: now.Add(-116 * time.Minute), IsMe: false},
@@ -63,7 +63,7 @@ var messagesA = map[int][]ui.Message{
 		{Author: "Olivia", Content: "you're the best!", SentAt: now.Add(-114 * time.Minute), IsMe: false},
 	},
 	3: {
-		{Author: "Ethan", Content: "that fix worked — production is green", SentAt: now.Add(-6 * time.Hour), IsMe: false},
+		{Author: "Ethan", Content: "that fix worked — production is green, wrote it up here https://go.dev/blog/ and also linked https://www.gnu.org/software/software.html for the license question", SentAt: now.Add(-6 * time.Hour), IsMe: false},
 		{Author: myName, Content: "awesome, good job", SentAt: now.Add(-355 * time.Minute), IsMe: true},
 	},
 	4: {
@@ -82,7 +82,7 @@ var messagesB = map[int][]ui.Message{
 		{Author: myName, Content: "good, closing the incident", SentAt: now.Add(-42 * time.Minute), IsMe: true},
 	},
 	2: {
-		{Author: "Nina", Content: "pushed the patch, can you review later?", SentAt: now.Add(-90 * time.Minute), IsMe: false},
+		{Author: "Nina", Content: "pushed the patch, can you review later? diff is at https://www.gnu.org/software/software.html", SentAt: now.Add(-90 * time.Minute), IsMe: false},
 	},
 }
 

@@ -153,9 +153,10 @@ func (m Model) renderInfoPopup() string {
 }
 
 func (m Model) infoPrompt() string {
+	closeKey := m.keys.InfoMsg.Help().Key
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
-		return m.styles.infoPopup("Message info", nil)
+		return m.styles.infoPopup("Message info", nil, closeKey)
 	}
 	msg := msgs[m.selectedMsg]
 
@@ -173,7 +174,7 @@ func (m Model) infoPrompt() string {
 		rows = append(rows, fmt.Sprintf("Reply to: %s", m.replyPreview(*msg.ReplyTo, msgs)))
 	}
 
-	return m.styles.infoPopup("Message info", rows)
+	return m.styles.infoPopup("Message info", rows, closeKey)
 }
 
 // renderOpenPopup lists the pending link/attachment choices, numbered.

@@ -281,8 +281,8 @@ func (s uiStyles) deletePrompt(title, detail string) string {
 	return body + "\n\n  [y] yes    [n] no"
 }
 
-func (s uiStyles) infoPopup(title string, rows []string) string {
-	return s.listPopup(title, rows, "[esc/ctrl+i] close")
+func (s uiStyles) infoPopup(title string, rows []string, closeKey string) string {
+	return s.listPopup(title, rows, "[esc/"+closeKey+"] close")
 }
 
 func (s uiStyles) listPopup(title string, rows []string, footer string) string {
