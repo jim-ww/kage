@@ -99,6 +99,10 @@ func connectAccounts(ctx context.Context, accounts []config.Account) ([]*account
 			return nil, nil, fmt.Errorf("account %s: %w", acct.JID, err)
 		}
 
+		if acct.GPGKeyID == "" {
+			fmt.Fprintf(os.Stderr, "warning: account %s has no gpg_key_id configured; message bodies will NOT be persisted to disk (history is encryption-only)\n", acct.JID)
+		}
+
 		contacts, err := client.Roster(ctx)
 		if err != nil {
 			client.Close()
@@ -143,6 +147,23 @@ type adapter struct {
 	sessions []*accountSession
 }
 
+// encryptForStorage encrypts plaintext to the account's own GPG key for
+// at-rest storage (independent of any peer encryption used on the wire).
+// Message content must never be written to disk unencrypted: if no key is
+// configured or encryption fails, the body is dropped (NULL) rather than
+// stored in the clear.
+func encryptForStorage(s *accountSession, plaintext string) sql.NullString {
+	if s.account.GPGKeyID == "" {
+		return sql.NullString{}
+	}
+	ct, err := s.gpg.Encrypt(plaintext, s.account.GPGKeyID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: encrypting message for storage: %v\n", err)
+		return sql.NullString{}
+	}
+	return sql.NullString{String: ct, Valid: true}
+}
+
 func (a *adapter) Send(accountIdx int, to, body string) error {
 	if accountIdx < 0 || accountIdx >= len(a.sessions) {
 		return fmt.Errorf("unknown account %d", accountIdx)
@@ -165,7 +186,7 @@ func (a *adapter) Send(accountIdx int, to, body string) error {
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		Sent:       true,
 		ToAttr:     nullString(to),
-		Body:       nullString(body),
+		Body:       encryptForStorage(s, body),
 		StanzaType: "chat",
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: persisting sent message: %v\n", err)
@@ -194,7 +215,7 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 		if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 			Sent:       false,
 			FromAttr:   nullString(msgEv.From),
-			Body:       nullString(body),
+			Body:       encryptForStorage(s, body),
 			StanzaType: "chat",
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: persisting received message: %v\n", err)
