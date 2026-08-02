@@ -282,6 +282,13 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 
 // newAddAccountForm builds fresh, empty textinput.Model fields for the
 // add-account popup: JID, password (masked), and an optional GPG key ID.
+// addAccountFieldWidth is fixed rather than derived from terminal size — the
+// add-account popup isn't full-width like the main input box, and an unset
+// (zero) textinput.Width truncates the placeholder to a single character
+// (see textinput.Model.placeholderView's width-based truncation math), so
+// this must be at least as wide as the longest placeholder below.
+const addAccountFieldWidth = 42
+
 func (m Model) newAddAccountForm() [3]textinput.Model {
 	var fields [3]textinput.Model
 
@@ -289,6 +296,7 @@ func (m Model) newAddAccountForm() [3]textinput.Model {
 	jidInput.Placeholder = "user@server"
 	jidInput.Prompt = "JID:      "
 	jidInput.KeyMap = m.keys.TextInputKeys
+	jidInput.SetWidth(addAccountFieldWidth)
 	applyTextInputStyles(&jidInput, m.styles.colors)
 	jidInput.Focus()
 	fields[0] = jidInput
@@ -298,6 +306,7 @@ func (m Model) newAddAccountForm() [3]textinput.Model {
 	passInput.Prompt = "Password: "
 	passInput.EchoMode = textinput.EchoPassword
 	passInput.KeyMap = m.keys.TextInputKeys
+	passInput.SetWidth(addAccountFieldWidth)
 	applyTextInputStyles(&passInput, m.styles.colors)
 	fields[1] = passInput
 
@@ -305,6 +314,7 @@ func (m Model) newAddAccountForm() [3]textinput.Model {
 	gpgInput.Placeholder = "(optional) own gpg key fingerprint"
 	gpgInput.Prompt = "GPG key:  "
 	gpgInput.KeyMap = m.keys.TextInputKeys
+	gpgInput.SetWidth(addAccountFieldWidth)
 	applyTextInputStyles(&gpgInput, m.styles.colors)
 	fields[2] = gpgInput
 

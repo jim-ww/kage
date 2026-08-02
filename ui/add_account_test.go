@@ -2,9 +2,11 @@ package ui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // fakeAccountAdder is a stub AccountAdder for testing the add-account form
@@ -182,5 +184,31 @@ func TestAddAccountFormRequiresJID(t *testing.T) {
 	}
 	if m.addAccountErr == "" {
 		t.Fatal("expected a validation error to be set")
+	}
+}
+
+// TestAddAccountFormRendersFullPlaceholders guards against a real bug found
+// manually: textinput fields left at their zero Width truncate their
+// placeholder to a single character (see textinput.Model.placeholderView's
+// width-based truncation), so an unfocused field showed just "(" instead of
+// its full placeholder text. newAddAccountForm must give every field an
+// explicit width wide enough to show its whole placeholder.
+func TestAddAccountFormRendersFullPlaceholders(t *testing.T) {
+	adder := &fakeAccountAdder{}
+	m := newTestModel(adder)
+	m.selectedView = viewAccounts
+
+	next, _ := m.Update(keyText("a"))
+	m = next.(Model)
+
+	for i, field := range m.addAccountInputs {
+		got := ansi.Strip(field.View())
+		want := field.Placeholder
+		if want == "" {
+			continue
+		}
+		if !strings.Contains(got, want) {
+			t.Fatalf("field %d: rendered view %q (stripped: %q) doesn't contain full placeholder %q", i, field.View(), got, want)
+		}
 	}
 }
