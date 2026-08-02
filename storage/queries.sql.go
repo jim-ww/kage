@@ -10,6 +10,25 @@ import (
 	"database/sql"
 )
 
+const deleteMessageByID = `-- name: DeleteMessageByID :execrows
+DELETE FROM messages
+WHERE idAttr = ?1
+	AND rosterJID = ?2
+`
+
+type DeleteMessageByIDParams struct {
+	IDAttr    sql.NullString `db:"id_attr"`
+	RosterJid sql.NullString `db:"roster_jid"`
+}
+
+func (q *Queries) DeleteMessageByID(ctx context.Context, arg DeleteMessageByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteMessageByID, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteRosterByJID = `-- name: DeleteRosterByJID :exec
 DELETE FROM rosterJIDs
 WHERE jid = ?
@@ -403,7 +422,8 @@ SELECT
 	body,
 	stanzaType,
 	delay,
-	replyToIdAttr
+	replyToIdAttr,
+	retracted
 FROM messages
 WHERE rosterJID = ?
 	AND stanzaType = COALESCE(
@@ -427,6 +447,7 @@ type ListMessagesByRosterRow struct {
 	Stanzatype    string         `db:"stanzatype"`
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
+	Retracted     bool           `db:"retracted"`
 }
 
 func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]ListMessagesByRosterRow, error) {
@@ -447,6 +468,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Stanzatype,
 			&i.Delay,
 			&i.Replytoidattr,
+			&i.Retracted,
 		); err != nil {
 			return nil, err
 		}
@@ -490,6 +512,26 @@ func (q *Queries) ListRoster(ctx context.Context) ([]Rosterjid, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markMessageRetracted = `-- name: MarkMessageRetracted :execrows
+UPDATE messages
+SET retracted = TRUE
+WHERE idAttr = ?1
+	AND rosterJID = ?2
+`
+
+type MarkMessageRetractedParams struct {
+	IDAttr    sql.NullString `db:"id_attr"`
+	RosterJid sql.NullString `db:"roster_jid"`
+}
+
+func (q *Queries) MarkMessageRetracted(ctx context.Context, arg MarkMessageRetractedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markMessageRetracted, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const markMessagesReceived = `-- name: MarkMessagesReceived :exec

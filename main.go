@@ -316,11 +316,12 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 			author = "me"
 		}
 		msgs = append(msgs, ui.Message{
-			ID:      row.Idattr.String,
-			Author:  author,
-			Content: pt,
-			SentAt:  time.Unix(row.Delay, 0),
-			IsMe:    row.Sent,
+			ID:        row.Idattr.String,
+			Author:    author,
+			Content:   pt,
+			SentAt:    time.Unix(row.Delay, 0),
+			IsMe:      row.Sent,
+			Retracted: row.Retracted,
 		})
 		replyTo = append(replyTo, row.Replytoidattr.String)
 	}
@@ -355,6 +356,24 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 		return "", fmt.Errorf("unknown account %d", accountIdx)
 	}
 	s := a.sessions[accountIdx]
+	ctx := context.Background()
+
+	if opts.RetractID != "" {
+		// The retraction body is fixed fallback text, not user content —
+		// nothing to encrypt for the peer. Once the peer's been told to
+		// retract it, there's no reason to keep our own copy either.
+		id, err := s.client.Load().Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID})
+		if err != nil {
+			return "", err
+		}
+		if _, err := s.db.DeleteMessageByID(ctx, storage.DeleteMessageByIDParams{
+			IDAttr:    nullString(opts.RetractID),
+			RosterJid: nullString(to),
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: deleting retracted message from storage: %v\n", err)
+		}
+		return id, nil
+	}
 
 	wireBody := body
 	if peerKey := s.account.GPGPeers[to]; peerKey != "" {
@@ -365,7 +384,6 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 		wireBody = ct
 	}
 
-	ctx := context.Background()
 	id, err := s.client.Load().Send(ctx, to, wireBody, xmpp.SendOptions{
 		ReplaceID:    opts.ReplaceID,
 		ReplyToID:    opts.ReplyToID,
@@ -490,8 +508,25 @@ func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 
 // handleIncomingMessage decrypts, persists, and forwards a single incoming
 // chat message — routing XEP-0308 corrections to storage.UpdateMessageBodyByID
-// and a MessageCorrectedMsg instead of appending a new message.
+// and a MessageCorrectedMsg instead of appending a new message, and XEP-0424
+// retractions to a flag (never an actual delete — see ui.Message.Retracted).
 func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
+	if msgEv.RetractID != "" {
+		from := bareJID(msgEv.From)
+		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
+			IDAttr:    nullString(msgEv.RetractID),
+			RosterJid: nullString(from),
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: persisting retraction flag: %v\n", err)
+		}
+		p.Send(ui.MessageRetractedMsg{
+			AccountIdx: accountIdx,
+			From:       from,
+			RetractID:  msgEv.RetractID,
+		})
+		return
+	}
+
 	body := msgEv.Body
 	if gpg.Looks(body) {
 		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])

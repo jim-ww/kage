@@ -97,6 +97,19 @@ WHERE idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
 
 
+-- name: MarkMessageRetracted :execrows
+UPDATE messages
+SET retracted = TRUE
+WHERE idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid);
+
+
+-- name: DeleteMessageByID :execrows
+DELETE FROM messages
+WHERE idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid);
+
+
 -- name: ListMessagesByRoster :many
 SELECT
 	sent,
@@ -106,7 +119,8 @@ SELECT
 	body,
 	stanzaType,
 	delay,
-	replyToIdAttr
+	replyToIdAttr,
+	retracted
 FROM messages
 WHERE rosterJID = ?
 	AND stanzaType = COALESCE(

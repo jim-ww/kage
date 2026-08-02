@@ -74,6 +74,12 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		lines = append(lines, "  "+indent+line)
 	}
 
+	if msg.Retracted {
+		// Content stays visible — we don't trust a remote retraction to
+		// erase what was said on our side — but the attempt is flagged.
+		lines = append(lines, "  "+indent+m.styles.messageReply.Render("(sender attempted to delete this message)"))
+	}
+
 	return strings.Join(lines, "\n")
 }
 

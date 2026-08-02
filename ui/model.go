@@ -17,6 +17,12 @@ type Message struct {
 	IsMe        bool
 	ReplyTo     *int     // index into the message slice; nil = not a reply
 	Attachments []string // file paths or URLs attached to the message
+
+	// Retracted is set when the sender attempted a XEP-0424 retraction of
+	// this message. Content is kept and still shown — we don't trust a
+	// remote retraction to erase what was said on our side — but flagged so
+	// the attempt is visible.
+	Retracted bool
 }
 
 type Account struct {
@@ -89,6 +95,11 @@ type SendOptions struct {
 	ReplyToID    string
 	QuotedAuthor string
 	QuotedBody   string
+
+	// RetractID, if set, sends a XEP-0424 retraction of the earlier message
+	// with this ID instead of a normal message. Mutually exclusive with the
+	// other options above.
+	RetractID string
 }
 
 // MessageSender delivers an outgoing message for the given account to "to"
@@ -116,6 +127,16 @@ type MessageCorrectedMsg struct {
 	From       string // bare JID (chat)
 	ReplaceID  string // ID of the message being corrected
 	NewContent string
+}
+
+// MessageRetractedMsg is sent into the Bubble Tea loop when the other party
+// attempts to retract (XEP-0424) a message already shown for one of the
+// configured accounts. The message is flagged, never removed — see
+// Message.Retracted.
+type MessageRetractedMsg struct {
+	AccountIdx int
+	From       string // bare JID (chat)
+	RetractID  string // ID of the message being retracted
 }
 
 // PresenceMsg is sent into the Bubble Tea loop when a contact's presence

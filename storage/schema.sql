@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	rosterJID     TEXT,
 	archiveID     TEXT     UNIQUE,
 	replyToIdAttr TEXT, -- XEP-0461: idAttr of the message this one replies to
+	retracted     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0424: sender attempted to retract this; content is kept, just flagged
 
 	UNIQUE (originID, fromAttr)
 );

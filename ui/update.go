@@ -67,6 +67,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case MessageRetractedMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByID(msgs, msg.RetractID)
+		if idx < 0 {
+			return m, nil
+		}
+		msgs[idx].Retracted = true
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.refreshViewport()
+		}
+		return m, nil
+
 	case PresenceMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
@@ -92,6 +108,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, m.keys.ConfirmYes):
 				switch m.confirmTarget {
 				case confirmDeleteMessage:
+					// Only our own messages can meaningfully be retracted on
+					// the network (XEP-0424); deleting someone else's
+					// message is always local-only, same as before.
+					if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
+						target := msgs[m.selectedMsg]
+						if target.IsMe && target.ID != "" {
+							if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
+								if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{RetractID: target.ID}); err != nil {
+									cmds = append(cmds, m.showNotification("retract not delivered: "+err.Error()))
+								}
+							}
+						}
+					}
 					m.deleteSelectedMsg()
 				case confirmDeleteChat:
 					cmds = append(cmds, m.deleteSelectedChat())

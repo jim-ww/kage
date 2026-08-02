@@ -60,6 +60,7 @@ type Message struct {
 	Rosterjid     sql.NullString `db:"rosterjid"`
 	Archiveid     sql.NullString `db:"archiveid"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
+	Retracted     bool           `db:"retracted"`
 }
 
 type Rostergroup struct {

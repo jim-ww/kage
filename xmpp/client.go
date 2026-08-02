@@ -150,7 +150,13 @@ type messageBody struct {
 	Body     string        `xml:"body"`
 	Replace  *replaceElem  `xml:"urn:xmpp:message-correct:0 replace"`
 	Reply    *replyElem    `xml:"urn:xmpp:reply:0 reply"`
+	Retract  *retractElem  `xml:"urn:xmpp:message-retract:1 retract"`
 	Fallback *fallbackElem `xml:"urn:xmpp:fallback:0 fallback"`
+}
+
+// retractElem is XEP-0424: this message retracts an earlier one with this ID.
+type retractElem struct {
+	ID string `xml:"id,attr"`
 }
 
 // replaceElem is XEP-0308: this message corrects an earlier one with this ID.
@@ -166,17 +172,21 @@ type replyElem struct {
 	ID string `xml:"id,attr"`
 }
 
-// fallbackElem is XEP-0461's declaration of which byte range (in the sent
-// body) is the quoted-text fallback for reply-unaware clients, so
-// reply-aware clients know what to strip back out.
+// fallbackElem declares which part of the body is fallback-only compatibility
+// text (XEP-0461 for replies, XEP-0424 for retractions), so fallback-aware
+// clients know what to strip/ignore. Body is a pointer so a bodyless
+// <body/> (Start/End both nil — the whole message body is fallback, used for
+// retractions) round-trips distinctly from omitting the element entirely.
 type fallbackElem struct {
-	For  string           `xml:"for,attr"`
-	Body fallbackBodyElem `xml:"urn:xmpp:fallback:0 body"`
+	For  string            `xml:"for,attr"`
+	Body *fallbackBodyElem `xml:"urn:xmpp:fallback:0 body"`
 }
 
+// Start/End are pointers because XEP-0461 treats them as optional, each
+// defaulting to "start of body"/"end of body" when absent — not to zero.
 type fallbackBodyElem struct {
-	Start int `xml:"start,attr"`
-	End   int `xml:"end,attr"`
+	Start *int `xml:"start,attr,omitempty"`
+	End   *int `xml:"end,attr,omitempty"`
 }
 
 // presenceBody is a <presence/> stanza carrying an optional <show/>.
@@ -197,7 +207,14 @@ type SendOptions struct {
 	ReplyToID    string
 	QuotedAuthor string
 	QuotedBody   string
+
+	// RetractID, if set, sends a XEP-0424 retraction of the earlier message
+	// with this ID instead of a normal message. Mutually exclusive with the
+	// other options above.
+	RetractID string
 }
+
+const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
 
 // buildFallbackQuote renders XEP-0461's suggested quoted-text fallback:
 // each line of the quoted message prefixed with "> ", first line labeled
@@ -241,16 +258,24 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 		},
 		Body: body,
 	}
-	if opts.ReplaceID != "" {
+	switch {
+	case opts.RetractID != "":
+		msg.Retract = &retractElem{ID: opts.RetractID}
+		msg.Body = retractFallbackBody
+		msg.Fallback = &fallbackElem{
+			For:  "urn:xmpp:message-retract:1",
+			Body: &fallbackBodyElem{}, // no start/end: the whole body is fallback text
+		}
+	case opts.ReplaceID != "":
 		msg.Replace = &replaceElem{ID: opts.ReplaceID}
-	}
-	if opts.ReplyToID != "" {
+	case opts.ReplyToID != "":
 		quote := buildFallbackQuote(opts.QuotedAuthor, opts.QuotedBody)
+		end := len(quote)
 		msg.Body = quote + body
 		msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
 		msg.Fallback = &fallbackElem{
 			For:  "urn:xmpp:reply:0",
-			Body: fallbackBodyElem{Start: 0, End: len(quote)},
+			Body: &fallbackBodyElem{End: &end},
 		}
 	}
 	if err := c.session.Encode(ctx, msg); err != nil {
@@ -276,6 +301,12 @@ type MessageEvent struct {
 	// ReplyToID is non-empty if this is a XEP-0461 reply to the message with
 	// this ID.
 	ReplyToID string
+
+	// RetractID is non-empty if this is a XEP-0424 retraction of an earlier
+	// message with this ID. When set, the other fields besides ID/From/SentAt
+	// carry no meaningful content (Body is just the compatibility fallback
+	// text, if present at all).
+	RetractID string
 }
 
 func (MessageEvent) isEvent() {}
@@ -312,6 +343,17 @@ func handleStanza(events chan<- Event, t xmlstream.TokenReadEncoder, start *xml.
 		// handler is already positioned inside the element start passed to us.
 		// The decoded value is valid regardless; only bail if we got nothing.
 		_ = d.DecodeElement(&msg, start)
+
+		if msg.Retract != nil {
+			events <- MessageEvent{
+				ID:        msg.ID,
+				From:      msg.From.String(),
+				SentAt:    time.Now(),
+				RetractID: msg.Retract.ID,
+			}
+			return
+		}
+
 		if msg.Body == "" {
 			return
 		}
@@ -320,8 +362,15 @@ func handleStanza(events chan<- Event, t xmlstream.TokenReadEncoder, start *xml.
 		var replyToID string
 		if msg.Reply != nil {
 			replyToID = msg.Reply.ID
-			if msg.Fallback != nil && msg.Fallback.For == "urn:xmpp:reply:0" {
-				start, end := msg.Fallback.Body.Start, msg.Fallback.Body.End
+			if msg.Fallback != nil && msg.Fallback.For == "urn:xmpp:reply:0" && msg.Fallback.Body != nil {
+				start := 0
+				if msg.Fallback.Body.Start != nil {
+					start = *msg.Fallback.Body.Start
+				}
+				end := len(body)
+				if msg.Fallback.Body.End != nil {
+					end = *msg.Fallback.Body.End
+				}
 				if start >= 0 && start <= end && end <= len(body) {
 					body = body[:start] + body[end:]
 				}
