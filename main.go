@@ -559,14 +559,33 @@ func messageIndexByIDs(msgs []ui.Message, id string) int {
 	return -1
 }
 
-func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
+// session returns the accountSession at accountIdx, guarded by mu since
+// AddAccount appends to a.sessions concurrently with reads from here.
+func (a *adapter) session(accountIdx int) (*accountSession, bool) {
 	a.mu.Lock()
-	valid := accountIdx >= 0 && accountIdx < len(a.sessions)
-	var s *accountSession
-	if valid {
-		s = a.sessions[accountIdx]
+	defer a.mu.Unlock()
+	if accountIdx < 0 || accountIdx >= len(a.sessions) {
+		return nil, false
 	}
-	a.mu.Unlock()
+	return a.sessions[accountIdx], true
+}
+
+// SetTyping implements ui.MessageSender: sends a XEP-0085 chat state
+// notification to "to" — no persistence, no encryption, it's ephemeral.
+func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	state := xmpp.ChatStateActive
+	if composing {
+		state = xmpp.ChatStateComposing
+	}
+	return s.client.Load().SendChatState(context.Background(), to, state)
+}
+
+func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
+	s, valid := a.session(accountIdx)
 	if !valid {
 		return "", fmt.Errorf("unknown account %d", accountIdx)
 	}
@@ -716,6 +735,13 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 			continue
 		case xmpp.MessageEvent:
 			handleIncomingMessage(ctx, p, accountIdx, s, ev)
+		case xmpp.ChatStateEvent:
+			p.Send(ui.TypingMsg{
+				AccountIdx: accountIdx,
+				From:       bareJID(ev.From),
+				Typing:     ev.State == xmpp.ChatStateComposing,
+			})
+			continue
 		}
 	}
 }

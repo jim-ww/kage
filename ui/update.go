@@ -111,6 +111,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addAccountErr = msg.Err.Error()
 		return m, nil
 
+	case typingPauseMsg:
+		if m.sender != nil && m.typingActiveTo == msg.addr && m.typingGen == msg.gen {
+			if err := m.sender.SetTyping(m.currentAccount, msg.addr, false); err == nil {
+				m.typingActiveTo = ""
+			}
+		}
+		return m, nil
+
+	case TypingMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil
+		}
+		chat, ok := m.accounts[msg.AccountIdx].Chats[chatIdx].(Chat)
+		if !ok {
+			return m, nil
+		}
+		chat.Typing = msg.Typing
+		m.accounts[msg.AccountIdx].Chats[chatIdx] = chat
+		if msg.AccountIdx == m.currentAccount {
+			var cmd tea.Cmd
+			cmd = m.chats.SetItem(chatIdx, chat)
+			if chatIdx == m.currentChatIndex() {
+				cmds = append(cmds, cmd)
+				return m, tea.Batch(cmds...)
+			}
+			return m, cmd
+		}
+		return m, nil
+
 	case PresenceMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
@@ -234,6 +264,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.Back):
 			if m.selectedView != viewAccounts && m.selectedView != viewChats {
+				m.notifyTypingStopped()
 				m.cancelPending()
 				m.selectedView = viewChats
 				m.input.Blur()
@@ -241,6 +272,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.FocusChats):
+			m.notifyTypingStopped()
 			m.selectedView = viewChats
 			m.input.Blur()
 			return m, nil
@@ -264,6 +296,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// the "empty means do nothing" rule below entirely.
 					newMine := toEmojiSet(m.input.Value())
 					cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, newMine))
+					m.notifyTypingStopped()
 					m.reactingMsgIdx = -1
 					m.setEmojiSuggestions(nil)
 					m.input.SetValue("")
@@ -340,6 +373,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.setCurrentMessages(msgs)
 				}
 
+				m.notifyTypingStopped()
 				m.input.SetValue("")
 				m.updateSizes()
 				m.refreshViewport()
@@ -589,9 +623,67 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setEmojiSuggestions(nil)
 			}
 		}
+		cmds = append(cmds, m.notifyTypingChanged(oldValue))
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// notifyTypingChanged reacts to a keystroke in the compose input by sending
+// a XEP-0085 chat-state update when needed, and returns a cmd that arms (or
+// re-arms) the pause timeout — see typingPauseTimer. Skipped while composing
+// a reaction (m.reactingMsgIdx >= 0): that's not really "typing a message".
+//
+//   - Input went from empty to non-empty, or we'd previously paused/stopped
+//     (m.typingActiveTo isn't this chat): send "composing" and start the
+//     pause timer.
+//   - Input is still non-empty and we're already marked composing to this
+//     chat: no new stanza (a held-down key shouldn't resend "composing"
+//     every tick) — just re-arm the pause timer so it doesn't fire early.
+//   - Input went empty: send "stopped" and don't arm a timer.
+func (m *Model) notifyTypingChanged(oldValue string) tea.Cmd {
+	if m.sender == nil || m.reactingMsgIdx >= 0 {
+		return nil
+	}
+	chat, ok := m.currentChat()
+	if !ok || chat.Address == "" {
+		return nil
+	}
+	newValue := m.input.Value()
+	if newValue == oldValue {
+		return nil
+	}
+
+	if newValue == "" {
+		if m.typingActiveTo == chat.Address {
+			if err := m.sender.SetTyping(m.currentAccount, chat.Address, false); err == nil {
+				m.typingActiveTo = ""
+			}
+		}
+		return nil
+	}
+
+	if m.typingActiveTo != chat.Address {
+		if err := m.sender.SetTyping(m.currentAccount, chat.Address, true); err != nil {
+			return nil
+		}
+		m.typingActiveTo = chat.Address
+	}
+	m.typingGen++
+	return typingPauseTimer(chat.Address, m.typingGen)
+}
+
+// notifyTypingStopped tells the peer we've stopped composing, if we'd told
+// them otherwise — called wherever the input is cleared programmatically
+// (message actually sent, reaction sent) or the user navigates away from the
+// chat, none of which go through notifyTypingChanged's normal keystroke path.
+func (m *Model) notifyTypingStopped() {
+	if m.sender == nil || m.typingActiveTo == "" {
+		return
+	}
+	if err := m.sender.SetTyping(m.currentAccount, m.typingActiveTo, false); err == nil {
+		m.typingActiveTo = ""
+	}
 }
 
 func isViewportPagingKey(msg tea.KeyMsg) bool {

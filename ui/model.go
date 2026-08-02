@@ -56,11 +56,14 @@ type Chat struct {
 	Address     string
 	LastMessage string
 	Presence    Presence
+	Typing      bool // true while the peer has an active XEP-0085 "composing" state
 }
 
 func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }
 func (c Chat) Description() string {
 	switch {
+	case c.Typing:
+		return "typing..."
 	case c.LastMessage != "":
 		return c.LastMessage
 	case c.Address != "":
@@ -126,6 +129,11 @@ type SendOptions struct {
 // encryption — so ui stays decoupled from both.
 type MessageSender interface {
 	Send(accountIdx int, to, body string, opts SendOptions) (id string, err error)
+
+	// SetTyping sends a XEP-0085 chat state notification: composing=true
+	// while the user is actively typing to "to", false once they stop
+	// (cleared the input or sent) or navigate away.
+	SetTyping(accountIdx int, to string, composing bool) error
 }
 
 // IncomingMessageMsg is sent into the Bubble Tea loop when a message arrives
@@ -174,6 +182,35 @@ type PresenceMsg struct {
 	AccountIdx int
 	From       string // bare JID
 	Presence   Presence
+}
+
+// TypingMsg is sent into the Bubble Tea loop when a contact's XEP-0085 chat
+// state changes for one of the configured accounts.
+type TypingMsg struct {
+	AccountIdx int
+	From       string // bare JID
+	Typing     bool
+}
+
+// typingPauseTimeout is how long the compose input can sit idle (no
+// keystrokes, but not cleared either) before we tell the peer we've stopped
+// composing — matching XEP-0085's convention that "composing" shouldn't
+// stick forever just because the draft is still in the box.
+const typingPauseTimeout = 5 * time.Second
+
+// typingPauseMsg fires typingPauseTimeout after a keystroke that left the
+// compose input non-empty. Gen must still match Model.typingGen when it
+// arrives — otherwise a later keystroke already rearmed the timer (or
+// stopped composing outright) and this one is stale and ignored.
+type typingPauseMsg struct {
+	addr string
+	gen  int
+}
+
+func typingPauseTimer(addr string, gen int) tea.Cmd {
+	return tea.Tick(typingPauseTimeout, func(time.Time) tea.Msg {
+		return typingPauseMsg{addr: addr, gen: gen}
+	})
 }
 
 // AccountAdder connects and persists a new XMPP account, implemented outside
@@ -227,6 +264,15 @@ type Model struct {
 
 	sender       MessageSender
 	accountAdder AccountAdder
+
+	// typingActiveTo is the address of the chat we're currently marked as
+	// "composing" to (empty if not composing to anyone). typingGen
+	// increments on every keystroke while composing, so a pending
+	// typingPauseMsg (scheduled a few seconds out to send "stopped
+	// composing" after a stall) can tell whether it's stale — a later
+	// keystroke rearmed the timer — or should actually fire.
+	typingActiveTo string
+	typingGen      int
 
 	// add-account form state, active while addingAccount is true
 	addingAccount    bool

@@ -1,7 +1,7 @@
 # ui
 - use default gpg key, or select first if there is only one gpg key, write its ID to config automatically
-- account manager: add accounts
 - list chat participants, ability to see info about them, start chat with them
+- account manager: fix adding duplicate accounts
 - account management: status ('● Online', '◐ Away', '○ Offline') and manage it
 - message status? 'sent' / 'delivered'?
 - send/receive messages: text, images, files

@@ -153,6 +153,62 @@ type messageBody struct {
 	Retract   *retractElem   `xml:"urn:xmpp:message-retract:1 retract"`
 	Reactions *reactionsElem `xml:"urn:xmpp:reactions:0 reactions"`
 	Fallback  *fallbackElem  `xml:"urn:xmpp:fallback:0 fallback"`
+
+	// XEP-0085 chat state notification: at most one of these is set, on
+	// send or receive. Modeled as five separate pointer fields (rather than
+	// a single element with a variant name) because encoding/xml matches
+	// struct fields to specific, fixed element names — there's no
+	// "one-of-these-five-names" tag.
+	Active    *struct{} `xml:"http://jabber.org/protocol/chatstates active"`
+	Composing *struct{} `xml:"http://jabber.org/protocol/chatstates composing"`
+	Paused    *struct{} `xml:"http://jabber.org/protocol/chatstates paused"`
+	Inactive  *struct{} `xml:"http://jabber.org/protocol/chatstates inactive"`
+	Gone      *struct{} `xml:"http://jabber.org/protocol/chatstates gone"`
+}
+
+// ChatState is a XEP-0085 chat state notification value.
+type ChatState int
+
+const (
+	ChatStateActive ChatState = iota
+	ChatStateComposing
+	ChatStatePaused
+	ChatStateInactive
+	ChatStateGone
+)
+
+// chatState reports the chat state carried by msg, if any.
+func (m messageBody) chatState() (ChatState, bool) {
+	switch {
+	case m.Composing != nil:
+		return ChatStateComposing, true
+	case m.Paused != nil:
+		return ChatStatePaused, true
+	case m.Inactive != nil:
+		return ChatStateInactive, true
+	case m.Gone != nil:
+		return ChatStateGone, true
+	case m.Active != nil:
+		return ChatStateActive, true
+	default:
+		return ChatStateActive, false
+	}
+}
+
+// setChatState sets the one pointer field on msg corresponding to state.
+func (msg *messageBody) setChatState(state ChatState) {
+	switch state {
+	case ChatStateComposing:
+		msg.Composing = &struct{}{}
+	case ChatStatePaused:
+		msg.Paused = &struct{}{}
+	case ChatStateInactive:
+		msg.Inactive = &struct{}{}
+	case ChatStateGone:
+		msg.Gone = &struct{}{}
+	default:
+		msg.Active = &struct{}{}
+	}
 }
 
 // reactionsElem is XEP-0444: the complete, current set of reaction emoji
@@ -303,6 +359,20 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 	return id, nil
 }
 
+// SendChatState sends a standalone XEP-0085 chat state notification to "to"
+// — no body, just the state. Typically sent as the user starts typing
+// (ChatStateComposing) and again once they stop without sending
+// (ChatStateActive) or send it another way.
+func (c *Client) SendChatState(ctx context.Context, to string, state ChatState) error {
+	toJID, err := jid.Parse(to)
+	if err != nil {
+		return fmt.Errorf("parsing recipient %q: %w", to, err)
+	}
+	msg := messageBody{Message: stanza.Message{To: toJID, Type: stanza.ChatMessage, ID: randomID()}}
+	msg.setChatState(state)
+	return c.session.Encode(ctx, msg)
+}
+
 // Event is a value received from a Client's event stream.
 type Event interface{ isEvent() }
 
@@ -351,6 +421,15 @@ type PresenceEvent struct {
 
 func (PresenceEvent) isEvent() {}
 
+// ChatStateEvent is an incoming XEP-0085 chat state notification, standalone
+// or attached to a regular message.
+type ChatStateEvent struct {
+	From  string
+	State ChatState
+}
+
+func (ChatStateEvent) isEvent() {}
+
 // Events returns the channel of incoming events, populated for the lifetime
 // of the connection (from Dial until Close). The channel closes once the
 // session ends.
@@ -369,6 +448,10 @@ func handleStanza(events chan<- Event, t xmlstream.TokenReadEncoder, start *xml.
 		// handler is already positioned inside the element start passed to us.
 		// The decoded value is valid regardless; only bail if we got nothing.
 		_ = d.DecodeElement(&msg, start)
+
+		if state, ok := msg.chatState(); ok {
+			events <- ChatStateEvent{From: msg.From.String(), State: state}
+		}
 
 		if msg.Retract != nil {
 			events <- MessageEvent{

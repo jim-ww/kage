@@ -279,6 +279,9 @@ func (m Model) renderChatStatusBar(width int) string {
 	if chat.Address != "" {
 		label = presenceGlyph(chat.Presence) + " " + label
 	}
+	if chat.Typing {
+		label += "  ·  typing..."
+	}
 
 	return ansi.Truncate(label, max(1, width-2), "…")
 }

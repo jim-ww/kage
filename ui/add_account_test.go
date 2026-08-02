@@ -36,7 +36,11 @@ func keyCode(code rune) tea.KeyMsg {
 }
 
 func newTestModel(adder AccountAdder) Model {
-	m := New(nil, DefaultKeyMap, DefaultTheme(), nil, adder)
+	return newTestModelWithSender(nil, adder)
+}
+
+func newTestModelWithSender(sender MessageSender, adder AccountAdder) Model {
+	m := New(nil, DefaultKeyMap, DefaultTheme(), sender, adder)
 	m.width, m.height = 80, 24
 	m.updateSizes()
 	return m
