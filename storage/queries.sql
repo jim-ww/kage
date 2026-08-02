@@ -54,7 +54,8 @@ INSERT INTO messages (
 	originID,
 	delay,
 	rosterJID,
-	archiveID
+	archiveID,
+	replyToIdAttr
 )
 VALUES (
 	sqlc.arg(sent),
@@ -69,7 +70,8 @@ VALUES (
 		CAST(strftime('%s', 'now') AS INTEGER)
 	),
 	sqlc.arg(roster_jid),
-	sqlc.arg(archive_id)
+	sqlc.arg(archive_id),
+	sqlc.arg(reply_to_id_attr)
 )
 ON CONFLICT (originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -86,6 +88,15 @@ WHERE sent = TRUE
 	);
 
 
+-- name: UpdateMessageBodyByID :execrows
+-- XEP-0308: apply a correction to a previously sent/received message,
+-- identified by its own idAttr within a given contact's history.
+UPDATE messages
+SET body = sqlc.arg(body)
+WHERE idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid);
+
+
 -- name: ListMessagesByRoster :many
 SELECT
 	sent,
@@ -94,7 +105,8 @@ SELECT
 	idAttr,
 	body,
 	stanzaType,
-	delay
+	delay,
+	replyToIdAttr
 FROM messages
 WHERE rosterJID = ?
 	AND stanzaType = COALESCE(

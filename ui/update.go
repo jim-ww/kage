@@ -39,11 +39,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = append(msgs, msg.Message)
+		newMsg := msg.Message
+		if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
+			newMsg.ReplyTo = &replyIdx
+		}
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = append(msgs, newMsg)
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(m.accounts[msg.AccountIdx].Messages[chatIdx]) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
+		}
+		return m, nil
+
+	case MessageCorrectedMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByID(msgs, msg.ReplaceID)
+		if idx < 0 {
+			return m, nil
+		}
+		msgs[idx].Content = msg.NewContent
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.refreshViewport()
 		}
 		return m, nil
 
@@ -164,11 +184,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				if m.editingMsgIdx >= 0 {
-					// Apply edit in-place.
+					// Apply edit in-place, and wire it as a XEP-0308 correction
+					// so the other party actually sees the update — a message
+					// can only be corrected on the network if it was sent with
+					// an ID in the first place (e.g. locally-seeded/demo data
+					// never was), so degrade to a local-only edit otherwise.
 					msgs := m.currentMessages()
 					if m.editingMsgIdx < len(msgs) {
 						msgs[m.editingMsgIdx].Content = text
 						m.setCurrentMessages(msgs)
+
+						if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil && msgs[m.editingMsgIdx].ID != "" {
+							_, err := m.sender.Send(m.currentAccount, chat.Address, text, SendOptions{
+								ReplaceID: msgs[m.editingMsgIdx].ID,
+							})
+							if err != nil {
+								cmds = append(cmds, m.showNotification("edit not delivered: "+err.Error()))
+							}
+						}
 					}
 					m.editingMsgIdx = -1
 					m.input.Placeholder = "message..."
@@ -180,19 +213,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						SentAt:  time.Now(),
 						IsMe:    true,
 					}
+
+					var sendOpts SendOptions
 					if m.replyToIdx >= 0 {
 						rt := m.replyToIdx
 						newMsg.ReplyTo = &rt
+						if msgs := m.currentMessages(); rt < len(msgs) && msgs[rt].ID != "" {
+							sendOpts = SendOptions{
+								ReplyToID:    msgs[rt].ID,
+								QuotedAuthor: msgs[rt].Author,
+								QuotedBody:   msgs[rt].Content,
+							}
+						}
 						m.replyToIdx = -1
 					}
-					msgs := append(m.currentMessages(), newMsg)
-					m.setCurrentMessages(msgs)
 
 					if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
-						if err := m.sender.Send(m.currentAccount, chat.Address, text); err != nil {
+						id, err := m.sender.Send(m.currentAccount, chat.Address, text, sendOpts)
+						if err != nil {
 							cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
+						} else {
+							newMsg.ID = id
 						}
 					}
+
+					msgs := append(m.currentMessages(), newMsg)
+					m.setCurrentMessages(msgs)
 				}
 
 				m.input.SetValue("")

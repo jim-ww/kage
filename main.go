@@ -301,6 +301,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 	}
 
 	msgs := make([]ui.Message, 0, len(rows))
+	replyTo := make([]string, 0, len(rows)) // parallel to msgs: each entry's ReplyToIdAttr, resolved to an index below
 	for _, row := range rows {
 		if !row.Body.Valid {
 			continue
@@ -315,18 +316,43 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 			author = "me"
 		}
 		msgs = append(msgs, ui.Message{
+			ID:      row.Idattr.String,
 			Author:  author,
 			Content: pt,
 			SentAt:  time.Unix(row.Delay, 0),
 			IsMe:    row.Sent,
 		})
+		replyTo = append(replyTo, row.Replytoidattr.String)
+	}
+
+	// Resolve stored reply-target IDs into local indices now that the whole
+	// slice (and thus every message's position) is known.
+	for i, id := range replyTo {
+		if idx := messageIndexByIDs(msgs, id); idx >= 0 {
+			msgs[i].ReplyTo = &idx
+		}
 	}
 	return msgs
 }
 
-func (a *adapter) Send(accountIdx int, to, body string) error {
+// messageIndexByIDs returns the index of the message with the given stanza
+// ID within msgs, or -1 if none matches (or id is empty). Same idea as
+// ui.messageIndexByID, duplicated here since it's an unexported ui helper.
+func messageIndexByIDs(msgs []ui.Message, id string) int {
+	if id == "" {
+		return -1
+	}
+	for i, msg := range msgs {
+		if msg.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
 	if accountIdx < 0 || accountIdx >= len(a.sessions) {
-		return fmt.Errorf("unknown account %d", accountIdx)
+		return "", fmt.Errorf("unknown account %d", accountIdx)
 	}
 	s := a.sessions[accountIdx]
 
@@ -334,25 +360,47 @@ func (a *adapter) Send(accountIdx int, to, body string) error {
 	if peerKey := s.account.GPGPeers[to]; peerKey != "" {
 		ct, err := s.gpg.Encrypt(body, peerKey)
 		if err != nil {
-			return fmt.Errorf("encrypting to %s: %w", to, err)
+			return "", fmt.Errorf("encrypting to %s: %w", to, err)
 		}
 		wireBody = ct
 	}
 
 	ctx := context.Background()
-	if err := s.client.Load().Send(ctx, to, wireBody); err != nil {
-		return err
+	id, err := s.client.Load().Send(ctx, to, wireBody, xmpp.SendOptions{
+		ReplaceID:    opts.ReplaceID,
+		ReplyToID:    opts.ReplyToID,
+		QuotedAuthor: opts.QuotedAuthor,
+		QuotedBody:   opts.QuotedBody,
+	})
+	if err != nil {
+		return "", err
 	}
+
+	if opts.ReplaceID != "" {
+		// A correction amends the original message in place; it isn't a new
+		// row in history.
+		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
+			Body:      encryptForStorage(s, body),
+			IDAttr:    nullString(opts.ReplaceID),
+			RosterJid: nullString(to),
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: persisting correction: %v\n", err)
+		}
+		return id, nil
+	}
+
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-		Sent:       true,
-		ToAttr:     nullString(to),
-		Body:       encryptForStorage(s, body),
-		StanzaType: "chat",
-		RosterJid:  nullString(to),
+		Sent:          true,
+		ToAttr:        nullString(to),
+		IDAttr:        nullString(id),
+		Body:          encryptForStorage(s, body),
+		StanzaType:    "chat",
+		RosterJid:     nullString(to),
+		ReplyToIDAttr: nullString(opts.ReplyToID),
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: persisting sent message: %v\n", err)
 	}
-	return nil
+	return id, nil
 }
 
 // superviseAccount runs listen for s, and on an unexpected disconnect (the
@@ -441,7 +489,8 @@ func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 }
 
 // handleIncomingMessage decrypts, persists, and forwards a single incoming
-// chat message.
+// chat message — routing XEP-0308 corrections to storage.UpdateMessageBodyByID
+// and a MessageCorrectedMsg instead of appending a new message.
 func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
 	body := msgEv.Body
 	if gpg.Looks(body) {
@@ -453,20 +502,43 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		}
 	}
 
+	from := bareJID(msgEv.From) // chats are keyed by bare JID (roster entries); From with a resource never matches
+
+	if msgEv.ReplaceID != "" {
+		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
+			Body:      encryptForStorage(s, body),
+			IDAttr:    nullString(msgEv.ReplaceID),
+			RosterJid: nullString(from),
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: persisting correction: %v\n", err)
+		}
+		p.Send(ui.MessageCorrectedMsg{
+			AccountIdx: accountIdx,
+			From:       from,
+			ReplaceID:  msgEv.ReplaceID,
+			NewContent: body,
+		})
+		return
+	}
+
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-		Sent:       false,
-		FromAttr:   nullString(msgEv.From),
-		Body:       encryptForStorage(s, body),
-		StanzaType: "chat",
-		RosterJid:  nullString(bareJID(msgEv.From)),
+		Sent:          false,
+		FromAttr:      nullString(msgEv.From),
+		IDAttr:        nullString(msgEv.ID),
+		Body:          encryptForStorage(s, body),
+		StanzaType:    "chat",
+		RosterJid:     nullString(from),
+		ReplyToIDAttr: nullString(msgEv.ReplyToID),
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: persisting received message: %v\n", err)
 	}
 
 	p.Send(ui.IncomingMessageMsg{
 		AccountIdx: accountIdx,
-		From:       bareJID(msgEv.From), // chats are keyed by bare JID (roster entries); From with a resource never matches
+		From:       from,
+		ReplyToID:  msgEv.ReplyToID,
 		Message: ui.Message{
+			ID:      msgEv.ID,
 			Author:  msgEv.From,
 			Content: body,
 			SentAt:  msgEv.SentAt,

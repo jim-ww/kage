@@ -10,6 +10,7 @@ import (
 )
 
 type Message struct {
+	ID          string // stanza ID; enables XEP-0308 correction and XEP-0461 reply targeting
 	Author      string
 	Content     string
 	SentAt      time.Time
@@ -73,12 +74,29 @@ const (
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
+// SendOptions carries optional wire metadata for MessageSender.Send — kept as
+// plain fields here (rather than importing the xmpp package's own type) so
+// ui stays decoupled from the network layer; the adapter implementing
+// MessageSender translates these into XEP-0308/XEP-0461 elements.
+type SendOptions struct {
+	// ReplaceID, if set, marks this send as a correction of the earlier
+	// message with this ID (XEP-0308).
+	ReplaceID string
+
+	// ReplyToID, if set, marks this send as a reply to the message with this
+	// ID (XEP-0461). QuotedAuthor/QuotedBody let the sender build the
+	// quoted-text fallback for reply-unaware clients.
+	ReplyToID    string
+	QuotedAuthor string
+	QuotedBody   string
+}
+
 // MessageSender delivers an outgoing message for the given account to "to"
-// (a bare/full JID). Implemented outside ui — by an adapter that knows about
-// the xmpp session and any per-peer encryption — so ui stays decoupled from
-// both.
+// (a bare/full JID), returning the ID it was sent with. Implemented outside
+// ui — by an adapter that knows about the xmpp session and any per-peer
+// encryption — so ui stays decoupled from both.
 type MessageSender interface {
-	Send(accountIdx int, to, body string) error
+	Send(accountIdx int, to, body string, opts SendOptions) (id string, err error)
 }
 
 // IncomingMessageMsg is sent into the Bubble Tea loop when a message arrives
@@ -86,7 +104,18 @@ type MessageSender interface {
 type IncomingMessageMsg struct {
 	AccountIdx int
 	From       string // bare/full JID the message came from
+	ReplyToID  string // non-empty if this message is a XEP-0461 reply
 	Message    Message
+}
+
+// MessageCorrectedMsg is sent into the Bubble Tea loop when a XEP-0308
+// correction arrives for a message already shown for one of the configured
+// accounts.
+type MessageCorrectedMsg struct {
+	AccountIdx int
+	From       string // bare JID (chat)
+	ReplaceID  string // ID of the message being corrected
+	NewContent string
 }
 
 // PresenceMsg is sent into the Bubble Tea loop when a contact's presence

@@ -61,6 +61,20 @@ func (m Model) chatIndexByAddress(accountIdx int, address string) int {
 	return -1
 }
 
+// messageIndexByID returns the index of the message with the given stanza ID
+// within msgs, or -1 if none matches (or id is empty).
+func messageIndexByID(msgs []Message, id string) int {
+	if id == "" {
+		return -1
+	}
+	for i, msg := range msgs {
+		if msg.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
 func (m *Model) switchAccount(index int) tea.Cmd {
 	if index < 0 || index >= len(m.accounts) || index == m.currentAccount {
 		return nil

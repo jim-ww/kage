@@ -243,7 +243,8 @@ INSERT INTO messages (
 	originID,
 	delay,
 	rosterJID,
-	archiveID
+	archiveID,
+	replyToIdAttr
 )
 VALUES (
 	?1,
@@ -258,7 +259,8 @@ VALUES (
 		CAST(strftime('%s', 'now') AS INTEGER)
 	),
 	?9,
-	?10
+	?10,
+	?11
 )
 ON CONFLICT (originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -266,16 +268,17 @@ RETURNING id
 `
 
 type InsertMessageParams struct {
-	Sent       bool           `db:"sent"`
-	ToAttr     sql.NullString `db:"to_attr"`
-	FromAttr   sql.NullString `db:"from_attr"`
-	IDAttr     sql.NullString `db:"id_attr"`
-	Body       sql.NullString `db:"body"`
-	StanzaType string         `db:"stanza_type"`
-	OriginID   sql.NullString `db:"origin_id"`
-	Delay      interface{}    `db:"delay"`
-	RosterJid  sql.NullString `db:"roster_jid"`
-	ArchiveID  sql.NullString `db:"archive_id"`
+	Sent          bool           `db:"sent"`
+	ToAttr        sql.NullString `db:"to_attr"`
+	FromAttr      sql.NullString `db:"from_attr"`
+	IDAttr        sql.NullString `db:"id_attr"`
+	Body          sql.NullString `db:"body"`
+	StanzaType    string         `db:"stanza_type"`
+	OriginID      sql.NullString `db:"origin_id"`
+	Delay         interface{}    `db:"delay"`
+	RosterJid     sql.NullString `db:"roster_jid"`
+	ArchiveID     sql.NullString `db:"archive_id"`
+	ReplyToIDAttr sql.NullString `db:"reply_to_id_attr"`
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -290,6 +293,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.Delay,
 		arg.RosterJid,
 		arg.ArchiveID,
+		arg.ReplyToIDAttr,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -398,7 +402,8 @@ SELECT
 	idAttr,
 	body,
 	stanzaType,
-	delay
+	delay,
+	replyToIdAttr
 FROM messages
 WHERE rosterJID = ?
 	AND stanzaType = COALESCE(
@@ -414,13 +419,14 @@ type ListMessagesByRosterParams struct {
 }
 
 type ListMessagesByRosterRow struct {
-	Sent       bool           `db:"sent"`
-	Toattr     sql.NullString `db:"toattr"`
-	Fromattr   sql.NullString `db:"fromattr"`
-	Idattr     sql.NullString `db:"idattr"`
-	Body       sql.NullString `db:"body"`
-	Stanzatype string         `db:"stanzatype"`
-	Delay      int64          `db:"delay"`
+	Sent          bool           `db:"sent"`
+	Toattr        sql.NullString `db:"toattr"`
+	Fromattr      sql.NullString `db:"fromattr"`
+	Idattr        sql.NullString `db:"idattr"`
+	Body          sql.NullString `db:"body"`
+	Stanzatype    string         `db:"stanzatype"`
+	Delay         int64          `db:"delay"`
+	Replytoidattr sql.NullString `db:"replytoidattr"`
 }
 
 func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]ListMessagesByRosterRow, error) {
@@ -440,6 +446,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Body,
 			&i.Stanzatype,
 			&i.Delay,
+			&i.Replytoidattr,
 		); err != nil {
 			return nil, err
 		}
@@ -507,6 +514,29 @@ DELETE FROM rosterJIDs
 func (q *Queries) TruncateRoster(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, truncateRoster)
 	return err
+}
+
+const updateMessageBodyByID = `-- name: UpdateMessageBodyByID :execrows
+UPDATE messages
+SET body = ?1
+WHERE idAttr = ?2
+	AND rosterJID = ?3
+`
+
+type UpdateMessageBodyByIDParams struct {
+	Body      sql.NullString `db:"body"`
+	IDAttr    sql.NullString `db:"id_attr"`
+	RosterJid sql.NullString `db:"roster_jid"`
+}
+
+// XEP-0308: apply a correction to a previously sent/received message,
+// identified by its own idAttr within a given contact's history.
+func (q *Queries) UpdateMessageBodyByID(ctx context.Context, arg UpdateMessageBodyByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateMessageBodyByID, arg.Body, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertDiscoFeature = `-- name: UpsertDiscoFeature :one

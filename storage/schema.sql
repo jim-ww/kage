@@ -9,18 +9,19 @@
 PRAGMA application_id = 0x636f6d6d;
 
 CREATE TABLE IF NOT EXISTS messages (
-	id         INTEGER  PRIMARY KEY NOT NULL,
-	sent       BOOLEAN  NOT NULL,
-	toAttr     TEXT,
-	fromAttr   TEXT,
-	idAttr     TEXT,
-	body       TEXT,
-	originID   TEXT,
-	stanzaType TEXT     NOT NULL DEFAULT 'normal', -- RFC 6121 § 5.2.2
-	received   BOOLEAN  NOT NULL DEFAULT FALSE,
-	delay      INTEGER  NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-	rosterJID  TEXT,
-	archiveID  TEXT     UNIQUE,
+	id            INTEGER  PRIMARY KEY NOT NULL,
+	sent          BOOLEAN  NOT NULL,
+	toAttr        TEXT,
+	fromAttr      TEXT,
+	idAttr        TEXT,
+	body          TEXT,
+	originID      TEXT,
+	stanzaType    TEXT     NOT NULL DEFAULT 'normal', -- RFC 6121 § 5.2.2
+	received      BOOLEAN  NOT NULL DEFAULT FALSE,
+	delay         INTEGER  NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
+	rosterJID     TEXT,
+	archiveID     TEXT     UNIQUE,
+	replyToIdAttr TEXT, -- XEP-0461: idAttr of the message this one replies to
 
 	UNIQUE (originID, fromAttr)
 );

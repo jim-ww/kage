@@ -47,18 +47,19 @@ type Entitycap struct {
 }
 
 type Message struct {
-	ID         int64          `db:"id"`
-	Sent       bool           `db:"sent"`
-	Toattr     sql.NullString `db:"toattr"`
-	Fromattr   sql.NullString `db:"fromattr"`
-	Idattr     sql.NullString `db:"idattr"`
-	Body       sql.NullString `db:"body"`
-	Originid   sql.NullString `db:"originid"`
-	Stanzatype string         `db:"stanzatype"`
-	Received   bool           `db:"received"`
-	Delay      int64          `db:"delay"`
-	Rosterjid  sql.NullString `db:"rosterjid"`
-	Archiveid  sql.NullString `db:"archiveid"`
+	ID            int64          `db:"id"`
+	Sent          bool           `db:"sent"`
+	Toattr        sql.NullString `db:"toattr"`
+	Fromattr      sql.NullString `db:"fromattr"`
+	Idattr        sql.NullString `db:"idattr"`
+	Body          sql.NullString `db:"body"`
+	Originid      sql.NullString `db:"originid"`
+	Stanzatype    string         `db:"stanzatype"`
+	Received      bool           `db:"received"`
+	Delay         int64          `db:"delay"`
+	Rosterjid     sql.NullString `db:"rosterjid"`
+	Archiveid     sql.NullString `db:"archiveid"`
+	Replytoidattr sql.NullString `db:"replytoidattr"`
 }
 
 type Rostergroup struct {

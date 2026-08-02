@@ -5,9 +5,12 @@ package xmpp
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -139,11 +142,41 @@ func (c *Client) Roster(ctx context.Context) ([]Contact, error) {
 	return contacts, nil
 }
 
-// messageBody is a <message/> stanza carrying a <body/>, used both for
-// sending and for decoding incoming stanzas.
+// messageBody is a <message/> stanza carrying a <body/> and the optional
+// XEP-0308 (correction) / XEP-0461 (reply) elements, used both for sending
+// and for decoding incoming stanzas.
 type messageBody struct {
 	stanza.Message
-	Body string `xml:"body"`
+	Body     string        `xml:"body"`
+	Replace  *replaceElem  `xml:"urn:xmpp:message-correct:0 replace"`
+	Reply    *replyElem    `xml:"urn:xmpp:reply:0 reply"`
+	Fallback *fallbackElem `xml:"urn:xmpp:fallback:0 fallback"`
+}
+
+// replaceElem is XEP-0308: this message corrects an earlier one with this ID.
+type replaceElem struct {
+	ID string `xml:"id,attr"`
+}
+
+// replyElem is XEP-0461: this message is a reply to the message with this ID,
+// sent to/from To (mirrors the enclosing message's "to", the only JID that
+// makes sense in a 1:1 conversation).
+type replyElem struct {
+	To string `xml:"to,attr"`
+	ID string `xml:"id,attr"`
+}
+
+// fallbackElem is XEP-0461's declaration of which byte range (in the sent
+// body) is the quoted-text fallback for reply-unaware clients, so
+// reply-aware clients know what to strip back out.
+type fallbackElem struct {
+	For  string           `xml:"for,attr"`
+	Body fallbackBodyElem `xml:"urn:xmpp:fallback:0 body"`
+}
+
+type fallbackBodyElem struct {
+	Start int `xml:"start,attr"`
+	End   int `xml:"end,attr"`
 }
 
 // presenceBody is a <presence/> stanza carrying an optional <show/>.
@@ -152,20 +185,78 @@ type presenceBody struct {
 	Show string `xml:"show"`
 }
 
-// Send sends a chat-message stanza with the given body to "to".
-func (c *Client) Send(ctx context.Context, to, body string) error {
+// SendOptions carries optional XEP-0308/XEP-0461 wire metadata for Send.
+type SendOptions struct {
+	// ReplaceID, if set, marks this message as a correction (XEP-0308) of
+	// the earlier message with this ID.
+	ReplaceID string
+
+	// ReplyToID, if set, marks this message as a reply (XEP-0461) to the
+	// message with this ID. QuotedAuthor/QuotedBody build the quoted-text
+	// fallback for clients that don't understand XEP-0461.
+	ReplyToID    string
+	QuotedAuthor string
+	QuotedBody   string
+}
+
+// buildFallbackQuote renders XEP-0461's suggested quoted-text fallback:
+// each line of the quoted message prefixed with "> ", first line labeled
+// with the author, ending in a newline so it reads naturally before the
+// real reply text that follows it in the body.
+func buildFallbackQuote(author, body string) string {
+	lines := strings.Split(body, "\n")
+	if len(lines) > 0 {
+		lines[0] = author + ": " + lines[0]
+	}
+	for i, l := range lines {
+		lines[i] = "> " + l
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// randomID generates a random stanza ID (128 bits, hex-encoded).
+func randomID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand failing means the system RNG is broken; a predictable
+		// fallback is still better than crashing message sends over it.
+		return fmt.Sprintf("kage-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// Send sends a chat-message stanza with the given body to "to", returning
+// the stanza ID it was sent with (needed to later correct or be replied to).
+func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (string, error) {
 	toJID, err := jid.Parse(to)
 	if err != nil {
-		return fmt.Errorf("parsing recipient %q: %w", to, err)
+		return "", fmt.Errorf("parsing recipient %q: %w", to, err)
 	}
+	id := randomID()
 	msg := messageBody{
 		Message: stanza.Message{
 			To:   toJID,
 			Type: stanza.ChatMessage,
+			ID:   id,
 		},
 		Body: body,
 	}
-	return c.session.Encode(ctx, msg)
+	if opts.ReplaceID != "" {
+		msg.Replace = &replaceElem{ID: opts.ReplaceID}
+	}
+	if opts.ReplyToID != "" {
+		quote := buildFallbackQuote(opts.QuotedAuthor, opts.QuotedBody)
+		msg.Body = quote + body
+		msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
+		msg.Fallback = &fallbackElem{
+			For:  "urn:xmpp:reply:0",
+			Body: fallbackBodyElem{Start: 0, End: len(quote)},
+		}
+	}
+	if err := c.session.Encode(ctx, msg); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 // Event is a value received from a Client's event stream.
@@ -173,9 +264,18 @@ type Event interface{ isEvent() }
 
 // MessageEvent is an incoming chat message.
 type MessageEvent struct {
+	ID     string
 	From   string
-	Body   string
+	Body   string // fallback-quote already stripped if this is a XEP-0461 reply
 	SentAt time.Time
+
+	// ReplaceID is non-empty if this is a XEP-0308 correction of an earlier
+	// message with this ID.
+	ReplaceID string
+
+	// ReplyToID is non-empty if this is a XEP-0461 reply to the message with
+	// this ID.
+	ReplyToID string
 }
 
 func (MessageEvent) isEvent() {}
@@ -215,10 +315,30 @@ func handleStanza(events chan<- Event, t xmlstream.TokenReadEncoder, start *xml.
 		if msg.Body == "" {
 			return
 		}
+
+		body := msg.Body
+		var replyToID string
+		if msg.Reply != nil {
+			replyToID = msg.Reply.ID
+			if msg.Fallback != nil && msg.Fallback.For == "urn:xmpp:reply:0" {
+				start, end := msg.Fallback.Body.Start, msg.Fallback.Body.End
+				if start >= 0 && start <= end && end <= len(body) {
+					body = body[:start] + body[end:]
+				}
+			}
+		}
+		var replaceID string
+		if msg.Replace != nil {
+			replaceID = msg.Replace.ID
+		}
+
 		events <- MessageEvent{
-			From:   msg.From.String(),
-			Body:   msg.Body,
-			SentAt: time.Now(),
+			ID:        msg.ID,
+			From:      msg.From.String(),
+			Body:      body,
+			SentAt:    time.Now(),
+			ReplaceID: replaceID,
+			ReplyToID: replyToID,
 		}
 	case "presence":
 		var p presenceBody
