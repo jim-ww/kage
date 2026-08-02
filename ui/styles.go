@@ -282,11 +282,15 @@ func (s uiStyles) deletePrompt(title, detail string) string {
 }
 
 func (s uiStyles) infoPopup(title string, rows []string) string {
+	return s.listPopup(title, rows, "[esc/ctrl+i] close")
+}
+
+func (s uiStyles) listPopup(title string, rows []string, footer string) string {
 	body := lipgloss.NewStyle().Bold(true).Foreground(s.colors.borderA).Render(title)
 	for _, row := range rows {
 		body += "\n" + row
 	}
-	body += "\n\n  [esc/ctrl+i] close"
+	body += "\n\n  " + footer
 	return body
 }
 

@@ -27,6 +27,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case openResultMsg:
+		if msg.err != nil {
+			return m, m.showNotification("failed to open " + msg.target)
+		}
+		return m, m.showNotification("opened " + msg.target)
+
 	case tea.KeyMsg:
 		// ── Delete confirmation popup intercepts all input ─────────────────
 		if m.confirmTarget != confirmNone {
@@ -52,6 +58,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, m.keys.InfoMsg), key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
 				m.showMsgInfo = false
+			}
+			return m, nil
+		}
+
+		// ── Open-item picker intercepts all input until a choice is made ───
+		if len(m.openItems) > 0 {
+			if i, ok := digitKey(msg); ok && i >= 1 && i <= len(m.openItems) {
+				target := m.openItems[i-1]
+				m.openItems = nil
+				return m, openWithXDGOpen(target)
+			}
+			switch {
+			case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
+				m.openItems = nil
 			}
 			return m, nil
 		}
@@ -273,6 +293,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			}
+
+		case key.Matches(msg, m.keys.OpenMsg):
+			if m.selectedView == viewChat {
+				msgs := m.currentMessages()
+				if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+					cmds = append(cmds, m.showNotification("no message selected"))
+					return m, tea.Batch(cmds...)
+				}
+				items := openableItems(msgs[m.selectedMsg])
+				switch len(items) {
+				case 0:
+					cmds = append(cmds, m.showNotification("nothing to open"))
+				case 1:
+					cmds = append(cmds, openWithXDGOpen(items[0]))
+				default:
+					m.openItems = items
+				}
+				return m, tea.Batch(cmds...)
+			}
 		}
 	}
 
@@ -316,4 +355,13 @@ func isViewportPagingKey(msg tea.KeyMsg) bool {
 	default:
 		return false
 	}
+}
+
+// digitKey reports whether msg is a single '1'-'9' keypress, and which digit.
+func digitKey(msg tea.KeyMsg) (int, bool) {
+	s := msg.String()
+	if len(s) != 1 || s[0] < '1' || s[0] > '9' {
+		return 0, false
+	}
+	return int(s[0] - '0'), true
 }

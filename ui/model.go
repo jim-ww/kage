@@ -10,11 +10,12 @@ import (
 )
 
 type Message struct {
-	Author  string
-	Content string
-	SentAt  time.Time
-	IsMe    bool
-	ReplyTo *int // index into the message slice; nil = not a reply
+	Author      string
+	Content     string
+	SentAt      time.Time
+	IsMe        bool
+	ReplyTo     *int     // index into the message slice; nil = not a reply
+	Attachments []string // file paths or URLs attached to the message
 }
 
 type Account struct {
@@ -81,8 +82,9 @@ type Model struct {
 	editingMsgIdx int // >= 0 while editing a message; -1 otherwise
 	replyToIdx    int // >= 0 while composing a reply; -1 otherwise
 	confirmTarget confirmTarget
-	showMsgInfo   bool  // true while the message-info popup is open
-	msgOffsets    []int // line offset of each message inside viewport content
+	showMsgInfo   bool     // true while the message-info popup is open
+	openItems     []string // non-empty while the open-link/attachment picker is open
+	msgOffsets    []int    // line offset of each message inside viewport content
 	noticeText    string
 	noticeID      int
 }

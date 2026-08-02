@@ -76,6 +76,8 @@ func (m Model) View() tea.View {
 		viewportArea = m.renderDeletePopup()
 	case m.showMsgInfo:
 		viewportArea = m.renderInfoPopup()
+	case len(m.openItems) > 0:
+		viewportArea = m.renderOpenPopup()
 	default:
 		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
 		contentHeight := viewportHeight
@@ -172,6 +174,21 @@ func (m Model) infoPrompt() string {
 	}
 
 	return m.styles.infoPopup("Message info", rows)
+}
+
+// renderOpenPopup lists the pending link/attachment choices, numbered.
+func (m Model) renderOpenPopup() string {
+	cw := m.chatAreaWidth()
+	vh := m.height - m.inputAreaHeight()
+
+	rows := make([]string, len(m.openItems))
+	for i, item := range m.openItems {
+		rows[i] = fmt.Sprintf("%d. %s", i+1, previewText(item, previewLen))
+	}
+	body := m.styles.listPopup("Open — pick one", rows, "[1-9] open  ·  [esc] cancel")
+	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+
+	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
 func (m Model) renderAccountBar(width int) string {
