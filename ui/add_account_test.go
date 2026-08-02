@@ -1,0 +1,186 @@
+package ui
+
+import (
+	"errors"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+// fakeAccountAdder is a stub AccountAdder for testing the add-account form
+// without any real network/config dependency: AddAccount just records the
+// last call and returns whatever msg/err was configured.
+type fakeAccountAdder struct {
+	lastJID, lastPassword, lastGPGKeyID string
+	calls                               int
+	err                                 error
+}
+
+func (f *fakeAccountAdder) AddAccount(jid, password, gpgKeyID string) tea.Msg {
+	f.calls++
+	f.lastJID, f.lastPassword, f.lastGPGKeyID = jid, password, gpgKeyID
+	if f.err != nil {
+		return AccountAddErrorMsg{Err: f.err}
+	}
+	return AccountAddedMsg{Account: Account{Name: jid}}
+}
+
+func keyText(s string) tea.KeyMsg {
+	return tea.KeyPressMsg{Text: s, Code: rune(s[0])}
+}
+
+func keyCode(code rune) tea.KeyMsg {
+	return tea.KeyPressMsg{Code: code}
+}
+
+func newTestModel(adder AccountAdder) Model {
+	m := New(nil, DefaultKeyMap, DefaultTheme(), nil, adder)
+	m.width, m.height = 80, 24
+	m.updateSizes()
+	return m
+}
+
+// TestAddAccountFormOpenAndCancel checks the form opens from the accounts
+// panel via the AddAccount binding and esc cancels it without side effects.
+func TestAddAccountFormOpenAndCancel(t *testing.T) {
+	adder := &fakeAccountAdder{}
+	m := newTestModel(adder)
+	m.selectedView = viewAccounts
+
+	next, _ := m.Update(keyText("a"))
+	m = next.(Model)
+	if !m.addingAccount {
+		t.Fatal("expected addingAccount to be true after pressing 'a'")
+	}
+
+	next, _ = m.Update(keyCode(tea.KeyEscape))
+	m = next.(Model)
+	if m.addingAccount {
+		t.Fatal("expected addingAccount to be false after esc")
+	}
+	if adder.calls != 0 {
+		t.Fatalf("expected no AddAccount calls, got %d", adder.calls)
+	}
+}
+
+// TestAddAccountFormFieldNavigationAndSubmit walks through typing a JID, tabbing
+// to the password and GPG key fields, and submitting — verifying the values
+// reach AccountAdder.AddAccount and a successful result appends the account
+// and closes the form.
+func TestAddAccountFormFieldNavigationAndSubmit(t *testing.T) {
+	adder := &fakeAccountAdder{}
+	m := newTestModel(adder)
+	m.selectedView = viewAccounts
+
+	next, _ := m.Update(keyText("a"))
+	m = next.(Model)
+
+	for _, r := range "alice@example.com" {
+		next, _ = m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+
+	next, _ = m.Update(keyCode(tea.KeyTab))
+	m = next.(Model)
+	if m.addAccountFocus != 1 {
+		t.Fatalf("expected focus on password field (1), got %d", m.addAccountFocus)
+	}
+	for _, r := range "hunter2" {
+		next, _ = m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+
+	next, _ = m.Update(keyCode(tea.KeyTab))
+	m = next.(Model)
+	if m.addAccountFocus != 2 {
+		t.Fatalf("expected focus on gpg key field (2), got %d", m.addAccountFocus)
+	}
+	for _, r := range "ABCD1234" {
+		next, _ = m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+
+	next, cmd := m.Update(keyCode(tea.KeyEnter))
+	m = next.(Model)
+	if !m.addAccountBusy {
+		t.Fatal("expected addAccountBusy to be true right after submit")
+	}
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd to run AddAccount")
+	}
+
+	msg := cmd()
+	next, _ = m.Update(msg)
+	m = next.(Model)
+
+	if adder.calls != 1 {
+		t.Fatalf("expected exactly 1 AddAccount call, got %d", adder.calls)
+	}
+	if adder.lastJID != "alice@example.com" || adder.lastPassword != "hunter2" || adder.lastGPGKeyID != "ABCD1234" {
+		t.Fatalf("got jid=%q password=%q gpgKeyID=%q", adder.lastJID, adder.lastPassword, adder.lastGPGKeyID)
+	}
+	if m.addingAccount {
+		t.Fatal("expected form to close on success")
+	}
+	if len(m.accounts) != 1 || m.accounts[0].Name != "alice@example.com" {
+		t.Fatalf("expected the new account to be appended, got %+v", m.accounts)
+	}
+}
+
+// TestAddAccountFormSubmitErrorKeepsFormOpen checks that a failed AddAccount
+// call leaves the form open (with the error shown) so the user can retry
+// instead of silently losing what they typed.
+func TestAddAccountFormSubmitErrorKeepsFormOpen(t *testing.T) {
+	adder := &fakeAccountAdder{err: errors.New("connection refused")}
+	m := newTestModel(adder)
+	m.selectedView = viewAccounts
+
+	next, _ := m.Update(keyText("a"))
+	m = next.(Model)
+	for _, r := range "bob@example.com" {
+		next, _ = m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+
+	next, cmd := m.Update(keyCode(tea.KeyEnter))
+	m = next.(Model)
+	msg := cmd()
+	next, _ = m.Update(msg)
+	m = next.(Model)
+
+	if !m.addingAccount {
+		t.Fatal("expected form to stay open after an error")
+	}
+	if m.addAccountBusy {
+		t.Fatal("expected addAccountBusy to be cleared after the error result")
+	}
+	if m.addAccountErr == "" {
+		t.Fatal("expected addAccountErr to be set")
+	}
+	if len(m.accounts) != 0 {
+		t.Fatalf("expected no account to be appended on error, got %+v", m.accounts)
+	}
+}
+
+// TestAddAccountFormRequiresJID checks submitting with an empty JID field is
+// rejected locally, without ever calling AccountAdder.
+func TestAddAccountFormRequiresJID(t *testing.T) {
+	adder := &fakeAccountAdder{}
+	m := newTestModel(adder)
+	m.selectedView = viewAccounts
+
+	next, _ := m.Update(keyText("a"))
+	m = next.(Model)
+
+	next, cmd := m.Update(keyCode(tea.KeyEnter))
+	m = next.(Model)
+	if cmd != nil {
+		t.Fatal("expected no cmd when JID is empty")
+	}
+	if adder.calls != 0 {
+		t.Fatalf("expected no AddAccount calls, got %d", adder.calls)
+	}
+	if m.addAccountErr == "" {
+		t.Fatal("expected a validation error to be set")
+	}
+}

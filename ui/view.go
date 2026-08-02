@@ -64,6 +64,8 @@ func (m Model) View() tea.View {
 		viewportArea = m.renderDeletePopup()
 	case m.showMsgInfo:
 		viewportArea = m.renderInfoPopup()
+	case m.addingAccount:
+		viewportArea = m.renderAddAccountPopup()
 	case len(m.openItems) > 0:
 		viewportArea = m.renderOpenPopup()
 	default:
@@ -187,6 +189,30 @@ func (m Model) renderOpenPopup() string {
 	}
 
 	body := m.styles.listPopup(title, rows, footer)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+
+	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+// renderAddAccountPopup shows the add-account form: one line per field
+// (JID, password, GPG key ID), the focused field highlighted by its own
+// textinput cursor, plus an error line if the last attempt failed.
+func (m Model) renderAddAccountPopup() string {
+	cw := m.chatAreaWidth()
+	vh := m.height - m.inputAreaHeight()
+
+	rows := make([]string, len(m.addAccountInputs))
+	for i, field := range m.addAccountInputs {
+		rows[i] = field.View()
+	}
+	if m.addAccountBusy {
+		rows = append(rows, "", "connecting...")
+	} else if m.addAccountErr != "" {
+		rows = append(rows, "", m.styles.popupDanger.Render(m.addAccountErr))
+	}
+
+	footer := "[tab] next field  ·  [enter] add  ·  [esc] cancel"
+	body := m.styles.listPopup("Add account", rows, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)

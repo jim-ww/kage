@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -172,16 +173,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	sender := &adapter{sessions: sessions, cfgPath: cfg.Path}
 	defer func() {
-		for _, s := range sessions {
+		sender.mu.Lock()
+		defer sender.mu.Unlock()
+		for _, s := range sender.sessions {
 			s.client.Load().Close()
 			s.dbConn.Close()
 		}
 	}()
 
-	sender := &adapter{sessions: sessions}
-	model := ui.New(uiAccounts, cfg.UI.KeyMap, cfg.UI.Theme, sender)
+	model := ui.New(uiAccounts, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender)
 	p := tea.NewProgram(model)
+	sender.program = p
 
 	for i := range sessions {
 		go superviseAccount(ctx, p, i, sessions[i])
@@ -211,85 +215,134 @@ func connectAccounts(ctx context.Context, accounts []config.Account) ([]*account
 	uiAccounts := make([]ui.Account, 0, len(accounts))
 
 	for _, acct := range accounts {
-		password, err := acct.ResolvePassword()
+		sess, uiAcct, err := connectAccount(ctx, acct)
 		if err != nil {
-			return nil, nil, fmt.Errorf("account %s: %w", acct.JID, err)
-		}
-
-		var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
-		client, err := xmpp.Dial(ctx, acct.JID, password, tlsConfig)
-		if err != nil {
-			return nil, nil, fmt.Errorf("account %s: %w", acct.JID, err)
-		}
-
-		dbPath, err := dataFilePath(acct.JID)
-		if err != nil {
-			client.Close()
-			return nil, nil, fmt.Errorf("account %s: %w", acct.JID, err)
-		}
-		db, queries, err := storage.Open(dbPath)
-		if err != nil {
-			client.Close()
-			return nil, nil, fmt.Errorf("account %s: %w", acct.JID, err)
-		}
-
-		if acct.GPGKeyID == "" {
-			fmt.Fprintf(os.Stderr, "warning: account %s has no gpg_key_id configured; message bodies will NOT be persisted to disk (history is encryption-only)\n", acct.JID)
-		}
-
-		sess := &accountSession{
-			account:   acct,
-			tlsConfig: tlsConfig,
-			db:        queries,
-			dbConn:    db,
-			gpg:       gpg.Encrypter{},
-		}
-		sess.client.Store(client)
-
-		if acct.GPGKeyID != "" {
-			publishOwnGPGKey(ctx, sess)
-		}
-
-		contacts, err := client.Roster(ctx)
-		if err != nil {
-			client.Close()
-			db.Close()
-			return nil, nil, fmt.Errorf("account %s: fetching roster: %w", acct.JID, err)
-		}
-
-		chats := make([]list.Item, 0, len(contacts))
-		messages := make(map[int][]ui.Message, len(contacts))
-		for i, c := range contacts {
-			name := c.Name
-			if name == "" {
-				name = c.JID
+			for _, s := range sessions {
+				s.client.Load().Close()
+				s.dbConn.Close()
 			}
-			chats = append(chats, ui.Chat{Name: name, Address: c.JID})
-			if err := queries.UpsertRoster(ctx, storage.UpsertRosterParams{
-				Jid: c.JID, Name: c.Name, Subs: c.Subscription,
-			}); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: persisting roster entry %s: %v\n", c.JID, err)
-			}
-			if hist := loadHistory(ctx, sess, c.JID, name); len(hist) > 0 {
-				messages[i] = hist
-			}
+			return nil, nil, err
 		}
-
 		sessions = append(sessions, sess)
-		uiAccounts = append(uiAccounts, ui.Account{
-			Name:     acct.JID,
-			Chats:    chats,
-			Messages: messages,
-		})
+		uiAccounts = append(uiAccounts, uiAcct)
 	}
 
 	return sessions, uiAccounts, nil
 }
 
-// adapter implements ui.MessageSender, encrypting outgoing bodies when a
-// peer key is configured and persisting sent messages to storage.
+// connectAccount dials, opens storage, publishes our GPG key (if configured),
+// and loads the roster + history for a single account.
+func connectAccount(ctx context.Context, acct config.Account) (*accountSession, ui.Account, error) {
+	password, err := acct.ResolvePassword()
+	if err != nil {
+		return nil, ui.Account{}, fmt.Errorf("account %s: %w", acct.JID, err)
+	}
+
+	var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
+	client, err := xmpp.Dial(ctx, acct.JID, password, tlsConfig)
+	if err != nil {
+		return nil, ui.Account{}, fmt.Errorf("account %s: %w", acct.JID, err)
+	}
+
+	dbPath, err := dataFilePath(acct.JID)
+	if err != nil {
+		client.Close()
+		return nil, ui.Account{}, fmt.Errorf("account %s: %w", acct.JID, err)
+	}
+	db, queries, err := storage.Open(dbPath)
+	if err != nil {
+		client.Close()
+		return nil, ui.Account{}, fmt.Errorf("account %s: %w", acct.JID, err)
+	}
+
+	if acct.GPGKeyID == "" {
+		fmt.Fprintf(os.Stderr, "warning: account %s has no gpg_key_id configured; message bodies will NOT be persisted to disk (history is encryption-only)\n", acct.JID)
+	}
+
+	sess := &accountSession{
+		account:   acct,
+		tlsConfig: tlsConfig,
+		db:        queries,
+		dbConn:    db,
+		gpg:       gpg.Encrypter{},
+	}
+	sess.client.Store(client)
+
+	if acct.GPGKeyID != "" {
+		publishOwnGPGKey(ctx, sess)
+	}
+
+	contacts, err := client.Roster(ctx)
+	if err != nil {
+		client.Close()
+		db.Close()
+		return nil, ui.Account{}, fmt.Errorf("account %s: fetching roster: %w", acct.JID, err)
+	}
+
+	chats := make([]list.Item, 0, len(contacts))
+	messages := make(map[int][]ui.Message, len(contacts))
+	for i, c := range contacts {
+		name := c.Name
+		if name == "" {
+			name = c.JID
+		}
+		chats = append(chats, ui.Chat{Name: name, Address: c.JID})
+		if err := queries.UpsertRoster(ctx, storage.UpsertRosterParams{
+			Jid: c.JID, Name: c.Name, Subs: c.Subscription,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: persisting roster entry %s: %v\n", c.JID, err)
+		}
+		if hist := loadHistory(ctx, sess, c.JID, name); len(hist) > 0 {
+			messages[i] = hist
+		}
+	}
+
+	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages}, nil
+}
+
+// adapter implements ui.MessageSender and ui.AccountAdder, encrypting
+// outgoing bodies when a peer key is configured and persisting sent messages
+// to storage. sessions is only ever appended to (by AddAccount, from the
+// Bubble Tea event loop's own goroutine via a tea.Cmd) after startup, so
+// existing indices stay stable and Send doesn't need to hold mu itself —
+// mu only guards the append plus the read of len(sessions) it races with.
 type adapter struct {
+	mu       sync.Mutex
 	sessions []*accountSession
+	cfgPath  string
+	program  *tea.Program
+}
+
+// AddAccount implements ui.AccountAdder: resolves and stores the password in
+// the OS keyring, persists the account to config.toml, connects it live, and
+// starts its supervisor goroutine — mirroring what main does for accounts
+// configured at startup, just for one account added mid-session.
+func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
+	if password != "" {
+		if err := config.SetKeyringPassword(jid, password); err != nil {
+			return ui.AccountAddErrorMsg{Err: fmt.Errorf("storing password in keyring: %w", err)}
+		}
+	}
+
+	acct := config.Account{JID: jid, GPGKeyID: gpgKeyID}
+	if err := config.WriteAccount(a.cfgPath, acct); err != nil {
+		return ui.AccountAddErrorMsg{Err: fmt.Errorf("saving account to config: %w", err)}
+	}
+
+	ctx := context.Background()
+	sess, uiAcct, err := connectAccount(ctx, acct)
+	if err != nil {
+		return ui.AccountAddErrorMsg{Err: err}
+	}
+
+	a.mu.Lock()
+	accountIdx := len(a.sessions)
+	a.sessions = append(a.sessions, sess)
+	a.mu.Unlock()
+
+	go superviseAccount(ctx, a.program, accountIdx, sess)
+
+	return ui.AccountAddedMsg{Account: uiAcct}
 }
 
 // encryptForStorage encrypts plaintext to the account's own GPG key for
@@ -504,10 +557,16 @@ func messageIndexByIDs(msgs []ui.Message, id string) int {
 }
 
 func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
-	if accountIdx < 0 || accountIdx >= len(a.sessions) {
+	a.mu.Lock()
+	valid := accountIdx >= 0 && accountIdx < len(a.sessions)
+	var s *accountSession
+	if valid {
+		s = a.sessions[accountIdx]
+	}
+	a.mu.Unlock()
+	if !valid {
 		return "", fmt.Errorf("unknown account %d", accountIdx)
 	}
-	s := a.sessions[accountIdx]
 	ctx := context.Background()
 
 	if opts.ReactionTargetID != "" {

@@ -176,6 +176,26 @@ type PresenceMsg struct {
 	Presence   Presence
 }
 
+// AccountAdder connects and persists a new XMPP account, implemented outside
+// ui (main.go's adapter) so ui stays decoupled from the network/config
+// layers. Runs on the Bubble Tea event loop's goroutine via a tea.Cmd, so it
+// may block on network I/O — ui always calls it that way, never inline.
+type AccountAdder interface {
+	AddAccount(jid, password, gpgKeyID string) tea.Msg
+}
+
+// AccountAddedMsg is sent into the Bubble Tea loop once AccountAdder.AddAccount
+// has connected the new account and it's ready to show in the sidebar.
+type AccountAddedMsg struct {
+	Account Account
+}
+
+// AccountAddErrorMsg is sent into the Bubble Tea loop when AccountAdder.AddAccount
+// fails; the add-account form stays open so the user can correct and retry.
+type AccountAddErrorMsg struct {
+	Err error
+}
+
 type Model struct {
 	width, height int
 	selectedView
@@ -205,14 +225,22 @@ type Model struct {
 	noticeText       string
 	noticeID         int
 
-	sender MessageSender
+	sender       MessageSender
+	accountAdder AccountAdder
+
+	// add-account form state, active while addingAccount is true
+	addingAccount    bool
+	addAccountInputs [3]textinput.Model // JID, password, gpg key ID (optional)
+	addAccountFocus  int
+	addAccountErr    string
+	addAccountBusy   bool
 }
 
 type noticeClearMsg struct {
 	id int
 }
 
-func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender) Model {
+func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder) Model {
 	styles := newUIStyles(theme)
 	delegate := newChatListDelegate(styles.colors)
 
@@ -248,7 +276,39 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender) Mod
 		replyToIdx:     -1,
 		reactingMsgIdx: -1,
 		sender:         sender,
+		accountAdder:   accountAdder,
 	}
+}
+
+// newAddAccountForm builds fresh, empty textinput.Model fields for the
+// add-account popup: JID, password (masked), and an optional GPG key ID.
+func (m Model) newAddAccountForm() [3]textinput.Model {
+	var fields [3]textinput.Model
+
+	jidInput := textinput.New()
+	jidInput.Placeholder = "user@server"
+	jidInput.Prompt = "JID:      "
+	jidInput.KeyMap = m.keys.TextInputKeys
+	applyTextInputStyles(&jidInput, m.styles.colors)
+	jidInput.Focus()
+	fields[0] = jidInput
+
+	passInput := textinput.New()
+	passInput.Placeholder = "(leave blank to use password_cmd/keyring)"
+	passInput.Prompt = "Password: "
+	passInput.EchoMode = textinput.EchoPassword
+	passInput.KeyMap = m.keys.TextInputKeys
+	applyTextInputStyles(&passInput, m.styles.colors)
+	fields[1] = passInput
+
+	gpgInput := textinput.New()
+	gpgInput.Placeholder = "(optional) own gpg key fingerprint"
+	gpgInput.Prompt = "GPG key:  "
+	gpgInput.KeyMap = m.keys.TextInputKeys
+	applyTextInputStyles(&gpgInput, m.styles.colors)
+	fields[2] = gpgInput
+
+	return fields
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

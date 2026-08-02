@@ -26,6 +26,7 @@ type KeyMap struct {
 	ReactMsg      key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
 	ConfirmYes    key.Binding // y — confirm popup
 	ConfirmNo     key.Binding // n / esc — cancel popup
+	AddAccount    key.Binding // a — open the add-account form (only while accounts panel is focused)
 	ListKeys      list.KeyMap
 	TextInputKeys textinput.KeyMap
 }
@@ -52,6 +53,7 @@ var DefaultKeyMap = KeyMap{
 	ReactMsg:   NewBinding([]string{"ctrl+t"}, "react"),
 	ConfirmYes: NewBinding([]string{"y"}, "yes"),
 	ConfirmNo:  NewBinding([]string{"n", "esc"}, "no"),
+	AddAccount: NewBinding([]string{"a"}, "add account"),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -66,6 +68,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
 		{k.InfoMsg, k.OpenMsg, k.ReactMsg},
+		{k.AddAccount},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -97,6 +100,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.MsgUp, "prev account"),
 			part(k.MsgDown, "next account"),
 			part(k.SelectSend, "select"),
+			part(k.AddAccount, "add"),
 			part(k.Switch, "chats"),
 			part(k.Quit, "quit"),
 		}, " · ")

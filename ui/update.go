@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -99,6 +100,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case AccountAddedMsg:
+		m.addingAccount = false
+		m.addAccountBusy = false
+		m.accounts = append(m.accounts, msg.Account)
+		return m, m.showNotification("account added: " + msg.Account.Name)
+
+	case AccountAddErrorMsg:
+		m.addAccountBusy = false
+		m.addAccountErr = msg.Err.Error()
+		return m, nil
+
 	case PresenceMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
@@ -157,6 +169,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showMsgInfo = false
 			}
 			return m, nil
+		}
+
+		// ── Add-account form intercepts all input until submitted/canceled ──
+		if m.addingAccount {
+			return m.updateAddAccountForm(msg)
 		}
 
 		// ── Open-item picker intercepts all input until a choice is made ───
@@ -328,6 +345,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshViewport()
 				m.viewport.GotoBottom()
 				return m, tea.Batch(cmds...)
+			}
+
+		case key.Matches(msg, m.keys.AddAccount):
+			if m.selectedView == viewAccounts {
+				m.addingAccount = true
+				m.addAccountFocus = 0
+				m.addAccountErr = ""
+				m.addAccountInputs = m.newAddAccountForm()
+				return m, textinput.Blink
 			}
 
 		case key.Matches(msg, m.keys.Switch):
@@ -571,4 +597,58 @@ func digitKey(msg tea.KeyMsg) (int, bool) {
 		return 0, false
 	}
 	return int(s[0] - '0'), true
+}
+
+// updateAddAccountForm handles all key input while the add-account popup is
+// open: tab/shift+tab cycles the three fields, enter on any field submits
+// (password/gpg key are optional), esc cancels.
+func (m Model) updateAddAccountForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	// Only esc cancels — not the full Back/ConfirmNo bindings, since those
+	// also bind plain letters ("n") that must reach the focused text field
+	// while typing instead of being swallowed as a cancel key here.
+	case msg.String() == "esc":
+		if !m.addAccountBusy {
+			m.addingAccount = false
+			return m, nil
+		}
+		return m, nil
+
+	case msg.String() == "tab", msg.String() == "down":
+		m.addAccountInputs[m.addAccountFocus].Blur()
+		m.addAccountFocus = (m.addAccountFocus + 1) % len(m.addAccountInputs)
+		m.addAccountInputs[m.addAccountFocus].Focus()
+		return m, textinput.Blink
+
+	case msg.String() == "shift+tab", msg.String() == "up":
+		m.addAccountInputs[m.addAccountFocus].Blur()
+		m.addAccountFocus = (m.addAccountFocus - 1 + len(m.addAccountInputs)) % len(m.addAccountInputs)
+		m.addAccountInputs[m.addAccountFocus].Focus()
+		return m, textinput.Blink
+
+	case key.Matches(msg, m.keys.SelectSend):
+		if m.addAccountBusy {
+			return m, nil
+		}
+		jid := strings.TrimSpace(m.addAccountInputs[0].Value())
+		if jid == "" {
+			m.addAccountErr = "JID is required"
+			return m, nil
+		}
+		if m.accountAdder == nil {
+			m.addAccountErr = "no account adder configured"
+			return m, nil
+		}
+		password := m.addAccountInputs[1].Value()
+		gpgKeyID := strings.TrimSpace(m.addAccountInputs[2].Value())
+		m.addAccountBusy = true
+		m.addAccountErr = ""
+		adder := m.accountAdder
+		return m, func() tea.Msg { return adder.AddAccount(jid, password, gpgKeyID) }
+
+	default:
+		var cmd tea.Cmd
+		m.addAccountInputs[m.addAccountFocus], cmd = m.addAccountInputs[m.addAccountFocus].Update(msg)
+		return m, cmd
+	}
 }
