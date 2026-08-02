@@ -548,9 +548,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		}
 	case viewChat:
+		oldValue := m.input.Value()
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
-		if m.reactingMsgIdx >= 0 {
+		// This branch runs for every message type routed here, including
+		// the textinput cursor-blink tick — not just keystrokes. Recomputing
+		// (and resetting the highlighted suggestion) on every blink would
+		// undo arrow-key navigation a few hundred ms after every move, so
+		// only do it when the text itself actually changed.
+		if m.reactingMsgIdx >= 0 && m.input.Value() != oldValue {
 			if token, _, ok := currentWordToken(m.input.Value()); ok {
 				m.setEmojiSuggestions(emojiSuggestionsFor(token))
 			} else {
