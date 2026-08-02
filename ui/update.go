@@ -64,14 +64,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// ── Open-item picker intercepts all input until a choice is made ───
 		if len(m.openItems) > 0 {
-			if i, ok := digitKey(msg); ok && i >= 1 && i <= len(m.openItems) {
-				target := m.openItems[i-1]
+			start, end := openPageBounds(len(m.openItems), m.openPage)
+			if i, ok := digitKey(msg); ok && i >= 1 && i <= end-start {
+				target := m.openItems[start+i-1]
 				m.openItems = nil
+				m.openPage = 0
 				return m, openWithXDGOpen(target)
 			}
-			switch {
-			case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
-				m.openItems = nil
+			switch msg.String() {
+			case "left", "h":
+				m.openPage = max(0, m.openPage-1)
+			case "right", "l":
+				if m.openPage < openPageCount(len(m.openItems))-1 {
+					m.openPage++
+				}
+			default:
+				switch {
+				case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
+					m.openItems = nil
+					m.openPage = 0
+				}
 			}
 			return m, nil
 		}
@@ -309,6 +321,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, openWithXDGOpen(items[0]))
 				default:
 					m.openItems = items
+					m.openPage = 0
 				}
 				return m, tea.Batch(cmds...)
 			}

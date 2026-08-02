@@ -177,16 +177,28 @@ func (m Model) infoPrompt() string {
 	return m.styles.infoPopup("Message info", rows, closeKey)
 }
 
-// renderOpenPopup lists the pending link/attachment choices, numbered.
+// renderOpenPopup lists the pending link/attachment choices, numbered within
+// the current page; left/right page through when there are more than
+// openItemsPerPage items.
 func (m Model) renderOpenPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	rows := make([]string, len(m.openItems))
-	for i, item := range m.openItems {
+	start, end := openPageBounds(len(m.openItems), m.openPage)
+	page := m.openItems[start:end]
+	rows := make([]string, len(page))
+	for i, item := range page {
 		rows[i] = fmt.Sprintf("%d. %s", i+1, previewText(item, previewLen))
 	}
-	body := m.styles.listPopup("Open — pick one", rows, "[1-9] open  ·  [esc] cancel")
+
+	title := "Open — pick one"
+	footer := "[1-9] open  ·  [esc] cancel"
+	if pages := openPageCount(len(m.openItems)); pages > 1 {
+		title = fmt.Sprintf("%s (page %d/%d)", title, m.openPage+1, pages)
+		footer = "[1-9] open  ·  [←/→] page  ·  [esc] cancel"
+	}
+
+	body := m.styles.listPopup(title, rows, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)

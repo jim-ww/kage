@@ -84,6 +84,7 @@ type Model struct {
 	confirmTarget confirmTarget
 	showMsgInfo   bool     // true while the message-info popup is open
 	openItems     []string // non-empty while the open-link/attachment picker is open
+	openPage      int      // current page (of openItemsPerPage items) in the open picker
 	msgOffsets    []int    // line offset of each message inside viewport content
 	noticeText    string
 	noticeID      int
