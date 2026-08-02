@@ -15,10 +15,10 @@ const keyringService = "kage"
 // Account is one configured XMPP account.
 type Account struct {
 	JID         string            `toml:"jid"`
-	Password    string            `toml:"password"`     // plaintext fallback
-	PasswordCmd string            `toml:"password_cmd"` // shell command printing the password on stdout
-	GPGKeyID    string            `toml:"gpg_key_id"`   // own key, used to decrypt/sign
-	GPGPeers    map[string]string `toml:"gpg_peers"`    // JID -> peer's key fingerprint
+	Password    string            `toml:"password,omitempty"`     // plaintext fallback
+	PasswordCmd string            `toml:"password_cmd,omitempty"` // shell command printing the password on stdout
+	GPGKeyID    string            `toml:"gpg_key_id,omitempty"`   // own key, used to decrypt/sign
+	GPGPeers    map[string]string `toml:"gpg_peers,omitempty"`    // JID -> peer's key fingerprint
 }
 
 // ResolvePassword returns the account's password, trying the OS keyring

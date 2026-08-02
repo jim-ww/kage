@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"database/sql"
@@ -19,10 +20,98 @@ import (
 	"codeberg.org/jim-ww/kage/storage"
 	"codeberg.org/jim-ww/kage/ui"
 	"codeberg.org/jim-ww/kage/xmpp"
+	"golang.org/x/term"
+	"mellium.im/xmpp/jid"
 )
 
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// runSetupWizard interactively prompts for a JID and password on the
+// terminal and writes a new account into the config file, so a first-time
+// user doesn't have to hand-edit TOML. Tries the OS keyring first; if that
+// fails (no Secret Service, etc.) it asks whether to fall back to a
+// password_cmd or a plaintext password in the config file.
+func runSetupWizard() error {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return fmt.Errorf("no accounts configured and not running interactively; add an [[accounts]] entry to config.toml yourself")
+	}
+
+	fmt.Println("No accounts configured yet — let's set one up.")
+
+	reader := bufio.NewReader(os.Stdin)
+	var addr string
+	for {
+		fmt.Print("XMPP address (e.g. user@example.com): ")
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("reading input: %w", err)
+		}
+		addr = strings.TrimSpace(line)
+		if _, err := jid.Parse(addr); err != nil {
+			fmt.Printf("  %q doesn't look like a valid JID: %v\n", addr, err)
+			continue
+		}
+		break
+	}
+
+	fmt.Print("Password: ")
+	passBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("reading password: %w", err)
+	}
+	password := string(passBytes)
+	if password == "" {
+		return fmt.Errorf("password cannot be empty")
+	}
+
+	acct := config.Account{JID: addr}
+
+	if err := config.SetKeyringPassword(addr, password); err == nil {
+		fmt.Println("Password stored in the OS keyring.")
+	} else {
+		fmt.Printf("Couldn't store the password in the OS keyring (%v).\n", err)
+		fmt.Println("Fall back to: (1) a command that prints the password (password_cmd), or (2) storing it in plaintext in config.toml?")
+		for {
+			fmt.Print("[1/2]: ")
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("reading input: %w", err)
+			}
+			switch strings.TrimSpace(line) {
+			case "1":
+				fmt.Print("Command to print the password on stdout (e.g. `pass show xmpp/me`): ")
+				cmdLine, err := reader.ReadString('\n')
+				if err != nil {
+					return fmt.Errorf("reading input: %w", err)
+				}
+				acct.PasswordCmd = strings.TrimSpace(cmdLine)
+				if acct.PasswordCmd == "" {
+					fmt.Println("  command cannot be empty")
+					continue
+				}
+			case "2":
+				fmt.Println("Warning: the password will be stored in plaintext in config.toml.")
+				acct.Password = password
+			default:
+				fmt.Println("  please enter 1 or 2")
+				continue
+			}
+			break
+		}
+	}
+
+	path, err := config.DefaultWritePath()
+	if err != nil {
+		return fmt.Errorf("determining config path: %w", err)
+	}
+	if err := config.WriteAccount(path, acct); err != nil {
+		return fmt.Errorf("writing config: %w", err)
+	}
+	fmt.Printf("Account %s saved to %s.\n", addr, path)
+	return nil
 }
 
 func main() {
@@ -35,8 +124,19 @@ func main() {
 		os.Exit(1)
 	}
 	if len(cfg.Accounts) == 0 {
-		fmt.Fprintln(os.Stderr, "no accounts configured; add an [[accounts]] entry to config.toml")
-		os.Exit(1)
+		if err := runSetupWizard(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		cfg, err = config.Load(*cfgPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if len(cfg.Accounts) == 0 {
+			fmt.Fprintln(os.Stderr, "no accounts configured; add an [[accounts]] entry to config.toml")
+			os.Exit(1)
+		}
 	}
 
 	ctx := context.Background()

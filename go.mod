@@ -10,6 +10,7 @@ require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/zalando/go-keyring v0.2.8
+	golang.org/x/term v0.44.0
 	mellium.im/sasl v0.3.2
 	mellium.im/xmlstream v0.15.4
 	mellium.im/xmpp v0.23.0

@@ -1,26 +1,26 @@
 package ui
 
 type Theme struct {
-	AppBg       string `toml:"app_bg"`
-	PanelBg     string `toml:"panel_bg"`
-	PanelAltBg  string `toml:"panel_alt_bg"`
-	PanelEdge   string `toml:"panel_edge"`
-	LogBg       string `toml:"log_bg"`
-	ThemFg      string `toml:"them_fg"`
-	TextMuted   string `toml:"text_muted"`
-	Time        string `toml:"time"`
-	BorderD     string `toml:"border_d"`
-	BorderA     string `toml:"border_a"`
-	AccentCyan  string `toml:"accent_cyan"`
-	ReplyFg     string `toml:"reply_fg"`
-	PopupBg     string `toml:"popup_bg"`
-	PopupDanger string `toml:"popup_danger"`
-	FilterMatch string `toml:"filter_match"`
-	NickMe      string `toml:"nick_me"`
-	NickThem    string `toml:"nick_them"`
-	StatusFg    string `toml:"status_fg"`
-	NoticeBg    string `toml:"notice_bg"`
-	NoticeFg    string `toml:"notice_fg"`
+	AppBg       string `toml:"app_bg,omitempty"`
+	PanelBg     string `toml:"panel_bg,omitempty"`
+	PanelAltBg  string `toml:"panel_alt_bg,omitempty"`
+	PanelEdge   string `toml:"panel_edge,omitempty"`
+	LogBg       string `toml:"log_bg,omitempty"`
+	ThemFg      string `toml:"them_fg,omitempty"`
+	TextMuted   string `toml:"text_muted,omitempty"`
+	Time        string `toml:"time,omitempty"`
+	BorderD     string `toml:"border_d,omitempty"`
+	BorderA     string `toml:"border_a,omitempty"`
+	AccentCyan  string `toml:"accent_cyan,omitempty"`
+	ReplyFg     string `toml:"reply_fg,omitempty"`
+	PopupBg     string `toml:"popup_bg,omitempty"`
+	PopupDanger string `toml:"popup_danger,omitempty"`
+	FilterMatch string `toml:"filter_match,omitempty"`
+	NickMe      string `toml:"nick_me,omitempty"`
+	NickThem    string `toml:"nick_them,omitempty"`
+	StatusFg    string `toml:"status_fg,omitempty"`
+	NoticeBg    string `toml:"notice_bg,omitempty"`
+	NoticeFg    string `toml:"notice_fg,omitempty"`
 }
 
 // Tokyo Night
