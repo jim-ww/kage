@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -23,12 +22,14 @@ type Account struct {
 }
 
 // ResolvePassword returns the account's password, trying the OS keyring
-// first, then PasswordCmd, then the plaintext Password field.
+// first, then PasswordCmd, then the plaintext Password field. Any keyring
+// error (not found, no Secret Service running, etc.) just falls through to
+// the next method — the keyring is a best-effort first choice, not a hard
+// requirement, since plenty of environments (headless boxes, sandboxes)
+// don't have one available at all.
 func (a Account) ResolvePassword() (string, error) {
 	if pass, err := keyring.Get(keyringService, a.JID); err == nil {
 		return pass, nil
-	} else if !errors.Is(err, keyring.ErrNotFound) {
-		return "", fmt.Errorf("reading keyring for %s: %w", a.JID, err)
 	}
 
 	if a.PasswordCmd != "" {

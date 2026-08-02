@@ -8,6 +8,8 @@ import (
 	"crypto/tls"
 	"encoding/xml"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"mellium.im/sasl"
@@ -27,6 +29,11 @@ type Client struct {
 	JID     jid.JID
 	session *xmpp.Session
 	events  chan Event
+
+	closed atomic.Bool // set by Close; distinguishes intentional shutdown from a dropped connection
+
+	mu  sync.Mutex
+	err error // set when serve() returns, e.g. on an unexpected disconnect
 }
 
 // Dial connects and authenticates address (a full or bare JID) with password,
@@ -70,19 +77,39 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 // reading the stream.
 func (c *Client) serve() {
 	defer close(c.events)
-	c.session.Serve(xmpp.HandlerFunc(func(t xmlstream.TokenReadEncoder, start *xml.StartElement) error {
+	err := c.session.Serve(xmpp.HandlerFunc(func(t xmlstream.TokenReadEncoder, start *xml.StartElement) error {
 		handleStanza(c.events, t, start)
 		return nil
 	}))
+	c.mu.Lock()
+	c.err = err
+	c.mu.Unlock()
 }
 
 // Close ends the session and its underlying connection. This unblocks and
-// terminates the background serve loop, closing the Events channel.
+// terminates the background serve loop, closing the Events channel. Marks
+// the client as intentionally closed, so callers watching Events()/Err() can
+// tell a deliberate shutdown apart from a dropped connection.
 func (c *Client) Close() error {
+	c.closed.Store(true)
 	if err := c.session.Close(); err != nil {
 		return err
 	}
 	return c.session.Conn().Close()
+}
+
+// Closed reports whether Close was called on this client (as opposed to the
+// connection having dropped unexpectedly).
+func (c *Client) Closed() bool {
+	return c.closed.Load()
+}
+
+// Err returns the error that ended the background serve loop, if any. Only
+// meaningful after the Events channel has closed.
+func (c *Client) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
 }
 
 // Contact is a single roster entry.

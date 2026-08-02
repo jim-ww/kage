@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/list"
@@ -45,7 +47,7 @@ func main() {
 	}
 	defer func() {
 		for _, s := range sessions {
-			s.client.Close()
+			s.client.Load().Close()
 			s.dbConn.Close()
 		}
 	}()
@@ -55,7 +57,7 @@ func main() {
 	p := tea.NewProgram(model)
 
 	for i := range sessions {
-		go listen(ctx, p, i, sessions[i])
+		go superviseAccount(ctx, p, i, sessions[i])
 	}
 
 	if _, err := p.Run(); err != nil {
@@ -65,13 +67,16 @@ func main() {
 }
 
 // accountSession bundles everything needed to send/receive/persist for one
-// configured account.
+// configured account. client is swapped out on reconnect, so it's stored
+// behind an atomic pointer — Send (called from the Bubble Tea event loop)
+// and the reconnect supervisor (its own goroutine) touch it concurrently.
 type accountSession struct {
-	account config.Account
-	client  *xmpp.Client
-	db      *storage.Queries
-	dbConn  interface{ Close() error }
-	gpg     gpg.Encrypter
+	account   config.Account
+	client    atomic.Pointer[xmpp.Client]
+	tlsConfig *tls.Config // reused on reconnect; nil means Dial's default verified config
+	db        *storage.Queries
+	dbConn    interface{ Close() error }
+	gpg       gpg.Encrypter
 }
 
 func connectAccounts(ctx context.Context, accounts []config.Account) ([]*accountSession, []ui.Account, error) {
@@ -84,7 +89,8 @@ func connectAccounts(ctx context.Context, accounts []config.Account) ([]*account
 			return nil, nil, fmt.Errorf("account %s: %w", acct.JID, err)
 		}
 
-		client, err := xmpp.Dial(ctx, acct.JID, password, nil)
+		var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
+		client, err := xmpp.Dial(ctx, acct.JID, password, tlsConfig)
 		if err != nil {
 			return nil, nil, fmt.Errorf("account %s: %w", acct.JID, err)
 		}
@@ -105,12 +111,13 @@ func connectAccounts(ctx context.Context, accounts []config.Account) ([]*account
 		}
 
 		sess := &accountSession{
-			account: acct,
-			client:  client,
-			db:      queries,
-			dbConn:  db,
-			gpg:     gpg.Encrypter{},
+			account:   acct,
+			tlsConfig: tlsConfig,
+			db:        queries,
+			dbConn:    db,
+			gpg:       gpg.Encrypter{},
 		}
+		sess.client.Store(client)
 
 		contacts, err := client.Roster(ctx)
 		if err != nil {
@@ -233,7 +240,7 @@ func (a *adapter) Send(accountIdx int, to, body string) error {
 	}
 
 	ctx := context.Background()
-	if err := s.client.Send(ctx, to, wireBody); err != nil {
+	if err := s.client.Load().Send(ctx, to, wireBody); err != nil {
 		return err
 	}
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
@@ -248,9 +255,63 @@ func (a *adapter) Send(accountIdx int, to, body string) error {
 	return nil
 }
 
+// superviseAccount runs listen for s, and on an unexpected disconnect (the
+// Events channel closing without Close having been called), reconnects with
+// exponential backoff and resumes. Returns once the client is intentionally
+// closed (app shutdown).
+func superviseAccount(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
+	for {
+		listen(ctx, p, accountIdx, s)
+
+		client := s.client.Load()
+		if client.Closed() || ctx.Err() != nil {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "warning: account %s disconnected (%v); reconnecting...\n", s.account.JID, client.Err())
+		reconnectWithBackoff(ctx, s)
+	}
+}
+
+// reconnectWithBackoff retries Dial with exponential backoff (capped at 60s)
+// until it succeeds or ctx is done, then stores the new client on s.
+func reconnectWithBackoff(ctx context.Context, s *accountSession) {
+	const maxBackoff = 60 * time.Second
+	backoff := time.Second
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		password, err := s.account.ResolvePassword()
+		if err == nil {
+			var client *xmpp.Client
+			client, err = xmpp.Dial(ctx, s.account.JID, password, s.tlsConfig)
+			if err == nil {
+				s.client.Store(client)
+				fmt.Fprintf(os.Stderr, "account %s reconnected\n", s.account.JID)
+				return
+			}
+		}
+
+		fmt.Fprintf(os.Stderr, "warning: reconnecting %s failed: %v; retrying in %s\n", s.account.JID, err, backoff)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return
+		}
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
 // listen bridges one account's xmpp events into the Bubble Tea program.
+// Returns when the current client's Events channel closes (client swapped
+// out from under it, e.g. by a reconnect, or the client was closed).
 func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
-	for ev := range s.client.Events() {
+	for ev := range s.client.Load().Events() {
 		msgEv, ok := ev.(xmpp.MessageEvent)
 		if !ok {
 			continue
