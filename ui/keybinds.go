@@ -23,7 +23,6 @@ type KeyMap struct {
 	ReplyMsg      key.Binding // Ctrl+R — reply to selected message
 	InfoMsg       key.Binding // Ctrl+G — show message info popup
 	OpenMsg       key.Binding // Ctrl+O — open links/attachments in selected message
-	QuickReact    key.Binding // Ctrl+P — toggle a 👍 reaction on the selected message
 	ReactMsg      key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
 	ConfirmYes    key.Binding // y — confirm popup
 	ConfirmNo     key.Binding // n / esc — cancel popup
@@ -50,7 +49,6 @@ var DefaultKeyMap = KeyMap{
 	ReplyMsg:   NewBinding([]string{"ctrl+r"}, "reply"),
 	InfoMsg:    NewBinding([]string{"ctrl+g"}, "message info"),
 	OpenMsg:    NewBinding([]string{"ctrl+o"}, "open links/attachments"),
-	QuickReact: NewBinding([]string{"ctrl+p"}, "👍 react"),
 	ReactMsg:   NewBinding([]string{"ctrl+t"}, "react"),
 	ConfirmYes: NewBinding([]string{"y"}, "yes"),
 	ConfirmNo:  NewBinding([]string{"n", "esc"}, "no"),
@@ -67,6 +65,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
+		{k.InfoMsg, k.OpenMsg, k.ReactMsg},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -75,8 +74,21 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 // Key labels are pulled from the (possibly user-remapped) bindings; the
 // descriptions are tailored to what each key does in that particular view.
 func (k KeyMap) helpHint(view selectedView) string {
+	// Use only the shortest bound key, not the full "ctrl+k/up"-style joined
+	// label Help().Key would give — this line is space-constrained and
+	// truncates easily; the full set of alternate keys is in FullHelp.
 	part := func(b key.Binding, desc string) string {
-		return b.Help().Key + " " + desc
+		keys := b.Keys()
+		if len(keys) == 0 {
+			return desc
+		}
+		shortest := keys[0]
+		for _, k := range keys[1:] {
+			if len(k) < len(shortest) {
+				shortest = k
+			}
+		}
+		return shortest + " " + desc
 	}
 
 	switch view {
@@ -98,20 +110,18 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.Quit, "quit"),
 		}, " · ")
 	case viewChat:
+		// Kept short on purpose — this renders as a single line and
+		// truncates on narrow terminals. Navigation (up/down) and
+		// less-frequent actions (yank, info, open) are still bound, just
+		// not listed here. See KeyMap.FullHelp for the complete reference.
 		return strings.Join([]string{
 			part(k.SelectSend, "send"),
-			part(k.MsgUp, "up"),
-			part(k.MsgDown, "down"),
 			part(k.ReplyMsg, "reply"),
 			part(k.EditMsg, "edit"),
 			part(k.DeleteMsg, "delete"),
-			part(k.YankMsg, "yank"),
-			part(k.InfoMsg, "info"),
-			part(k.OpenMsg, "open"),
-			part(k.QuickReact, "👍"),
 			part(k.ReactMsg, "react"),
 			part(k.Back, "back"),
-		}, " · ")
+		}, "·")
 	default:
 		return ""
 	}

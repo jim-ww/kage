@@ -122,8 +122,6 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 			keys.InfoMsg = ui.NewBinding(override, "message info")
 		case "open":
 			keys.OpenMsg = ui.NewBinding(override, "open links/attachments")
-		case "quick_react":
-			keys.QuickReact = ui.NewBinding(override, "👍 react")
 		case "react":
 			keys.ReactMsg = ui.NewBinding(override, "react")
 		case "confirm_yes":

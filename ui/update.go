@@ -491,19 +491,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			}
 
-		case key.Matches(msg, m.keys.QuickReact):
-			if m.selectedView == viewChat {
-				msgs := m.currentMessages()
-				if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
-					cmds = append(cmds, m.showNotification("no message selected"))
-					return m, tea.Batch(cmds...)
-				}
-				newMine := toggleEmoji(mineEmojis(msgs[m.selectedMsg].Reactions), "👍")
-				cmds = append(cmds, m.sendReaction(m.selectedMsg, newMine))
-				m.refreshViewport()
-				return m, tea.Batch(cmds...)
-			}
-
 		case key.Matches(msg, m.keys.ReactMsg):
 			if m.selectedView == viewChat {
 				msgs := m.currentMessages()

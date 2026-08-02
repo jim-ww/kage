@@ -226,29 +226,6 @@ func toEmojiSet(input string) []string {
 	return out
 }
 
-// mineEmojis returns the emoji our own account is currently reacting with.
-func mineEmojis(reactions []Reaction) []string {
-	var out []string
-	for _, r := range reactions {
-		if r.Mine {
-			out = append(out, r.Emoji)
-		}
-	}
-	return out
-}
-
-// toggleEmoji returns mine with target added if absent, or removed if present.
-func toggleEmoji(mine []string, target string) []string {
-	for i, e := range mine {
-		if e == target {
-			out := make([]string, 0, len(mine)-1)
-			out = append(out, mine[:i]...)
-			return append(out, mine[i+1:]...)
-		}
-	}
-	return append(append([]string{}, mine...), target)
-}
-
 // setMyReactions recomputes a message's aggregate Reactions after our own
 // contribution changes from oldMine to newMine, preserving every other
 // reactor's counts — we only track aggregates here, not per-reactor
