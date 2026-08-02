@@ -173,6 +173,19 @@ func (q *Queries) GetDiscoIdentitiesByJID(ctx context.Context, jid string) ([]Ge
 	return items, nil
 }
 
+const getPGPPeerKey = `-- name: GetPGPPeerKey :one
+SELECT fingerprint
+FROM pgpPeerKeys
+WHERE jid = ?
+`
+
+func (q *Queries) GetPGPPeerKey(ctx context.Context, jid string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getPGPPeerKey, jid)
+	var fingerprint string
+	err := row.Scan(&fingerprint)
+	return fingerprint, err
+}
+
 const getRosterVersion = `-- name: GetRosterVersion :one
 SELECT ver
 FROM rosterVer
@@ -741,6 +754,23 @@ func (q *Queries) UpsertDiscoJIDCapsWithForms(ctx context.Context, arg UpsertDis
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const upsertPGPPeerKey = `-- name: UpsertPGPPeerKey :exec
+INSERT INTO pgpPeerKeys (jid, fingerprint)
+VALUES (?, ?)
+ON CONFLICT (jid) DO UPDATE
+SET fingerprint = excluded.fingerprint
+`
+
+type UpsertPGPPeerKeyParams struct {
+	Jid         string `db:"jid"`
+	Fingerprint string `db:"fingerprint"`
+}
+
+func (q *Queries) UpsertPGPPeerKey(ctx context.Context, arg UpsertPGPPeerKeyParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPGPPeerKey, arg.Jid, arg.Fingerprint)
+	return err
 }
 
 const upsertRoster = `-- name: UpsertRoster :exec

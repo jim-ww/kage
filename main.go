@@ -246,6 +246,10 @@ func connectAccounts(ctx context.Context, accounts []config.Account) ([]*account
 		}
 		sess.client.Store(client)
 
+		if acct.GPGKeyID != "" {
+			publishOwnGPGKey(ctx, sess)
+		}
+
 		contacts, err := client.Roster(ctx)
 		if err != nil {
 			client.Close()
@@ -303,6 +307,72 @@ func encryptForStorage(s *accountSession, plaintext string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: ct, Valid: true}
+}
+
+// publishOwnGPGKey exports our own public key and publishes it to our PEP
+// nodes (XEP-0373) so contacts can discover it automatically instead of us
+// having to hand them a fingerprint out of band. Best-effort: some servers
+// don't support PEP or restrict node creation, so failure here just means
+// contacts fall back to a manually configured gpg_peers entry, same as
+// before this existed.
+func publishOwnGPGKey(ctx context.Context, s *accountSession) {
+	keyData, err := s.gpg.Export(s.account.GPGKeyID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: exporting own gpg key: %v\n", err)
+		return
+	}
+	if err := s.client.Load().PublishOpenPGPKey(ctx, s.account.GPGKeyID, keyData); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: publishing gpg key via PEP (XEP-0373): %v\n", err)
+		return
+	}
+}
+
+// resolvePeerKey returns the GPG key fingerprint to encrypt to-messages with
+// for peerJID, or "" if none is available. Order: an explicit gpg_peers
+// override in config always wins (lets a user pin a specific key); then a
+// previously discovered-and-cached fingerprint; then a live XEP-0373 PEP
+// lookup, which gets cached in storage so it's a one-time cost per contact.
+func resolvePeerKey(ctx context.Context, s *accountSession, peerJID string) string {
+	if key := s.account.GPGPeers[peerJID]; key != "" {
+		return key
+	}
+
+	if fpr, err := s.db.GetPGPPeerKey(ctx, peerJID); err == nil && fpr != "" {
+		return fpr
+	}
+
+	fpr, err := discoverPeerKey(ctx, s, peerJID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: no gpg key found for %s (%v); sending unencrypted\n", peerJID, err)
+		return ""
+	}
+	if err := s.db.UpsertPGPPeerKey(ctx, storage.UpsertPGPPeerKeyParams{Jid: peerJID, Fingerprint: fpr}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: caching discovered gpg key for %s: %v\n", peerJID, err)
+	}
+	return fpr
+}
+
+// discoverPeerKey fetches peerJID's most-recently-published OpenPGP key via
+// their PEP nodes (XEP-0373) and imports it into the local keyring.
+func discoverPeerKey(ctx context.Context, s *accountSession, peerJID string) (string, error) {
+	client := s.client.Load()
+	fprs, err := client.FetchOpenPGPFingerprints(ctx, peerJID)
+	if err != nil {
+		return "", err
+	}
+	if len(fprs) == 0 {
+		return "", fmt.Errorf("no key published")
+	}
+	fpr := fprs[0]
+
+	keyData, err := client.FetchOpenPGPKey(ctx, peerJID, fpr)
+	if err != nil {
+		return "", err
+	}
+	if err := s.gpg.Import(keyData, fpr); err != nil {
+		return "", err
+	}
+	return fpr, nil
 }
 
 // bareJID strips the resource part (after "/") from a full JID, matching the
@@ -472,7 +542,7 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 	}
 
 	wireBody := body
-	if peerKey := s.account.GPGPeers[to]; peerKey != "" {
+	if peerKey := resolvePeerKey(ctx, s, to); peerKey != "" {
 		ct, err := s.gpg.Encrypt(body, peerKey)
 		if err != nil {
 			return "", fmt.Errorf("encrypting to %s: %w", to, err)

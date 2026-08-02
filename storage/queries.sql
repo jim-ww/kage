@@ -282,3 +282,16 @@ RETURNING id;
 INSERT INTO discoFeatureJID (jid, feat)
 VALUES (?, ?)
 ON CONFLICT(jid, feat) DO NOTHING;
+
+
+-- name: UpsertPGPPeerKey :exec
+INSERT INTO pgpPeerKeys (jid, fingerprint)
+VALUES (?, ?)
+ON CONFLICT (jid) DO UPDATE
+SET fingerprint = excluded.fingerprint;
+
+
+-- name: GetPGPPeerKey :one
+SELECT fingerprint
+FROM pgpPeerKeys
+WHERE jid = ?;

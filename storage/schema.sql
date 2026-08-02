@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS messageReactions (
 	UNIQUE (idAttr, fromJID, emoji)
 );
 
+-- XEP-0373: caches a peer's OpenPGP key fingerprint, discovered from their
+-- PEP node, so we don't have to query it again on every send.
+CREATE TABLE IF NOT EXISTS pgpPeerKeys (
+	jid         TEXT PRIMARY KEY NOT NULL,
+	fingerprint TEXT             NOT NULL
+) WITHOUT ROWID;
+
 
 -- Roster storage
 

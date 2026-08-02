@@ -144,6 +144,58 @@ func listSecretKeyFingerprints() ([]string, error) {
 	return fprs, nil
 }
 
+// Export returns fingerprint's raw (not armored) OpenPGP transferable public
+// key, suitable for base64-encoding into a XEP-0373 <pubkey/> PEP item.
+func (e Encrypter) Export(fingerprint string) ([]byte, error) {
+	out, err := e.runBytes(nil, "--batch", "--export", fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("gpg export: %w", err)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("gpg export: no key found for %s", fingerprint)
+	}
+	return out, nil
+}
+
+// Import imports a raw (not armored) OpenPGP transferable public key — as
+// fetched from a peer's PEP node — into the local keyring, then verifies
+// expectedFingerprint actually landed there. The fingerprint check matters:
+// gpg will happily import whatever key is in the data regardless of what
+// node it came from, so without it a key published under the wrong
+// fingerprint would silently get used instead of detected as a mismatch.
+func (e Encrypter) Import(data []byte, expectedFingerprint string) error {
+	if _, err := e.runBytes(data, "--batch", "--yes", "--import"); err != nil {
+		return fmt.Errorf("gpg import: %w", err)
+	}
+	fprs, err := listKeyFingerprints(expectedFingerprint)
+	if err != nil {
+		return fmt.Errorf("gpg import: verifying: %w", err)
+	}
+	for _, fpr := range fprs {
+		if fpr == expectedFingerprint {
+			return nil
+		}
+	}
+	return fmt.Errorf("gpg import: imported key's fingerprint doesn't match expected %s", expectedFingerprint)
+}
+
+// listKeyFingerprints returns the fingerprint(s) of public keys matching
+// query (a key ID, fingerprint, or email — anything gpg --list-keys accepts).
+func listKeyFingerprints(query string) ([]string, error) {
+	out, err := exec.Command("gpg", "--batch", "--list-keys", "--with-colons", query).Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing keys: %w", err)
+	}
+	var fprs []string
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) > 9 && fields[0] == "fpr" {
+			fprs = append(fprs, fields[9])
+		}
+	}
+	return fprs, nil
+}
+
 func (e Encrypter) run(stdin string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout())
 	defer cancel()
@@ -162,4 +214,26 @@ func (e Encrypter) run(stdin string, args ...string) (string, error) {
 		return "", err
 	}
 	return stdout.String(), nil
+}
+
+// runBytes is like run but for binary input/output (key export/import),
+// rather than the text ciphertext/plaintext Encrypt/Decrypt deal in.
+func (e Encrypter) runBytes(stdin []byte, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), e.timeout())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "gpg", args...)
+	cmd.Stdin = bytes.NewReader(stdin)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return nil, fmt.Errorf("%w: %s", err, msg)
+		}
+		return nil, err
+	}
+	return stdout.Bytes(), nil
 }

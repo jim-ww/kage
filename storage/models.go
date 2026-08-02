@@ -70,6 +70,11 @@ type Messagereaction struct {
 	Emoji   string `db:"emoji"`
 }
 
+type Pgppeerkey struct {
+	Jid         string `db:"jid"`
+	Fingerprint string `db:"fingerprint"`
+}
+
 type Rostergroup struct {
 	ID   int64  `db:"id"`
 	Jid  string `db:"jid"`
