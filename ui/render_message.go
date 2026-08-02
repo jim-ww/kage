@@ -80,7 +80,25 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		lines = append(lines, "  "+indent+m.styles.messageReply.Render("(sender attempted to delete this message)"))
 	}
 
+	if len(msg.Reactions) > 0 {
+		lines = append(lines, "  "+indent+renderReactions(msg.Reactions))
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+// renderReactions formats a message's aggregate reactions as "😂×2 👍" —
+// the count is only shown when more than one person reacted with that emoji.
+func renderReactions(reactions []Reaction) string {
+	parts := make([]string, len(reactions))
+	for i, r := range reactions {
+		if r.Count > 1 {
+			parts[i] = fmt.Sprintf("%s×%d", r.Emoji, r.Count)
+		} else {
+			parts[i] = r.Emoji
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m Model) replyPreview(idx int, allMsgs []Message) string {

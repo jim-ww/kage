@@ -27,6 +27,18 @@ CREATE TABLE IF NOT EXISTS messages (
 	UNIQUE (originID, fromAttr)
 );
 
+-- XEP-0444: each row is one reactor's one emoji on one message. A reactor's
+-- full set is replaced (not added-to) whenever a new <reactions/> stanza
+-- arrives for them, by deleting their existing rows for that idAttr first.
+CREATE TABLE IF NOT EXISTS messageReactions (
+	id      INTEGER  PRIMARY KEY NOT NULL,
+	idAttr  TEXT     NOT NULL, -- idAttr of the message being reacted to
+	fromJID TEXT     NOT NULL, -- bare JID of the reactor ("me" for our own account)
+	emoji   TEXT     NOT NULL,
+
+	UNIQUE (idAttr, fromJID, emoji)
+);
+
 
 -- Roster storage
 

@@ -147,11 +147,21 @@ func (c *Client) Roster(ctx context.Context) ([]Contact, error) {
 // and for decoding incoming stanzas.
 type messageBody struct {
 	stanza.Message
-	Body     string        `xml:"body"`
-	Replace  *replaceElem  `xml:"urn:xmpp:message-correct:0 replace"`
-	Reply    *replyElem    `xml:"urn:xmpp:reply:0 reply"`
-	Retract  *retractElem  `xml:"urn:xmpp:message-retract:1 retract"`
-	Fallback *fallbackElem `xml:"urn:xmpp:fallback:0 fallback"`
+	Body      string         `xml:"body,omitempty"`
+	Replace   *replaceElem   `xml:"urn:xmpp:message-correct:0 replace"`
+	Reply     *replyElem     `xml:"urn:xmpp:reply:0 reply"`
+	Retract   *retractElem   `xml:"urn:xmpp:message-retract:1 retract"`
+	Reactions *reactionsElem `xml:"urn:xmpp:reactions:0 reactions"`
+	Fallback  *fallbackElem  `xml:"urn:xmpp:fallback:0 fallback"`
+}
+
+// reactionsElem is XEP-0444: the complete, current set of reaction emoji
+// this sender has applied to the message with this ID. A new <reactions/>
+// stanza always fully replaces the sender's previous set — it is never a
+// delta — including an empty Reactions slice to mean "I've cleared mine".
+type reactionsElem struct {
+	ID        string   `xml:"id,attr"`
+	Reactions []string `xml:"urn:xmpp:reactions:0 reaction"`
 }
 
 // retractElem is XEP-0424: this message retracts an earlier one with this ID.
@@ -212,6 +222,13 @@ type SendOptions struct {
 	// with this ID instead of a normal message. Mutually exclusive with the
 	// other options above.
 	RetractID string
+
+	// ReactionTargetID, if set, sends a XEP-0444 reaction-set update instead
+	// of a normal message: Reactions becomes the sender's complete, current
+	// reaction set on the message with this ID (an empty slice clears it).
+	// Mutually exclusive with the other options above.
+	ReactionTargetID string
+	Reactions        []string
 }
 
 const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
@@ -259,6 +276,8 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 		Body: body,
 	}
 	switch {
+	case opts.ReactionTargetID != "":
+		msg.Reactions = &reactionsElem{ID: opts.ReactionTargetID, Reactions: opts.Reactions}
 	case opts.RetractID != "":
 		msg.Retract = &retractElem{ID: opts.RetractID}
 		msg.Body = retractFallbackBody
@@ -307,6 +326,13 @@ type MessageEvent struct {
 	// carry no meaningful content (Body is just the compatibility fallback
 	// text, if present at all).
 	RetractID string
+
+	// ReactionTargetID is non-empty if this is a XEP-0444 reaction-set update:
+	// Reactions is the sender's complete, current reaction set on the
+	// message with this ID (may be empty, meaning they cleared it). When
+	// set, other fields besides ID/From/SentAt carry no meaningful content.
+	ReactionTargetID string
+	Reactions        []string
 }
 
 func (MessageEvent) isEvent() {}
@@ -350,6 +376,21 @@ func handleStanza(events chan<- Event, t xmlstream.TokenReadEncoder, start *xml.
 				From:      msg.From.String(),
 				SentAt:    time.Now(),
 				RetractID: msg.Retract.ID,
+			}
+			return
+		}
+
+		if msg.Reactions != nil {
+			reactions := msg.Reactions.Reactions
+			if reactions == nil {
+				reactions = []string{} // distinguish "cleared" from "field absent" for callers
+			}
+			events <- MessageEvent{
+				ID:               msg.ID,
+				From:             msg.From.String(),
+				SentAt:           time.Now(),
+				ReactionTargetID: msg.Reactions.ID,
+				Reactions:        reactions,
 			}
 			return
 		}

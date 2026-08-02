@@ -322,6 +322,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 			SentAt:    time.Unix(row.Delay, 0),
 			IsMe:      row.Sent,
 			Retracted: row.Retracted,
+			Reactions: loadReactionsForMessage(ctx, s, row.Idattr.String),
 		})
 		replyTo = append(replyTo, row.Replytoidattr.String)
 	}
@@ -334,6 +335,60 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		}
 	}
 	return msgs
+}
+
+// meReactorJID is the fromJID value used for our own account's rows in the
+// messageReactions table — reactions are always local to one account's
+// storage, so there's no ambiguity in using a fixed sentinel rather than the
+// account's real JID.
+const meReactorJID = "me"
+
+// replaceReactions fully replaces reactorJID's reaction set on msgID with
+// emojis, matching XEP-0444 semantics (a new reaction stanza always replaces
+// the sender's previous set, never adds to it).
+func replaceReactions(ctx context.Context, s *accountSession, msgID, reactorJID string, emojis []string) error {
+	if err := s.db.DeleteReactionsByReactor(ctx, storage.DeleteReactionsByReactorParams{
+		IDAttr: msgID, FromJid: reactorJID,
+	}); err != nil {
+		return err
+	}
+	for _, e := range emojis {
+		if err := s.db.InsertReaction(ctx, storage.InsertReactionParams{
+			IDAttr: msgID, FromJid: reactorJID, Emoji: e,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// loadReactionsForMessage aggregates all reactors' current sets on msgID into
+// per-emoji counts, flagging whether our own account is among the reactors.
+func loadReactionsForMessage(ctx context.Context, s *accountSession, msgID string) []ui.Reaction {
+	rows, err := s.db.ListReactionsForMessage(ctx, msgID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: loading reactions for %s: %v\n", msgID, err)
+		return nil
+	}
+
+	order := make([]string, 0, len(rows))
+	counts := make(map[string]int, len(rows))
+	mine := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if counts[row.Emoji] == 0 {
+			order = append(order, row.Emoji)
+		}
+		counts[row.Emoji]++
+		if row.Fromjid == meReactorJID {
+			mine[row.Emoji] = true
+		}
+	}
+
+	reactions := make([]ui.Reaction, len(order))
+	for i, emoji := range order {
+		reactions[i] = ui.Reaction{Emoji: emoji, Count: counts[emoji], Mine: mine[emoji]}
+	}
+	return reactions
 }
 
 // messageIndexByIDs returns the index of the message with the given stanza
@@ -357,6 +412,20 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 	}
 	s := a.sessions[accountIdx]
 	ctx := context.Background()
+
+	if opts.ReactionTargetID != "" {
+		id, err := s.client.Load().Send(ctx, to, "", xmpp.SendOptions{
+			ReactionTargetID: opts.ReactionTargetID,
+			Reactions:        opts.Reactions,
+		})
+		if err != nil {
+			return "", err
+		}
+		if err := replaceReactions(ctx, s, opts.ReactionTargetID, meReactorJID, opts.Reactions); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: persisting our own reactions: %v\n", err)
+		}
+		return id, nil
+	}
 
 	if opts.RetractID != "" {
 		// The retraction body is fixed fallback text, not user content —
@@ -511,6 +580,20 @@ func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 // and a MessageCorrectedMsg instead of appending a new message, and XEP-0424
 // retractions to a flag (never an actual delete — see ui.Message.Retracted).
 func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
+	if msgEv.ReactionTargetID != "" {
+		from := bareJID(msgEv.From)
+		if err := replaceReactions(ctx, s, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: persisting reactions from %s: %v\n", from, err)
+		}
+		p.Send(ui.MessageReactionsMsg{
+			AccountIdx: accountIdx,
+			From:       from,
+			MessageID:  msgEv.ReactionTargetID,
+			Reactions:  loadReactionsForMessage(ctx, s, msgEv.ReactionTargetID),
+		})
+		return
+	}
+
 	if msgEv.RetractID != "" {
 		from := bareJID(msgEv.From)
 		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{

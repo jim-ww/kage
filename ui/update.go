@@ -83,6 +83,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case MessageReactionsMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByID(msgs, msg.MessageID)
+		if idx < 0 {
+			return m, nil
+		}
+		msgs[idx].Reactions = msg.Reactions
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.refreshViewport()
+		}
+		return m, nil
+
 	case PresenceMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
@@ -203,6 +219,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case viewChats:
 				return m.openCurrentChat()
 			case viewChat:
+				if m.reactingMsgIdx >= 0 {
+					// Unlike a normal send, an empty input is meaningful here
+					// (it's how you clear your reaction set), so this bypasses
+					// the "empty means do nothing" rule below entirely.
+					newMine := toEmojiSet(m.input.Value())
+					cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, newMine))
+					m.reactingMsgIdx = -1
+					m.emojiSuggestions = nil
+					m.input.SetValue("")
+					m.input.Placeholder = "message..."
+					m.updateSizes()
+					m.refreshViewport()
+					return m, tea.Batch(cmds...)
+				}
+
 				text := strings.TrimSpace(m.input.Value())
 				if text == "" {
 					return m, nil
@@ -276,6 +307,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewport.GotoBottom()
 				return m, tea.Batch(cmds...)
 			}
+
+		case msg.String() == "tab" && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
+			// While composing a reaction with suggestions showing, Tab
+			// autocompletes the top match instead of switching focus.
+			m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), m.emojiSuggestions[0].Shortcode))
+			m.input.CursorEnd()
+			if token, _, ok := currentEmojiToken(m.input.Value()); ok {
+				m.emojiSuggestions = emojiSuggestionsFor(token)
+			} else {
+				m.emojiSuggestions = nil
+			}
+			return m, nil
 
 		case key.Matches(msg, m.keys.Switch):
 			switch m.selectedView {
@@ -437,6 +480,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			}
+
+		case key.Matches(msg, m.keys.QuickReact):
+			if m.selectedView == viewChat {
+				msgs := m.currentMessages()
+				if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+					cmds = append(cmds, m.showNotification("no message selected"))
+					return m, tea.Batch(cmds...)
+				}
+				newMine := toggleEmoji(mineEmojis(msgs[m.selectedMsg].Reactions), "👍")
+				cmds = append(cmds, m.sendReaction(m.selectedMsg, newMine))
+				m.refreshViewport()
+				return m, tea.Batch(cmds...)
+			}
+
+		case key.Matches(msg, m.keys.ReactMsg):
+			if m.selectedView == viewChat {
+				msgs := m.currentMessages()
+				if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+					cmds = append(cmds, m.showNotification("no message selected"))
+					return m, tea.Batch(cmds...)
+				}
+				m.reactingMsgIdx = m.selectedMsg
+				m.input.SetValue("")
+				m.input.Placeholder = "react: :shortcode: or emoji, enter to send..."
+				m.emojiSuggestions = nil
+				m.updateSizes()
+				cmds = append(cmds, m.input.Focus())
+				return m, tea.Batch(cmds...)
+			}
 		}
 	}
 
@@ -468,6 +540,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case viewChat:
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
+		if m.reactingMsgIdx >= 0 {
+			if token, _, ok := currentEmojiToken(m.input.Value()); ok {
+				m.emojiSuggestions = emojiSuggestionsFor(token)
+			} else {
+				m.emojiSuggestions = nil
+			}
+		}
 	}
 
 	return m, tea.Batch(cmds...)

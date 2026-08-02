@@ -130,6 +130,24 @@ WHERE rosterJID = ?
 ORDER BY delay ASC;
 
 
+-- name: DeleteReactionsByReactor :exec
+DELETE FROM messageReactions
+WHERE idAttr = sqlc.arg(id_attr)
+	AND fromJID = sqlc.arg(from_jid);
+
+
+-- name: InsertReaction :exec
+INSERT INTO messageReactions (idAttr, fromJID, emoji)
+VALUES (sqlc.arg(id_attr), sqlc.arg(from_jid), sqlc.arg(emoji))
+ON CONFLICT (idAttr, fromJID, emoji) DO NOTHING;
+
+
+-- name: ListReactionsForMessage :many
+SELECT fromJID, emoji
+FROM messageReactions
+WHERE idAttr = sqlc.arg(id_attr);
+
+
 -- name: ListLatestArchiveIDs :many
 SELECT
 	j.jid,

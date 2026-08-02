@@ -47,22 +47,10 @@ func (m Model) View() tea.View {
 		inputBorder = colors.accentCyan
 	}
 
-	var inputInner string
 	inputWidth := m.chatAreaWidth() - 2
-	if m.replyToIdx >= 0 {
-		chatIdx := m.currentChatIndex()
-		if chatIdx >= 0 {
-			msgs := m.currentMessages()
-			if m.replyToIdx < len(msgs) {
-				orig := msgs[m.replyToIdx]
-				hint := m.styles.renderReplyHint(orig.Author, previewText(orig.Content, previewLen))
-				inputInner = m.styles.inputInnerBox(inputWidth, hint) + "\n" + m.styles.inputInnerBox(inputWidth, m.input.View())
-			} else {
-				inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
-			}
-		} else {
-			inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
-		}
+	var inputInner string
+	if hint := m.inputHint(); hint != "" {
+		inputInner = m.styles.inputInnerBox(inputWidth, hint) + "\n" + m.styles.inputInnerBox(inputWidth, m.input.View())
 	} else {
 		inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
 	}
@@ -227,6 +215,26 @@ func (m Model) renderAccountsList(width int) string {
 		rows[i] = m.styles.renderAccountRow(name, i == m.currentAccount)
 	}
 	return strings.Join(rows, "\n")
+}
+
+// inputHint renders the optional line shown above the input box: a reply
+// quote, or the reacting-to hint plus live emoji-shortcode suggestions.
+// Empty if neither applies.
+func (m Model) inputHint() string {
+	if m.replyToIdx >= 0 {
+		msgs := m.currentMessages()
+		if m.replyToIdx < len(msgs) {
+			orig := msgs[m.replyToIdx]
+			return m.styles.renderReplyHint(orig.Author, previewText(orig.Content, previewLen))
+		}
+	}
+	if m.reactingMsgIdx >= 0 {
+		msgs := m.currentMessages()
+		if m.reactingMsgIdx < len(msgs) {
+			return m.styles.renderReactHint(previewText(msgs[m.reactingMsgIdx].Content, previewLen), m.emojiSuggestions)
+		}
+	}
+	return ""
 }
 
 func (m Model) renderChatStatusBar(width int) string {

@@ -63,6 +63,13 @@ type Message struct {
 	Retracted     bool           `db:"retracted"`
 }
 
+type Messagereaction struct {
+	ID      int64  `db:"id"`
+	Idattr  string `db:"idattr"`
+	Fromjid string `db:"fromjid"`
+	Emoji   string `db:"emoji"`
+}
+
 type Rostergroup struct {
 	ID   int64  `db:"id"`
 	Jid  string `db:"jid"`

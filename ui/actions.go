@@ -222,10 +222,38 @@ func (m *Model) deleteSelectedChat() tea.Cmd {
 	return cmd
 }
 
-// cancelPending clears any in-progress edit or reply.
+// sendReaction updates our own reaction set on the message at idx (in the
+// current chat) to newMine, both locally (optimistic aggregate update) and
+// over the network via XEP-0444.
+func (m *Model) sendReaction(idx int, newMine []string) tea.Cmd {
+	msgs := m.currentMessages()
+	if idx < 0 || idx >= len(msgs) {
+		return nil
+	}
+	if msgs[idx].ID == "" {
+		return m.showNotification("message has no id; can't react")
+	}
+	chat, ok := m.currentChat()
+	if !ok || chat.Address == "" || m.sender == nil {
+		return nil
+	}
+
+	msgs[idx].Reactions = setMyReactions(msgs[idx].Reactions, newMine)
+	if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{
+		ReactionTargetID: msgs[idx].ID,
+		Reactions:        newMine,
+	}); err != nil {
+		return m.showNotification("reaction not delivered: " + err.Error())
+	}
+	return nil
+}
+
+// cancelPending clears any in-progress edit, reply, or reaction composition.
 func (m *Model) cancelPending() {
 	m.editingMsgIdx = -1
 	m.replyToIdx = -1
+	m.reactingMsgIdx = -1
+	m.emojiSuggestions = nil
 	m.input.SetValue("")
 	m.input.Placeholder = "message..."
 	m.updateSizes()

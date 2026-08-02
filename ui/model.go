@@ -23,6 +23,17 @@ type Message struct {
 	// remote retraction to erase what was said on our side — but flagged so
 	// the attempt is visible.
 	Retracted bool
+
+	// Reactions is the aggregate (XEP-0444) reaction state on this message
+	// across everyone who's reacted, one entry per distinct emoji.
+	Reactions []Reaction
+}
+
+// Reaction is one distinct emoji's aggregate state on a message.
+type Reaction struct {
+	Emoji string
+	Count int
+	Mine  bool // true if our own account is one of the reactors for Emoji
 }
 
 type Account struct {
@@ -100,6 +111,13 @@ type SendOptions struct {
 	// with this ID instead of a normal message. Mutually exclusive with the
 	// other options above.
 	RetractID string
+
+	// ReactionTargetID, if set, sends a XEP-0444 reaction-set update instead
+	// of a normal message: Reactions becomes our complete, current reaction
+	// set on the message with this ID (an empty-but-non-nil slice clears
+	// it). Mutually exclusive with the other options above.
+	ReactionTargetID string
+	Reactions        []string
 }
 
 // MessageSender delivers an outgoing message for the given account to "to"
@@ -139,6 +157,17 @@ type MessageRetractedMsg struct {
 	RetractID  string // ID of the message being retracted
 }
 
+// MessageReactionsMsg is sent into the Bubble Tea loop when a XEP-0444
+// reaction-set update arrives for a message already shown for one of the
+// configured accounts. Reactions is the full recomputed aggregate to
+// display, replacing whatever was there before.
+type MessageReactionsMsg struct {
+	AccountIdx int
+	From       string // bare JID (chat)
+	MessageID  string // ID of the message being reacted to
+	Reactions  []Reaction
+}
+
 // PresenceMsg is sent into the Bubble Tea loop when a contact's presence
 // changes for one of the configured accounts.
 type PresenceMsg struct {
@@ -162,16 +191,18 @@ type Model struct {
 	viewport viewport.Model
 
 	// message interaction state
-	selectedMsg   int // index of highlighted message (meaningful in viewViewport)
-	editingMsgIdx int // >= 0 while editing a message; -1 otherwise
-	replyToIdx    int // >= 0 while composing a reply; -1 otherwise
-	confirmTarget confirmTarget
-	showMsgInfo   bool     // true while the message-info popup is open
-	openItems     []string // non-empty while the open-link/attachment picker is open
-	openPage      int      // current page (of openItemsPerPage items) in the open picker
-	msgOffsets    []int    // line offset of each message inside viewport content
-	noticeText    string
-	noticeID      int
+	selectedMsg      int               // index of highlighted message (meaningful in viewViewport)
+	editingMsgIdx    int               // >= 0 while editing a message; -1 otherwise
+	replyToIdx       int               // >= 0 while composing a reply; -1 otherwise
+	reactingMsgIdx   int               // >= 0 while composing a reaction; -1 otherwise
+	emojiSuggestions []emojiSuggestion // live fuzzy matches for the shortcode being typed, while reactingMsgIdx >= 0
+	confirmTarget    confirmTarget
+	showMsgInfo      bool     // true while the message-info popup is open
+	openItems        []string // non-empty while the open-link/attachment picker is open
+	openPage         int      // current page (of openItemsPerPage items) in the open picker
+	msgOffsets       []int    // line offset of each message inside viewport content
+	noticeText       string
+	noticeID         int
 
 	sender MessageSender
 }
@@ -214,6 +245,7 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender) Mod
 		viewport:       viewport.New(),
 		editingMsgIdx:  -1,
 		replyToIdx:     -1,
+		reactingMsgIdx: -1,
 		sender:         sender,
 	}
 }
@@ -252,10 +284,10 @@ func (m Model) sidebarWidth() int {
 }
 func (m Model) chatAreaWidth() int { return m.width - m.sidebarWidth() - 1 }
 
-// inputAreaHeight accounts for the optional reply-hint line.
+// inputAreaHeight accounts for the optional reply-hint / reacting-hint line.
 func (m Model) inputAreaHeight() int {
-	if m.replyToIdx >= 0 {
-		return 3 // top border + reply hint line + input line
+	if m.replyToIdx >= 0 || m.reactingMsgIdx >= 0 {
+		return 3 // top border + hint line + input line
 	}
 	return 2 // top border + input line
 }

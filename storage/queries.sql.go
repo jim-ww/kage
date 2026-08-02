@@ -29,6 +29,22 @@ func (q *Queries) DeleteMessageByID(ctx context.Context, arg DeleteMessageByIDPa
 	return result.RowsAffected()
 }
 
+const deleteReactionsByReactor = `-- name: DeleteReactionsByReactor :exec
+DELETE FROM messageReactions
+WHERE idAttr = ?1
+	AND fromJID = ?2
+`
+
+type DeleteReactionsByReactorParams struct {
+	IDAttr  string `db:"id_attr"`
+	FromJid string `db:"from_jid"`
+}
+
+func (q *Queries) DeleteReactionsByReactor(ctx context.Context, arg DeleteReactionsByReactorParams) error {
+	_, err := q.db.ExecContext(ctx, deleteReactionsByReactor, arg.IDAttr, arg.FromJid)
+	return err
+}
+
 const deleteRosterByJID = `-- name: DeleteRosterByJID :exec
 DELETE FROM rosterJIDs
 WHERE jid = ?
@@ -319,6 +335,23 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 	return id, err
 }
 
+const insertReaction = `-- name: InsertReaction :exec
+INSERT INTO messageReactions (idAttr, fromJID, emoji)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (idAttr, fromJID, emoji) DO NOTHING
+`
+
+type InsertReactionParams struct {
+	IDAttr  string `db:"id_attr"`
+	FromJid string `db:"from_jid"`
+	Emoji   string `db:"emoji"`
+}
+
+func (q *Queries) InsertReaction(ctx context.Context, arg InsertReactionParams) error {
+	_, err := q.db.ExecContext(ctx, insertReaction, arg.IDAttr, arg.FromJid, arg.Emoji)
+	return err
+}
+
 const insertRosterGroup = `-- name: InsertRosterGroup :exec
 INSERT INTO rosterGroups (jid, name)
 VALUES (?, ?)
@@ -470,6 +503,40 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Replytoidattr,
 			&i.Retracted,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReactionsForMessage = `-- name: ListReactionsForMessage :many
+SELECT fromJID, emoji
+FROM messageReactions
+WHERE idAttr = ?1
+`
+
+type ListReactionsForMessageRow struct {
+	Fromjid string `db:"fromjid"`
+	Emoji   string `db:"emoji"`
+}
+
+func (q *Queries) ListReactionsForMessage(ctx context.Context, idAttr string) ([]ListReactionsForMessageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listReactionsForMessage, idAttr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReactionsForMessageRow
+	for rows.Next() {
+		var i ListReactionsForMessageRow
+		if err := rows.Scan(&i.Fromjid, &i.Emoji); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

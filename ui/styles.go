@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
@@ -332,4 +333,16 @@ func (s uiStyles) renderMessageHeader(timeLabel, nick string, isMe bool) string 
 
 func (s uiStyles) renderReplyHint(author, preview string) string {
 	return s.messageReply.Render(fmt.Sprintf("↩ %s: %s", author, preview))
+}
+
+func (s uiStyles) renderReactHint(target string, suggestions []emojiSuggestion) string {
+	hint := fmt.Sprintf("react to %q", target)
+	if len(suggestions) > 0 {
+		codes := make([]string, len(suggestions))
+		for i, sug := range suggestions {
+			codes[i] = sug.Emoji + sug.Shortcode
+		}
+		hint += "  →  " + strings.Join(codes, " ") + "  [tab] complete"
+	}
+	return s.messageReply.Render(hint)
 }
