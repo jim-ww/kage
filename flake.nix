@@ -18,7 +18,7 @@
           pname = "kage";
           version = "1.0";
           src = pkgs.lib.cleanSource ./.;
-          vendorHash = "sha256-qvYjOa+Ojy5zt4jkCx8BJdd1uB87g3wnWdyt1RVXCgU=";
+          vendorHash = "sha256-GdBTpbrdfeQ9W0MG9aGbpyFxlwK28s/LBR/lfbSbH3U=";
         };
 
         # `nix develop` gives you `prosody`/`prosodyctl`/`openssl` for
