@@ -212,3 +212,50 @@ func TestAddAccountFormRendersFullPlaceholders(t *testing.T) {
 		}
 	}
 }
+
+// TestAddAccountFormPaste guards against a real bug found manually: bracketed
+// paste arrives as tea.PasteMsg, not tea.KeyMsg, so it skipped the form's key
+// interception entirely and fell through to the "route remaining events"
+// switch, which only knew about m.selectedView (still viewAccounts while the
+// form floats on top of it) and silently dropped it.
+func TestAddAccountFormPaste(t *testing.T) {
+	adder := &fakeAccountAdder{}
+	m := newTestModel(adder)
+	m.selectedView = viewAccounts
+
+	next, _ := m.Update(keyText("a"))
+	m = next.(Model)
+
+	next, _ = m.Update(tea.PasteMsg{Content: "alice@example.com"})
+	m = next.(Model)
+
+	if got := m.addAccountInputs[0].Value(); got != "alice@example.com" {
+		t.Fatalf("JID field after paste = %q, want %q", got, "alice@example.com")
+	}
+
+	next, _ = m.Update(keyCode(tea.KeyTab))
+	m = next.(Model)
+	next, _ = m.Update(tea.PasteMsg{Content: "hunter2"})
+	m = next.(Model)
+	if got := m.addAccountInputs[1].Value(); got != "hunter2" {
+		t.Fatalf("password field after paste = %q, want %q", got, "hunter2")
+	}
+}
+
+// TestChatComposePaste is a sanity check that the main chat compose input
+// (m.input, used outside the add-account form) already receives paste
+// correctly via the pre-existing "route remaining events" switch — added
+// alongside the add-account paste fix above to document that this path was
+// not affected by the same bug.
+func TestChatComposePaste(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.accounts = []Account{{Name: "me", Chats: nil, Messages: map[int][]Message{}}}
+
+	next, _ := m.Update(tea.PasteMsg{Content: "pasted text"})
+	m = next.(Model)
+
+	if got := m.input.Value(); got != "pasted text" {
+		t.Fatalf("chat input after paste = %q, want %q", got, "pasted text")
+	}
+}

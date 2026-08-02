@@ -535,6 +535,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Route remaining events to the focused component. Checked before the
+	// m.selectedView switch below since the add-account form floats on top
+	// of viewAccounts: non-key messages (bracketed-paste text, the
+	// textinput cursor-blink tick) aren't caught by the key interception
+	// above (that only matches tea.KeyMsg), so without this they'd fall
+	// through to the "Account focus is handled by global keys only" case
+	// and silently vanish — e.g. paste never reaching the focused field.
+	if m.addingAccount {
+		var cmd tea.Cmd
+		m.addAccountInputs[m.addAccountFocus], cmd = m.addAccountInputs[m.addAccountFocus].Update(msg)
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+
 	// Route remaining events to the focused component.
 	var cmd tea.Cmd
 	switch m.selectedView {
