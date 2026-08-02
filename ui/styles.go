@@ -335,14 +335,18 @@ func (s uiStyles) renderReplyHint(author, preview string) string {
 	return s.messageReply.Render(fmt.Sprintf("↩ %s: %s", author, preview))
 }
 
-func (s uiStyles) renderReactHint(target string, suggestions []emojiSuggestion) string {
+func (s uiStyles) renderReactHint(target string, suggestions []emojiSuggestion, selected int) string {
 	hint := fmt.Sprintf("react to %q", target)
 	if len(suggestions) > 0 {
 		codes := make([]string, len(suggestions))
 		for i, sug := range suggestions {
-			codes[i] = sug.Emoji + sug.Shortcode
+			label := sug.Emoji + sug.Shortcode
+			if i == selected {
+				label = s.messageSelectedPrefix.Render("[" + label + "]")
+			}
+			codes[i] = label
 		}
-		hint += "  →  " + strings.Join(codes, " ") + "  [tab] complete"
+		hint += "  →  " + strings.Join(codes, " ") + "  [←/→] pick · [tab] accept"
 	}
 	return s.messageReply.Render(hint)
 }

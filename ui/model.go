@@ -196,6 +196,7 @@ type Model struct {
 	replyToIdx       int               // >= 0 while composing a reply; -1 otherwise
 	reactingMsgIdx   int               // >= 0 while composing a reaction; -1 otherwise
 	emojiSuggestions []emojiSuggestion // live fuzzy matches for the shortcode being typed, while reactingMsgIdx >= 0
+	emojiSuggestIdx  int               // which suggestion is highlighted; left/right to move, tab to accept it
 	confirmTarget    confirmTarget
 	showMsgInfo      bool     // true while the message-info popup is open
 	openItems        []string // non-empty while the open-link/attachment picker is open

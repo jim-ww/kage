@@ -182,7 +182,14 @@ func emojiSuggestionsFor(word string) []emojiSuggestion {
 	for code, score := range best {
 		ranked = append(ranked, scored{code, score})
 	}
-	sort.Slice(ranked, func(i, j int) bool { return ranked[i].score > ranked[j].score })
+	// Break score ties by shortcode so results are deterministic — map
+	// iteration order above is randomized, and equal scores are common.
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		return ranked[i].code < ranked[j].code
+	})
 
 	n := min(len(ranked), maxEmojiSuggestions)
 	out := make([]emojiSuggestion, n)

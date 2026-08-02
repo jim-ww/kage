@@ -231,7 +231,7 @@ func (m Model) inputHint() string {
 	if m.reactingMsgIdx >= 0 {
 		msgs := m.currentMessages()
 		if m.reactingMsgIdx < len(msgs) {
-			return m.styles.renderReactHint(previewText(msgs[m.reactingMsgIdx].Content, previewLen), m.emojiSuggestions)
+			return m.styles.renderReactHint(previewText(msgs[m.reactingMsgIdx].Content, previewLen), m.emojiSuggestions, m.emojiSuggestIdx)
 		}
 	}
 	return ""

@@ -187,6 +187,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 
+		// ── Reaction-composition suggestion nav (must precede ChatOpen,
+		// which also binds "right", and Switch, which binds "tab") ────────
+		case m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0 && (msg.String() == "left" || msg.String() == "right"):
+			n := len(m.emojiSuggestions)
+			if msg.String() == "left" {
+				m.emojiSuggestIdx = (m.emojiSuggestIdx - 1 + n) % n
+			} else {
+				m.emojiSuggestIdx = (m.emojiSuggestIdx + 1) % n
+			}
+			return m, nil
+
+		case msg.String() == "tab" && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
+			chosen := m.emojiSuggestions[m.emojiSuggestIdx].Shortcode
+			m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), chosen))
+			m.input.CursorEnd()
+			var next []emojiSuggestion
+			if token, _, ok := currentWordToken(m.input.Value()); ok {
+				next = emojiSuggestionsFor(token)
+			}
+			m.setEmojiSuggestions(next)
+			return m, nil
+
 		// ── Global ────────────────────────────────────────────────────────
 		case key.Matches(msg, m.keys.Quit):
 			if msg.String() == "ctrl+c" || m.selectedView != viewChat {
@@ -226,7 +248,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					newMine := toEmojiSet(m.input.Value())
 					cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, newMine))
 					m.reactingMsgIdx = -1
-					m.emojiSuggestions = nil
+					m.setEmojiSuggestions(nil)
 					m.input.SetValue("")
 					m.input.Placeholder = "message..."
 					m.updateSizes()
@@ -307,18 +329,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewport.GotoBottom()
 				return m, tea.Batch(cmds...)
 			}
-
-		case msg.String() == "tab" && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
-			// While composing a reaction with suggestions showing, Tab
-			// autocompletes the top match instead of switching focus.
-			m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), m.emojiSuggestions[0].Shortcode))
-			m.input.CursorEnd()
-			if token, _, ok := currentWordToken(m.input.Value()); ok {
-				m.emojiSuggestions = emojiSuggestionsFor(token)
-			} else {
-				m.emojiSuggestions = nil
-			}
-			return m, nil
 
 		case key.Matches(msg, m.keys.Switch):
 			switch m.selectedView {
@@ -504,7 +514,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reactingMsgIdx = m.selectedMsg
 				m.input.SetValue("")
 				m.input.Placeholder = "react: :shortcode: or emoji, enter to send..."
-				m.emojiSuggestions = nil
+				m.setEmojiSuggestions(nil)
 				m.updateSizes()
 				cmds = append(cmds, m.input.Focus())
 				return m, tea.Batch(cmds...)
@@ -542,9 +552,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 		if m.reactingMsgIdx >= 0 {
 			if token, _, ok := currentWordToken(m.input.Value()); ok {
-				m.emojiSuggestions = emojiSuggestionsFor(token)
+				m.setEmojiSuggestions(emojiSuggestionsFor(token))
 			} else {
-				m.emojiSuggestions = nil
+				m.setEmojiSuggestions(nil)
 			}
 		}
 	}

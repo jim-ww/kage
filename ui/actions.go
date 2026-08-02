@@ -248,12 +248,20 @@ func (m *Model) sendReaction(idx int, newMine []string) tea.Cmd {
 	return nil
 }
 
+// setEmojiSuggestions replaces the live suggestion list and resets which one
+// is highlighted — always reset together so the highlight never points past
+// the end of a freshly narrowed list.
+func (m *Model) setEmojiSuggestions(sugs []emojiSuggestion) {
+	m.emojiSuggestions = sugs
+	m.emojiSuggestIdx = 0
+}
+
 // cancelPending clears any in-progress edit, reply, or reaction composition.
 func (m *Model) cancelPending() {
 	m.editingMsgIdx = -1
 	m.replyToIdx = -1
 	m.reactingMsgIdx = -1
-	m.emojiSuggestions = nil
+	m.setEmojiSuggestions(nil)
 	m.input.SetValue("")
 	m.input.Placeholder = "message..."
 	m.updateSizes()
