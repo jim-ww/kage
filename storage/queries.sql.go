@@ -397,7 +397,8 @@ SELECT
 	fromAttr,
 	idAttr,
 	body,
-	stanzaType
+	stanzaType,
+	delay
 FROM messages
 WHERE rosterJID = ?
 	AND stanzaType = COALESCE(
@@ -419,6 +420,7 @@ type ListMessagesByRosterRow struct {
 	Idattr     sql.NullString `db:"idattr"`
 	Body       sql.NullString `db:"body"`
 	Stanzatype string         `db:"stanzatype"`
+	Delay      int64          `db:"delay"`
 }
 
 func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]ListMessagesByRosterRow, error) {
@@ -437,6 +439,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Idattr,
 			&i.Body,
 			&i.Stanzatype,
+			&i.Delay,
 		); err != nil {
 			return nil, err
 		}

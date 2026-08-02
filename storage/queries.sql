@@ -93,7 +93,8 @@ SELECT
 	fromAttr,
 	idAttr,
 	body,
-	stanzaType
+	stanzaType,
+	delay
 FROM messages
 WHERE rosterJID = ?
 	AND stanzaType = COALESCE(

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -103,6 +104,14 @@ func connectAccounts(ctx context.Context, accounts []config.Account) ([]*account
 			fmt.Fprintf(os.Stderr, "warning: account %s has no gpg_key_id configured; message bodies will NOT be persisted to disk (history is encryption-only)\n", acct.JID)
 		}
 
+		sess := &accountSession{
+			account: acct,
+			client:  client,
+			db:      queries,
+			dbConn:  db,
+			gpg:     gpg.Encrypter{},
+		}
+
 		contacts, err := client.Roster(ctx)
 		if err != nil {
 			client.Close()
@@ -111,7 +120,8 @@ func connectAccounts(ctx context.Context, accounts []config.Account) ([]*account
 		}
 
 		chats := make([]list.Item, 0, len(contacts))
-		for _, c := range contacts {
+		messages := make(map[int][]ui.Message, len(contacts))
+		for i, c := range contacts {
 			name := c.Name
 			if name == "" {
 				name = c.JID
@@ -122,19 +132,16 @@ func connectAccounts(ctx context.Context, accounts []config.Account) ([]*account
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: persisting roster entry %s: %v\n", c.JID, err)
 			}
+			if hist := loadHistory(ctx, sess, c.JID, name); len(hist) > 0 {
+				messages[i] = hist
+			}
 		}
 
-		sessions = append(sessions, &accountSession{
-			account: acct,
-			client:  client,
-			db:      queries,
-			dbConn:  db,
-			gpg:     gpg.Encrypter{},
-		})
+		sessions = append(sessions, sess)
 		uiAccounts = append(uiAccounts, ui.Account{
 			Name:     acct.JID,
 			Chats:    chats,
-			Messages: make(map[int][]ui.Message),
+			Messages: messages,
 		})
 	}
 
@@ -164,6 +171,52 @@ func encryptForStorage(s *accountSession, plaintext string) sql.NullString {
 	return sql.NullString{String: ct, Valid: true}
 }
 
+// bareJID strips the resource part (after "/") from a full JID, matching the
+// bare-JID form roster entries and stored messages are keyed by.
+func bareJID(addr string) string {
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		return addr[:i]
+	}
+	return addr
+}
+
+// loadHistory reads chatAddr's persisted history back from storage, decrypting
+// each body with the account's own GPG key. Rows with no body (never
+// persisted — no key configured at the time, or encryption failed) are
+// skipped since there is nothing to recover.
+func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName string) []ui.Message {
+	rows, err := s.db.ListMessagesByRoster(ctx, storage.ListMessagesByRosterParams{
+		Rosterjid: nullString(chatAddr),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: loading history for %s: %v\n", chatAddr, err)
+		return nil
+	}
+
+	msgs := make([]ui.Message, 0, len(rows))
+	for _, row := range rows {
+		if !row.Body.Valid {
+			continue
+		}
+		pt, err := s.gpg.Decrypt(row.Body.String, s.account.GPGKeyID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: decrypting history for %s: %v\n", chatAddr, err)
+			continue
+		}
+		author := chatName
+		if row.Sent {
+			author = "me"
+		}
+		msgs = append(msgs, ui.Message{
+			Author:  author,
+			Content: pt,
+			SentAt:  time.Unix(row.Delay, 0),
+			IsMe:    row.Sent,
+		})
+	}
+	return msgs
+}
+
 func (a *adapter) Send(accountIdx int, to, body string) error {
 	if accountIdx < 0 || accountIdx >= len(a.sessions) {
 		return fmt.Errorf("unknown account %d", accountIdx)
@@ -188,6 +241,7 @@ func (a *adapter) Send(accountIdx int, to, body string) error {
 		ToAttr:     nullString(to),
 		Body:       encryptForStorage(s, body),
 		StanzaType: "chat",
+		RosterJid:  nullString(to),
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: persisting sent message: %v\n", err)
 	}
@@ -217,6 +271,7 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 			FromAttr:   nullString(msgEv.From),
 			Body:       encryptForStorage(s, body),
 			StanzaType: "chat",
+			RosterJid:  nullString(bareJID(msgEv.From)),
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: persisting received message: %v\n", err)
 		}
