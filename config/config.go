@@ -8,7 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"codeberg.org/jim-ww/kage/ui"
+	"github.com/jim-ww/kage/ui"
 )
 
 type fileConfig struct {

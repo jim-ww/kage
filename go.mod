@@ -1,4 +1,4 @@
-module codeberg.org/jim-ww/kage
+module github.com/jim-ww/kage
 
 go 1.26.1
 

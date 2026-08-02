@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/jim-ww/kage/config"
-	"codeberg.org/jim-ww/kage/crypto/gpg"
-	"codeberg.org/jim-ww/kage/storage"
-	"codeberg.org/jim-ww/kage/xmpp"
+	"github.com/jim-ww/kage/config"
+	"github.com/jim-ww/kage/crypto/gpg"
+	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/xmpp"
 )
 
 // genTestGPGKey generates a throwaway EdDSA/Curve25519 keypair in a fresh,

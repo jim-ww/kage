@@ -1,5 +1,5 @@
 # ui
-- use default gpg key, or select first if there is only one gpg key, write its ID to config automatically
+- use flock lib to only allow one instance of app per account
 - list chat participants, ability to see info about them, start chat with them
 - account manager: fix adding duplicate accounts
 - account management: status ('● Online', '◐ Away', '○ Offline') and manage it

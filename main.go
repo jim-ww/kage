@@ -16,11 +16,11 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"codeberg.org/jim-ww/kage/config"
-	"codeberg.org/jim-ww/kage/crypto/gpg"
-	"codeberg.org/jim-ww/kage/storage"
-	"codeberg.org/jim-ww/kage/ui"
-	"codeberg.org/jim-ww/kage/xmpp"
+	"github.com/jim-ww/kage/config"
+	"github.com/jim-ww/kage/crypto/gpg"
+	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/ui"
+	"github.com/jim-ww/kage/xmpp"
 	"golang.org/x/term"
 	"mellium.im/xmpp/jid"
 )
