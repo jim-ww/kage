@@ -31,9 +31,13 @@ func (m Model) View() tea.View {
 		// accountFg = colors.appBg
 	}
 	statusLine := m.styles.sidebarStatusLine(sw, accountBg, accountFg, m.renderAccountBar(sw))
+	sidebarBody := m.chats.View()
+	if m.selectedView == viewAccounts {
+		sidebarBody = m.renderAccountsList(sw)
+	}
 	sidebarInner := lipgloss.JoinVertical(lipgloss.Left,
 		statusLine,
-		m.styles.sidebarInner(sw, max(0, m.height-sidebarStatusHeight), m.chats.View()),
+		m.styles.sidebarInner(sw, max(0, m.height-sidebarStatusHeight), sidebarBody),
 	)
 	sidebar := m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner)
 
@@ -130,19 +134,25 @@ func (m Model) renderAccountBar(width int) string {
 	if len(m.accounts) == 0 {
 		return "accounts: none"
 	}
-	parts := make([]string, 0, len(m.accounts)+1)
-	parts = append(parts, "accounts:")
-	for i, account := range m.accounts {
-		name := account.Name
-		switch {
-		case i == m.currentAccount && m.selectedView == viewAccounts:
-			name = "[" + name + "]"
-		case i == m.currentAccount:
-			name = "<" + name + ">"
-		}
-		parts = append(parts, name)
+	label := "accounts"
+	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
+		label = fmt.Sprintf("accounts: %s", m.accounts[m.currentAccount].Name)
 	}
-	return ansi.Truncate(strings.Join(parts, " "), max(1, width-2), "…")
+	return ansi.Truncate(label, max(1, width-2), "…")
+}
+
+// renderAccountsList renders one row per account, current one highlighted,
+// for display in the sidebar while viewAccounts is focused.
+func (m Model) renderAccountsList(width int) string {
+	if len(m.accounts) == 0 {
+		return m.styles.accountNormal.Render("no accounts configured")
+	}
+	rows := make([]string, len(m.accounts))
+	for i, account := range m.accounts {
+		name := ansi.Truncate(account.Name, max(1, width-3), "…") // -3 for border + padding
+		rows[i] = m.styles.renderAccountRow(name, i == m.currentAccount)
+	}
+	return strings.Join(rows, "\n")
 }
 
 func (m Model) renderChatStatusBar(width int) string {

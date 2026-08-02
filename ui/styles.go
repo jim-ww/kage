@@ -83,6 +83,8 @@ type uiStyles struct {
 	popup                 lipgloss.Style
 	popupDanger           lipgloss.Style
 	footer                lipgloss.Style
+	accountNormal         lipgloss.Style
+	accountSelected       lipgloss.Style
 }
 
 func newUIStyles(theme Theme) uiStyles {
@@ -135,6 +137,15 @@ func newUIStyles(theme Theme) uiStyles {
 		footer: lipgloss.NewStyle().
 			Foreground(colors.time).
 			Padding(0, 1),
+		accountNormal: lipgloss.NewStyle().
+			Foreground(colors.themFg).
+			PaddingLeft(1),
+		accountSelected: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, false, true).
+			BorderForeground(colors.borderA).
+			Foreground(colors.themFg).
+			Bold(true).
+			PaddingLeft(1),
 	}
 }
 
@@ -253,6 +264,13 @@ func (s uiStyles) popupDialog(border color.Color, content string) string {
 
 func (s uiStyles) footerBar(width int, content string) string {
 	return s.footer.Width(width).Render(content)
+}
+
+func (s uiStyles) renderAccountRow(name string, selected bool) string {
+	if selected {
+		return s.accountSelected.Render(name)
+	}
+	return s.accountNormal.Render(name)
 }
 
 func (s uiStyles) deletePrompt(title string) string {
