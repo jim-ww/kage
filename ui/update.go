@@ -134,9 +134,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ── Viewport paging (chat view) ───────────────────────────────────
 		case isViewportPagingKey(msg):
 			if m.selectedView == viewChat {
+				oldOffset := m.viewport.YOffset()
 				var viewportCmd tea.Cmd
 				m.viewport, viewportCmd = m.viewport.Update(msg)
 				cmds = append(cmds, viewportCmd)
+				// Keep the message selection in sync with whatever paging
+				// just scrolled into view, instead of leaving it pointing
+				// at a message that's no longer on screen. Only do this if
+				// paging actually moved the viewport — e.g. short chats that
+				// fit on screen have nothing to page, and pgup/pgdown must
+				// leave the current selection untouched in that case.
+				newOffset := m.viewport.YOffset()
+				if len(m.msgOffsets) > 0 && newOffset != oldOffset {
+					m.selectedMsg = m.msgIndexAtOffset(newOffset)
+					m.refreshViewport()
+					m.viewport.SetYOffset(newOffset)
+				}
 				return m, tea.Batch(cmds...)
 			}
 

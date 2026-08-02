@@ -222,3 +222,17 @@ func (m *Model) refreshViewportScrollTo(msgIdx int) {
 		m.viewport.SetYOffset(m.msgOffsets[msgIdx])
 	}
 }
+
+// msgIndexAtOffset returns the index of the topmost message at or above the
+// given viewport line offset, used to keep message selection in sync after
+// free-scrolling (paging) through the viewport.
+func (m Model) msgIndexAtOffset(yOffset int) int {
+	idx := 0
+	for i, off := range m.msgOffsets {
+		if off > yOffset {
+			break
+		}
+		idx = i
+	}
+	return idx
+}
