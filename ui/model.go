@@ -63,6 +63,22 @@ const (
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
+// MessageSender delivers an outgoing message for the given account to "to"
+// (a bare/full JID). Implemented outside ui — by an adapter that knows about
+// the xmpp session and any per-peer encryption — so ui stays decoupled from
+// both.
+type MessageSender interface {
+	Send(accountIdx int, to, body string) error
+}
+
+// IncomingMessageMsg is sent into the Bubble Tea loop when a message arrives
+// from the network for one of the configured accounts.
+type IncomingMessageMsg struct {
+	AccountIdx int
+	From       string // bare/full JID the message came from
+	Message    Message
+}
+
 type Model struct {
 	width, height int
 	selectedView
@@ -88,13 +104,15 @@ type Model struct {
 	msgOffsets    []int    // line offset of each message inside viewport content
 	noticeText    string
 	noticeID      int
+
+	sender MessageSender
 }
 
 type noticeClearMsg struct {
 	id int
 }
 
-func New(accounts []Account, keys KeyMap, theme Theme) Model {
+func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender) Model {
 	styles := newUIStyles(theme)
 	delegate := newChatListDelegate(styles.colors)
 
@@ -128,6 +146,7 @@ func New(accounts []Account, keys KeyMap, theme Theme) Model {
 		viewport:       viewport.New(),
 		editingMsgIdx:  -1,
 		replyToIdx:     -1,
+		sender:         sender,
 	}
 }
 

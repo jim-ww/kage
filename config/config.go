@@ -14,6 +14,7 @@ import (
 type fileConfig struct {
 	Keybinds map[string]any `toml:"keybinds"`
 	Theme    ui.Theme       `toml:"theme"`
+	Accounts []Account      `toml:"accounts"`
 }
 
 type UIConfig struct {
@@ -21,10 +22,18 @@ type UIConfig struct {
 	Theme  ui.Theme
 }
 
-func Load(path string) (UIConfig, error) {
-	cfgOut := UIConfig{
-		KeyMap: ui.DefaultKeyMap,
-		Theme:  ui.DefaultTheme(),
+// Config is the fully resolved application configuration.
+type Config struct {
+	UI       UIConfig
+	Accounts []Account
+}
+
+func Load(path string) (Config, error) {
+	cfgOut := Config{
+		UI: UIConfig{
+			KeyMap: ui.DefaultKeyMap,
+			Theme:  ui.DefaultTheme(),
+		},
 	}
 	paths := append([]string{path}, candidatePaths()...)
 	for _, path := range paths {
@@ -37,8 +46,9 @@ func Load(path string) (UIConfig, error) {
 			if err != nil {
 				return cfgOut, err
 			}
-			cfgOut.KeyMap = keys
-			cfgOut.Theme = mergeTheme(ui.DefaultTheme(), cfg.Theme)
+			cfgOut.UI.KeyMap = keys
+			cfgOut.UI.Theme = mergeTheme(ui.DefaultTheme(), cfg.Theme)
+			cfgOut.Accounts = cfg.Accounts
 			return cfgOut, nil
 		}
 	}

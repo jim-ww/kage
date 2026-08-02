@@ -33,6 +33,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.showNotification("opened " + msg.target)
 
+	case IncomingMessageMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = append(msgs, msg.Message)
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.selectedMsg = len(m.accounts[msg.AccountIdx].Messages[chatIdx]) - 1
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// ── Delete confirmation popup intercepts all input ─────────────────
 		if m.confirmTarget != confirmNone {
@@ -155,13 +169,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					msgs := append(m.currentMessages(), newMsg)
 					m.setCurrentMessages(msgs)
+
+					if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
+						if err := m.sender.Send(m.currentAccount, chat.Address, text); err != nil {
+							cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
+						}
+					}
 				}
 
 				m.input.SetValue("")
 				m.updateSizes()
 				m.refreshViewport()
 				m.viewport.GotoBottom()
-				// cmds = append(cmds, m.showNotification("message sent")) # TODO: only show notification on error
 				return m, tea.Batch(cmds...)
 			}
 

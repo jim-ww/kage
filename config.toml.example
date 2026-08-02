@@ -1,3 +1,12 @@
+[[accounts]]
+jid = "user@example.com"
+# password resolution order: OS keyring (service "kage", user = jid) -> password_cmd -> password
+password_cmd = "pass show xmpp/user"
+# password = "plaintext fallback, avoid if possible"
+# gpg_key_id = "own key fingerprint, used to decrypt incoming messages"
+# [accounts.gpg_peers]
+# "friend@example.com" = "friend's key fingerprint, used to encrypt outgoing messages to them"
+
 [keybinds]
 quit = ["q", "ctrl+c"]
 back = ["esc"]

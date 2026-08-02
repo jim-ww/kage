@@ -47,6 +47,20 @@ func (m *Model) setCurrentMessages(msgs []Message) {
 	m.accounts[m.currentAccount].Messages[chatIdx] = msgs
 }
 
+// chatIndexByAddress returns the index of the chat with the given address
+// within the given account, or -1 if none matches.
+func (m Model) chatIndexByAddress(accountIdx int, address string) int {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return -1
+	}
+	for i, item := range m.accounts[accountIdx].Chats {
+		if chat, ok := item.(Chat); ok && chat.Address == address {
+			return i
+		}
+	}
+	return -1
+}
+
 func (m *Model) switchAccount(index int) tea.Cmd {
 	if index < 0 || index >= len(m.accounts) || index == m.currentAccount {
 		return nil

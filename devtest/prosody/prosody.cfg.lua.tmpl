@@ -1,0 +1,38 @@
+-- Throwaway local Prosody instance for testing kage's xmpp/ package against
+-- a real server. Not for production use: self-signed cert, plaintext auth
+-- storage, allow_registration on. Rendered by setup.sh (@DIR@ substituted
+-- with this directory's absolute path) — edit the template, not the
+-- generated prosody.cfg.lua.
+
+pidfile = "@DIR@/prosody.pid"
+data_path = "@DIR@/data"
+
+allow_registration = true
+c2s_require_encryption = false
+s2s_require_encryption = false
+
+modules_enabled = {
+	"roster";
+	"saslauth";
+	"dialback";
+	"tls";
+	"disco";
+	"private";
+	"posix";
+}
+
+c2s_ports = { 5222 }
+s2s_ports = { }
+
+authentication = "internal_plain"
+
+log = {
+	info = "@DIR@/prosody.log";
+	error = "@DIR@/prosody.log";
+}
+
+VirtualHost "localhost"
+	ssl = {
+		certificate = "@DIR@/certs/localhost.crt";
+		key = "@DIR@/certs/localhost.key";
+	}

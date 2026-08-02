@@ -20,6 +20,13 @@
           src = pkgs.lib.cleanSource ./.;
           vendorHash = "sha256-qvYjOa+Ojy5zt4jkCx8BJdd1uB87g3wnWdyt1RVXCgU=";
         };
+
+        # `nix develop` gives you `prosody`/`prosodyctl`/`openssl` for
+        # devtest/prosody/ (a throwaway local XMPP server used to exercise
+        # the xmpp/ package against a real server — see devtest/prosody/README.md).
+        devShells.default = pkgs.mkShell {
+          packages = [pkgs.go pkgs.prosody pkgs.openssl];
+        };
       };
     };
 }
