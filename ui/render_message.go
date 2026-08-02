@@ -82,12 +82,22 @@ func (m Model) replyPreview(idx int, allMsgs []Message) string {
 		return ""
 	}
 	orig := allMsgs[idx]
-	preview := strings.ReplaceAll(orig.Content, "\n", " ")
-	runes := []rune(preview)
-	if len(runes) > 30 {
-		preview = string(runes[:27]) + "…"
+	return fmt.Sprintf("↪ %s: %s", orig.Author, previewText(orig.Content, previewLen))
+}
+
+// previewLen is the shared truncation budget for single-line message
+// previews shown in reply hints and delete-confirmation popups.
+const previewLen = 40
+
+// previewText collapses newlines and truncates s to at most n runes,
+// appending an ellipsis when truncated.
+func previewText(s string, n int) string {
+	flat := strings.ReplaceAll(s, "\n", " ")
+	runes := []rune(flat)
+	if len(runes) <= n {
+		return flat
 	}
-	return fmt.Sprintf("↪ %s: %s", orig.Author, preview)
+	return string(runes[:n]) + "…"
 }
 
 func sameDay(a, b time.Time) bool {

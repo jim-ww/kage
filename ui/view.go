@@ -55,12 +55,7 @@ func (m Model) View() tea.View {
 			msgs := m.currentMessages()
 			if m.replyToIdx < len(msgs) {
 				orig := msgs[m.replyToIdx]
-				preview := strings.ReplaceAll(orig.Content, "\n", " ")
-				runes := []rune(preview)
-				if len(runes) > 40 {
-					preview = string(runes[:37]) + "…"
-				}
-				hint := m.styles.renderReplyHint(orig.Author, preview)
+				hint := m.styles.renderReplyHint(orig.Author, previewText(orig.Content, previewLen))
 				inputInner = m.styles.inputInnerBox(inputWidth, hint) + "\n" + m.styles.inputInnerBox(inputWidth, m.input.View())
 			} else {
 				inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
@@ -124,9 +119,21 @@ func (m Model) renderDeletePopup() string {
 func (m Model) deletePrompt() string {
 	switch m.confirmTarget {
 	case confirmDeleteChat:
-		return m.styles.deletePrompt("Leave chat?")
+		detail := ""
+		if chat, ok := m.currentChat(); ok {
+			detail = chat.Name
+			if chat.Address != "" {
+				detail = fmt.Sprintf("%s <%s>", chat.Name, chat.Address)
+			}
+		}
+		return m.styles.deletePrompt("Leave chat?", detail)
 	default:
-		return m.styles.deletePrompt("Delete message?")
+		detail := ""
+		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
+			msg := msgs[m.selectedMsg]
+			detail = fmt.Sprintf("%s: %s", msg.Author, previewText(msg.Content, previewLen))
+		}
+		return m.styles.deletePrompt("Delete message?", detail)
 	}
 }
 

@@ -273,8 +273,12 @@ func (s uiStyles) renderAccountRow(name string, selected bool) string {
 	return s.accountNormal.Render(name)
 }
 
-func (s uiStyles) deletePrompt(title string) string {
-	return s.popupDanger.Render(title) + "\n\n  [y] yes    [n] no"
+func (s uiStyles) deletePrompt(title, detail string) string {
+	body := s.popupDanger.Render(title)
+	if detail != "" {
+		body += "\n" + s.messageReply.Render(detail)
+	}
+	return body + "\n\n  [y] yes    [n] no"
 }
 
 func (s uiStyles) renderMessagePrefix(selected bool) string {
