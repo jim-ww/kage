@@ -318,13 +318,16 @@ type adapter struct {
 // starts its supervisor goroutine — mirroring what main does for accounts
 // configured at startup, just for one account added mid-session.
 func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
+	acct := config.Account{JID: jid, GPGKeyID: gpgKeyID}
 	if password != "" {
+		// Prefer the OS keyring; if that's unavailable (no Secret Service
+		// running, headless box, etc.) fall back to storing the password in
+		// plaintext in config.toml rather than failing the add outright.
 		if err := config.SetKeyringPassword(jid, password); err != nil {
-			return ui.AccountAddErrorMsg{Err: fmt.Errorf("storing password in keyring: %w", err)}
+			acct.Password = password
+			fmt.Fprintf(os.Stderr, "warning: storing password in keyring for %s: %v; falling back to plaintext in config\n", jid, err)
 		}
 	}
-
-	acct := config.Account{JID: jid, GPGKeyID: gpgKeyID}
 	if err := config.WriteAccount(a.cfgPath, acct); err != nil {
 		return ui.AccountAddErrorMsg{Err: fmt.Errorf("saving account to config: %w", err)}
 	}
