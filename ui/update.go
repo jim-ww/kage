@@ -313,7 +313,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// autocompletes the top match instead of switching focus.
 			m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), m.emojiSuggestions[0].Shortcode))
 			m.input.CursorEnd()
-			if token, _, ok := currentEmojiToken(m.input.Value()); ok {
+			if token, _, ok := currentWordToken(m.input.Value()); ok {
 				m.emojiSuggestions = emojiSuggestionsFor(token)
 			} else {
 				m.emojiSuggestions = nil
@@ -541,7 +541,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
 		if m.reactingMsgIdx >= 0 {
-			if token, _, ok := currentEmojiToken(m.input.Value()); ok {
+			if token, _, ok := currentWordToken(m.input.Value()); ok {
 				m.emojiSuggestions = emojiSuggestionsFor(token)
 			} else {
 				m.emojiSuggestions = nil
