@@ -152,7 +152,17 @@ func (m *Model) updateSizes() {
 	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
 }
 
-func (m Model) sidebarWidth() int  { return m.width / 3 }
+func (m Model) sidebarWidth() int {
+	const minWidth, maxWidth = 20, 36
+	w := m.width / 4
+	if w < minWidth {
+		w = minWidth
+	}
+	if w > maxWidth {
+		w = maxWidth
+	}
+	return min(w, m.width)
+}
 func (m Model) chatAreaWidth() int { return m.width - m.sidebarWidth() - 1 }
 
 // inputAreaHeight accounts for the optional reply-hint line.
