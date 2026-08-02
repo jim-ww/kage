@@ -224,7 +224,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if len(m.currentMessages()) > 0 {
-					m.replyToIdx = m.selectedMsg
+					if m.replyToIdx == m.selectedMsg {
+						m.replyToIdx = -1 // pressed again on the same message: clear reply
+					} else {
+						m.replyToIdx = m.selectedMsg
+					}
 					m.updateSizes()
 					m.refreshViewport()
 					cmds = append(cmds, m.input.Focus())
