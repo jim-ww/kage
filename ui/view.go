@@ -71,9 +71,12 @@ func (m Model) View() tea.View {
 
 	// ── Viewport / popup ───────────────────────────────────────────────────
 	var viewportArea string
-	if m.confirmTarget != confirmNone {
+	switch {
+	case m.confirmTarget != confirmNone:
 		viewportArea = m.renderDeletePopup()
-	} else {
+	case m.showMsgInfo:
+		viewportArea = m.renderInfoPopup()
+	default:
 		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
 		contentHeight := viewportHeight
 		if m.noticeText != "" && contentHeight > 1 {
@@ -135,6 +138,40 @@ func (m Model) deletePrompt() string {
 		}
 		return m.styles.deletePrompt("Delete message?", detail)
 	}
+}
+
+// renderInfoPopup shows metadata about the currently selected message.
+func (m Model) renderInfoPopup() string {
+	cw := m.chatAreaWidth()
+	vh := m.height - m.inputAreaHeight()
+
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.infoPrompt())
+
+	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+func (m Model) infoPrompt() string {
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return m.styles.infoPopup("Message info", nil)
+	}
+	msg := msgs[m.selectedMsg]
+
+	from := msg.Author
+	if msg.IsMe {
+		from = msg.Author + " (you)"
+	}
+
+	rows := []string{
+		fmt.Sprintf("From:  %s", from),
+		fmt.Sprintf("Sent:  %s", msg.SentAt.Format("2006-01-02 15:04:05")),
+		fmt.Sprintf("Length: %d chars", len([]rune(msg.Content))),
+	}
+	if msg.ReplyTo != nil {
+		rows = append(rows, fmt.Sprintf("Reply to: %s", m.replyPreview(*msg.ReplyTo, msgs)))
+	}
+
+	return m.styles.infoPopup("Message info", rows)
 }
 
 func (m Model) renderAccountBar(width int) string {

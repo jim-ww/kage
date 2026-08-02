@@ -81,6 +81,7 @@ type Model struct {
 	editingMsgIdx int // >= 0 while editing a message; -1 otherwise
 	replyToIdx    int // >= 0 while composing a reply; -1 otherwise
 	confirmTarget confirmTarget
+	showMsgInfo   bool  // true while the message-info popup is open
 	msgOffsets    []int // line offset of each message inside viewport content
 	noticeText    string
 	noticeID      int

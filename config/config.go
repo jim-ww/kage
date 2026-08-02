@@ -108,6 +108,8 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 			keys.EditMsg = ui.NewBinding(override, "edit (own last)")
 		case "reply":
 			keys.ReplyMsg = ui.NewBinding(override, "reply")
+		case "info":
+			keys.InfoMsg = ui.NewBinding(override, "message info")
 		case "confirm_yes":
 			keys.ConfirmYes = ui.NewBinding(override, "yes")
 		case "confirm_no":

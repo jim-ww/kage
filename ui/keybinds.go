@@ -21,6 +21,7 @@ type KeyMap struct {
 	YankMsg       key.Binding // Ctrl+Y — yank selected message
 	EditMsg       key.Binding // Ctrl+E — edit (only last own message)
 	ReplyMsg      key.Binding // Ctrl+R — reply to selected message
+	InfoMsg       key.Binding // Ctrl+I — show message info popup
 	ConfirmYes    key.Binding // y — confirm popup
 	ConfirmNo     key.Binding // n / esc — cancel popup
 	ListKeys      list.KeyMap
@@ -44,6 +45,7 @@ var DefaultKeyMap = KeyMap{
 	YankMsg:    NewBinding([]string{"ctrl+y"}, "yank"),
 	EditMsg:    NewBinding([]string{"ctrl+e"}, "edit (own last)"),
 	ReplyMsg:   NewBinding([]string{"ctrl+r"}, "reply"),
+	InfoMsg:    NewBinding([]string{"ctrl+i"}, "message info"),
 	ConfirmYes: NewBinding([]string{"y"}, "yes"),
 	ConfirmNo:  NewBinding([]string{"n", "esc"}, "no"),
 
@@ -76,6 +78,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 		return strings.Join([]string{
 			part(k.MsgUp, "prev account"),
 			part(k.MsgDown, "next account"),
+			part(k.SelectSend, "select"),
 			part(k.Switch, "chats"),
 			part(k.Quit, "quit"),
 		}, " · ")
@@ -97,6 +100,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.EditMsg, "edit"),
 			part(k.DeleteMsg, "delete"),
 			part(k.YankMsg, "yank"),
+			part(k.InfoMsg, "info"),
 			part(k.Back, "back"),
 		}, " · ")
 	default:

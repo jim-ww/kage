@@ -47,6 +47,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// ── Message-info popup intercepts all input until dismissed ────────
+		if m.showMsgInfo {
+			switch {
+			case key.Matches(msg, m.keys.InfoMsg), key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
+				m.showMsgInfo = false
+			}
+			return m, nil
+		}
+
 		switch {
 
 		// ── Global ────────────────────────────────────────────────────────
@@ -75,6 +84,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.SelectSend):
 			switch m.selectedView {
+			case viewAccounts:
+				m.selectedView = viewChats
+				return m, nil
 			case viewChats:
 				return m.openCurrentChat()
 			case viewChat:
@@ -247,6 +259,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, m.input.Focus())
 				} else {
 					cmds = append(cmds, m.showNotification("no message to reply to"))
+				}
+				return m, tea.Batch(cmds...)
+			}
+
+		case key.Matches(msg, m.keys.InfoMsg):
+			if m.selectedView == viewChat {
+				msgs := m.currentMessages()
+				if m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
+					m.showMsgInfo = true
+				} else {
+					cmds = append(cmds, m.showNotification("no message selected"))
 				}
 				return m, tea.Batch(cmds...)
 			}

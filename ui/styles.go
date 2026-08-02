@@ -281,6 +281,15 @@ func (s uiStyles) deletePrompt(title, detail string) string {
 	return body + "\n\n  [y] yes    [n] no"
 }
 
+func (s uiStyles) infoPopup(title string, rows []string) string {
+	body := lipgloss.NewStyle().Bold(true).Foreground(s.colors.borderA).Render(title)
+	for _, row := range rows {
+		body += "\n" + row
+	}
+	body += "\n\n  [esc/ctrl+i] close"
+	return body
+}
+
 func (s uiStyles) renderMessagePrefix(selected bool) string {
 	if !selected {
 		return "  "
