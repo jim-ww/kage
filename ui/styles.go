@@ -15,6 +15,27 @@ const (
 	footerHeight        = 1
 )
 
+// Presence colors are fixed traffic-light semantics (green/amber/gray),
+// independent of the theme — "online" should read as green in every theme.
+var (
+	presenceOnlineStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))  // green
+	presenceAwayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("136")) // amber/brown
+	presenceOfflineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))   // gray
+)
+
+// presenceGlyph renders a contact's presence as a single colored symbol:
+// ● online, ◐ away, ○ offline/unknown.
+func presenceGlyph(p Presence) string {
+	switch p {
+	case PresenceOnline:
+		return presenceOnlineStyle.Render("●")
+	case PresenceAway:
+		return presenceAwayStyle.Render("◐")
+	default:
+		return presenceOfflineStyle.Render("○")
+	}
+}
+
 type uiColors struct {
 	// appBg       color.Color
 	// panelBg     color.Color

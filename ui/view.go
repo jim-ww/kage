@@ -242,6 +242,9 @@ func (m Model) renderChatStatusBar(width int) string {
 	case strings.HasPrefix(chat.Name, "#"):
 		label = chat.Name
 	}
+	if chat.Address != "" {
+		label = presenceGlyph(chat.Presence) + " " + label
+	}
 
 	return ansi.Truncate(label, max(1, width-2), "…")
 }

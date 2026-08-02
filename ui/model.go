@@ -24,13 +24,23 @@ type Account struct {
 	Messages map[int][]Message
 }
 
+// Presence is a contact's coarse online status.
+type Presence int
+
+const (
+	PresenceOffline Presence = iota // default: never seen online, or explicitly unavailable
+	PresenceAway
+	PresenceOnline
+)
+
 type Chat struct {
 	Name        string
 	Address     string
 	LastMessage string
+	Presence    Presence
 }
 
-func (c Chat) Title() string { return c.Name }
+func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }
 func (c Chat) Description() string {
 	switch {
 	case c.LastMessage != "":
@@ -77,6 +87,14 @@ type IncomingMessageMsg struct {
 	AccountIdx int
 	From       string // bare/full JID the message came from
 	Message    Message
+}
+
+// PresenceMsg is sent into the Bubble Tea loop when a contact's presence
+// changes for one of the configured accounts.
+type PresenceMsg struct {
+	AccountIdx int
+	From       string // bare JID
+	Presence   Presence
 }
 
 type Model struct {

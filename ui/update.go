@@ -47,6 +47,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case PresenceMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil
+		}
+		chat, ok := m.accounts[msg.AccountIdx].Chats[chatIdx].(Chat)
+		if !ok {
+			return m, nil
+		}
+		chat.Presence = msg.Presence
+		m.accounts[msg.AccountIdx].Chats[chatIdx] = chat
+		if msg.AccountIdx == m.currentAccount {
+			var cmd tea.Cmd
+			cmd = m.chats.SetItem(chatIdx, chat)
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// ── Delete confirmation popup intercepts all input ─────────────────
 		if m.confirmTarget != confirmNone {

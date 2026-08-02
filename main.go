@@ -312,42 +312,67 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 // out from under it, e.g. by a reconnect, or the client was closed).
 func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
 	for ev := range s.client.Load().Events() {
-		msgEv, ok := ev.(xmpp.MessageEvent)
-		if !ok {
+		switch ev := ev.(type) {
+		case xmpp.PresenceEvent:
+			p.Send(ui.PresenceMsg{
+				AccountIdx: accountIdx,
+				From:       bareJID(ev.From),
+				Presence:   mapPresence(ev),
+			})
 			continue
+		case xmpp.MessageEvent:
+			handleIncomingMessage(ctx, p, accountIdx, s, ev)
 		}
-
-		body := msgEv.Body
-		if gpg.Looks(body) {
-			pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: decrypting message from %s: %v\n", msgEv.From, err)
-			} else {
-				body = pt
-			}
-		}
-
-		if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-			Sent:       false,
-			FromAttr:   nullString(msgEv.From),
-			Body:       encryptForStorage(s, body),
-			StanzaType: "chat",
-			RosterJid:  nullString(bareJID(msgEv.From)),
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: persisting received message: %v\n", err)
-		}
-
-		p.Send(ui.IncomingMessageMsg{
-			AccountIdx: accountIdx,
-			From:       msgEv.From,
-			Message: ui.Message{
-				Author:  msgEv.From,
-				Content: body,
-				SentAt:  msgEv.SentAt,
-				IsMe:    false,
-			},
-		})
 	}
+}
+
+// mapPresence reduces an xmpp.PresenceEvent to the UI's coarse online/away/
+// offline distinction.
+func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
+	if !ev.Available {
+		return ui.PresenceOffline
+	}
+	switch ev.Show {
+	case "away", "xa", "dnd":
+		return ui.PresenceAway
+	default:
+		return ui.PresenceOnline
+	}
+}
+
+// handleIncomingMessage decrypts, persists, and forwards a single incoming
+// chat message.
+func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
+	body := msgEv.Body
+	if gpg.Looks(body) {
+		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: decrypting message from %s: %v\n", msgEv.From, err)
+		} else {
+			body = pt
+		}
+	}
+
+	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+		Sent:       false,
+		FromAttr:   nullString(msgEv.From),
+		Body:       encryptForStorage(s, body),
+		StanzaType: "chat",
+		RosterJid:  nullString(bareJID(msgEv.From)),
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: persisting received message: %v\n", err)
+	}
+
+	p.Send(ui.IncomingMessageMsg{
+		AccountIdx: accountIdx,
+		From:       bareJID(msgEv.From), // chats are keyed by bare JID (roster entries); From with a resource never matches
+		Message: ui.Message{
+			Author:  msgEv.From,
+			Content: body,
+			SentAt:  msgEv.SentAt,
+			IsMe:    false,
+		},
+	})
 }
 
 func dataFilePath(jid string) (string, error) {

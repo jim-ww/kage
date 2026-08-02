@@ -146,6 +146,12 @@ type messageBody struct {
 	Body string `xml:"body"`
 }
 
+// presenceBody is a <presence/> stanza carrying an optional <show/>.
+type presenceBody struct {
+	stanza.Presence
+	Show string `xml:"show"`
+}
+
 // Send sends a chat-message stanza with the given body to "to".
 func (c *Client) Send(ctx context.Context, to, body string) error {
 	toJID, err := jid.Parse(to)
@@ -176,8 +182,14 @@ func (MessageEvent) isEvent() {}
 
 // PresenceEvent is an incoming presence update.
 type PresenceEvent struct {
-	From   string
-	Status string
+	From string
+	// Available is false for unavailable/error/subscription-management
+	// presence (RFC 6121 §4.7.1) — anything other than a plain "here I am"
+	// broadcast.
+	Available bool
+	// Show is the optional <show/> value when Available is true: "" (plain
+	// online), "chat", "away", "xa", or "dnd".
+	Show string
 }
 
 func (PresenceEvent) isEvent() {}
@@ -209,12 +221,13 @@ func handleStanza(events chan<- Event, t xmlstream.TokenReadEncoder, start *xml.
 			SentAt: time.Now(),
 		}
 	case "presence":
-		var p stanza.Presence
+		var p presenceBody
 		d := xml.NewTokenDecoder(t)
 		_ = d.DecodeElement(&p, start)
 		events <- PresenceEvent{
-			From:   p.From.String(),
-			Status: string(p.Type),
+			From:      p.From.String(),
+			Available: p.Type == stanza.AvailablePresence,
+			Show:      p.Show,
 		}
 	}
 }
