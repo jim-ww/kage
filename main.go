@@ -33,6 +33,31 @@ func nullString(s string) sql.NullString {
 // user doesn't have to hand-edit TOML. Tries the OS keyring first; if that
 // fails (no Secret Service, etc.) it asks whether to fall back to a
 // password_cmd or a plaintext password in the config file.
+// ensureGPGKeys fills in GPGKeyID for any account that doesn't have one set,
+// using gpg.DefaultSecretKeyID (the keyring's configured default-key, or its
+// sole secret key) — and persists whatever it finds back to cfg.Path so this
+// only has to happen once. Accounts it can't resolve (no default, multiple
+// keys) are left alone; connectAccounts already warns about those.
+func ensureGPGKeys(cfg *config.Config) {
+	for i := range cfg.Accounts {
+		acct := &cfg.Accounts[i]
+		if acct.GPGKeyID != "" {
+			continue
+		}
+		keyID, err := gpg.DefaultSecretKeyID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "note: couldn't auto-detect a gpg key for %s: %v\n", acct.JID, err)
+			continue
+		}
+		acct.GPGKeyID = keyID
+		if err := config.SetAccountGPGKeyID(cfg.Path, acct.JID, keyID); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: detected gpg key %s for %s but couldn't save it to %s: %v\n", keyID, acct.JID, cfg.Path, err)
+			continue
+		}
+		fmt.Printf("Using gpg key %s for %s (saved to %s).\n", keyID, acct.JID, cfg.Path)
+	}
+}
+
 func runSetupWizard() error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return fmt.Errorf("no accounts configured and not running interactively; add an [[accounts]] entry to config.toml yourself")
@@ -138,6 +163,8 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	ensureGPGKeys(&cfg)
 
 	ctx := context.Background()
 	sessions, uiAccounts, err := connectAccounts(ctx, cfg.Accounts)

@@ -26,6 +26,11 @@ type UIConfig struct {
 type Config struct {
 	UI       UIConfig
 	Accounts []Account
+	// Path is the config file this was actually loaded from, or the
+	// default write location if none was found — always non-empty, so
+	// callers that need to persist a change (e.g. an auto-detected GPG key)
+	// have somewhere to write it back to.
+	Path string
 }
 
 func Load(path string) (Config, error) {
@@ -49,8 +54,12 @@ func Load(path string) (Config, error) {
 			cfgOut.UI.KeyMap = keys
 			cfgOut.UI.Theme = mergeTheme(ui.DefaultTheme(), cfg.Theme)
 			cfgOut.Accounts = cfg.Accounts
+			cfgOut.Path = path
 			return cfgOut, nil
 		}
+	}
+	if defaultPath, err := DefaultWritePath(); err == nil {
+		cfgOut.Path = defaultPath
 	}
 	return cfgOut, nil
 }

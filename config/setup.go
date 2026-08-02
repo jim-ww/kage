@@ -38,14 +38,48 @@ func SetKeyringPassword(jid, password string) error {
 // path, preserving any existing keybinds/theme/accounts already there.
 // Creates the file if it doesn't exist.
 func WriteAccount(path string, acct Account) error {
-	var cfg fileConfig
-	if existing, err := loadFile(path); err != nil {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
 		return err
-	} else if existing != nil {
-		cfg = *existing
 	}
 	cfg.Accounts = append(cfg.Accounts, acct)
+	return writeFileConfig(path, cfg)
+}
 
+// SetAccountGPGKeyID sets (or updates) the gpg_key_id field for the account
+// matching jid in the config file at path, preserving everything else. A
+// no-op if the account isn't found there.
+func SetAccountGPGKeyID(path, jid, keyID string) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	found := false
+	for i, acct := range cfg.Accounts {
+		if acct.JID == jid {
+			cfg.Accounts[i].GPGKeyID = keyID
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("account %s not found in %s", jid, path)
+	}
+	return writeFileConfig(path, cfg)
+}
+
+func loadOrEmpty(path string) (fileConfig, error) {
+	existing, err := loadFile(path)
+	if err != nil {
+		return fileConfig{}, err
+	}
+	if existing == nil {
+		return fileConfig{}, nil
+	}
+	return *existing, nil
+}
+
+func writeFileConfig(path string, cfg fileConfig) error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return fmt.Errorf("encoding config: %w", err)
