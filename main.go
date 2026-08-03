@@ -698,13 +698,16 @@ func setupOmemo(ctx context.Context, s *accountSession) {
 		return
 	}
 	local := mgr.LocalDevice().ID
+	debugf("omemo setup: local device ID for %s: %d, current device list: %v", s.account.JID, local, devices.Devices)
 	for _, id := range devices.Devices {
 		if id == local {
+			debugf("omemo setup: device %d already in list for %s", local, s.account.JID)
 			return // already listed
 		}
 	}
 	devices.JID = s.account.JID
 	devices.Devices = append(devices.Devices, local)
+	debugf("omemo setup: publishing device list for %s with devices: %v", s.account.JID, devices.Devices)
 	if err := client.PublishOmemoDeviceList(ctx, devices); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: publishing omemo device list for %s: %v\n", s.account.JID, err)
 	}
@@ -1067,11 +1070,14 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 
 	switch resolveEncryptionMode(ctx, s, to) {
 	case "omemo":
+		debugf("send: using omemo encryption for %s to %s", s.account.JID, to)
 		if s.omemoMgr != nil {
-			enc, _, err := s.omemoMgr.EncryptMessage(ctx, to, []byte(body))
+			enc, deviceErrs, err := s.omemoMgr.EncryptMessage(ctx, to, []byte(body))
 			if err != nil {
+				debugf("send: omemo encrypt failed for %s to %s: %v (device errors: %v)", s.account.JID, to, err, deviceErrs)
 				return "", fmt.Errorf("omemo-encrypting to %s: %w", to, err)
 			}
+			debugf("send: omemo encrypt succeeded for %s to %s, %d keys", s.account.JID, to, len(enc.Keys))
 			sendOpts.Encrypted = xmpp.EncodeOmemoMessage(enc)
 			wireBody = ""
 		} else {
@@ -1282,6 +1288,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 
 	body := msgEv.Body
 	if msgEv.Encrypted != nil {
+		debugf("received omemo message from %s for %s", msgEv.From, s.account.JID)
 		if s.omemoMgr == nil {
 			fmt.Fprintf(os.Stderr, "warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
 			return
@@ -1293,12 +1300,15 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		}
 		pt, err := s.omemoMgr.DecryptMessage(ctx, enc)
 		if err != nil {
+			debugf("decrypting omemo message from %s failed: %v", msgEv.From, err)
 			fmt.Fprintf(os.Stderr, "warning: decrypting omemo message from %s: %v\n", msgEv.From, err)
 			return
 		}
 		if pt == nil {
+			debugf("omemo message from %s was key-transport only (no content)", msgEv.From)
 			return // key-transport message: session established/refreshed, no content to show
 		}
+		debugf("omemo message from %s decrypted successfully", msgEv.From)
 		body = string(pt)
 	}
 	if gpg.Looks(body) {
