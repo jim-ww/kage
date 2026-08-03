@@ -30,6 +30,9 @@ func (m Model) View() tea.View {
 		accountBg = colors.borderA
 		// accountFg = colors.appBg
 	}
+	if m.isHovered(zonePaneAccountBar) {
+		accountBg = colors.accentCyan
+	}
 	statusLine := m.zone.Mark(zonePaneAccountBar, m.styles.sidebarStatusLine(sw, accountBg, accountFg, m.renderAccountBar(sw)))
 	sidebarBody := m.chats.View()
 	if m.selectedView == viewAccounts {
@@ -347,7 +350,7 @@ func (m Model) renderReactHint(target string) string {
 		styled := m.styles.emojiSuggestionLabel(label, i == m.emojiSuggestIdx, m.isHovered(zoneEmojiSuggestion(i)))
 		codes[i] = m.zone.Mark(zoneEmojiSuggestion(i), styled)
 	}
-	hint += "  →  " + strings.Join(codes, " ") + "  [←/→] pick · [tab/click] accept"
+	hint += "  →  " + strings.Join(codes, " ") + "  [←/→] pick · [tab/enter/click] accept"
 	return m.styles.messageReply.Render(hint)
 }
 

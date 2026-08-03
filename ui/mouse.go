@@ -90,6 +90,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.zone.Get(zoneSendButton).InBounds(mouse) {
 		return zoneSendButton
 	}
+	if m.zone.Get(zonePaneAccountBar).InBounds(mouse) {
+		return zonePaneAccountBar
+	}
 	for i := range m.emojiSuggestions {
 		if m.zone.Get(zoneEmojiSuggestion(i)).InBounds(mouse) {
 			return zoneEmojiSuggestion(i)

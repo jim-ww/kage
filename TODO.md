@@ -1,7 +1,7 @@
 # ui
-- mouse mode
 - desktop notifications on new messages
-- run in background? e.g. as daemon? and implement client-server approach OR use flock lib to just only allow one instance of app per account
+- implement background read-only daemon for desktop notifications?
+- use flock lib to just only allow one instance of app per account
 - list chat participants, ability to see info about them, start chat with them
 - account manager: fix adding duplicate accounts
 - account management: status ('● Online', '◐ Away', '○ Offline') and manage it

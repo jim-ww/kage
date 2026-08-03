@@ -226,6 +226,20 @@ func toEmojiSet(input string) []string {
 	return out
 }
 
+// myReactionsText formats the reactions we've already placed on a message
+// as space-separated emoji, for prefilling the react input so it opens with
+// existing reactions instead of empty (enter with no edits re-sends them
+// unchanged; clearing them all is still just clearing the input).
+func myReactionsText(reactions []Reaction) string {
+	mine := make([]string, 0, len(reactions))
+	for _, r := range reactions {
+		if r.Mine {
+			mine = append(mine, r.Emoji)
+		}
+	}
+	return strings.Join(mine, " ")
+}
+
 // setMyReactions recomputes a message's aggregate Reactions after our own
 // contribution changes from oldMine to newMine, preserving every other
 // reactor's counts — we only track aggregates here, not per-reactor

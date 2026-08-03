@@ -69,7 +69,7 @@ func (c Chat) Description() string {
 		return "typing..."
 	case c.LastMessage != "":
 		return c.LastMessage
-	case c.Address != "":
+	case c.Address != "" && c.Address != c.Name:
 		return c.Address
 	default:
 		return ""

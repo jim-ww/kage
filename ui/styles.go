@@ -203,9 +203,13 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 	delegate.SetSpacing(0)
 	delegate.SetHeight(2)
 	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(colors.borderD).
 		Foreground(colors.themFg).
 		PaddingLeft(1)
 	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(colors.borderD).
 		Foreground(colors.textMuted).
 		PaddingLeft(1)
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
@@ -225,45 +229,60 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 	if !mouseEnabled {
 		return delegate
 	}
-	return zoneChatListDelegate{DefaultDelegate: delegate, zone: zm, hover: hv}
+
+	// Both hover variants use the exact same mechanism as each other (and as
+	// the base normal/selected styles): recolor the row's left border. The
+	// border is a separate decoration lipgloss draws at the fixed edge of
+	// the block, not something layered on top of the row's own rendered
+	// text — so unlike a background/foreground change, it isn't at the
+	// mercy of resets embedded inside that text (e.g. from the presence
+	// dot's own pre-rendered color). Every row already has a border (dim,
+	// borderD, when idle); hover just brightens it to accentCyan.
+	hoveredSelected := delegate
+	hoveredSelected.Styles.SelectedTitle = hoveredSelected.Styles.SelectedTitle.BorderForeground(colors.accentCyan)
+	hoveredSelected.Styles.SelectedDesc = hoveredSelected.Styles.SelectedDesc.BorderForeground(colors.accentCyan)
+
+	hoveredNormal := delegate
+	hoveredNormal.Styles.NormalTitle = hoveredNormal.Styles.NormalTitle.BorderForeground(colors.accentCyan)
+	hoveredNormal.Styles.NormalDesc = hoveredNormal.Styles.NormalDesc.BorderForeground(colors.accentCyan)
+
+	return zoneChatListDelegate{
+		DefaultDelegate: delegate,
+		hoverSelected:   hoveredSelected,
+		hoverNormal:     hoveredNormal,
+		zone:            zm,
+		hover:           hv,
+	}
 }
 
 // zoneChatListDelegate wraps DefaultDelegate's rendering with a bubblezone
 // mark per row so clicks/wheel events can be mapped back to the chat at
-// that index (see zoneChatItem, handleMouseClick), and underlines the row
+// that index (see zoneChatItem, handleMouseClick), and highlights the row
 // currently under the pointer (see hoverState). Only used when mouse
 // support is enabled — otherwise the plain DefaultDelegate is returned, so
 // no zone markers are ever emitted into the rendered output.
 type zoneChatListDelegate struct {
 	list.DefaultDelegate
-	zone  *zone.Manager
-	hover *hoverState
+	hoverSelected list.DefaultDelegate // used when the hovered row is also the selected one
+	hoverNormal   list.DefaultDelegate // used when the hovered row is not selected
+	zone          *zone.Manager
+	hover         *hoverState
 }
 
 func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	var sb strings.Builder
-	d.DefaultDelegate.Render(&sb, m, index, item)
-	rendered := sb.String()
-	if d.hover.id == zoneChatItem(index) {
-		rendered = reverseVideoLines(rendered)
-	}
-	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), rendered))
-}
+	hovered := d.hover.id == zoneChatItem(index)
+	selected := index == m.Index()
 
-// reverseVideoLines toggles reverse video per line via raw SGR codes rather
-// than lipgloss.Style.Render: the row content already carries its own ANSI
-// (colors, and — when selected — a lipgloss-drawn left border), and running
-// that back through lipgloss's width-aware style rendering corrupts it
-// (mis-measures the embedded escapes/border glyphs and produces garbage).
-// A bare SGR on/off wrap around each line just adds the attribute without
-// anything needing to be re-measured.
-func reverseVideoLines(content string) string {
-	const on, off = "\x1b[7m", "\x1b[27m"
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		lines[i] = on + line + off
+	var sb strings.Builder
+	switch {
+	case hovered && selected:
+		d.hoverSelected.Render(&sb, m, index, item)
+	case hovered:
+		d.hoverNormal.Render(&sb, m, index, item)
+	default:
+		d.DefaultDelegate.Render(&sb, m, index, item)
 	}
-	return strings.Join(lines, "\n")
+	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), sb.String()))
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {

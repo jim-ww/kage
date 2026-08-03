@@ -324,7 +324,8 @@ func (m *Model) actionReactMessage() tea.Cmd {
 		return m.showNotification("no message selected")
 	}
 	m.reactingMsgIdx = m.selectedMsg
-	m.input.SetValue("")
+	m.input.SetValue(myReactionsText(msgs[m.selectedMsg].Reactions))
+	m.input.CursorEnd()
 	m.input.Placeholder = "react: :shortcode: or emoji, enter to send..."
 	m.setEmojiSuggestions(nil)
 	m.updateSizes()
@@ -493,7 +494,11 @@ func (m *Model) acceptEmojiSuggestion(idx int) {
 	if idx < 0 || idx >= len(m.emojiSuggestions) {
 		return
 	}
-	chosen := m.emojiSuggestions[idx].Shortcode
+	// Insert the resolved glyph, not the raw shortcode text — otherwise a
+	// freshly-picked reaction shows as literal ":thing:" in the input while
+	// the prefilled existing reactions (myReactionsText) already show as
+	// real emoji, which looks inconsistent.
+	chosen := m.emojiSuggestions[idx].Emoji
 	m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), chosen))
 	m.input.CursorEnd()
 	var next []emojiSuggestion

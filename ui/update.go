@@ -346,7 +346,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case msg.String() == "tab" && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
+		case (msg.String() == "tab" || key.Matches(msg, m.keys.SelectSend)) && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
+			// While a suggestion is showing, enter accepts it (like tab)
+			// instead of falling through to SelectSend and sending the
+			// reaction early — matches the emoji picker, not a message send.
 			m.acceptEmojiSuggestion(m.emojiSuggestIdx)
 			return m, nil
 
