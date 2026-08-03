@@ -568,7 +568,7 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 			m.refreshViewport()
 			return
 		}
-		rendered := m.zone.Mark(zoneMessage(idx), m.renderMessage(msgs[idx], idx, cw, msgs))
+		rendered := m.zone.Mark(zoneMessage(idx), padLinesToWidth(m.renderMessage(msgs[idx], idx, cw, msgs), cw))
 		newLines := strings.Split(rendered, "\n")
 		if len(newLines) != end-start {
 			// Wrapping changed unexpectedly (e.g. width changed mid-flight);
