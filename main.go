@@ -482,6 +482,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 	debugf("account %s: dialed in %s", sess.account.JID, time.Since(start))
 	sess.tlsConfig = tlsConfig
+	client.Debugf = debugf
 	sess.client.Store(client)
 
 	if sess.account.GPGKeyID != "" {

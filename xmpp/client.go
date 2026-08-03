@@ -40,9 +40,9 @@ type mockFileInfo struct {
 
 func (m mockFileInfo) Name() string       { return m.name }
 func (m mockFileInfo) Size() int64        { return m.size }
-func (m mockFileInfo) Mode() os.FileMode  { return 0644 }
+func (m mockFileInfo) Mode() os.FileMode  { return 0o644 }
 func (m mockFileInfo) ModTime() time.Time { return time.Now() }
-func (m mockFileInfo) IsDir() bool         { return false }
+func (m mockFileInfo) IsDir() bool        { return false }
 func (m mockFileInfo) Sys() any           { return nil }
 
 // Client is a connected session for a single XMPP account. The session's
@@ -62,6 +62,9 @@ type Client struct {
 	uploadSvc    jid.JID // cached result of uploadService's disco walk, once found
 	uploadSvcSet bool    // true once uploadSvc has been resolved (even if disco found none — see uploadSvcErr)
 	uploadSvcErr error   // cached failure, so a server with no upload service doesn't get re-walked on every send
+
+	// Debugf is called for debug logging (nil/no-op by default)
+	Debugf func(format string, args ...any)
 }
 
 // Dial connects and authenticates address (a full or bare JID) with password,
@@ -580,9 +583,24 @@ func (c *Client) discoverUploadService(ctx context.Context) (jid.JID, error) {
 	if err := iter.Close(); err != nil {
 		return jid.JID{}, fmt.Errorf("closing upload-service discovery: %w", err)
 	}
+
+	// Debug: log discovered services and their features
 	for _, item := range services {
 		info, err := disco.GetInfo(ctx, item.Node, item.JID, c.session)
-		if err == nil && supportsUpload(info) {
+		if err != nil {
+			if c.Debugf != nil {
+				c.Debugf("upload discovery: failed to get info for %s: %v", item.JID, err)
+			}
+			continue
+		}
+		if c.Debugf != nil {
+			var features []string
+			for _, f := range info.Features {
+				features = append(features, f.Var)
+			}
+			c.Debugf("upload discovery: service %s has features: %v", item.JID, features)
+		}
+		if supportsUpload(info) {
 			return item.JID, nil
 		}
 	}
