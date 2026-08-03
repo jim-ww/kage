@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"mellium.im/xmlstream"
 	"mellium.im/xmpp"
@@ -69,20 +70,27 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 	iter := pubsub.FetchIQ(ctx, stanza.IQ{To: peer}, c.session, pubsub.Query{Node: omemoDevicesNode})
 	defer iter.Close()
 
-	if !iter.Next() {
-		if err := iter.Err(); err != nil {
-			return omemolib.DeviceList{}, fmt.Errorf("fetching omemo device list for %s: %w", peerJID, err)
+	var ids []omemolib.DeviceID
+	for iter.Next() {
+		_, r := iter.Item()
+		var devices omemoDevicesElem
+		if err := xml.NewTokenDecoder(r).Decode(&devices); err != nil {
+			continue
 		}
-		return omemolib.DeviceList{JID: peerJID}, nil
+		for _, d := range devices.Devices {
+			ids = append(ids, omemolib.DeviceID(d.ID))
+		}
 	}
-	_, r := iter.Item()
-	var devices omemoDevicesElem
-	if err := xml.NewTokenDecoder(r).Decode(&devices); err != nil {
-		return omemolib.DeviceList{}, fmt.Errorf("decoding omemo device list from %s: %w", peerJID, err)
-	}
-	ids := make([]omemolib.DeviceID, len(devices.Devices))
-	for i, d := range devices.Devices {
-		ids[i] = omemolib.DeviceID(d.ID)
+	if err := iter.Err(); err != nil {
+		// Treat "item-not-found" / "Node not found" as empty list (first-time setup)
+		if strings.Contains(err.Error(), "item-not-found") || strings.Contains(err.Error(), "Node not found") {
+			return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
+		}
+		// Also check for common stanza error conditions
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "cancel") {
+			return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
+		}
+		return omemolib.DeviceList{}, fmt.Errorf("fetching omemo device list for %s: %w", peerJID, err)
 	}
 	return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
 }
