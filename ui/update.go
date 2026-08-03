@@ -273,6 +273,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateAddAccountForm(msg)
 		}
 
+		// ── Rename-chat prompt intercepts all input until submitted/canceled ──
+		if m.renamingChat {
+			return m.updateRenameChatForm(msg)
+		}
+
 		// ── File picker intercepts all input until selected or canceled ─────
 		if m.pickingFile {
 			if key.Matches(msg, m.keys.AttachFile) || key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.ConfirmNo) {
@@ -397,6 +402,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addAccountErr = ""
 				m.addAccountInputs = m.newAddAccountForm()
 				return m, textinput.Blink
+			}
+
+		case key.Matches(msg, m.keys.RenameChat):
+			if m.selectedView == viewChats {
+				return m, m.actionRenameChat()
 			}
 
 		case key.Matches(msg, m.keys.AttachFile):
@@ -529,6 +539,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addAccountInputs[m.addAccountFocus], cmd = m.addAccountInputs[m.addAccountFocus].Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
+	if m.renamingChat {
+		var cmd tea.Cmd
+		m.renameInput, cmd = m.renameInput.Update(msg)
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
 	if m.pickingFile {
 		// Directory reads are asynchronous messages, not key presses, so they
 		// bypass the key-interception block above and must still reach the
@@ -658,6 +673,26 @@ func digitKey(msg tea.KeyMsg) (int, bool) {
 		return 0, false
 	}
 	return int(s[0] - '0'), true
+}
+
+// updateRenameChatForm handles all key input while the rename-chat prompt is
+// open: enter submits (see submitRenameChat), esc cancels. Only esc cancels —
+// not the full Back/ConfirmNo bindings, since those also bind plain letters
+// ("n") that must reach the focused text field while typing a name.
+func (m Model) updateRenameChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.String() == "esc":
+		m.renamingChat = false
+		return m, nil
+
+	case key.Matches(msg, m.keys.SelectSend):
+		return m, m.submitRenameChat()
+
+	default:
+		var cmd tea.Cmd
+		m.renameInput, cmd = m.renameInput.Update(msg)
+		return m, cmd
+	}
 }
 
 // updateAddAccountForm handles all key input while the add-account popup is

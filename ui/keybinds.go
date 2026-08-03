@@ -29,6 +29,7 @@ type KeyMap struct {
 	ConfirmNo     key.Binding // n / esc — cancel popup
 	AddAccount    key.Binding // a — open the add-account form (only while accounts panel is focused)
 	AttachFile    key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
+	RenameChat    key.Binding // r — open the rename-contact prompt for the selected chat
 	ListKeys      list.KeyMap
 	TextInputKeys textinput.KeyMap
 }
@@ -58,6 +59,7 @@ var DefaultKeyMap = KeyMap{
 	ConfirmNo:  NewBinding([]string{"n", "esc"}, "no"),
 	AddAccount: NewBinding([]string{"a"}, "add account"),
 	AttachFile: NewBinding([]string{"ctrl+f"}, "attach file"),
+	RenameChat: NewBinding([]string{"r"}, "rename chat"),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -72,7 +74,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
 		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.ReactMsg},
-		{k.AddAccount, k.AttachFile},
+		{k.AddAccount, k.AttachFile, k.RenameChat},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -113,6 +115,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.ListKeys.CursorUp, "up"),
 			part(k.ListKeys.CursorDown, "down"),
 			part(k.ChatOpen, "open"),
+			part(k.RenameChat, "rename"),
 			part(k.DeleteMsg, "delete"),
 			part(k.Switch, "accounts"),
 			part(k.Quit, "quit"),

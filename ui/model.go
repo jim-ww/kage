@@ -145,6 +145,15 @@ type FileSender interface {
 	SendFile(accountIdx int, to, path string) tea.Msg
 }
 
+// ContactRenamer sets a custom display name for a contact — a roster set
+// (RFC 6121), persisted server-side and mirrored to local storage — so ui
+// stays decoupled from the XMPP/storage layers. Called synchronously from
+// Update(), like MessageSender.Send/SetTyping: renaming isn't a bulk
+// operation and doesn't need its own async result message.
+type ContactRenamer interface {
+	RenameContact(accountIdx int, address, name string) error
+}
+
 // FileSendResultMsg reports completion of an asynchronous upload and send.
 type FileSendResultMsg struct {
 	AccountIdx int
@@ -304,6 +313,15 @@ type Model struct {
 	sender       MessageSender
 	fileSender   FileSender
 	accountAdder AccountAdder
+	renamer      ContactRenamer
+
+	// rename-chat prompt state, active while renamingChat is true. Opened by
+	// RenameChat (viewChats) or a chat-item context menu's "Rename", prefilled
+	// with the chat's custom name if it has one; submitting an empty value
+	// clears it (falls back to showing the JID).
+	renamingChat  bool
+	renameChatIdx int
+	renameInput   textinput.Model
 
 	// typingActiveTo is the address of the chat we're currently marked as
 	// "composing" to (empty if not composing to anyone). typingGen
@@ -357,6 +375,7 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 	picker.ShowPermissions = false
 	applyFilePickerStyles(&picker, styles.colors)
 	fileSender, _ := sender.(FileSender)
+	renamer, _ := sender.(ContactRenamer)
 
 	return Model{
 		selectedView:   viewChat,
@@ -377,6 +396,7 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 		sender:         sender,
 		fileSender:     fileSender,
 		accountAdder:   accountAdder,
+		renamer:        renamer,
 		filePicker:     picker,
 	}
 }

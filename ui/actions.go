@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 )
@@ -231,6 +232,72 @@ func (m *Model) actionLeaveChat() tea.Cmd {
 	}
 	m.confirmTarget = confirmDeleteChat
 	return nil
+}
+
+// actionRenameChat opens the rename-contact prompt for the selected chat
+// (viewChats' RenameChat keybind / a chat-item context-menu's "Rename").
+// Prefilled with the chat's current custom name if it has one; the field is
+// left empty (showing the JID as a placeholder) otherwise, so submitting it
+// unchanged clears any custom name rather than pinning it to the JID text.
+func (m *Model) actionRenameChat() tea.Cmd {
+	chat, ok := m.currentChat()
+	if !ok {
+		return m.showNotification("no chat selected")
+	}
+
+	ti := textinput.New()
+	ti.Prompt = "Name: "
+	ti.Placeholder = chat.Address
+	ti.KeyMap = m.keys.TextInputKeys
+	ti.SetWidth(addAccountFieldWidth)
+	applyTextInputStyles(&ti, m.styles.colors)
+	if chat.Name != chat.Address {
+		ti.SetValue(chat.Name)
+	}
+	ti.CursorEnd()
+	ti.Focus()
+
+	m.renameChatIdx = m.currentChatIndex()
+	m.renameInput = ti
+	m.renamingChat = true
+	return textinput.Blink
+}
+
+// submitRenameChat applies the rename-prompt's current value to the chat it
+// was opened for: pushes it to the server as a roster set and mirrors it
+// locally (see ContactRenamer), then updates the in-memory chat name shown
+// in the sidebar. An empty value clears the custom name — the chat falls
+// back to displaying its JID, matching what a fresh roster fetch would show.
+func (m *Model) submitRenameChat() tea.Cmd {
+	m.renamingChat = false
+
+	idx := m.renameChatIdx
+	items := m.chats.Items()
+	if idx < 0 || idx >= len(items) {
+		return nil
+	}
+	chat, ok := items[idx].(Chat)
+	if !ok {
+		return nil
+	}
+
+	name := strings.TrimSpace(m.renameInput.Value())
+	if name == "" {
+		name = chat.Address
+	}
+	if name == chat.Name {
+		return nil
+	}
+
+	if m.renamer != nil && chat.Address != "" {
+		if err := m.renamer.RenameContact(m.currentAccount, chat.Address, strings.TrimSpace(m.renameInput.Value())); err != nil {
+			return m.showNotification("rename failed: " + err.Error())
+		}
+	}
+
+	chat.Name = name
+	m.accounts[m.currentAccount].Chats[idx] = chat
+	return m.chats.SetItem(idx, chat)
 }
 
 func (m *Model) actionYankMessage() tea.Cmd {

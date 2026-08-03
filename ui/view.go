@@ -76,6 +76,8 @@ func (m Model) View() tea.View {
 		viewportArea = m.renderInfoPopup()
 	case m.addingAccount:
 		viewportArea = m.renderAddAccountPopup()
+	case m.renamingChat:
+		viewportArea = m.renderRenameChatPopup()
 	case len(m.openItems) > 0:
 		viewportArea = m.renderOpenPopup()
 	case m.pickingFile:
@@ -285,6 +287,18 @@ func (m Model) renderAddAccountPopup() string {
 
 	footer := "[tab] next field  ·  [enter] add  ·  [esc] cancel"
 	body := m.styles.listPopup("Add account", rows, footer)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+
+	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+// renderRenameChatPopup shows the single-field rename-contact prompt.
+func (m Model) renderRenameChatPopup() string {
+	cw := m.chatAreaWidth()
+	vh := m.height - m.inputAreaHeight()
+
+	footer := "[enter] save  ·  [esc] cancel"
+	body := m.styles.listPopup("Rename chat", []string{m.renameInput.View()}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)

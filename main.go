@@ -209,18 +209,25 @@ type accountSession struct {
 	dbConn    interface{ Close() error }
 	gpg       gpg.Encrypter
 
-	rosterNames atomic.Pointer[map[string]string] // bare JID -> roster nickname, for display in the chat view instead of the raw address
+	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
+}
+
+// rosterEntry is a contact's cached roster state, refreshed at connect time
+// and kept in sync locally by RenameContact.
+type rosterEntry struct {
+	Name string
+	Subs string
 }
 
 // rosterName returns bareJID's roster nickname, or bareJID itself if the
 // contact has none (or isn't in the roster at all).
 func (s *accountSession) rosterName(bareJID string) string {
-	names := s.rosterNames.Load()
-	if names == nil {
+	entries := s.roster.Load()
+	if entries == nil {
 		return bareJID
 	}
-	if name, ok := (*names)[bareJID]; ok && name != "" {
-		return name
+	if e, ok := (*entries)[bareJID]; ok && e.Name != "" {
+		return e.Name
 	}
 	return bareJID
 }
@@ -296,13 +303,13 @@ func connectAccount(ctx context.Context, acct config.Account) (*accountSession, 
 
 	chats := make([]list.Item, 0, len(contacts))
 	messages := make(map[int][]ui.Message, len(contacts))
-	names := make(map[string]string, len(contacts))
+	entries := make(map[string]rosterEntry, len(contacts))
 	for i, c := range contacts {
 		name := c.Name
 		if name == "" {
 			name = c.JID
 		}
-		names[c.JID] = name
+		entries[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription}
 		chats = append(chats, ui.Chat{Name: name, Address: c.JID})
 		if err := queries.UpsertRoster(ctx, storage.UpsertRosterParams{
 			Jid: c.JID, Name: c.Name, Subs: c.Subscription,
@@ -313,7 +320,7 @@ func connectAccount(ctx context.Context, acct config.Account) (*accountSession, 
 			messages[i] = hist
 		}
 	}
-	sess.rosterNames.Store(&names)
+	sess.roster.Store(&entries)
 
 	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages}, nil
 }
@@ -600,6 +607,43 @@ func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
 		state = xmpp.ChatStateComposing
 	}
 	return s.client.Load().SendChatState(context.Background(), to, state)
+}
+
+// RenameContact implements ui.ContactRenamer: pushes name as a roster set
+// (RFC 6121) to the server, and mirrors it into local storage and the
+// in-memory roster cache used by rosterName. An empty name clears the
+// contact's nickname there too, matching what a fresh roster fetch would
+// show after the server applies the same change.
+func (a *adapter) RenameContact(accountIdx int, address, name string) error {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+
+	if err := s.client.Load().SetRosterName(context.Background(), address, name); err != nil {
+		return err
+	}
+
+	subs := ""
+	if entries := s.roster.Load(); entries != nil {
+		subs = (*entries)[address].Subs
+	}
+	if err := s.db.UpsertRoster(context.Background(), storage.UpsertRosterParams{
+		Jid: address, Name: name, Subs: subs,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: persisting renamed roster entry %s: %v\n", address, err)
+	}
+
+	updated := make(map[string]rosterEntry)
+	if entries := s.roster.Load(); entries != nil {
+		for k, v := range *entries {
+			updated[k] = v
+		}
+	}
+	updated[address] = rosterEntry{Name: name, Subs: subs}
+	s.roster.Store(&updated)
+
+	return nil
 }
 
 func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {

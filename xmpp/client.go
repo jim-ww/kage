@@ -153,6 +153,18 @@ func (c *Client) Roster(ctx context.Context) ([]Contact, error) {
 	return contacts, nil
 }
 
+// SetRosterName updates addr's roster item to display as name (empty clears
+// any custom nickname, falling back to the JID). The server applies this to
+// the item's existing subscription/groups — only jid and name are sent, per
+// RFC 6121 roster sets.
+func (c *Client) SetRosterName(ctx context.Context, addr, name string) error {
+	j, err := jid.Parse(addr)
+	if err != nil {
+		return fmt.Errorf("parsing JID %q: %w", addr, err)
+	}
+	return roster.Set(ctx, c.session, roster.Item{JID: j.Bare(), Name: name})
+}
+
 // messageBody is a <message/> stanza carrying a <body/> and the optional
 // XEP-0308 (correction) / XEP-0461 (reply) elements, used both for sending
 // and for decoding incoming stanzas.
