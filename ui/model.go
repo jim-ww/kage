@@ -266,6 +266,14 @@ type Model struct {
 	// are not drawn.
 	mouseEnabled bool
 
+	// hover holds the zone ID currently under the pointer (empty if none),
+	// so the currently-hovered send button/chat item/account row/message/
+	// context-menu item can be highlighted. It's a pointer — shared with
+	// the chat list delegate, which needs it too but only sees list.Model,
+	// not Model — so a hover update via a pointer-receiver method is
+	// visible everywhere without threading it through render call chains.
+	hover *hoverState
+
 	accounts       []Account
 	currentAccount int
 	chats          list.Model
@@ -321,7 +329,8 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
-	delegate := newChatListDelegate(styles.colors, zm, mouseEnabled)
+	hv := &hoverState{}
+	delegate := newChatListDelegate(styles.colors, zm, mouseEnabled, hv)
 
 	initialChats := []list.Item(nil)
 	if len(accounts) > 0 {
@@ -355,6 +364,7 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 		styles:         styles,
 		zone:           zm,
 		mouseEnabled:   mouseEnabled,
+		hover:          hv,
 		accounts:       accounts,
 		currentAccount: 0,
 		chats:          l,

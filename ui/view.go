@@ -54,7 +54,7 @@ func (m Model) View() tea.View {
 	}
 	inputLine := m.styles.inputInnerBox(fieldWidth, m.input.View())
 	if m.mouseEnabled {
-		button := m.zone.Mark(zoneSendButton, m.styles.renderSendButton())
+		button := m.zone.Mark(zoneSendButton, m.styles.renderSendButton(m.isHovered(zoneSendButton)))
 		inputLine = lipgloss.JoinHorizontal(lipgloss.Top, inputLine, button)
 	}
 	var inputInner string
@@ -111,24 +111,46 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.zone.Scan(root))
 	v.AltScreen = true
 	if m.mouseEnabled {
-		v.MouseMode = tea.MouseModeCellMotion
+		// AllMotion (not just CellMotion) so hover highlighting works without
+		// a button held — see handleMouseMotion.
+		v.MouseMode = tea.MouseModeAllMotion
 	}
 	return v
 }
 
 // renderContextMenuPopup lists the actions available on whatever was
 // right-clicked; each row is a marked zone so handleContextMenuClick can
-// map a click back to the item that produced it.
+// map a click back to the item that produced it. Rows are widened to a
+// uniform size and, when there's room, separated by a blank line — packed
+// edge-to-edge single-char-tall rows are easy to misclick. On short
+// terminals the spacing is dropped rather than letting the popup get
+// clipped; row width is always capped to the available chat-area width.
 func (m Model) renderContextMenuPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
+	// Leave room for the popup's border + Padding(1, 4) (see uiStyles.popup).
+	maxItemWidth := max(6, cw-10)
+	longest := 0
+	for _, item := range m.contextMenu.items {
+		if w := lipgloss.Width(item.label); w > longest {
+			longest = w
+		}
+	}
+	itemWidth := min(longest, maxItemWidth)
+
 	rows := make([]string, len(m.contextMenu.items))
 	for i, item := range m.contextMenu.items {
-		rows[i] = m.zone.Mark(zoneContextMenuItem(i), m.styles.contextMenuRow(item.label))
+		row := m.styles.contextMenuRow(item.label, m.isHovered(zoneContextMenuItem(i)), itemWidth)
+		rows[i] = m.zone.Mark(zoneContextMenuItem(i), row)
 	}
 
-	body := m.styles.listPopup("Actions", rows, "click an action, or click elsewhere to cancel")
+	sep := "\n"
+	if vh >= len(rows)*2+4 {
+		sep = "\n\n"
+	}
+	title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.borderA).Render("Actions")
+	body := title + "\n" + strings.Join(rows, sep)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
@@ -285,7 +307,7 @@ func (m Model) renderAccountsList(width int) string {
 	rows := make([]string, len(m.accounts))
 	for i, account := range m.accounts {
 		name := ansi.Truncate(account.Name, max(1, width-3), "…") // -3 for border + padding
-		rows[i] = m.zone.Mark(zoneAccountRow(i), m.styles.renderAccountRow(name, i == m.currentAccount))
+		rows[i] = m.zone.Mark(zoneAccountRow(i), m.styles.renderAccountRow(name, i == m.currentAccount, m.isHovered(zoneAccountRow(i))))
 	}
 	return strings.Join(rows, "\n")
 }

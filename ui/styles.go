@@ -93,6 +93,7 @@ type uiStyles struct {
 	messageTime           lipgloss.Style
 	messageReply          lipgloss.Style
 	messageSelectedPrefix lipgloss.Style
+	messageHoverPrefix    lipgloss.Style
 	messageNickMe         lipgloss.Style
 	messageNickThem       lipgloss.Style
 	sidebarStatus         lipgloss.Style
@@ -110,8 +111,10 @@ type uiStyles struct {
 	footer                lipgloss.Style
 	accountNormal         lipgloss.Style
 	accountSelected       lipgloss.Style
+	accountHover          lipgloss.Style
 	sendButton            lipgloss.Style
 	contextMenuItem       lipgloss.Style
+	contextMenuItemHover  lipgloss.Style
 }
 
 func newUIStyles(theme Theme) uiStyles {
@@ -125,6 +128,8 @@ func newUIStyles(theme Theme) uiStyles {
 			Italic(true),
 		messageSelectedPrefix: lipgloss.NewStyle().
 			Foreground(colors.borderA),
+		messageHoverPrefix: lipgloss.NewStyle().
+			Foreground(colors.textMuted),
 		messageNickMe: lipgloss.NewStyle().
 			Foreground(colors.nickMe),
 		messageNickThem: lipgloss.NewStyle().
@@ -173,6 +178,10 @@ func newUIStyles(theme Theme) uiStyles {
 			Foreground(colors.themFg).
 			Bold(true).
 			PaddingLeft(1),
+		accountHover: lipgloss.NewStyle().
+			Foreground(colors.themFg).
+			Underline(true).
+			PaddingLeft(1),
 		sendButton: lipgloss.NewStyle().
 			Foreground(colors.panelEdge).
 			Background(colors.accentCyan).
@@ -181,10 +190,15 @@ func newUIStyles(theme Theme) uiStyles {
 		contextMenuItem: lipgloss.NewStyle().
 			Foreground(colors.themFg).
 			PaddingLeft(1),
+		contextMenuItemHover: lipgloss.NewStyle().
+			Foreground(colors.panelEdge).
+			Background(colors.accentCyan).
+			Bold(true).
+			PaddingLeft(1),
 	}
 }
 
-func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool) list.ItemDelegate {
+func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, hv *hoverState) list.ItemDelegate {
 	delegate := list.NewDefaultDelegate()
 	delegate.SetSpacing(0)
 	delegate.SetHeight(2)
@@ -211,23 +225,29 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool) l
 	if !mouseEnabled {
 		return delegate
 	}
-	return zoneChatListDelegate{DefaultDelegate: delegate, zone: zm}
+	return zoneChatListDelegate{DefaultDelegate: delegate, zone: zm, hover: hv}
 }
 
 // zoneChatListDelegate wraps DefaultDelegate's rendering with a bubblezone
 // mark per row so clicks/wheel events can be mapped back to the chat at
-// that index (see zoneChatItem, handleMouseClick). Only used when mouse
+// that index (see zoneChatItem, handleMouseClick), and underlines the row
+// currently under the pointer (see hoverState). Only used when mouse
 // support is enabled — otherwise the plain DefaultDelegate is returned, so
 // no zone markers are ever emitted into the rendered output.
 type zoneChatListDelegate struct {
 	list.DefaultDelegate
-	zone *zone.Manager
+	zone  *zone.Manager
+	hover *hoverState
 }
 
 func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	var sb strings.Builder
 	d.DefaultDelegate.Render(&sb, m, index, item)
-	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), sb.String()))
+	rendered := sb.String()
+	if d.hover.id == zoneChatItem(index) {
+		rendered = lipgloss.NewStyle().Underline(true).Render(rendered)
+	}
+	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), rendered))
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {
@@ -313,12 +333,23 @@ const sendButtonLabel = " Send "
 // its Padding(0, 1).
 const sendButtonWidth = len(sendButtonLabel) + 2
 
-func (s uiStyles) renderSendButton() string {
-	return s.sendButton.Render(sendButtonLabel)
+func (s uiStyles) renderSendButton(hovered bool) string {
+	st := s.sendButton
+	if hovered {
+		st = st.Reverse(true)
+	}
+	return st.Render(sendButtonLabel)
 }
 
-func (s uiStyles) contextMenuRow(label string) string {
-	return s.contextMenuItem.Render(label)
+// contextMenuRow renders one action label, padded/highlighted to width so
+// every row is a consistent, easy-to-hit target — narrow rows packed
+// tightly together (the original complaint) invite misclicks.
+func (s uiStyles) contextMenuRow(label string, hovered bool, width int) string {
+	st := s.contextMenuItem
+	if hovered {
+		st = s.contextMenuItemHover
+	}
+	return st.Width(width).Render(label)
 }
 
 func (s uiStyles) viewportContent(width, height int, content string) string {
@@ -351,11 +382,15 @@ func (s uiStyles) footerBar(width int, content string) string {
 	return s.footer.Width(width).Render(content)
 }
 
-func (s uiStyles) renderAccountRow(name string, selected bool) string {
-	if selected {
+func (s uiStyles) renderAccountRow(name string, selected, hovered bool) string {
+	switch {
+	case selected:
 		return s.accountSelected.Render(name)
+	case hovered:
+		return s.accountHover.Render(name)
+	default:
+		return s.accountNormal.Render(name)
 	}
-	return s.accountNormal.Render(name)
 }
 
 func (s uiStyles) deletePrompt(title, detail string) string {
@@ -379,11 +414,15 @@ func (s uiStyles) listPopup(title string, rows []string, footer string) string {
 	return body
 }
 
-func (s uiStyles) renderMessagePrefix(selected bool) string {
-	if !selected {
+func (s uiStyles) renderMessagePrefix(selected, hovered bool) string {
+	switch {
+	case selected:
+		return s.messageSelectedPrefix.Render("> ")
+	case hovered:
+		return s.messageHoverPrefix.Render("> ")
+	default:
 		return "  "
 	}
-	return s.messageSelectedPrefix.Render("> ")
 }
 
 func (s uiStyles) renderMessageHeader(timeLabel, nick string, isMe bool) string {

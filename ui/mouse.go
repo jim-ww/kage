@@ -22,6 +22,67 @@ func zoneAccountRow(i int) string { return fmt.Sprintf("account-row-%d", i) }
 func zoneChatItem(i int) string   { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string    { return fmt.Sprintf("msg-%d", i) }
 
+// hoverState holds the zone ID currently under the pointer. It's shared via
+// pointer (see Model.hover) rather than copied through Model, because the
+// chat list delegate needs to read it too but only ever sees list.Model,
+// not the full ui.Model.
+type hoverState struct {
+	id string
+}
+
+// isHovered reports whether zoneID is the one currently under the pointer.
+// Always false when the mouse (and therefore hover tracking) is disabled.
+func (m Model) isHovered(zoneID string) bool {
+	return m.hover != nil && m.hover.id == zoneID
+}
+
+// handleMouseMotion recomputes which zone is under the pointer on every
+// motion event (only sent while mouseEnabled, see View's MouseModeAllMotion)
+// so hoverable components (send button, chat items, account rows, messages,
+// context-menu items) can highlight themselves.
+func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	m.hover.id = m.zoneUnderMouse(msg)
+	return m, nil
+}
+
+// zoneUnderMouse returns the most specific zone ID containing mouse, or ""
+// if it's over nothing hoverable. Mirrors the zone-priority order used by
+// handleLeftClick/handleRightClick, but restricted to the context menu's
+// own items while one is open — nothing underneath it is reachable.
+func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
+	if m.contextMenu != nil {
+		for i := range m.contextMenu.items {
+			if m.zone.Get(zoneContextMenuItem(i)).InBounds(mouse) {
+				return zoneContextMenuItem(i)
+			}
+		}
+		return ""
+	}
+
+	if m.zone.Get(zoneSendButton).InBounds(mouse) {
+		return zoneSendButton
+	}
+	for i := range m.accounts {
+		if m.zone.Get(zoneAccountRow(i)).InBounds(mouse) {
+			return zoneAccountRow(i)
+		}
+	}
+	for i := range m.chats.Items() {
+		if m.zone.Get(zoneChatItem(i)).InBounds(mouse) {
+			return zoneChatItem(i)
+		}
+	}
+	if m.selectedView == viewChat {
+		msgs := m.currentMessages()
+		for i := range msgs {
+			if m.zone.Get(zoneMessage(i)).InBounds(mouse) {
+				return zoneMessage(i)
+			}
+		}
+	}
+	return ""
+}
+
 // handleMouseClick routes a click to the context menu (if one is open), or
 // otherwise dispatches by button: left click acts directly, right click
 // opens a context menu of actions for whatever was clicked.

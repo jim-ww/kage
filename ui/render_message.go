@@ -42,7 +42,7 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
 	isSelected := msgIdx == m.selectedMsg
-	prefix := m.styles.renderMessagePrefix(isSelected)
+	prefix := m.styles.renderMessagePrefix(isSelected, m.isHovered(zoneMessage(msgIdx)))
 
 	nick := msg.Author
 	timeLabel := msg.SentAt.Format("15:04")
