@@ -65,7 +65,8 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	if tlsConfig == nil {
 		tlsConfig = &tls.Config{ServerName: j.Domain().String()}
 	}
-	session, err := xmpp.DialClientSession(ctx, j,
+	session, err := xmpp.DialClientSession(
+		ctx, j,
 		xmpp.BindResource(),
 		xmpp.StartTLS(tlsConfig),
 		xmpp.SASL("", password, sasl.ScramSha1Plus, sasl.ScramSha1, sasl.Plain),
@@ -362,7 +363,7 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 	switch {
 	case opts.Encrypted != nil:
 		msg.Encrypted = opts.Encrypted
-		msg.Body = "" // XEP-0384: plaintext body carries no content once encrypted
+		msg.Body = "This message is encrypted with OMEMO v2 (XEP-0384)" // fallback for non-OMEMO clients
 	case opts.ReactionTargetID != "":
 		msg.Reactions = &reactionsElem{ID: opts.ReactionTargetID, Reactions: opts.Reactions}
 	case opts.RetractID != "":
