@@ -437,13 +437,22 @@ func (m *Model) updateSizes() {
 	m.chats.SetHeight(max(0, m.height-sidebarStatusHeight))
 	m.chats.SetWidth(sw)
 
-	inputFieldWidth := cw - 2 // -2 for Padding(0,1) on the input box
-	if m.mouseEnabled {
-		inputFieldWidth -= sendButtonWidth // room for the send button beside it
-	}
-	m.input.SetWidth(inputFieldWidth)
+	m.input.SetWidth(m.inputFieldWidth())
 	m.viewport.SetWidth(cw)
 	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
+}
+
+// inputFieldWidth is the text field's own width — chatAreaWidth minus the
+// input box's Padding(0,1) border and, when the send button is drawn,
+// the room it needs beside the field. Used both to size the actual
+// textinput (here) and to lay out its rendered row in View() — kept in one
+// place so those two can't drift out of sync and misalign the cursor.
+func (m Model) inputFieldWidth() int {
+	w := m.chatAreaWidth() - 2 // -2 for Padding(0,1) on the input box
+	if m.mouseEnabled {
+		w -= sendButtonWidth // room for the send button beside it
+	}
+	return w
 }
 
 func (m Model) sidebarWidth() int {

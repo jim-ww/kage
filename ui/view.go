@@ -48,11 +48,7 @@ func (m Model) View() tea.View {
 	}
 
 	inputWidth := m.chatAreaWidth() - 2
-	fieldWidth := inputWidth
-	if m.mouseEnabled {
-		fieldWidth -= sendButtonWidth
-	}
-	inputLine := m.styles.inputInnerBox(fieldWidth, m.input.View())
+	inputLine := m.styles.inputInnerBox(m.inputFieldWidth(), m.input.View())
 	if m.mouseEnabled {
 		button := m.zone.Mark(zoneSendButton, m.styles.renderSendButton(m.isHovered(zoneSendButton)))
 		inputLine = lipgloss.JoinHorizontal(lipgloss.Top, inputLine, button)
@@ -137,7 +133,11 @@ func (m Model) renderContextMenuPopup() string {
 			longest = w
 		}
 	}
-	itemWidth := min(longest, maxItemWidth)
+	// contextMenuMinWidth keeps rows from shrink-wrapping to the longest
+	// label alone — that reads as squeezed/cramped on anything but a
+	// narrow terminal, where maxItemWidth still clamps it down.
+	const contextMenuMinWidth = 20
+	itemWidth := min(max(longest, contextMenuMinWidth), maxItemWidth)
 
 	rows := make([]string, len(m.contextMenu.items))
 	for i, item := range m.contextMenu.items {

@@ -245,9 +245,25 @@ func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item 
 	d.DefaultDelegate.Render(&sb, m, index, item)
 	rendered := sb.String()
 	if d.hover.id == zoneChatItem(index) {
-		rendered = lipgloss.NewStyle().Underline(true).Render(rendered)
+		rendered = reverseVideoLines(rendered)
 	}
 	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), rendered))
+}
+
+// reverseVideoLines toggles reverse video per line via raw SGR codes rather
+// than lipgloss.Style.Render: the row content already carries its own ANSI
+// (colors, and — when selected — a lipgloss-drawn left border), and running
+// that back through lipgloss's width-aware style rendering corrupts it
+// (mis-measures the embedded escapes/border glyphs and produces garbage).
+// A bare SGR on/off wrap around each line just adds the attribute without
+// anything needing to be re-measured.
+func reverseVideoLines(content string) string {
+	const on, off = "\x1b[7m", "\x1b[27m"
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		lines[i] = on + line + off
+	}
+	return strings.Join(lines, "\n")
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {
@@ -383,14 +399,17 @@ func (s uiStyles) footerBar(width int, content string) string {
 }
 
 func (s uiStyles) renderAccountRow(name string, selected, hovered bool) string {
-	switch {
-	case selected:
-		return s.accountSelected.Render(name)
-	case hovered:
-		return s.accountHover.Render(name)
-	default:
-		return s.accountNormal.Render(name)
+	style := s.accountNormal
+	if selected {
+		style = s.accountSelected
 	}
+	if hovered {
+		// Chained onto whichever base style already applies (including the
+		// current account's), so hovering it still shows some feedback
+		// instead of looking unresponsive just because it's already active.
+		style = style.Underline(true)
+	}
+	return style.Render(name)
 }
 
 func (s uiStyles) deletePrompt(title, detail string) string {

@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -22,6 +24,21 @@ func zoneAccountRow(i int) string { return fmt.Sprintf("account-row-%d", i) }
 func zoneChatItem(i int) string   { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string    { return fmt.Sprintf("msg-%d", i) }
 
+// messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
+// (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
+// needs the index without re-scanning every message's zone bounds again.
+func messageIndexFromZone(id string) (int, bool) {
+	rest, ok := strings.CutPrefix(id, "msg-")
+	if !ok {
+		return 0, false
+	}
+	i, err := strconv.Atoi(rest)
+	if err != nil {
+		return 0, false
+	}
+	return i, true
+}
+
 // hoverState holds the zone ID currently under the pointer. It's shared via
 // pointer (see Model.hover) rather than copied through Model, because the
 // chat list delegate needs to read it too but only ever sees list.Model,
@@ -39,9 +56,19 @@ func (m Model) isHovered(zoneID string) bool {
 // handleMouseMotion recomputes which zone is under the pointer on every
 // motion event (only sent while mouseEnabled, see View's MouseModeAllMotion)
 // so hoverable components (send button, chat items, account rows, messages,
-// context-menu items) can highlight themselves.
+// context-menu items) can highlight themselves. In viewChat, hovering a
+// message also moves the message cursor to it, mirroring how the sidebar's
+// list cursor already follows the mouse.
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	m.hover.id = m.zoneUnderMouse(msg)
+
+	if m.selectedView == viewChat && m.contextMenu == nil {
+		if idx, ok := messageIndexFromZone(m.hover.id); ok && idx != m.selectedMsg {
+			m.selectedMsg = idx
+			m.refreshViewport()
+		}
+	}
+
 	return m, nil
 }
 
@@ -163,10 +190,12 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.zone.Get(zonePaneInput).InBounds(msg) {
-		if m.selectedView == viewChat {
-			return m, m.input.Focus()
-		}
-		return m, nil
+		// Clicking the input box should focus it even when a different pane
+		// currently has focus (e.g. the sidebar) — not just when already in
+		// viewChat, which left clicks on the input silently doing nothing
+		// most of the time. openCurrentChat both switches to viewChat and
+		// focuses the input; it's a no-op if no chat is open.
+		return m.openCurrentChat()
 	}
 
 	if m.zone.Get(zonePaneViewport).InBounds(msg) {
