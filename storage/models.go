@@ -46,13 +46,20 @@ type Entitycap struct {
 	Ver  string `db:"ver"`
 }
 
+type Localkeysalt struct {
+	ID   bool   `db:"id"`
+	Salt []byte `db:"salt"`
+}
+
 type Message struct {
 	ID            int64          `db:"id"`
+	Accountjid    string         `db:"accountjid"`
 	Sent          bool           `db:"sent"`
 	Toattr        sql.NullString `db:"toattr"`
 	Fromattr      sql.NullString `db:"fromattr"`
 	Idattr        sql.NullString `db:"idattr"`
 	Body          sql.NullString `db:"body"`
+	Encrypted     bool           `db:"encrypted"`
 	Originid      sql.NullString `db:"originid"`
 	Stanzatype    string         `db:"stanzatype"`
 	Received      bool           `db:"received"`
@@ -64,30 +71,34 @@ type Message struct {
 }
 
 type Messagereaction struct {
-	ID      int64  `db:"id"`
-	Idattr  string `db:"idattr"`
-	Fromjid string `db:"fromjid"`
-	Emoji   string `db:"emoji"`
+	ID         int64  `db:"id"`
+	Accountjid string `db:"accountjid"`
+	Idattr     string `db:"idattr"`
+	Fromjid    string `db:"fromjid"`
+	Emoji      string `db:"emoji"`
 }
 
 type Pgppeerkey struct {
+	Accountjid  string `db:"accountjid"`
 	Jid         string `db:"jid"`
 	Fingerprint string `db:"fingerprint"`
 }
 
 type Rostergroup struct {
-	ID   int64  `db:"id"`
-	Jid  string `db:"jid"`
-	Name string `db:"name"`
+	ID         int64  `db:"id"`
+	Accountjid string `db:"accountjid"`
+	Jid        string `db:"jid"`
+	Name       string `db:"name"`
 }
 
 type Rosterjid struct {
-	Jid  string `db:"jid"`
-	Name string `db:"name"`
-	Subs string `db:"subs"`
+	Accountjid string `db:"accountjid"`
+	Jid        string `db:"jid"`
+	Name       string `db:"name"`
+	Subs       string `db:"subs"`
 }
 
 type Rosterver struct {
-	ID  bool   `db:"id"`
-	Ver string `db:"ver"`
+	Accountjid string `db:"accountjid"`
+	Ver        string `db:"ver"`
 }

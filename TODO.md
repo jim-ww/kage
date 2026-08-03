@@ -1,3 +1,7 @@
+- chat view: click to reply, double click to open
+- replies compatibility text not encrypted?
+- encrypted file-sharing?
+- store all accounts data in single sqlite db?
 - chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view
 - chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts
 - message deletion: shouldnt delete message locally, instead just show in deleted message state, with option to see its contents
@@ -13,7 +17,6 @@
 - search message content in single/multiple chats
 - import/export messages
 - manage(add/remove/see) contacts
-- encrypted file-sharing?
 
 
 # e2ee: OpenPGP https://xmpp.org/extensions/xep-0374.html

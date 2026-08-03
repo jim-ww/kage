@@ -12,17 +12,19 @@ import (
 
 const deleteMessageByID = `-- name: DeleteMessageByID :execrows
 DELETE FROM messages
-WHERE idAttr = ?1
-	AND rosterJID = ?2
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND rosterJID = ?3
 `
 
 type DeleteMessageByIDParams struct {
-	IDAttr    sql.NullString `db:"id_attr"`
-	RosterJid sql.NullString `db:"roster_jid"`
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
 }
 
 func (q *Queries) DeleteMessageByID(ctx context.Context, arg DeleteMessageByIDParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteMessageByID, arg.IDAttr, arg.RosterJid)
+	result, err := q.db.ExecContext(ctx, deleteMessageByID, arg.AccountJid, arg.IDAttr, arg.RosterJid)
 	if err != nil {
 		return 0, err
 	}
@@ -31,27 +33,35 @@ func (q *Queries) DeleteMessageByID(ctx context.Context, arg DeleteMessageByIDPa
 
 const deleteReactionsByReactor = `-- name: DeleteReactionsByReactor :exec
 DELETE FROM messageReactions
-WHERE idAttr = ?1
-	AND fromJID = ?2
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND fromJID = ?3
 `
 
 type DeleteReactionsByReactorParams struct {
-	IDAttr  string `db:"id_attr"`
-	FromJid string `db:"from_jid"`
+	AccountJid string `db:"account_jid"`
+	IDAttr     string `db:"id_attr"`
+	FromJid    string `db:"from_jid"`
 }
 
 func (q *Queries) DeleteReactionsByReactor(ctx context.Context, arg DeleteReactionsByReactorParams) error {
-	_, err := q.db.ExecContext(ctx, deleteReactionsByReactor, arg.IDAttr, arg.FromJid)
+	_, err := q.db.ExecContext(ctx, deleteReactionsByReactor, arg.AccountJid, arg.IDAttr, arg.FromJid)
 	return err
 }
 
 const deleteRosterByJID = `-- name: DeleteRosterByJID :exec
 DELETE FROM rosterJIDs
-WHERE jid = ?
+WHERE accountJID = ?1
+	AND jid = ?2
 `
 
-func (q *Queries) DeleteRosterByJID(ctx context.Context, jid string) error {
-	_, err := q.db.ExecContext(ctx, deleteRosterByJID, jid)
+type DeleteRosterByJIDParams struct {
+	AccountJid string `db:"account_jid"`
+	Jid        string `db:"jid"`
+}
+
+func (q *Queries) DeleteRosterByJID(ctx context.Context, arg DeleteRosterByJIDParams) error {
+	_, err := q.db.ExecContext(ctx, deleteRosterByJID, arg.AccountJid, arg.Jid)
 	return err
 }
 
@@ -173,14 +183,33 @@ func (q *Queries) GetDiscoIdentitiesByJID(ctx context.Context, jid string) ([]Ge
 	return items, nil
 }
 
+const getLocalKeySalt = `-- name: GetLocalKeySalt :one
+SELECT salt
+FROM localKeySalt
+WHERE id = 0
+`
+
+func (q *Queries) GetLocalKeySalt(ctx context.Context) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getLocalKeySalt)
+	var salt []byte
+	err := row.Scan(&salt)
+	return salt, err
+}
+
 const getPGPPeerKey = `-- name: GetPGPPeerKey :one
 SELECT fingerprint
 FROM pgpPeerKeys
-WHERE jid = ?
+WHERE accountJID = ?1
+	AND jid = ?2
 `
 
-func (q *Queries) GetPGPPeerKey(ctx context.Context, jid string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getPGPPeerKey, jid)
+type GetPGPPeerKeyParams struct {
+	AccountJid string `db:"account_jid"`
+	Jid        string `db:"jid"`
+}
+
+func (q *Queries) GetPGPPeerKey(ctx context.Context, arg GetPGPPeerKeyParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getPGPPeerKey, arg.AccountJid, arg.Jid)
 	var fingerprint string
 	err := row.Scan(&fingerprint)
 	return fingerprint, err
@@ -189,11 +218,11 @@ func (q *Queries) GetPGPPeerKey(ctx context.Context, jid string) (string, error)
 const getRosterVersion = `-- name: GetRosterVersion :one
 SELECT ver
 FROM rosterVer
-WHERE id = 0
+WHERE accountJID = ?1
 `
 
-func (q *Queries) GetRosterVersion(ctx context.Context) (string, error) {
-	row := q.db.QueryRowContext(ctx, getRosterVersion)
+func (q *Queries) GetRosterVersion(ctx context.Context, accountJid string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getRosterVersion, accountJid)
 	var ver string
 	err := row.Scan(&ver)
 	return ver, err
@@ -282,11 +311,13 @@ func (q *Queries) InsertEntityCaps(ctx context.Context, arg InsertEntityCapsPara
 
 const insertMessage = `-- name: InsertMessage :one
 INSERT INTO messages (
+	accountJID,
 	sent,
 	toAttr,
 	fromAttr,
 	idAttr,
 	body,
+	encrypted,
 	stanzaType,
 	originID,
 	delay,
@@ -302,25 +333,29 @@ VALUES (
 	?5,
 	?6,
 	?7,
+	?8,
+	?9,
 	IFNULL(
-		NULLIF(?8, 0),
+		NULLIF(?10, 0),
 		CAST(strftime('%s', 'now') AS INTEGER)
 	),
-	?9,
-	?10,
-	?11
+	?11,
+	?12,
+	?13
 )
-ON CONFLICT (originID, fromAttr) DO UPDATE
+ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
 RETURNING id
 `
 
 type InsertMessageParams struct {
+	AccountJid    string         `db:"account_jid"`
 	Sent          bool           `db:"sent"`
 	ToAttr        sql.NullString `db:"to_attr"`
 	FromAttr      sql.NullString `db:"from_attr"`
 	IDAttr        sql.NullString `db:"id_attr"`
 	Body          sql.NullString `db:"body"`
+	Encrypted     bool           `db:"encrypted"`
 	StanzaType    string         `db:"stanza_type"`
 	OriginID      sql.NullString `db:"origin_id"`
 	Delay         interface{}    `db:"delay"`
@@ -331,11 +366,13 @@ type InsertMessageParams struct {
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertMessage,
+		arg.AccountJid,
 		arg.Sent,
 		arg.ToAttr,
 		arg.FromAttr,
 		arg.IDAttr,
 		arg.Body,
+		arg.Encrypted,
 		arg.StanzaType,
 		arg.OriginID,
 		arg.Delay,
@@ -349,35 +386,42 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 }
 
 const insertReaction = `-- name: InsertReaction :exec
-INSERT INTO messageReactions (idAttr, fromJID, emoji)
-VALUES (?1, ?2, ?3)
-ON CONFLICT (idAttr, fromJID, emoji) DO NOTHING
+INSERT INTO messageReactions (accountJID, idAttr, fromJID, emoji)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (accountJID, idAttr, fromJID, emoji) DO NOTHING
 `
 
 type InsertReactionParams struct {
-	IDAttr  string `db:"id_attr"`
-	FromJid string `db:"from_jid"`
-	Emoji   string `db:"emoji"`
+	AccountJid string `db:"account_jid"`
+	IDAttr     string `db:"id_attr"`
+	FromJid    string `db:"from_jid"`
+	Emoji      string `db:"emoji"`
 }
 
 func (q *Queries) InsertReaction(ctx context.Context, arg InsertReactionParams) error {
-	_, err := q.db.ExecContext(ctx, insertReaction, arg.IDAttr, arg.FromJid, arg.Emoji)
+	_, err := q.db.ExecContext(ctx, insertReaction,
+		arg.AccountJid,
+		arg.IDAttr,
+		arg.FromJid,
+		arg.Emoji,
+	)
 	return err
 }
 
 const insertRosterGroup = `-- name: InsertRosterGroup :exec
-INSERT INTO rosterGroups (jid, name)
-VALUES (?, ?)
+INSERT INTO rosterGroups (accountJID, jid, name)
+VALUES (?1, ?2, ?3)
 ON CONFLICT DO NOTHING
 `
 
 type InsertRosterGroupParams struct {
-	Jid  string `db:"jid"`
-	Name string `db:"name"`
+	AccountJid string `db:"account_jid"`
+	Jid        string `db:"jid"`
+	Name       string `db:"name"`
 }
 
 func (q *Queries) InsertRosterGroup(ctx context.Context, arg InsertRosterGroupParams) error {
-	_, err := q.db.ExecContext(ctx, insertRosterGroup, arg.Jid, arg.Name)
+	_, err := q.db.ExecContext(ctx, insertRosterGroup, arg.AccountJid, arg.Jid, arg.Name)
 	return err
 }
 
@@ -386,18 +430,24 @@ SELECT
 	archiveID,
 	MIN(delay) AS mindelay
 FROM messages
-WHERE rosterJID = ?
+WHERE accountJID = ?1
+	AND rosterJID = ?2
 GROUP BY delay
 HAVING mindelay NOT NULL
 `
+
+type ListEarliestArchiveIDsParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
 
 type ListEarliestArchiveIDsRow struct {
 	Archiveid sql.NullString `db:"archiveid"`
 	Mindelay  interface{}    `db:"mindelay"`
 }
 
-func (q *Queries) ListEarliestArchiveIDs(ctx context.Context, rosterjid sql.NullString) ([]ListEarliestArchiveIDsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listEarliestArchiveIDs, rosterjid)
+func (q *Queries) ListEarliestArchiveIDs(ctx context.Context, arg ListEarliestArchiveIDsParams) ([]ListEarliestArchiveIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEarliestArchiveIDs, arg.AccountJid, arg.RosterJid)
 	if err != nil {
 		return nil, err
 	}
@@ -421,23 +471,23 @@ func (q *Queries) ListEarliestArchiveIDs(ctx context.Context, rosterjid sql.Null
 
 const listLatestArchiveIDs = `-- name: ListLatestArchiveIDs :many
 SELECT
-	j.jid,
+	m.rosterJID,
 	m.archiveID,
 	MAX(m.delay)
 FROM messages AS m
-INNER JOIN rosterJIDs AS j
-	ON m.rosterJID = j.jid
-GROUP BY j.jid
+WHERE m.accountJID = ?1
+	AND m.archiveID IS NOT NULL
+GROUP BY m.rosterJID
 `
 
 type ListLatestArchiveIDsRow struct {
-	Jid       string         `db:"jid"`
+	Rosterjid sql.NullString `db:"rosterjid"`
 	Archiveid sql.NullString `db:"archiveid"`
 	Max       interface{}    `db:"max"`
 }
 
-func (q *Queries) ListLatestArchiveIDs(ctx context.Context) ([]ListLatestArchiveIDsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listLatestArchiveIDs)
+func (q *Queries) ListLatestArchiveIDs(ctx context.Context, accountJid string) ([]ListLatestArchiveIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestArchiveIDs, accountJid)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +495,7 @@ func (q *Queries) ListLatestArchiveIDs(ctx context.Context) ([]ListLatestArchive
 	var items []ListLatestArchiveIDsRow
 	for rows.Next() {
 		var i ListLatestArchiveIDsRow
-		if err := rows.Scan(&i.Jid, &i.Archiveid, &i.Max); err != nil {
+		if err := rows.Scan(&i.Rosterjid, &i.Archiveid, &i.Max); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -466,21 +516,24 @@ SELECT
 	fromAttr,
 	idAttr,
 	body,
+	encrypted,
 	stanzaType,
 	delay,
 	replyToIdAttr,
 	retracted
 FROM messages
-WHERE rosterJID = ?
+WHERE accountJID = ?1
+	AND rosterJID = ?2
 	AND stanzaType = COALESCE(
-		NULLIF(?2, ''),
+		NULLIF(?3, ''),
 		stanzaType
 	)
 ORDER BY delay ASC
 `
 
 type ListMessagesByRosterParams struct {
-	Rosterjid  sql.NullString `db:"rosterjid"`
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
 	StanzaType interface{}    `db:"stanza_type"`
 }
 
@@ -490,6 +543,7 @@ type ListMessagesByRosterRow struct {
 	Fromattr      sql.NullString `db:"fromattr"`
 	Idattr        sql.NullString `db:"idattr"`
 	Body          sql.NullString `db:"body"`
+	Encrypted     bool           `db:"encrypted"`
 	Stanzatype    string         `db:"stanzatype"`
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
@@ -497,7 +551,7 @@ type ListMessagesByRosterRow struct {
 }
 
 func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]ListMessagesByRosterRow, error) {
-	rows, err := q.db.QueryContext(ctx, listMessagesByRoster, arg.Rosterjid, arg.StanzaType)
+	rows, err := q.db.QueryContext(ctx, listMessagesByRoster, arg.AccountJid, arg.RosterJid, arg.StanzaType)
 	if err != nil {
 		return nil, err
 	}
@@ -511,6 +565,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Fromattr,
 			&i.Idattr,
 			&i.Body,
+			&i.Encrypted,
 			&i.Stanzatype,
 			&i.Delay,
 			&i.Replytoidattr,
@@ -532,16 +587,22 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 const listReactionsForMessage = `-- name: ListReactionsForMessage :many
 SELECT fromJID, emoji
 FROM messageReactions
-WHERE idAttr = ?1
+WHERE accountJID = ?1
+	AND idAttr = ?2
 `
+
+type ListReactionsForMessageParams struct {
+	AccountJid string `db:"account_jid"`
+	IDAttr     string `db:"id_attr"`
+}
 
 type ListReactionsForMessageRow struct {
 	Fromjid string `db:"fromjid"`
 	Emoji   string `db:"emoji"`
 }
 
-func (q *Queries) ListReactionsForMessage(ctx context.Context, idAttr string) ([]ListReactionsForMessageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listReactionsForMessage, idAttr)
+func (q *Queries) ListReactionsForMessage(ctx context.Context, arg ListReactionsForMessageParams) ([]ListReactionsForMessageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listReactionsForMessage, arg.AccountJid, arg.IDAttr)
 	if err != nil {
 		return nil, err
 	}
@@ -569,17 +630,24 @@ SELECT
 	name,
 	subs
 FROM rosterJIDs
+WHERE accountJID = ?1
 `
 
-func (q *Queries) ListRoster(ctx context.Context) ([]Rosterjid, error) {
-	rows, err := q.db.QueryContext(ctx, listRoster)
+type ListRosterRow struct {
+	Jid  string `db:"jid"`
+	Name string `db:"name"`
+	Subs string `db:"subs"`
+}
+
+func (q *Queries) ListRoster(ctx context.Context, accountJid string) ([]ListRosterRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRoster, accountJid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Rosterjid
+	var items []ListRosterRow
 	for rows.Next() {
-		var i Rosterjid
+		var i ListRosterRow
 		if err := rows.Scan(&i.Jid, &i.Name, &i.Subs); err != nil {
 			return nil, err
 		}
@@ -597,17 +665,19 @@ func (q *Queries) ListRoster(ctx context.Context) ([]Rosterjid, error) {
 const markMessageRetracted = `-- name: MarkMessageRetracted :execrows
 UPDATE messages
 SET retracted = TRUE
-WHERE idAttr = ?1
-	AND rosterJID = ?2
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND rosterJID = ?3
 `
 
 type MarkMessageRetractedParams struct {
-	IDAttr    sql.NullString `db:"id_attr"`
-	RosterJid sql.NullString `db:"roster_jid"`
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
 }
 
 func (q *Queries) MarkMessageRetracted(ctx context.Context, arg MarkMessageRetractedParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markMessageRetracted, arg.IDAttr, arg.RosterJid)
+	result, err := q.db.ExecContext(ctx, markMessageRetracted, arg.AccountJid, arg.IDAttr, arg.RosterJid)
 	if err != nil {
 		return 0, err
 	}
@@ -617,44 +687,76 @@ func (q *Queries) MarkMessageRetracted(ctx context.Context, arg MarkMessageRetra
 const markMessagesReceived = `-- name: MarkMessagesReceived :exec
 UPDATE messages
 SET received = TRUE
-WHERE sent = TRUE
+WHERE accountJID = ?1
+	AND sent = TRUE
 	AND (
-		idAttr = ?1
-		OR originID = ?1
+		idAttr = ?2
+		OR originID = ?2
 	)
 `
 
-func (q *Queries) MarkMessagesReceived(ctx context.Context, messageID sql.NullString) error {
-	_, err := q.db.ExecContext(ctx, markMessagesReceived, messageID)
+type MarkMessagesReceivedParams struct {
+	AccountJid string         `db:"account_jid"`
+	MessageID  sql.NullString `db:"message_id"`
+}
+
+func (q *Queries) MarkMessagesReceived(ctx context.Context, arg MarkMessagesReceivedParams) error {
+	_, err := q.db.ExecContext(ctx, markMessagesReceived, arg.AccountJid, arg.MessageID)
+	return err
+}
+
+const setLocalKeySalt = `-- name: SetLocalKeySalt :exec
+INSERT INTO localKeySalt (id, salt)
+VALUES (FALSE, ?)
+ON CONFLICT(id) DO UPDATE
+SET salt = excluded.salt
+`
+
+func (q *Queries) SetLocalKeySalt(ctx context.Context, salt []byte) error {
+	_, err := q.db.ExecContext(ctx, setLocalKeySalt, salt)
 	return err
 }
 
 const truncateRoster = `-- name: TruncateRoster :exec
 DELETE FROM rosterJIDs
+WHERE accountJID = ?1
 `
 
-func (q *Queries) TruncateRoster(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, truncateRoster)
+func (q *Queries) TruncateRoster(ctx context.Context, accountJid string) error {
+	_, err := q.db.ExecContext(ctx, truncateRoster, accountJid)
 	return err
 }
 
 const updateMessageBodyByID = `-- name: UpdateMessageBodyByID :execrows
 UPDATE messages
-SET body = ?1
-WHERE idAttr = ?2
-	AND rosterJID = ?3
+SET
+	body = ?1,
+	encrypted = ?2
+WHERE accountJID = ?3
+	AND idAttr = ?4
+	AND rosterJID = ?5
 `
 
 type UpdateMessageBodyByIDParams struct {
-	Body      sql.NullString `db:"body"`
-	IDAttr    sql.NullString `db:"id_attr"`
-	RosterJid sql.NullString `db:"roster_jid"`
+	Body       sql.NullString `db:"body"`
+	Encrypted  bool           `db:"encrypted"`
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
 }
 
 // XEP-0308: apply a correction to a previously sent/received message,
-// identified by its own idAttr within a given contact's history.
+// identified by its own idAttr within a given contact's history. Also used
+// to opportunistically re-seal a plaintext row once a local storage
+// password becomes available.
 func (q *Queries) UpdateMessageBodyByID(ctx context.Context, arg UpdateMessageBodyByIDParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateMessageBodyByID, arg.Body, arg.IDAttr, arg.RosterJid)
+	result, err := q.db.ExecContext(ctx, updateMessageBodyByID,
+		arg.Body,
+		arg.Encrypted,
+		arg.AccountJid,
+		arg.IDAttr,
+		arg.RosterJid,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -757,50 +859,62 @@ func (q *Queries) UpsertDiscoJIDCapsWithForms(ctx context.Context, arg UpsertDis
 }
 
 const upsertPGPPeerKey = `-- name: UpsertPGPPeerKey :exec
-INSERT INTO pgpPeerKeys (jid, fingerprint)
-VALUES (?, ?)
-ON CONFLICT (jid) DO UPDATE
+INSERT INTO pgpPeerKeys (accountJID, jid, fingerprint)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, jid) DO UPDATE
 SET fingerprint = excluded.fingerprint
 `
 
 type UpsertPGPPeerKeyParams struct {
+	AccountJid  string `db:"account_jid"`
 	Jid         string `db:"jid"`
 	Fingerprint string `db:"fingerprint"`
 }
 
 func (q *Queries) UpsertPGPPeerKey(ctx context.Context, arg UpsertPGPPeerKeyParams) error {
-	_, err := q.db.ExecContext(ctx, upsertPGPPeerKey, arg.Jid, arg.Fingerprint)
+	_, err := q.db.ExecContext(ctx, upsertPGPPeerKey, arg.AccountJid, arg.Jid, arg.Fingerprint)
 	return err
 }
 
 const upsertRoster = `-- name: UpsertRoster :exec
-INSERT INTO rosterJIDs (jid, name, subs)
-VALUES (?, ?, ?)
-ON CONFLICT(jid) DO UPDATE
+INSERT INTO rosterJIDs (accountJID, jid, name, subs)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT(accountJID, jid) DO UPDATE
 SET
 	name = excluded.name,
 	subs = excluded.subs
 `
 
 type UpsertRosterParams struct {
-	Jid  string `db:"jid"`
-	Name string `db:"name"`
-	Subs string `db:"subs"`
+	AccountJid string `db:"account_jid"`
+	Jid        string `db:"jid"`
+	Name       string `db:"name"`
+	Subs       string `db:"subs"`
 }
 
 func (q *Queries) UpsertRoster(ctx context.Context, arg UpsertRosterParams) error {
-	_, err := q.db.ExecContext(ctx, upsertRoster, arg.Jid, arg.Name, arg.Subs)
+	_, err := q.db.ExecContext(ctx, upsertRoster,
+		arg.AccountJid,
+		arg.Jid,
+		arg.Name,
+		arg.Subs,
+	)
 	return err
 }
 
 const upsertRosterVersion = `-- name: UpsertRosterVersion :exec
-INSERT INTO rosterVer (id, ver)
-VALUES (FALSE, ?)
-ON CONFLICT(id) DO UPDATE
+INSERT INTO rosterVer (accountJID, ver)
+VALUES (?1, ?2)
+ON CONFLICT(accountJID) DO UPDATE
 SET ver = excluded.ver
 `
 
-func (q *Queries) UpsertRosterVersion(ctx context.Context, ver string) error {
-	_, err := q.db.ExecContext(ctx, upsertRosterVersion, ver)
+type UpsertRosterVersionParams struct {
+	AccountJid string `db:"account_jid"`
+	Ver        string `db:"ver"`
+}
+
+func (q *Queries) UpsertRosterVersion(ctx context.Context, arg UpsertRosterVersionParams) error {
+	_, err := q.db.ExecContext(ctx, upsertRosterVersion, arg.AccountJid, arg.Ver)
 	return err
 }

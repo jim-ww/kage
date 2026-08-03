@@ -48,6 +48,12 @@ type Client struct {
 	uploadSvc    jid.JID // cached result of uploadService's disco walk, once found
 	uploadSvcSet bool    // true once uploadSvc has been resolved (even if disco found none — see uploadSvcErr)
 	uploadSvcErr error   // cached failure, so a server with no upload service doesn't get re-walked on every send
+
+	// mamMu guards mamWaiters, the set of in-flight FetchArchive calls keyed
+	// by their queryid — populated by handleStanza as MAM <result/> messages
+	// stream in, ahead of the <iq> fin that FetchArchive is blocked on.
+	mamMu      sync.Mutex
+	mamWaiters map[string]chan ArchivedMessage
 }
 
 // Dial connects and authenticates address (a full or bare JID) with password,
@@ -92,7 +98,7 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 func (c *Client) serve() {
 	defer close(c.events)
 	err := c.session.Serve(xmpp.HandlerFunc(func(t xmlstream.TokenReadEncoder, start *xml.StartElement) error {
-		handleStanza(c.events, t, start)
+		c.handleStanza(t, start)
 		return nil
 	}))
 	c.mu.Lock()
@@ -176,6 +182,7 @@ type messageBody struct {
 	Retract   *retractElem   `xml:"urn:xmpp:message-retract:1 retract"`
 	Reactions *reactionsElem `xml:"urn:xmpp:reactions:0 reactions"`
 	Fallback  *fallbackElem  `xml:"urn:xmpp:fallback:0 fallback"`
+	MAMResult *mamResultElem `xml:"urn:xmpp:mam:2 result"`
 
 	// XEP-0085 chat state notification: at most one of these is set, on
 	// send or receive. Modeled as five separate pointer fields (rather than
@@ -595,7 +602,8 @@ func (c *Client) Events() <-chan Event {
 	return c.events
 }
 
-func handleStanza(events chan<- Event, t xmlstream.TokenReadEncoder, start *xml.StartElement) {
+func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElement) {
+	events := c.events
 	switch start.Name.Local {
 	case "message":
 		d := xml.NewTokenDecoder(t)
@@ -606,6 +614,11 @@ func handleStanza(events chan<- Event, t xmlstream.TokenReadEncoder, start *xml.
 		// handler is already positioned inside the element start passed to us.
 		// The decoded value is valid regardless; only bail if we got nothing.
 		_ = d.DecodeElement(&msg, start)
+
+		if msg.MAMResult != nil {
+			c.dispatchArchiveResult(msg.MAMResult)
+			return
+		}
 
 		if state, ok := msg.chatState(); ok {
 			events <- ChatStateEvent{From: msg.From.String(), State: state}

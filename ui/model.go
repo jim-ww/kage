@@ -43,6 +43,15 @@ type Account struct {
 	Name     string
 	Chats    []list.Item
 	Messages map[int][]Message
+
+	// Connecting is true from New()/AddAccount until the account's dial,
+	// roster fetch, and local history load complete asynchronously in the
+	// background — see AccountConnectedMsg/AccountConnectErrorMsg.
+	Connecting bool
+	// ConnectError is set (and Connecting cleared) if the background connect
+	// failed; the account stays in the sidebar so the user can see which one
+	// is down rather than it silently vanishing.
+	ConnectError string
 }
 
 // Presence is a contact's coarse online status.
@@ -259,6 +268,53 @@ type AccountAddedMsg struct {
 // fails; the add-account form stays open so the user can correct and retry.
 type AccountAddErrorMsg struct {
 	Err error
+}
+
+// AccountConnectedMsg is sent into the Bubble Tea loop once a configured
+// account's *local* storage has been opened and its cached roster/history
+// loaded from disk — no network involved, so this is fast and lets local
+// chats/messages appear instantly instead of waiting on a live connection.
+// Index addresses the placeholder Account passed to New() at the same
+// position — it never changes, unlike AddAccount's accounts which are always
+// appended. The account is still marked Connecting until AccountLiveMsg
+// arrives.
+type AccountConnectedMsg struct {
+	Index   int
+	Account Account
+}
+
+// AccountLiveMsg is sent into the Bubble Tea loop once a configured account
+// has finished dialing and fetching its live roster (in the background,
+// after AccountConnectedMsg already showed local data) — clearing
+// Connecting. NewChats/NewMessages carry only contacts the local snapshot
+// didn't already know about (freshly added on another device); existing
+// chats/history are left untouched rather than re-fetched, since they're
+// already showing and any messages missed while offline arrive separately
+// via HistorySyncedMsg.
+type AccountLiveMsg struct {
+	Index       int
+	NewChats    []list.Item
+	NewMessages map[int][]Message // indices are relative to Chats *after* NewChats is appended
+}
+
+// AccountConnectErrorMsg is sent into the Bubble Tea loop when a configured
+// account's background connect (local load or live dial — see
+// AccountConnectedMsg/AccountLiveMsg) fails. The account stays in the
+// sidebar, marked with the error, rather than disappearing — any local data
+// already shown is left in place.
+type AccountConnectErrorMsg struct {
+	Index int
+	Err   error
+}
+
+// HistorySyncedMsg is sent into the Bubble Tea loop with a batch of XEP-0313
+// (MAM) archive messages that were missed while offline, backfilled after an
+// account finishes connecting. Handled identically to a batch of
+// IncomingMessageMsg for the same chat.
+type HistorySyncedMsg struct {
+	AccountIdx int
+	From       string
+	Messages   []Message
 }
 
 // DefaultAccountSetter persists which account should be selected on startup,

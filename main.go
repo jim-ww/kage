@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/gpg"
+	"github.com/jim-ww/kage/crypto/localstore"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
@@ -27,6 +29,42 @@ import (
 
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// debugLog is nil (all debugf calls are no-ops) unless -debug is passed.
+// Written to <config dir>/kage/debug.log so it survives the TUI owning the
+// terminal — stderr isn't visible while bubbletea's alt screen is active.
+var debugLog *log.Logger
+
+func debugf(format string, args ...any) {
+	if debugLog == nil {
+		return
+	}
+	debugLog.Printf(format, args...)
+}
+
+// setupDebugLog opens (or creates) the debug log file and wires it up, both
+// for this package's debugf and for crypto/gpg's Debugf hook.
+func setupDebugLog() {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: -debug: determining config dir: %v\n", err)
+		return
+	}
+	dir = filepath.Join(dir, "kage")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: -debug: creating %s: %v\n", dir, err)
+		return
+	}
+	path := filepath.Join(dir, "debug.log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: -debug: opening %s: %v\n", path, err)
+		return
+	}
+	debugLog = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
+	gpg.Debugf = debugf
+	debugf("=== kage starting, debug logging to %s ===", path)
 }
 
 // runSetupWizard interactively prompts for a JID and password on the
@@ -56,6 +94,32 @@ func ensureGPGKeys(cfg *config.Config) {
 			continue
 		}
 		fmt.Printf("Using gpg key %s for %s (saved to %s).\n", keyID, acct.JID, cfg.Path)
+	}
+}
+
+// primeGPGAgent forces gpg-agent to unlock each configured account's own
+// secret key once, synchronously, before the TUI takes over the terminal —
+// a curses/tty pinentry prompt can't render once bubbletea owns the
+// terminal, so any unlock needed for wire message crypto must happen here.
+func primeGPGAgent(accounts []config.Account) {
+	e := gpg.Encrypter{}
+	for _, acct := range accounts {
+		if acct.GPGKeyID == "" {
+			continue
+		}
+		debugf("primeGPGAgent: %s: encrypting probe to %s", acct.JID, acct.GPGKeyID)
+		start := time.Now()
+		ct, err := e.Encrypt("kage startup probe", acct.GPGKeyID)
+		if err != nil {
+			debugf("primeGPGAgent: %s: encrypt failed after %s: %v", acct.JID, time.Since(start), err)
+			continue
+		}
+		if _, err := e.Decrypt(ct, ""); err != nil {
+			debugf("primeGPGAgent: %s: decrypt failed after %s: %v", acct.JID, time.Since(start), err)
+			fmt.Fprintf(os.Stderr, "warning: unlocking gpg key for %s: %v\n", acct.JID, err)
+		} else {
+			debugf("primeGPGAgent: %s: unlocked in %s", acct.JID, time.Since(start))
+		}
 	}
 }
 
@@ -142,7 +206,12 @@ func runSetupWizard() error {
 
 func main() {
 	cfgPath := flag.String("c", "", "path to config")
+	debug := flag.Bool("debug", false, "write debug logs to <config dir>/kage/debug.log")
 	flag.Parse()
+
+	if *debug {
+		setupDebugLog()
+	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -166,20 +235,48 @@ func main() {
 	}
 
 	ensureGPGKeys(&cfg)
+	primeGPGAgent(cfg.Accounts)
 
-	ctx := context.Background()
-	sessions, uiAccounts, err := connectAccounts(ctx, cfg.Accounts)
+	dbPath, err := dataFilePath()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	sender := &adapter{sessions: sessions, cfgPath: cfg.Path}
+	dbConn, queries, err := storage.Open(dbPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer dbConn.Close()
+
+	localKey, err := loadLocalKey(cfg.Storage, queries)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+
+	// Dialing, roster fetch, and local-history decrypt all happen over the
+	// network and can be slow — the UI is shown immediately with a
+	// placeholder ("connecting...") row per account, and each account is
+	// connected in its own goroutine, reporting back via AccountConnectedMsg/
+	// AccountConnectErrorMsg once ready. sender.sessions is pre-sized so
+	// indices assigned here stay stable no matter which account finishes
+	// first.
+	uiAccounts := make([]ui.Account, len(cfg.Accounts))
+	for i, acct := range cfg.Accounts {
+		uiAccounts[i] = ui.Account{Name: acct.JID, Connecting: true}
+	}
+	sender := &adapter{sessions: make([]*accountSession, len(cfg.Accounts)), cfgPath: cfg.Path, queries: queries, localKey: localKey}
 	defer func() {
 		sender.mu.Lock()
 		defer sender.mu.Unlock()
 		for _, s := range sender.sessions {
+			if s == nil {
+				continue
+			}
 			s.client.Load().Close()
-			s.dbConn.Close()
 		}
 	}()
 
@@ -187,14 +284,88 @@ func main() {
 	p := tea.NewProgram(model)
 	sender.program = p
 
-	for i := range sessions {
-		go superviseAccount(ctx, p, i, sessions[i])
+	for i, acct := range cfg.Accounts {
+		go connectAndSuperviseAccount(ctx, p, sender, i, acct, queries, localKey)
 	}
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// loadLocalKey resolves the local storage password (config.ResolveStoragePassword:
+// OS keyring, then password_cmd, then plaintext config) and derives the
+// AES-256 key message bodies are sealed under at rest — one key, shared by
+// every account, never itself persisted anywhere. The salt is not secret;
+// it's stored in queries and generated once on first run. Returns a nil key
+// (not an error) when no password is configured at all — messages are then
+// stored in plain text; a configured-but-failing password_cmd is a real
+// error, since that's a broken setup rather than a deliberate choice.
+func loadLocalKey(cfg config.StorageConfig, queries *storage.Queries) ([]byte, error) {
+	password, configured, err := config.ResolveStoragePassword(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("resolving local storage password: %w", err)
+	}
+	if !configured {
+		return nil, nil
+	}
+
+	ctx := context.Background()
+	salt, err := queries.GetLocalKeySalt(ctx)
+	if err != nil {
+		salt, err = localstore.NewSalt()
+		if err != nil {
+			return nil, err
+		}
+		if err := queries.SetLocalKeySalt(ctx, salt); err != nil {
+			return nil, fmt.Errorf("persisting local storage salt: %w", err)
+		}
+	}
+
+	return localstore.DeriveKey(password, salt), nil
+}
+
+// connectAndSuperviseAccount loads one configured account's local
+// roster/history from disk first — fast, no network — and reports it to the
+// UI immediately so local chats/messages appear on screen right away. Only
+// then does it dial and fetch the live roster in the background, backfill
+// anything missed via XEP-0313 MAM, and fall into the normal
+// event-listen/reconnect supervisor loop.
+func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter, idx int, acct config.Account, queries *storage.Queries, localKey []byte) {
+	debugf("account %s: connectAccountLocal starting", acct.JID)
+	start := time.Now()
+	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
+	if err != nil {
+		debugf("account %s: connectAccountLocal failed after %s: %v", acct.JID, time.Since(start), err)
+		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
+		return
+	}
+	debugf("account %s: connectAccountLocal done in %s (%d chats)", acct.JID, time.Since(start), len(uiAcct.Chats))
+	p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
+
+	debugf("account %s: connectAccountLive starting", acct.JID)
+	start = time.Now()
+	newChats, newMessages, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
+	if err != nil {
+		debugf("account %s: connectAccountLive failed after %s: %v", acct.JID, time.Since(start), err)
+		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
+		return
+	}
+	debugf("account %s: connectAccountLive done in %s (%d new chats)", acct.JID, time.Since(start), len(newChats))
+
+	a.mu.Lock()
+	a.sessions[idx] = sess
+	a.mu.Unlock()
+
+	p.Send(ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages})
+
+	debugf("account %s: syncArchive starting", acct.JID)
+	start = time.Now()
+	syncArchive(ctx, p, idx, sess)
+	debugf("account %s: syncArchive done in %s", acct.JID, time.Since(start))
+
+	superviseAccount(ctx, p, idx, sess)
 }
 
 // accountSession bundles everything needed to send/receive/persist for one
@@ -204,10 +375,14 @@ func main() {
 type accountSession struct {
 	account   config.Account
 	client    atomic.Pointer[xmpp.Client]
-	tlsConfig *tls.Config // reused on reconnect; nil means Dial's default verified config
-	db        *storage.Queries
-	dbConn    interface{ Close() error }
+	tlsConfig *tls.Config      // reused on reconnect; nil means Dial's default verified config
+	db        *storage.Queries // shared across every account: one database, rows scoped by account.JID
 	gpg       gpg.Encrypter
+
+	// localKey is the AES-256 key message bodies are sealed under at rest
+	// (crypto/localstore), derived once in main from the local storage
+	// password and shared by every account.
+	localKey []byte
 
 	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
 }
@@ -232,97 +407,157 @@ func (s *accountSession) rosterName(bareJID string) string {
 	return bareJID
 }
 
-func connectAccounts(ctx context.Context, accounts []config.Account) ([]*accountSession, []ui.Account, error) {
-	sessions := make([]*accountSession, 0, len(accounts))
-	uiAccounts := make([]ui.Account, 0, len(accounts))
-
-	for _, acct := range accounts {
-		sess, uiAcct, err := connectAccount(ctx, acct)
-		if err != nil {
-			for _, s := range sessions {
-				s.client.Load().Close()
-				s.dbConn.Close()
-			}
-			return nil, nil, err
-		}
-		sessions = append(sessions, sess)
-		uiAccounts = append(uiAccounts, uiAcct)
-	}
-
-	return sessions, uiAccounts, nil
-}
-
-// connectAccount dials, opens storage, publishes our GPG key (if configured),
-// and loads the roster + history for a single account.
-func connectAccount(ctx context.Context, acct config.Account) (*accountSession, ui.Account, error) {
-	password, err := acct.ResolvePassword()
-	if err != nil {
-		return nil, ui.Account{}, fmt.Errorf("account %s: %w", acct.JID, err)
-	}
-
-	var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
-	client, err := xmpp.Dial(ctx, acct.JID, password, tlsConfig)
-	if err != nil {
-		return nil, ui.Account{}, fmt.Errorf("account %s: %w", acct.JID, err)
-	}
-
-	dbPath, err := dataFilePath(acct.JID)
-	if err != nil {
-		client.Close()
-		return nil, ui.Account{}, fmt.Errorf("account %s: %w", acct.JID, err)
-	}
-	db, queries, err := storage.Open(dbPath)
-	if err != nil {
-		client.Close()
-		return nil, ui.Account{}, fmt.Errorf("account %s: %w", acct.JID, err)
-	}
-
-	if acct.GPGKeyID == "" {
-		fmt.Fprintf(os.Stderr, "warning: account %s has no gpg_key_id configured; message bodies will NOT be persisted to disk (history is encryption-only)\n", acct.JID)
-	}
-
+// connectAccountLocal loads acct's cached roster + history from the shared
+// database — no network involved, so this is as fast as local SQLite reads
+// and AES decrypts allow, letting local chats/messages appear instantly
+// instead of waiting on connectAccountLive. The returned ui.Account has
+// Connecting set; the caller clears it once connectAccountLive finishes.
+func connectAccountLocal(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte) (*accountSession, ui.Account, error) {
 	sess := &accountSession{
-		account:   acct,
-		tlsConfig: tlsConfig,
-		db:        queries,
-		dbConn:    db,
-		gpg:       gpg.Encrypter{},
-	}
-	sess.client.Store(client)
-
-	if acct.GPGKeyID != "" {
-		publishOwnGPGKey(ctx, sess)
+		account:  acct,
+		db:       queries,
+		gpg:      gpg.Encrypter{},
+		localKey: localKey,
 	}
 
-	contacts, err := client.Roster(ctx)
+	rows, err := queries.ListRoster(ctx, acct.JID)
 	if err != nil {
-		client.Close()
-		db.Close()
-		return nil, ui.Account{}, fmt.Errorf("account %s: fetching roster: %w", acct.JID, err)
+		return nil, ui.Account{}, fmt.Errorf("account %s: loading local roster: %w", acct.JID, err)
 	}
+	debugf("account %s: local roster has %d contacts", acct.JID, len(rows))
 
-	chats := make([]list.Item, 0, len(contacts))
-	messages := make(map[int][]ui.Message, len(contacts))
-	entries := make(map[string]rosterEntry, len(contacts))
-	for i, c := range contacts {
-		name := c.Name
+	chats := make([]list.Item, 0, len(rows))
+	messages := make(map[int][]ui.Message, len(rows))
+	entries := make(map[string]rosterEntry, len(rows))
+	for i, r := range rows {
+		name := r.Name
 		if name == "" {
-			name = c.JID
+			name = r.Jid
 		}
-		entries[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription}
-		chats = append(chats, ui.Chat{Name: name, Address: c.JID})
-		if err := queries.UpsertRoster(ctx, storage.UpsertRosterParams{
-			Jid: c.JID, Name: c.Name, Subs: c.Subscription,
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: persisting roster entry %s: %v\n", c.JID, err)
-		}
-		if hist := loadHistory(ctx, sess, c.JID, name); len(hist) > 0 {
+		entries[r.Jid] = rosterEntry{Name: r.Name, Subs: r.Subs}
+		chats = append(chats, ui.Chat{Name: name, Address: r.Jid})
+		histStart := time.Now()
+		hist := loadHistory(ctx, sess, r.Jid, name)
+		debugf("account %s: loadHistory(%s) done in %s (%d messages)", acct.JID, r.Jid, time.Since(histStart), len(hist))
+		if len(hist) > 0 {
 			messages[i] = hist
 		}
 	}
 	sess.roster.Store(&entries)
 
-	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages}, nil
+	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages, Connecting: true}, nil
+}
+
+// connectAccountLive dials sess's account, publishes our GPG key, and fetches
+// the live roster, merging it into sess's already-loaded (by
+// connectAccountLocal) roster cache. Existing contacts' chat/history entries
+// are left completely untouched — they're already showing, and anything
+// missed while offline is backfilled separately via syncArchive — only
+// contacts the local snapshot didn't know about (added from another device)
+// get a fresh history load here. The returned chats/messages are new
+// entries only, with message indices relative to a Chats slice that starts
+// right after existingChatCount, so the caller can append rather than
+// replace what's already displayed.
+func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int) ([]list.Item, map[int][]ui.Message, error) {
+	debugf("account %s: resolving password", sess.account.JID)
+	start := time.Now()
+	password, err := sess.account.ResolvePassword()
+	if err != nil {
+		return nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
+	}
+	debugf("account %s: password resolved in %s", sess.account.JID, time.Since(start))
+
+	var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
+	debugf("account %s: dialing", sess.account.JID)
+	start = time.Now()
+	client, err := xmpp.Dial(ctx, sess.account.JID, password, tlsConfig)
+	if err != nil {
+		debugf("account %s: dial failed after %s: %v", sess.account.JID, time.Since(start), err)
+		return nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
+	}
+	debugf("account %s: dialed in %s", sess.account.JID, time.Since(start))
+	sess.tlsConfig = tlsConfig
+	sess.client.Store(client)
+
+	if sess.account.GPGKeyID != "" {
+		debugf("account %s: publishOwnGPGKey starting", sess.account.JID)
+		start = time.Now()
+		publishOwnGPGKey(ctx, sess)
+		debugf("account %s: publishOwnGPGKey done in %s", sess.account.JID, time.Since(start))
+	}
+
+	debugf("account %s: fetching live roster", sess.account.JID)
+	start = time.Now()
+	contacts, err := client.Roster(ctx)
+	if err != nil {
+		debugf("account %s: roster fetch failed after %s: %v", sess.account.JID, time.Since(start), err)
+		client.Close()
+		return nil, nil, fmt.Errorf("account %s: fetching roster: %w", sess.account.JID, err)
+	}
+	debugf("account %s: live roster fetched in %s (%d contacts)", sess.account.JID, time.Since(start), len(contacts))
+
+	existing := sess.roster.Load()
+	merged := make(map[string]rosterEntry, len(contacts))
+	if existing != nil {
+		for k, v := range *existing {
+			merged[k] = v
+		}
+	}
+
+	var newChats []list.Item
+	newMessages := make(map[int][]ui.Message)
+	for _, c := range contacts {
+		name := c.Name
+		if name == "" {
+			name = c.JID
+		}
+		_, known := merged[c.JID]
+		merged[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription}
+		if err := sess.db.UpsertRoster(ctx, storage.UpsertRosterParams{
+			AccountJid: sess.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: persisting roster entry %s: %v\n", c.JID, err)
+		}
+		if known {
+			continue
+		}
+		idx := existingChatCount + len(newChats)
+		newChats = append(newChats, ui.Chat{Name: name, Address: c.JID})
+		if hist := loadHistory(ctx, sess, c.JID, name); len(hist) > 0 {
+			newMessages[idx] = hist
+		}
+	}
+	sess.roster.Store(&merged)
+
+	return newChats, newMessages, nil
+}
+
+// connectAccount runs connectAccountLocal then connectAccountLive back to
+// back and merges the result into one ready-to-show ui.Account — used by
+// AddAccount, where the account is brand new (no local history to show
+// instantly) and the whole connect already runs off the Bubble Tea event
+// loop via a tea.Cmd, so there's nothing to gain from doing it in two steps.
+func connectAccount(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte) (*accountSession, ui.Account, error) {
+	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
+	if err != nil {
+		return nil, ui.Account{}, err
+	}
+
+	newChats, newMessages, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
+	if err != nil {
+		return nil, ui.Account{}, err
+	}
+
+	uiAcct.Chats = append(uiAcct.Chats, newChats...)
+	if uiAcct.Messages == nil {
+		uiAcct.Messages = make(map[int][]ui.Message)
+	}
+	for idx, msgs := range newMessages {
+		uiAcct.Messages[idx] = msgs
+	}
+	uiAcct.Connecting = false
+
+	return sess, uiAcct, nil
 }
 
 // adapter implements ui.MessageSender and ui.AccountAdder, encrypting
@@ -336,6 +571,8 @@ type adapter struct {
 	sessions []*accountSession
 	cfgPath  string
 	program  *tea.Program
+	queries  *storage.Queries
+	localKey []byte
 }
 
 // AddAccount implements ui.AccountAdder: resolves and stores the password in
@@ -358,7 +595,7 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	}
 
 	ctx := context.Background()
-	sess, uiAcct, err := connectAccount(ctx, acct)
+	sess, uiAcct, err := connectAccount(ctx, acct, a.queries, a.localKey)
 	if err != nil {
 		return ui.AccountAddErrorMsg{Err: err}
 	}
@@ -373,21 +610,23 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	return ui.AccountAddedMsg{Account: uiAcct}
 }
 
-// encryptForStorage encrypts plaintext to the account's own GPG key for
-// at-rest storage (independent of any peer encryption used on the wire).
-// Message content must never be written to disk unencrypted: if no key is
-// configured or encryption fails, the body is dropped (NULL) rather than
-// stored in the clear.
-func encryptForStorage(s *accountSession, plaintext string) sql.NullString {
-	if s.account.GPGKeyID == "" {
-		return sql.NullString{}
+// encryptForStorage seals plaintext under the shared local storage key
+// (independent of any peer encryption used on the wire). Message content
+// must never be written to disk unencrypted: if sealing fails the body is
+// dropped (NULL) rather than stored in the clear.
+// encryptForStorage seals plaintext under the shared local storage key if
+// one is configured; with no key (no local storage password set) the body
+// is stored as-is, and encrypted comes back false.
+func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString, encrypted bool) {
+	if s.localKey == nil {
+		return sql.NullString{String: plaintext, Valid: true}, false
 	}
-	ct, err := s.gpg.Encrypt(plaintext, s.account.GPGKeyID)
+	ct, err := localstore.Seal(s.localKey, plaintext)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: encrypting message for storage: %v\n", err)
-		return sql.NullString{}
+		return sql.NullString{String: plaintext, Valid: true}, false
 	}
-	return sql.NullString{String: ct, Valid: true}
+	return sql.NullString{String: ct, Valid: true}, true
 }
 
 // publishOwnGPGKey exports our own public key and publishes it to our PEP
@@ -418,7 +657,7 @@ func resolvePeerKey(ctx context.Context, s *accountSession, peerJID string) stri
 		return key
 	}
 
-	if fpr, err := s.db.GetPGPPeerKey(ctx, peerJID); err == nil && fpr != "" {
+	if fpr, err := s.db.GetPGPPeerKey(ctx, storage.GetPGPPeerKeyParams{AccountJid: s.account.JID, Jid: peerJID}); err == nil && fpr != "" {
 		return fpr
 	}
 
@@ -427,7 +666,7 @@ func resolvePeerKey(ctx context.Context, s *accountSession, peerJID string) stri
 		fmt.Fprintf(os.Stderr, "note: no gpg key found for %s (%v); sending unencrypted\n", peerJID, err)
 		return ""
 	}
-	if err := s.db.UpsertPGPPeerKey(ctx, storage.UpsertPGPPeerKeyParams{Jid: peerJID, Fingerprint: fpr}); err != nil {
+	if err := s.db.UpsertPGPPeerKey(ctx, storage.UpsertPGPPeerKeyParams{AccountJid: s.account.JID, Jid: peerJID, Fingerprint: fpr}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: caching discovered gpg key for %s: %v\n", peerJID, err)
 	}
 	return fpr
@@ -465,13 +704,41 @@ func bareJID(addr string) string {
 	return addr
 }
 
-// loadHistory reads chatAddr's persisted history back from storage, decrypting
-// each body with the account's own GPG key. Rows with no body (never
-// persisted — no key configured at the time, or encryption failed) are
-// skipped since there is nothing to recover.
+// loadHistory reads chatAddr's persisted history back from storage,
+// decrypting each body with the local storage key (crypto/localstore).
+// Rows with no body (encryption failed at write time) are skipped since
+// there is nothing to recover.
+// readStoredBody returns row's plaintext body, decrypting it if row.Encrypted
+// is set — that fails if no local storage password is configured. A
+// plaintext row read while a password *is* now available gets
+// opportunistically re-sealed and written back, so it only sits unencrypted
+// until the next time it's read.
+func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row storage.ListMessagesByRosterRow) (string, error) {
+	if !row.Encrypted {
+		if s.localKey != nil {
+			sealedBody, encrypted := encryptForStorage(s, row.Body.String)
+			if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
+				AccountJid: s.account.JID,
+				Body:       sealedBody,
+				Encrypted:  encrypted,
+				IDAttr:     row.Idattr,
+				RosterJid:  nullString(chatAddr),
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: encrypting stored message: %v\n", err)
+			}
+		}
+		return row.Body.String, nil
+	}
+	if s.localKey == nil {
+		return "", fmt.Errorf("message is encrypted but no local storage password is available")
+	}
+	return localstore.Open(s.localKey, row.Body.String)
+}
+
 func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName string) []ui.Message {
 	rows, err := s.db.ListMessagesByRoster(ctx, storage.ListMessagesByRosterParams{
-		Rosterjid: nullString(chatAddr),
+		AccountJid: s.account.JID,
+		RosterJid:  nullString(chatAddr),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: loading history for %s: %v\n", chatAddr, err)
@@ -484,7 +751,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		if !row.Body.Valid {
 			continue
 		}
-		pt, err := s.gpg.Decrypt(row.Body.String, s.account.GPGKeyID)
+		pt, err := readStoredBody(ctx, s, chatAddr, row)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: decrypting history for %s: %v\n", chatAddr, err)
 			continue
@@ -515,6 +782,123 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 	return msgs
 }
 
+// syncArchive backfills every roster contact's history via XEP-0313 (MAM),
+// catching up on messages sent/received on another device or while this
+// client wasn't running — something local storage alone can never have. Runs
+// once, right after an account finishes connecting; best-effort per contact,
+// since not every server (or every contact's account) offers MAM.
+func syncArchive(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
+	client := s.client.Load()
+
+	lastArchiveID := make(map[string]string)
+	if latest, err := s.db.ListLatestArchiveIDs(ctx, s.account.JID); err == nil {
+		for _, row := range latest {
+			if row.Archiveid.Valid && row.Rosterjid.Valid {
+				lastArchiveID[row.Rosterjid.String] = row.Archiveid.String
+			}
+		}
+	}
+
+	entries := s.roster.Load()
+	if entries == nil {
+		return
+	}
+	debugf("account %s: syncArchive: %d contacts to check", s.account.JID, len(*entries))
+	for peerJID := range *entries {
+		start := time.Now()
+		syncArchiveForContact(ctx, p, accountIdx, s, client, peerJID, lastArchiveID[peerJID])
+		debugf("account %s: syncArchiveForContact(%s) done in %s", s.account.JID, peerJID, time.Since(start))
+	}
+}
+
+// syncArchiveForContact pages through peerJID's MAM archive strictly newer
+// than afterArchiveID until the server reports the page set complete,
+// persisting and forwarding each message to the UI as it's fetched.
+func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, client *xmpp.Client, peerJID, afterArchiveID string) {
+	const pageSize = 50
+	const maxPages = 200 // guards against a misbehaving server never reporting complete
+
+	ownBare := bareJID(s.account.JID)
+	name := s.rosterName(peerJID)
+	var newMsgs []ui.Message
+
+	for page := 0; page < maxPages; page++ {
+		prevAfter := afterArchiveID
+		pageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		pageStart := time.Now()
+		items, complete, err := client.FetchArchive(pageCtx, peerJID, afterArchiveID, pageSize)
+		cancel()
+		debugf("mam %s/%s: page %d fetched in %s (after=%q items=%d complete=%v err=%v)",
+			s.account.JID, peerJID, page, time.Since(pageStart), prevAfter, len(items), complete, err)
+		if err != nil {
+			// MAM isn't universally supported (by the server or by the peer's
+			// own account) — not an error worth surfacing per contact.
+			break
+		}
+		if len(items) == 0 {
+			break
+		}
+
+		stop := false
+		for _, am := range items {
+			afterArchiveID = am.ArchiveID
+
+			body := am.Body
+			if gpg.Looks(body) {
+				if pt, err := s.gpg.Decrypt(body, ""); err == nil {
+					body = pt
+				}
+			}
+			sent := bareJID(am.From) == ownBare
+			sealedBody, encrypted := encryptForStorage(s, body)
+
+			_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+				AccountJid: s.account.JID,
+				Sent:       sent,
+				ToAttr:     nullString(am.To),
+				FromAttr:   nullString(am.From),
+				IDAttr:     nullString(am.ID),
+				Body:       sealedBody,
+				Encrypted:  encrypted,
+				StanzaType: "chat",
+				Delay:      am.SentAt.Unix(),
+				RosterJid:  nullString(peerJID),
+				ArchiveID:  nullString(am.ArchiveID),
+			})
+			if err != nil {
+				if strings.Contains(err.Error(), "archiveID") {
+					// Already stored, and results arrive chronologically —
+					// everything after it is too.
+					stop = true
+					break
+				}
+				fmt.Fprintf(os.Stderr, "warning: persisting mam history for %s: %v\n", peerJID, err)
+				continue
+			}
+
+			author := name
+			if sent {
+				author = "me"
+			}
+			newMsgs = append(newMsgs, ui.Message{
+				ID:          am.ID,
+				Author:      author,
+				Content:     body,
+				SentAt:      am.SentAt,
+				IsMe:        sent,
+				Attachments: attachmentURLs(body),
+			})
+		}
+		if stop || complete || afterArchiveID == prevAfter {
+			break
+		}
+	}
+
+	if len(newMsgs) > 0 {
+		p.Send(ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
+	}
+}
+
 // meReactorJID is the fromJID value used for our own account's rows in the
 // messageReactions table — reactions are always local to one account's
 // storage, so there's no ambiguity in using a fixed sentinel rather than the
@@ -526,13 +910,13 @@ const meReactorJID = "me"
 // the sender's previous set, never adds to it).
 func replaceReactions(ctx context.Context, s *accountSession, msgID, reactorJID string, emojis []string) error {
 	if err := s.db.DeleteReactionsByReactor(ctx, storage.DeleteReactionsByReactorParams{
-		IDAttr: msgID, FromJid: reactorJID,
+		AccountJid: s.account.JID, IDAttr: msgID, FromJid: reactorJID,
 	}); err != nil {
 		return err
 	}
 	for _, e := range emojis {
 		if err := s.db.InsertReaction(ctx, storage.InsertReactionParams{
-			IDAttr: msgID, FromJid: reactorJID, Emoji: e,
+			AccountJid: s.account.JID, IDAttr: msgID, FromJid: reactorJID, Emoji: e,
 		}); err != nil {
 			return err
 		}
@@ -543,7 +927,9 @@ func replaceReactions(ctx context.Context, s *accountSession, msgID, reactorJID 
 // loadReactionsForMessage aggregates all reactors' current sets on msgID into
 // per-emoji counts, flagging whether our own account is among the reactors.
 func loadReactionsForMessage(ctx context.Context, s *accountSession, msgID string) []ui.Reaction {
-	rows, err := s.db.ListReactionsForMessage(ctx, msgID)
+	rows, err := s.db.ListReactionsForMessage(ctx, storage.ListReactionsForMessageParams{
+		AccountJid: s.account.JID, IDAttr: msgID,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: loading reactions for %s: %v\n", msgID, err)
 		return nil
@@ -595,7 +981,7 @@ func (a *adapter) SetDefaultAccount(jid string) error {
 func (a *adapter) session(accountIdx int) (*accountSession, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if accountIdx < 0 || accountIdx >= len(a.sessions) {
+	if accountIdx < 0 || accountIdx >= len(a.sessions) || a.sessions[accountIdx] == nil {
 		return nil, false
 	}
 	return a.sessions[accountIdx], true
@@ -635,7 +1021,7 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 		subs = (*entries)[address].Subs
 	}
 	if err := s.db.UpsertRoster(context.Background(), storage.UpsertRosterParams{
-		Jid: address, Name: name, Subs: subs,
+		AccountJid: s.account.JID, Jid: address, Name: name, Subs: subs,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: persisting renamed roster entry %s: %v\n", address, err)
 	}
@@ -688,8 +1074,9 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			return "", err
 		}
 		if _, err := s.db.DeleteMessageByID(ctx, storage.DeleteMessageByIDParams{
-			IDAttr:    nullString(opts.RetractID),
-			RosterJid: nullString(to),
+			AccountJid: s.account.JID,
+			IDAttr:     nullString(opts.RetractID),
+			RosterJid:  nullString(to),
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: deleting retracted message from storage: %v\n", err)
 		}
@@ -718,21 +1105,27 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	if opts.ReplaceID != "" {
 		// A correction amends the original message in place; it isn't a new
 		// row in history.
+		sealedBody, encrypted := encryptForStorage(s, body)
 		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
-			Body:      encryptForStorage(s, body),
-			IDAttr:    nullString(opts.ReplaceID),
-			RosterJid: nullString(to),
+			AccountJid: s.account.JID,
+			Body:       sealedBody,
+			Encrypted:  encrypted,
+			IDAttr:     nullString(opts.ReplaceID),
+			RosterJid:  nullString(to),
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: persisting correction: %v\n", err)
 		}
 		return id, nil
 	}
 
+	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+		AccountJid:    s.account.JID,
 		Sent:          true,
 		ToAttr:        nullString(to),
 		IDAttr:        nullString(id),
-		Body:          encryptForStorage(s, body),
+		Body:          sealedBody,
+		Encrypted:     encrypted,
 		StanzaType:    "chat",
 		RosterJid:     nullString(to),
 		ReplyToIDAttr: nullString(opts.ReplyToID),
@@ -883,8 +1276,9 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	if msgEv.RetractID != "" {
 		from := bareJID(msgEv.From)
 		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
-			IDAttr:    nullString(msgEv.RetractID),
-			RosterJid: nullString(from),
+			AccountJid: s.account.JID,
+			IDAttr:     nullString(msgEv.RetractID),
+			RosterJid:  nullString(from),
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: persisting retraction flag: %v\n", err)
 		}
@@ -909,10 +1303,13 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	from := bareJID(msgEv.From) // chats are keyed by bare JID (roster entries); From with a resource never matches
 
 	if msgEv.ReplaceID != "" {
+		sealedBody, encrypted := encryptForStorage(s, body)
 		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
-			Body:      encryptForStorage(s, body),
-			IDAttr:    nullString(msgEv.ReplaceID),
-			RosterJid: nullString(from),
+			AccountJid: s.account.JID,
+			Body:       sealedBody,
+			Encrypted:  encrypted,
+			IDAttr:     nullString(msgEv.ReplaceID),
+			RosterJid:  nullString(from),
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: persisting correction: %v\n", err)
 		}
@@ -925,11 +1322,14 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		return
 	}
 
+	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+		AccountJid:    s.account.JID,
 		Sent:          false,
 		FromAttr:      nullString(msgEv.From),
 		IDAttr:        nullString(msgEv.ID),
-		Body:          encryptForStorage(s, body),
+		Body:          sealedBody,
+		Encrypted:     encrypted,
 		StanzaType:    "chat",
 		RosterJid:     nullString(from),
 		ReplyToIDAttr: nullString(msgEv.ReplyToID),
@@ -963,7 +1363,9 @@ func attachmentURLs(body string) []string {
 	return nil
 }
 
-func dataFilePath(jid string) (string, error) {
+// dataFilePath returns the single database file every configured account's
+// data lives in, distinguished by an accountJID column on each table.
+func dataFilePath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -972,5 +1374,5 @@ func dataFilePath(jid string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, strings.ReplaceAll(jid, "/", "_")+".db"), nil
+	return filepath.Join(dir, "kage.db"), nil
 }

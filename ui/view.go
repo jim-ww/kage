@@ -35,8 +35,11 @@ func (m Model) View() tea.View {
 	}
 	statusLine := m.zone.Mark(zonePaneAccountBar, m.styles.sidebarStatusLine(sw, accountBg, accountFg, m.renderAccountBar(sw)))
 	sidebarBody := m.chats.View()
-	if m.selectedView == viewAccounts {
+	switch {
+	case m.selectedView == viewAccounts:
 		sidebarBody = m.renderAccountsList(sw)
+	case len(m.chats.Items()) == 0 && m.currentAccountConnecting():
+		sidebarBody = m.styles.accountNormal.Render("connecting...")
 	}
 	sidebarInner := lipgloss.JoinVertical(lipgloss.Left,
 		statusLine,
@@ -323,7 +326,14 @@ func (m Model) renderAccountsList(width int) string {
 	}
 	rows := make([]string, len(m.accounts))
 	for i, account := range m.accounts {
-		name := ansi.Truncate(account.Name, max(1, width-3), "…") // -3 for border + padding
+		label := account.Name
+		switch {
+		case account.Connecting:
+			label = account.Name + " (connecting…)"
+		case account.ConnectError != "":
+			label = account.Name + " (offline)"
+		}
+		name := ansi.Truncate(label, max(1, width-3), "…") // -3 for border + padding
 		rows[i] = m.zone.Mark(zoneAccountRow(i), m.styles.renderAccountRow(name, i == m.currentAccount, m.isHovered(zoneAccountRow(i))))
 	}
 	return strings.Join(rows, "\n")

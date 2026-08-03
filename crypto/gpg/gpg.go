@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+// Debugf is called around every gpg invocation (nil/no-op by default) —
+// callers that want visibility into hangs (e.g. gpg-agent silently waiting
+// on a pinentry prompt the terminal can't render) can set it to a logger.
+var Debugf = func(format string, args ...any) {}
+
 // Armor is the marker gpg puts at the start of an ASCII-armored message,
 // used to sniff whether an incoming message body is GPG ciphertext.
 const Armor = "-----BEGIN PGP MESSAGE-----"
@@ -200,13 +205,18 @@ func (e Encrypter) run(stdin string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout())
 	defer cancel()
 
+	Debugf("gpg: running %v (stdin %d bytes, timeout %s)", args, len(stdin), e.timeout())
+	start := time.Now()
+
 	cmd := exec.CommandContext(ctx, "gpg", args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	Debugf("gpg: %v finished in %s (err=%v)", args, time.Since(start), err)
+	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
 			return "", fmt.Errorf("%w: %s", err, msg)
@@ -222,13 +232,18 @@ func (e Encrypter) runBytes(stdin []byte, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout())
 	defer cancel()
 
+	Debugf("gpg: running %v (stdin %d bytes, timeout %s)", args, len(stdin), e.timeout())
+	start := time.Now()
+
 	cmd := exec.CommandContext(ctx, "gpg", args...)
 	cmd.Stdin = bytes.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	Debugf("gpg: %v finished in %s (err=%v)", args, time.Since(start), err)
+	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
 			return nil, fmt.Errorf("%w: %s", err, msg)

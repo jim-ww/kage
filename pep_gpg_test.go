@@ -134,7 +134,7 @@ func TestPEPKeyDiscoveryFlow(t *testing.T) {
 	}
 
 	// Confirm it was cached, so a second call doesn't need the network.
-	cached, err := bobQ.GetPGPPeerKey(ctx, "alice@localhost")
+	cached, err := bobQ.GetPGPPeerKey(ctx, storage.GetPGPPeerKeyParams{AccountJid: "bob@localhost", Jid: "alice@localhost"})
 	if err != nil || cached != aliceFpr {
 		t.Fatalf("expected cached fingerprint %q, got %q (err %v)", aliceFpr, cached, err)
 	}

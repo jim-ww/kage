@@ -30,6 +30,12 @@ func (m Model) currentMessages() []Message {
 	return m.accounts[m.currentAccount].Messages[chatIdx]
 }
 
+// currentAccountConnecting reports whether the current account's background
+// connect (see AccountConnectedMsg/AccountLiveMsg) hasn't finished yet.
+func (m Model) currentAccountConnecting() bool {
+	return m.currentAccount >= 0 && m.currentAccount < len(m.accounts) && m.accounts[m.currentAccount].Connecting
+}
+
 func (m Model) currentChat() (Chat, bool) {
 	if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
 		if chat, ok := m.chats.Items()[chatIdx].(Chat); ok {
@@ -619,7 +625,17 @@ func (m *Model) refreshViewport() {
 	if m.currentChatIndex() < 0 {
 		m.msgOffsets = nil
 		m.viewportLines = nil
-		m.viewport.SetContent("")
+		if m.currentAccountConnecting() {
+			m.viewport.SetContent("connecting...")
+		} else {
+			m.viewport.SetContent("")
+		}
+		return
+	}
+	if len(m.currentMessages()) == 0 && m.currentAccountConnecting() {
+		m.msgOffsets = nil
+		m.viewportLines = nil
+		m.viewport.SetContent("connecting...")
 		return
 	}
 	content, offsets := m.renderMessagesWithOffsets()

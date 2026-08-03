@@ -1,38 +1,40 @@
 -- name: TruncateRoster :exec
-DELETE FROM rosterJIDs;
+DELETE FROM rosterJIDs
+WHERE accountJID = sqlc.arg(account_jid);
 
 
 -- name: DeleteRosterByJID :exec
 DELETE FROM rosterJIDs
-WHERE jid = ?;
+WHERE accountJID = sqlc.arg(account_jid)
+	AND jid = sqlc.arg(jid);
 
 
 -- name: UpsertRoster :exec
-INSERT INTO rosterJIDs (jid, name, subs)
-VALUES (?, ?, ?)
-ON CONFLICT(jid) DO UPDATE
+INSERT INTO rosterJIDs (accountJID, jid, name, subs)
+VALUES (sqlc.arg(account_jid), sqlc.arg(jid), sqlc.arg(name), sqlc.arg(subs))
+ON CONFLICT(accountJID, jid) DO UPDATE
 SET
 	name = excluded.name,
 	subs = excluded.subs;
 
 
 -- name: InsertRosterGroup :exec
-INSERT INTO rosterGroups (jid, name)
-VALUES (?, ?)
+INSERT INTO rosterGroups (accountJID, jid, name)
+VALUES (sqlc.arg(account_jid), sqlc.arg(jid), sqlc.arg(name))
 ON CONFLICT DO NOTHING;
 
 
 -- name: UpsertRosterVersion :exec
-INSERT INTO rosterVer (id, ver)
-VALUES (FALSE, ?)
-ON CONFLICT(id) DO UPDATE
+INSERT INTO rosterVer (accountJID, ver)
+VALUES (sqlc.arg(account_jid), sqlc.arg(ver))
+ON CONFLICT(accountJID) DO UPDATE
 SET ver = excluded.ver;
 
 
 -- name: GetRosterVersion :one
 SELECT ver
 FROM rosterVer
-WHERE id = 0;
+WHERE accountJID = sqlc.arg(account_jid);
 
 
 -- name: ListRoster :many
@@ -40,16 +42,19 @@ SELECT
 	jid,
 	name,
 	subs
-FROM rosterJIDs;
+FROM rosterJIDs
+WHERE accountJID = sqlc.arg(account_jid);
 
 
 -- name: InsertMessage :one
 INSERT INTO messages (
+	accountJID,
 	sent,
 	toAttr,
 	fromAttr,
 	idAttr,
 	body,
+	encrypted,
 	stanzaType,
 	originID,
 	delay,
@@ -58,11 +63,13 @@ INSERT INTO messages (
 	replyToIdAttr
 )
 VALUES (
+	sqlc.arg(account_jid),
 	sqlc.arg(sent),
 	sqlc.arg(to_attr),
 	sqlc.arg(from_attr),
 	sqlc.arg(id_attr),
 	sqlc.arg(body),
+	sqlc.arg(encrypted),
 	sqlc.arg(stanza_type),
 	sqlc.arg(origin_id),
 	IFNULL(
@@ -73,7 +80,7 @@ VALUES (
 	sqlc.arg(archive_id),
 	sqlc.arg(reply_to_id_attr)
 )
-ON CONFLICT (originID, fromAttr) DO UPDATE
+ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
 RETURNING id;
 
@@ -81,7 +88,8 @@ RETURNING id;
 -- name: MarkMessagesReceived :exec
 UPDATE messages
 SET received = TRUE
-WHERE sent = TRUE
+WHERE accountJID = sqlc.arg(account_jid)
+	AND sent = TRUE
 	AND (
 		idAttr = sqlc.arg(message_id)
 		OR originID = sqlc.arg(message_id)
@@ -90,23 +98,30 @@ WHERE sent = TRUE
 
 -- name: UpdateMessageBodyByID :execrows
 -- XEP-0308: apply a correction to a previously sent/received message,
--- identified by its own idAttr within a given contact's history.
+-- identified by its own idAttr within a given contact's history. Also used
+-- to opportunistically re-seal a plaintext row once a local storage
+-- password becomes available.
 UPDATE messages
-SET body = sqlc.arg(body)
-WHERE idAttr = sqlc.arg(id_attr)
+SET
+	body = sqlc.arg(body),
+	encrypted = sqlc.arg(encrypted)
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
 
 
 -- name: MarkMessageRetracted :execrows
 UPDATE messages
 SET retracted = TRUE
-WHERE idAttr = sqlc.arg(id_attr)
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
 
 
 -- name: DeleteMessageByID :execrows
 DELETE FROM messages
-WHERE idAttr = sqlc.arg(id_attr)
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
 
 
@@ -117,12 +132,14 @@ SELECT
 	fromAttr,
 	idAttr,
 	body,
+	encrypted,
 	stanzaType,
 	delay,
 	replyToIdAttr,
 	retracted
 FROM messages
-WHERE rosterJID = ?
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
 	AND stanzaType = COALESCE(
 		NULLIF(sqlc.arg(stanza_type), ''),
 		stanzaType
@@ -132,31 +149,33 @@ ORDER BY delay ASC;
 
 -- name: DeleteReactionsByReactor :exec
 DELETE FROM messageReactions
-WHERE idAttr = sqlc.arg(id_attr)
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
 	AND fromJID = sqlc.arg(from_jid);
 
 
 -- name: InsertReaction :exec
-INSERT INTO messageReactions (idAttr, fromJID, emoji)
-VALUES (sqlc.arg(id_attr), sqlc.arg(from_jid), sqlc.arg(emoji))
-ON CONFLICT (idAttr, fromJID, emoji) DO NOTHING;
+INSERT INTO messageReactions (accountJID, idAttr, fromJID, emoji)
+VALUES (sqlc.arg(account_jid), sqlc.arg(id_attr), sqlc.arg(from_jid), sqlc.arg(emoji))
+ON CONFLICT (accountJID, idAttr, fromJID, emoji) DO NOTHING;
 
 
 -- name: ListReactionsForMessage :many
 SELECT fromJID, emoji
 FROM messageReactions
-WHERE idAttr = sqlc.arg(id_attr);
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr);
 
 
 -- name: ListLatestArchiveIDs :many
 SELECT
-	j.jid,
+	m.rosterJID,
 	m.archiveID,
 	MAX(m.delay)
 FROM messages AS m
-INNER JOIN rosterJIDs AS j
-	ON m.rosterJID = j.jid
-GROUP BY j.jid;
+WHERE m.accountJID = sqlc.arg(account_jid)
+	AND m.archiveID IS NOT NULL
+GROUP BY m.rosterJID;
 
 
 -- name: ListEarliestArchiveIDs :many
@@ -164,7 +183,8 @@ SELECT
 	archiveID,
 	MIN(delay) AS mindelay
 FROM messages
-WHERE rosterJID = ?
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
 GROUP BY delay
 HAVING mindelay NOT NULL;
 
@@ -285,13 +305,26 @@ ON CONFLICT(jid, feat) DO NOTHING;
 
 
 -- name: UpsertPGPPeerKey :exec
-INSERT INTO pgpPeerKeys (jid, fingerprint)
-VALUES (?, ?)
-ON CONFLICT (jid) DO UPDATE
+INSERT INTO pgpPeerKeys (accountJID, jid, fingerprint)
+VALUES (sqlc.arg(account_jid), sqlc.arg(jid), sqlc.arg(fingerprint))
+ON CONFLICT (accountJID, jid) DO UPDATE
 SET fingerprint = excluded.fingerprint;
 
 
 -- name: GetPGPPeerKey :one
 SELECT fingerprint
 FROM pgpPeerKeys
-WHERE jid = ?;
+WHERE accountJID = sqlc.arg(account_jid)
+	AND jid = sqlc.arg(jid);
+
+
+-- name: GetLocalKeySalt :one
+SELECT salt
+FROM localKeySalt
+WHERE id = 0;
+
+-- name: SetLocalKeySalt :exec
+INSERT INTO localKeySalt (id, salt)
+VALUES (FALSE, ?)
+ON CONFLICT(id) DO UPDATE
+SET salt = excluded.salt;

@@ -16,7 +16,16 @@ type fileConfig struct {
 	Theme          ui.Theme       `toml:"theme"`
 	Mouse          *bool          `toml:"mouse"`           // nil (unset) means the default: on
 	DefaultAccount string         `toml:"default_account"` // JID selected on startup; unset means the first configured account
+	Storage        StorageConfig  `toml:"storage"`
 	Accounts       []Account      `toml:"accounts"`
+}
+
+// StorageConfig configures the password local message history is encrypted
+// under at rest (see ResolveStoragePassword) — one password for the whole
+// database, shared by every configured account.
+type StorageConfig struct {
+	Password    string `toml:"password,omitempty"`     // plaintext fallback
+	PasswordCmd string `toml:"password_cmd,omitempty"` // shell command printing the password on stdout
 }
 
 type UIConfig struct {
@@ -28,6 +37,7 @@ type UIConfig struct {
 // Config is the fully resolved application configuration.
 type Config struct {
 	UI       UIConfig
+	Storage  StorageConfig
 	Accounts []Account
 	// DefaultAccountIdx is the index into Accounts selected on startup,
 	// resolved from the default_account JID setting. 0 (the first account)
@@ -64,6 +74,7 @@ func Load(path string) (Config, error) {
 			if cfg.Mouse != nil {
 				cfgOut.UI.Mouse = *cfg.Mouse
 			}
+			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts
 			cfgOut.Path = path
 			if cfg.DefaultAccount != "" {

@@ -167,6 +167,73 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addAccountErr = msg.Err.Error()
 		return m, nil
 
+	case AccountConnectedMsg:
+		if msg.Index < 0 || msg.Index >= len(m.accounts) {
+			return m, nil
+		}
+		m.accounts[msg.Index] = msg.Account
+		var cmd tea.Cmd
+		if msg.Index == m.currentAccount {
+			cmd = m.chats.SetItems(msg.Account.Chats)
+			m.refreshViewport()
+		}
+		return m, cmd
+
+	case AccountLiveMsg:
+		if msg.Index < 0 || msg.Index >= len(m.accounts) {
+			return m, nil
+		}
+		m.accounts[msg.Index].Connecting = false
+		m.accounts[msg.Index].ConnectError = ""
+		if len(msg.NewChats) > 0 {
+			m.accounts[msg.Index].Chats = append(m.accounts[msg.Index].Chats, msg.NewChats...)
+			if m.accounts[msg.Index].Messages == nil {
+				m.accounts[msg.Index].Messages = make(map[int][]Message)
+			}
+			for idx, msgs := range msg.NewMessages {
+				m.accounts[msg.Index].Messages[idx] = msgs
+			}
+		}
+		var cmd tea.Cmd
+		if msg.Index == m.currentAccount {
+			if len(msg.NewChats) > 0 {
+				cmd = m.chats.SetItems(m.accounts[msg.Index].Chats)
+			}
+			m.refreshViewport()
+		}
+		return m, cmd
+
+	case AccountConnectErrorMsg:
+		if msg.Index < 0 || msg.Index >= len(m.accounts) {
+			return m, nil
+		}
+		m.accounts[msg.Index].Connecting = false
+		m.accounts[msg.Index].ConnectError = msg.Err.Error()
+		if msg.Index == m.currentAccount {
+			m.refreshViewport()
+		}
+		return m, m.showNotification("account " + m.accounts[msg.Index].Name + " failed to connect: " + msg.Err.Error())
+
+	case HistorySyncedMsg:
+		if len(msg.Messages) == 0 {
+			return m, nil
+		}
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil
+		}
+		if m.accounts[msg.AccountIdx].Messages == nil {
+			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
+		}
+		msgs := append(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Messages...)
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.selectedMsg = len(msgs) - 1
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+		}
+		return m, nil
+
 	case typingPauseMsg:
 		if m.sender != nil && m.typingActiveTo == msg.addr && m.typingGen == msg.gen {
 			if err := m.sender.SetTyping(m.currentAccount, msg.addr, false); err == nil {

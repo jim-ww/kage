@@ -12,6 +12,10 @@ import (
 // account passwords may be stored (key: JID).
 const keyringService = "kage"
 
+// storageKeyringAccount is the keyring key ResolveStoragePassword checks
+// under keyringService, distinct from any account JID.
+const storageKeyringAccount = "local-storage"
+
 // Account is one configured XMPP account.
 type Account struct {
 	JID         string            `toml:"jid"`
@@ -45,4 +49,39 @@ func (a Account) ResolvePassword() (string, error) {
 	}
 
 	return "", fmt.Errorf("no password available for %s (keyring, password_cmd, and password are all unset)", a.JID)
+}
+
+// ResolveStoragePassword returns the password local message history is
+// encrypted under at rest, trying the OS keyring first, then
+// StorageConfig.PasswordCmd, then the plaintext StorageConfig.Password —
+// same precedence as Account.ResolvePassword. configured is false (password
+// always "", err always nil) when none of the three are set at all — that's
+// a valid choice (local storage falls back to plaintext), not an error.
+// configured true with a non-nil err means a password_cmd was set but
+// actually failed to run.
+func ResolveStoragePassword(cfg StorageConfig) (password string, configured bool, err error) {
+	if pass, err := keyring.Get(keyringService, storageKeyringAccount); err == nil {
+		return pass, true, nil
+	}
+
+	if cfg.PasswordCmd != "" {
+		out, err := exec.Command("sh", "-c", cfg.PasswordCmd).Output()
+		if err != nil {
+			return "", true, fmt.Errorf("running storage password_cmd: %w", err)
+		}
+		return strings.TrimSpace(string(out)), true, nil
+	}
+
+	if cfg.Password != "" {
+		return cfg.Password, true, nil
+	}
+
+	return "", false, nil
+}
+
+// SetStorageKeyringPassword stores password in the OS keyring for local
+// storage encryption, under the same service/key ResolveStoragePassword
+// looks it up from.
+func SetStorageKeyringPassword(password string) error {
+	return keyring.Set(keyringService, storageKeyringAccount, password)
 }
