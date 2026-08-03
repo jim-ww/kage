@@ -40,6 +40,22 @@ func presenceGlyph(p Presence) string {
 	}
 }
 
+// presenceGlyphOn is presenceGlyph rendered against bg — used when the
+// glyph is going to sit inside a row that itself has a background (e.g. a
+// hover highlight), so the dot's own style needs to carry that same
+// background rather than leaving a gap where the row highlight would
+// otherwise show through unstyled.
+func presenceGlyphOn(p Presence, bg color.Color) string {
+	switch p {
+	case PresenceOnline:
+		return presenceOnlineStyle.Background(bg).Render("●")
+	case PresenceAway:
+		return presenceAwayStyle.Background(bg).Render("◐")
+	default:
+		return presenceOfflineStyle.Background(bg).Render("○")
+	}
+}
+
 type uiColors struct {
 	// appBg       color.Color
 	// panelBg     color.Color
@@ -203,13 +219,9 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 	delegate.SetSpacing(0)
 	delegate.SetHeight(2)
 	delegate.Styles.NormalTitle = delegate.Styles.NormalTitle.
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(colors.borderD).
 		Foreground(colors.themFg).
 		PaddingLeft(1)
 	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(colors.borderD).
 		Foreground(colors.textMuted).
 		PaddingLeft(1)
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
@@ -230,26 +242,18 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 		return delegate
 	}
 
-	// Both hover variants use the exact same mechanism as each other (and as
-	// the base normal/selected styles): recolor the row's left border. The
-	// border is a separate decoration lipgloss draws at the fixed edge of
-	// the block, not something layered on top of the row's own rendered
-	// text — so unlike a background/foreground change, it isn't at the
-	// mercy of resets embedded inside that text (e.g. from the presence
-	// dot's own pre-rendered color). Every row already has a border (dim,
-	// borderD, when idle); hover just brightens it to accentCyan.
+	// Selected+hover recolors the row's left border — a decoration drawn at
+	// the fixed edge of the block, not layered on top of the row's own
+	// rendered text, so it isn't at the mercy of resets embedded inside
+	// that text (e.g. from the presence dot's own pre-rendered color).
 	hoveredSelected := delegate
 	hoveredSelected.Styles.SelectedTitle = hoveredSelected.Styles.SelectedTitle.BorderForeground(colors.accentCyan)
 	hoveredSelected.Styles.SelectedDesc = hoveredSelected.Styles.SelectedDesc.BorderForeground(colors.accentCyan)
 
-	hoveredNormal := delegate
-	hoveredNormal.Styles.NormalTitle = hoveredNormal.Styles.NormalTitle.BorderForeground(colors.accentCyan)
-	hoveredNormal.Styles.NormalDesc = hoveredNormal.Styles.NormalDesc.BorderForeground(colors.accentCyan)
-
 	return zoneChatListDelegate{
 		DefaultDelegate: delegate,
 		hoverSelected:   hoveredSelected,
-		hoverNormal:     hoveredNormal,
+		colors:          colors,
 		zone:            zm,
 		hover:           hv,
 	}
@@ -264,7 +268,7 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 type zoneChatListDelegate struct {
 	list.DefaultDelegate
 	hoverSelected list.DefaultDelegate // used when the hovered row is also the selected one
-	hoverNormal   list.DefaultDelegate // used when the hovered row is not selected
+	colors        uiColors
 	zone          *zone.Manager
 	hover         *hoverState
 }
@@ -278,11 +282,43 @@ func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item 
 	case hovered && selected:
 		d.hoverSelected.Render(&sb, m, index, item)
 	case hovered:
-		d.hoverNormal.Render(&sb, m, index, item)
+		if chat, ok := item.(Chat); ok {
+			sb.WriteString(renderHoverChatRow(chat, d.colors))
+		} else {
+			d.DefaultDelegate.Render(&sb, m, index, item)
+		}
 	default:
 		d.DefaultDelegate.Render(&sb, m, index, item)
 	}
 	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), sb.String()))
+}
+
+// renderHoverChatRow builds the hovered-non-selected chat row's two lines.
+// It doesn't reuse Chat.Title()/list.DefaultDelegate: Title() embeds an
+// already-rendered, already-reset presence glyph, and rendering that whole
+// string through another Style() (to add the hover background) is a nested
+// re-render — content that's already been through Style.Render() getting
+// wrapped in more Style.Render() — which is the documented corruption
+// pattern for this codebase (see the border-glyph bug fixed earlier this
+// session). The fix isn't a raw-escape workaround; it's to never nest the
+// render in the first place: each fragment below is rendered exactly once,
+// carries the row's background itself, and fragments are joined by plain
+// string concatenation — ordinary lipgloss usage, not manual SGR.
+func renderHoverChatRow(c Chat, colors uiColors) string {
+	bg := colors.accentCyan
+	fg := colors.panelEdge
+
+	pad := lipgloss.NewStyle().Background(bg).Render(" ")
+	dot := presenceGlyphOn(c.Presence, bg)
+	name := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(true).Render(c.Name)
+	title := pad + dot + pad + name
+
+	desc := ""
+	if text := c.Description(); text != "" {
+		desc = pad + lipgloss.NewStyle().Background(bg).Foreground(fg).Render(text)
+	}
+
+	return title + "\n" + desc
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {
