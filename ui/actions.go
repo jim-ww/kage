@@ -93,6 +93,8 @@ func (m *Model) switchAccount(index int) tea.Cmd {
 	}
 	m.currentAccount = index
 	m.cancelPending()
+	m.lastClickedMsgIdx = -1
+	m.lastClickTime = time.Time{}
 	m.chats.Select(0)
 	m.selectedMsg = 0
 	cmd := m.chats.SetItems(m.accounts[index].Chats)
@@ -646,6 +648,7 @@ func (m *Model) cancelPending() {
 	m.editingMsgIdx = -1
 	m.replyToIdx = -1
 	m.reactingMsgIdx = -1
+	m.lastClickedMsgIdx = -1
 	m.setEmojiSuggestions(nil)
 	m.input.SetValue("")
 	m.input.Placeholder = "message..."

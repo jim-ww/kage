@@ -375,6 +375,10 @@ type Model struct {
 	noticeText       string
 	noticeID         int
 
+	// double-click detection for messages
+	lastClickedMsgIdx int       // index of the last clicked message (for double-click detection)
+	lastClickTime     time.Time // time of the last message click (for double-click detection)
+
 	sender               MessageSender
 	fileSender           FileSender
 	accountAdder         AccountAdder
@@ -465,6 +469,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		editingMsgIdx:        -1,
 		replyToIdx:           -1,
 		reactingMsgIdx:       -1,
+		lastClickedMsgIdx:    -1,
 		sender:               sender,
 		fileSender:           fileSender,
 		accountAdder:         accountAdder,

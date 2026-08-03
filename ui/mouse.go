@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	zone "github.com/lrstanley/bubblezone/v2"
@@ -85,6 +86,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		if idx, ok := messageIndexFromZone(m.hover.id); ok && idx != m.selectedMsg {
 			old := m.selectedMsg
 			m.selectedMsg = idx
+			m.lastClickedMsgIdx = -1
+			m.lastClickTime = time.Time{}
 			m.refreshViewportSelection(old, idx)
 		}
 	}
@@ -190,6 +193,8 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.zone.Get(zonePaneAccountBar).InBounds(msg) {
 		m.notifyTypingStopped()
 		m.selectedView = viewAccounts
+		m.lastClickedMsgIdx = -1
+		m.lastClickTime = time.Time{}
 		m.input.Blur()
 		return m, nil
 	}
@@ -197,6 +202,8 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i := range m.accounts {
 		if m.zone.Get(zoneAccountRow(i)).InBounds(msg) {
 			m.selectedView = viewAccounts
+			m.lastClickedMsgIdx = -1
+			m.lastClickTime = time.Time{}
 			return m, m.switchAccount(i)
 		}
 	}
@@ -204,6 +211,8 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i := range m.chats.Items() {
 		if zoneRowContains(m.zone.Get(zoneChatItem(i)), msg, m.sidebarWidth()) {
 			m.notifyTypingStopped()
+			m.lastClickedMsgIdx = -1
+			m.lastClickTime = time.Time{}
 			m.selectChatItem(i)
 			return m.openCurrentChat()
 		}
@@ -213,9 +222,23 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		msgs := m.currentMessages()
 		for i := range msgs {
 			if m.zone.Get(zoneMessage(i)).InBounds(msg) {
+				clickTime := time.Now()
+				isDoubleClick := m.lastClickedMsgIdx == i && !m.lastClickTime.IsZero() && clickTime.Sub(m.lastClickTime) < 500*time.Millisecond
+
 				m.selectedMsg = i
 				m.refreshViewportScrollTo(i)
-				return m, nil
+
+				if isDoubleClick {
+					// Double-click: open the message
+					m.lastClickedMsgIdx = -1
+					m.lastClickTime = time.Time{}
+					return m, m.actionOpenMessage()
+				} else {
+					// Single-click: reply to the message
+					m.lastClickedMsgIdx = i
+					m.lastClickTime = clickTime
+					return m, m.actionReplyMessage()
+				}
 			}
 		}
 	}
@@ -243,6 +266,8 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.zone.Get(zonePaneSidebar).InBounds(msg) {
 		m.notifyTypingStopped()
 		m.selectedView = viewChats
+		m.lastClickedMsgIdx = -1
+		m.lastClickTime = time.Time{}
 		m.input.Blur()
 		return m, nil
 	}
@@ -278,6 +303,8 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			if m.zone.Get(zoneMessage(i)).InBounds(msg) {
 				m.selectedMsg = i
 				m.refreshViewportScrollTo(i)
+				m.lastClickedMsgIdx = -1
+				m.lastClickTime = time.Time{}
 				m.openContextMenu(m.messageContextMenuItems(i))
 				return m, nil
 			}
@@ -293,6 +320,8 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // (which doesn't).
 func (m *Model) selectChatItem(i int) {
 	m.chats.Select(i)
+	m.lastClickedMsgIdx = -1
+	m.lastClickTime = time.Time{}
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
 		m.selectedMsg = 0

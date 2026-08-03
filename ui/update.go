@@ -507,6 +507,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.selectedView == viewChat && m.selectedMsg > 0 {
 				m.selectedMsg--
+				m.lastClickedMsgIdx = -1
+				m.lastClickTime = time.Time{}
 				m.refreshViewportScrollTo(m.selectedMsg)
 				return m, nil
 			}
@@ -523,6 +525,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.selectedMsg < len(m.currentMessages())-1 {
 					m.selectedMsg++
+					m.lastClickedMsgIdx = -1
+					m.lastClickTime = time.Time{}
 					m.refreshViewportScrollTo(m.selectedMsg)
 					return m, nil
 				}

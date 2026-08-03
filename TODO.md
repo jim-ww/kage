@@ -1,4 +1,3 @@
-- chat view: click to reply, double click to open
 - replies compatibility text not encrypted?
 - encrypted file-sharing?
 - store all accounts data in single sqlite db?
