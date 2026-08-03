@@ -7,7 +7,7 @@
 - use flock lib to just only allow one instance of app per account
 - list chat participants, ability to see info about them, start chat with them
 - account manager: fix adding duplicate accounts
-- account management: status ('● Online', '◐ Away', '○ Offline') and manage it
+- account manager: status ('● Online', '◐ Away', '○ Offline') and manage it (e.g. offline stops syncing that account)
 - message status? 'sent' / 'delivered'?
 - send/receive messages: text, images, files
 - search message content in single/multiple chats
