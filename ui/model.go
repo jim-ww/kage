@@ -296,7 +296,8 @@ type Model struct {
 	openMode         pickerMode   // what picking an item from openItems actually does: open or save
 	filePicker       filepicker.Model
 	pickingFile      bool  // true while the Bubble file picker is open
-	msgOffsets       []int // line offset of each message inside viewport content
+	msgOffsets       []int    // line offset of each message inside viewport content
+	viewportLines    []string // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
 	noticeText       string
 	noticeID         int
 

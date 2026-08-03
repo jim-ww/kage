@@ -290,7 +290,25 @@ func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item 
 	default:
 		d.DefaultDelegate.Render(&sb, m, index, item)
 	}
-	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), sb.String()))
+	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), padLinesToWidth(sb.String(), m.Width())))
+}
+
+// padLinesToWidth pads every line to width with trailing spaces (ANSI-aware,
+// via lipgloss.Width). zone.Mark's start/end markers land at the first and
+// last character of the marked content; if the row's lines are different
+// widths (title long, desc short/empty), the end marker lands at the short
+// line's column and InBounds' single start→end rectangle shrinks to that —
+// producing a tiny click/hover target instead of the full row. Padding every
+// line to the same width keeps the end marker pinned to the right edge, so
+// the whole row is inside the box.
+func padLinesToWidth(content string, width int) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if pad := width - lipgloss.Width(line); pad > 0 {
+			lines[i] = line + strings.Repeat(" ", pad)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderHoverChatRow builds the hovered-non-selected chat row's two lines.

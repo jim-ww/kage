@@ -1,4 +1,7 @@
-# ui
+- chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view
+- message deletion: shouldnt delete message locally, instead just show in deleted message state, with option to see its contents
+- chat view: should show name instead of address if available
+- config: add default account setting
 - desktop notifications on new messages
 - implement background read-only daemon for desktop notifications?
 - use flock lib to just only allow one instance of app per account

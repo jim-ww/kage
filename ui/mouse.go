@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 // Zone IDs for the mouse-clickable regions marked in View(). Panes are
@@ -40,6 +41,23 @@ func messageIndexFromZone(id string) (int, bool) {
 	return i, true
 }
 
+// zoneRowContains reports whether mouse falls within z's vertical span and
+// within [0, maxX) horizontally. It doesn't trust z.EndX: chat rows are
+// marked inside sidebarBox, which draws a lipgloss border around the
+// sidebar, and that border render doesn't treat zone.Mark's zero-width
+// marker correctly — it truncates the row's content (and any padding we
+// add) well short of the real right edge, so ZoneInfo.InBounds' X range
+// ends up covering only the first few columns of the row. maxX (the
+// sidebar's own width) is used instead, so the row is still bounded to the
+// sidebar pane rather than matching anywhere on screen at that Y.
+func zoneRowContains(z *zone.ZoneInfo, mouse tea.MouseMsg, maxX int) bool {
+	if z.IsZero() {
+		return false
+	}
+	m := mouse.Mouse()
+	return m.Y >= z.StartY && m.Y <= z.EndY && m.X >= z.StartX && m.X < maxX
+}
+
 // hoverState holds the zone ID currently under the pointer. It's shared via
 // pointer (see Model.hover) rather than copied through Model, because the
 // chat list delegate needs to read it too but only ever sees list.Model,
@@ -65,8 +83,9 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 
 	if m.selectedView == viewChat && m.contextMenu == nil {
 		if idx, ok := messageIndexFromZone(m.hover.id); ok && idx != m.selectedMsg {
+			old := m.selectedMsg
 			m.selectedMsg = idx
-			m.refreshViewport()
+			m.refreshViewportSelection(old, idx)
 		}
 	}
 
@@ -104,7 +123,7 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		}
 	}
 	for i := range m.chats.Items() {
-		if m.zone.Get(zoneChatItem(i)).InBounds(mouse) {
+		if zoneRowContains(m.zone.Get(zoneChatItem(i)), mouse, m.sidebarWidth()) {
 			return zoneChatItem(i)
 		}
 	}
@@ -183,7 +202,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	for i := range m.chats.Items() {
-		if m.zone.Get(zoneChatItem(i)).InBounds(msg) {
+		if zoneRowContains(m.zone.Get(zoneChatItem(i)), msg, m.sidebarWidth()) {
 			m.notifyTypingStopped()
 			m.selectChatItem(i)
 			return m.openCurrentChat()
@@ -246,7 +265,7 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	for i := range m.chats.Items() {
-		if m.zone.Get(zoneChatItem(i)).InBounds(msg) {
+		if zoneRowContains(m.zone.Get(zoneChatItem(i)), msg, m.sidebarWidth()) {
 			m.selectChatItem(i)
 			m.openContextMenu(m.chatItemContextMenuItems(i))
 			return m, nil
