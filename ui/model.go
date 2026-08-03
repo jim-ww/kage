@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 type Message struct {
@@ -257,6 +258,7 @@ type Model struct {
 	keys   KeyMap
 	theme  Theme
 	styles uiStyles
+	zone   *zone.Manager // owns mouse click/scroll regions marked in View(); see ui/mouse.go
 
 	accounts       []Account
 	currentAccount int
@@ -310,7 +312,8 @@ type noticeClearMsg struct {
 
 func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder) Model {
 	styles := newUIStyles(theme)
-	delegate := newChatListDelegate(styles.colors)
+	zm := zone.New()
+	delegate := newChatListDelegate(styles.colors, zm)
 
 	initialChats := []list.Item(nil)
 	if len(accounts) > 0 {
@@ -342,6 +345,7 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 		keys:           keys,
 		theme:          theme,
 		styles:         styles,
+		zone:           zm,
 		accounts:       accounts,
 		currentAccount: 0,
 		chats:          l,

@@ -30,7 +30,7 @@ func (m Model) View() tea.View {
 		accountBg = colors.borderA
 		// accountFg = colors.appBg
 	}
-	statusLine := m.styles.sidebarStatusLine(sw, accountBg, accountFg, m.renderAccountBar(sw))
+	statusLine := m.zone.Mark(zonePaneAccountBar, m.styles.sidebarStatusLine(sw, accountBg, accountFg, m.renderAccountBar(sw)))
 	sidebarBody := m.chats.View()
 	if m.selectedView == viewAccounts {
 		sidebarBody = m.renderAccountsList(sw)
@@ -39,7 +39,7 @@ func (m Model) View() tea.View {
 		statusLine,
 		m.styles.sidebarInner(sw, max(0, m.height-sidebarStatusHeight), sidebarBody),
 	)
-	sidebar := m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner)
+	sidebar := m.zone.Mark(zonePaneSidebar, m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner))
 
 	// ── Input box ──────────────────────────────────────────────────────────
 	inputBorder := colors.borderD
@@ -55,7 +55,7 @@ func (m Model) View() tea.View {
 		inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
 	}
 
-	inputBox := m.styles.inputContainer(inputBorder, inputInner)
+	inputBox := m.zone.Mark(zonePaneInput, m.styles.inputContainer(inputBorder, inputInner))
 
 	// ── Viewport / popup ───────────────────────────────────────────────────
 	var viewportArea string
@@ -81,7 +81,7 @@ func (m Model) View() tea.View {
 			notice := m.styles.noticeBar(m.chatAreaWidth(), m.noticeText)
 			viewportBody = lipgloss.JoinVertical(lipgloss.Left, viewportBody, notice)
 		}
-		viewportArea = m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody)
+		viewportArea = m.zone.Mark(zonePaneViewport, m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody))
 	}
 
 	chatStatus := m.styles.sidebarStatusLine(
@@ -97,8 +97,9 @@ func (m Model) View() tea.View {
 	footer := m.styles.footerBar(m.width, footerText)
 	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, footer))
 
-	v := tea.NewView(root)
+	v := tea.NewView(m.zone.Scan(root))
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -253,7 +254,7 @@ func (m Model) renderAccountsList(width int) string {
 	rows := make([]string, len(m.accounts))
 	for i, account := range m.accounts {
 		name := ansi.Truncate(account.Name, max(1, width-3), "…") // -3 for border + padding
-		rows[i] = m.styles.renderAccountRow(name, i == m.currentAccount)
+		rows[i] = m.zone.Mark(zoneAccountRow(i), m.styles.renderAccountRow(name, i == m.currentAccount))
 	}
 	return strings.Join(rows, "\n")
 }

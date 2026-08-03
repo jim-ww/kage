@@ -33,7 +33,7 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 			currentLine++
 		}
 		offsets[i] = currentLine
-		rendered := m.renderMessage(msg, i, cw, msgs)
+		rendered := m.zone.Mark(zoneMessage(i), m.renderMessage(msg, i, cw, msgs))
 		sb.WriteString(rendered)
 		currentLine += strings.Count(rendered, "\n") + 1
 	}

@@ -3,12 +3,14 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"io"
 	"strings"
 
 	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 const (
@@ -172,7 +174,7 @@ func newUIStyles(theme Theme) uiStyles {
 	}
 }
 
-func newChatListDelegate(colors uiColors) list.DefaultDelegate {
+func newChatListDelegate(colors uiColors, zm *zone.Manager) list.ItemDelegate {
 	delegate := list.NewDefaultDelegate()
 	delegate.SetSpacing(0)
 	delegate.SetHeight(2)
@@ -196,7 +198,21 @@ func newChatListDelegate(colors uiColors) list.DefaultDelegate {
 	delegate.Styles.DimmedTitle = delegate.Styles.DimmedTitle.Foreground(colors.time)
 	delegate.Styles.DimmedDesc = delegate.Styles.DimmedDesc.Foreground(colors.time)
 	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(colors.filterMatch).Bold(true)
-	return delegate
+	return zoneChatListDelegate{DefaultDelegate: delegate, zone: zm}
+}
+
+// zoneChatListDelegate wraps DefaultDelegate's rendering with a bubblezone
+// mark per row so clicks/wheel events can be mapped back to the chat at
+// that index (see zoneChatItem, handleMouseClick).
+type zoneChatListDelegate struct {
+	list.DefaultDelegate
+	zone *zone.Manager
+}
+
+func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	var sb strings.Builder
+	d.DefaultDelegate.Render(&sb, m, index, item)
+	fmt.Fprint(w, d.zone.Mark(zoneChatItem(index), sb.String()))
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {
