@@ -2,6 +2,7 @@ package omemo
 
 import (
 	"context"
+	"crypto/ed25519"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -81,7 +82,7 @@ func TestStoreEndToEndConversation(t *testing.T) {
 		t.Fatalf("InitIdentity(bob): %v", err)
 	}
 
-	trustAll := omemolib.WithTrustResolver(func(context.Context, omemolib.Device, []byte) error { return nil })
+	trustAll := omemolib.WithTrustResolver(func(ctx context.Context, dev omemolib.Device, identityKey ed25519.PublicKey) error { return nil })
 	aliceMgr, err := omemolib.NewManager(ctx, aliceStore, transport, trustAll)
 	if err != nil {
 		t.Fatalf("NewManager(alice): %v", err)
