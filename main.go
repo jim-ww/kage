@@ -208,6 +208,21 @@ type accountSession struct {
 	db        *storage.Queries
 	dbConn    interface{ Close() error }
 	gpg       gpg.Encrypter
+
+	rosterNames atomic.Pointer[map[string]string] // bare JID -> roster nickname, for display in the chat view instead of the raw address
+}
+
+// rosterName returns bareJID's roster nickname, or bareJID itself if the
+// contact has none (or isn't in the roster at all).
+func (s *accountSession) rosterName(bareJID string) string {
+	names := s.rosterNames.Load()
+	if names == nil {
+		return bareJID
+	}
+	if name, ok := (*names)[bareJID]; ok && name != "" {
+		return name
+	}
+	return bareJID
 }
 
 func connectAccounts(ctx context.Context, accounts []config.Account) ([]*accountSession, []ui.Account, error) {
@@ -281,11 +296,13 @@ func connectAccount(ctx context.Context, acct config.Account) (*accountSession, 
 
 	chats := make([]list.Item, 0, len(contacts))
 	messages := make(map[int][]ui.Message, len(contacts))
+	names := make(map[string]string, len(contacts))
 	for i, c := range contacts {
 		name := c.Name
 		if name == "" {
 			name = c.JID
 		}
+		names[c.JID] = name
 		chats = append(chats, ui.Chat{Name: name, Address: c.JID})
 		if err := queries.UpsertRoster(ctx, storage.UpsertRosterParams{
 			Jid: c.JID, Name: c.Name, Subs: c.Subscription,
@@ -296,6 +313,7 @@ func connectAccount(ctx context.Context, acct config.Account) (*accountSession, 
 			messages[i] = hist
 		}
 	}
+	sess.rosterNames.Store(&names)
 
 	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages}, nil
 }
@@ -875,7 +893,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		ReplyToID:  msgEv.ReplyToID,
 		Message: ui.Message{
 			ID:          msgEv.ID,
-			Author:      msgEv.From,
+			Author:      s.rosterName(from),
 			Content:     body,
 			SentAt:      msgEv.SentAt,
 			IsMe:        false,
