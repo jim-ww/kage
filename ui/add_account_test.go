@@ -40,7 +40,7 @@ func newTestModel(adder AccountAdder) Model {
 }
 
 func newTestModelWithSender(sender MessageSender, adder AccountAdder) Model {
-	m := New(nil, DefaultKeyMap, DefaultTheme(), sender, adder, true)
+	m := New(nil, 0, DefaultKeyMap, DefaultTheme(), sender, adder, true)
 	m.width, m.height = 80, 24
 	m.updateSizes()
 	return m

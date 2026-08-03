@@ -12,10 +12,11 @@ import (
 )
 
 type fileConfig struct {
-	Keybinds map[string]any `toml:"keybinds"`
-	Theme    ui.Theme       `toml:"theme"`
-	Mouse    *bool          `toml:"mouse"` // nil (unset) means the default: on
-	Accounts []Account      `toml:"accounts"`
+	Keybinds       map[string]any `toml:"keybinds"`
+	Theme          ui.Theme       `toml:"theme"`
+	Mouse          *bool          `toml:"mouse"`           // nil (unset) means the default: on
+	DefaultAccount string         `toml:"default_account"` // JID selected on startup; unset means the first configured account
+	Accounts       []Account      `toml:"accounts"`
 }
 
 type UIConfig struct {
@@ -28,6 +29,10 @@ type UIConfig struct {
 type Config struct {
 	UI       UIConfig
 	Accounts []Account
+	// DefaultAccountIdx is the index into Accounts selected on startup,
+	// resolved from the default_account JID setting. 0 (the first account)
+	// when unset or when the configured JID doesn't match any account.
+	DefaultAccountIdx int
 	// Path is the config file this was actually loaded from, or the
 	// default write location if none was found — always non-empty, so
 	// callers that need to persist a change (e.g. an auto-detected GPG key)
@@ -61,6 +66,14 @@ func Load(path string) (Config, error) {
 			}
 			cfgOut.Accounts = cfg.Accounts
 			cfgOut.Path = path
+			if cfg.DefaultAccount != "" {
+				for i, acct := range cfg.Accounts {
+					if acct.JID == cfg.DefaultAccount {
+						cfgOut.DefaultAccountIdx = i
+						break
+					}
+				}
+			}
 			return cfgOut, nil
 		}
 	}

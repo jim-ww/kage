@@ -344,16 +344,19 @@ type noticeClearMsg struct {
 	id int
 }
 
-func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool) Model {
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
 	hv := &hoverState{}
 	delegate := newChatListDelegate(styles.colors, zm, mouseEnabled, hv)
 
+	if startAccount < 0 || startAccount >= len(accounts) {
+		startAccount = 0
+	}
 	initialChats := []list.Item(nil)
 	if len(accounts) > 0 {
-		initialChats = accounts[0].Chats
+		initialChats = accounts[startAccount].Chats
 	}
 	l := list.New(initialChats, delegate, 0, 0)
 	l.SetShowTitle(false)
@@ -386,7 +389,7 @@ func New(accounts []Account, keys KeyMap, theme Theme, sender MessageSender, acc
 		mouseEnabled:   mouseEnabled,
 		hover:          hv,
 		accounts:       accounts,
-		currentAccount: 0,
+		currentAccount: startAccount,
 		chats:          l,
 		input:          ti,
 		viewport:       viewport.New(),

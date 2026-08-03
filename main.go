@@ -183,7 +183,7 @@ func main() {
 		}
 	}()
 
-	model := ui.New(uiAccounts, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse)
+	model := ui.New(uiAccounts, cfg.DefaultAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse)
 	p := tea.NewProgram(model)
 	sender.program = p
 
