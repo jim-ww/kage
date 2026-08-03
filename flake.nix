@@ -19,6 +19,10 @@
           version = "1.0";
           src = pkgs.lib.cleanSource ./.;
           vendorHash = "sha256-qtmnwBl5Ex50lAXow5suLrqqlNqDQJcIDvoAvweQnhw=";
+
+          nativeCheckInputs = [
+            pkgs.gnupg
+          ];
         };
 
         # `nix develop` gives you `prosody`/`prosodyctl`/`openssl` for
