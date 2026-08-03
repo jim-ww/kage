@@ -68,6 +68,17 @@ func SetAccountGPGKeyID(path, jid, keyID string) error {
 	return writeFileConfig(path, cfg)
 }
 
+// SetDefaultAccount sets (or updates) the default_account setting in the
+// config file at path, preserving everything else.
+func SetDefaultAccount(path, jid string) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	cfg.DefaultAccount = jid
+	return writeFileConfig(path, cfg)
+}
+
 func loadOrEmpty(path string) (fileConfig, error) {
 	existing, err := loadFile(path)
 	if err != nil {

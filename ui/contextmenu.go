@@ -86,15 +86,13 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 }
 
 // accountRowContextMenuItems builds the right-click menu for the account at
-// idx (already selected/switched to by the caller). Only one action today —
-// this exists as a real menu (rather than acting directly on right-click)
-// so adding more account actions later (status, remove, etc.) is just a
-// matter of appending items here.
+// idx (already selected/switched to by the caller).
 func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 	if idx < 0 || idx >= len(m.accounts) {
 		return nil
 	}
 	return []contextMenuItem{
 		{label: "Switch to", run: func(m *Model) tea.Cmd { return m.switchAccount(idx) }},
+		{label: "Make default", run: func(m *Model) tea.Cmd { return m.actionMakeDefaultAccount(idx) }},
 	}
 }

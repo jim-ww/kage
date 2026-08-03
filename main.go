@@ -586,6 +586,12 @@ func messageIndexByIDs(msgs []ui.Message, id string) int {
 
 // session returns the accountSession at accountIdx, guarded by mu since
 // AddAccount appends to a.sessions concurrently with reads from here.
+// SetDefaultAccount implements ui.DefaultAccountSetter: persists jid as the
+// account selected on startup.
+func (a *adapter) SetDefaultAccount(jid string) error {
+	return config.SetDefaultAccount(a.cfgPath, jid)
+}
+
 func (a *adapter) session(accountIdx int) (*accountSession, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -261,6 +261,14 @@ type AccountAddErrorMsg struct {
 	Err error
 }
 
+// DefaultAccountSetter persists which account should be selected on startup,
+// implemented outside ui (main.go's adapter) so ui stays decoupled from the
+// config layer. It's a local file write, not network I/O, so ui calls it
+// inline like Send/SetTyping rather than through a tea.Cmd.
+type DefaultAccountSetter interface {
+	SetDefaultAccount(jid string) error
+}
+
 type Model struct {
 	width, height int
 	selectedView
@@ -304,16 +312,17 @@ type Model struct {
 	openPage         int          // current page (of openItemsPerPage items) in the open picker
 	openMode         pickerMode   // what picking an item from openItems actually does: open or save
 	filePicker       filepicker.Model
-	pickingFile      bool  // true while the Bubble file picker is open
+	pickingFile      bool     // true while the Bubble file picker is open
 	msgOffsets       []int    // line offset of each message inside viewport content
 	viewportLines    []string // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
 	noticeText       string
 	noticeID         int
 
-	sender       MessageSender
-	fileSender   FileSender
-	accountAdder AccountAdder
-	renamer      ContactRenamer
+	sender               MessageSender
+	fileSender           FileSender
+	accountAdder         AccountAdder
+	renamer              ContactRenamer
+	defaultAccountSetter DefaultAccountSetter
 
 	// rename-chat prompt state, active while renamingChat is true. Opened by
 	// RenameChat (viewChats) or a chat-item context menu's "Rename", prefilled
@@ -379,28 +388,30 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	applyFilePickerStyles(&picker, styles.colors)
 	fileSender, _ := sender.(FileSender)
 	renamer, _ := sender.(ContactRenamer)
+	defaultAccountSetter, _ := sender.(DefaultAccountSetter)
 
 	return Model{
-		selectedView:   viewChat,
-		keys:           keys,
-		theme:          theme,
-		styles:         styles,
-		zone:           zm,
-		mouseEnabled:   mouseEnabled,
-		hover:          hv,
-		accounts:       accounts,
-		currentAccount: startAccount,
-		chats:          l,
-		input:          ti,
-		viewport:       viewport.New(),
-		editingMsgIdx:  -1,
-		replyToIdx:     -1,
-		reactingMsgIdx: -1,
-		sender:         sender,
-		fileSender:     fileSender,
-		accountAdder:   accountAdder,
-		renamer:        renamer,
-		filePicker:     picker,
+		selectedView:         viewChat,
+		keys:                 keys,
+		theme:                theme,
+		styles:               styles,
+		zone:                 zm,
+		mouseEnabled:         mouseEnabled,
+		hover:                hv,
+		accounts:             accounts,
+		currentAccount:       startAccount,
+		chats:                l,
+		input:                ti,
+		viewport:             viewport.New(),
+		editingMsgIdx:        -1,
+		replyToIdx:           -1,
+		reactingMsgIdx:       -1,
+		sender:               sender,
+		fileSender:           fileSender,
+		accountAdder:         accountAdder,
+		renamer:              renamer,
+		defaultAccountSetter: defaultAccountSetter,
+		filePicker:           picker,
 	}
 }
 

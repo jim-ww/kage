@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -95,6 +96,16 @@ func (m *Model) switchAccount(index int) tea.Cmd {
 	m.refreshViewport()
 	m.viewport.GotoBottom()
 	return cmd
+}
+
+func (m *Model) actionMakeDefaultAccount(index int) tea.Cmd {
+	if index < 0 || index >= len(m.accounts) || m.defaultAccountSetter == nil {
+		return nil
+	}
+	if err := m.defaultAccountSetter.SetDefaultAccount(m.accounts[index].Name); err != nil {
+		return m.showNotification(fmt.Sprintf("setting default account: %v", err))
+	}
+	return m.showNotification("Default account set")
 }
 
 func (m *Model) showNotification(text string) tea.Cmd {
