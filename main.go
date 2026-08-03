@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -21,6 +22,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/config"
+	"github.com/jim-ww/kage/crypto/aesgcm"
 	"github.com/jim-ww/kage/crypto/gpg"
 	"github.com/jim-ww/kage/crypto/localstore"
 	kageomemo "github.com/jim-ww/kage/crypto/omemo"
@@ -1155,11 +1157,57 @@ func (a *adapter) SendFile(accountIdx int, to, path string) tea.Msg {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	url, err := s.client.Load().UploadFile(ctx, path)
-	if err != nil {
-		result.Err = err
-		return result
+
+	// Determine if we should encrypt the file
+	encryptFile := false
+	switch resolveEncryptionMode(ctx, s, to) {
+	case "omemo":
+		encryptFile = s.omemoMgr != nil
+	case "gpg":
+		encryptFile = resolvePeerKey(ctx, s, to) != ""
 	}
+
+	var url string
+	var err error
+
+	if encryptFile {
+		// Encrypt file with AES-256-GCM before upload (XEP-0454)
+		f, err := os.Open(path)
+		if err != nil {
+			result.Err = fmt.Errorf("opening file: %w", err)
+			return result
+		}
+		defer f.Close()
+
+		ciphertext, iv, key, err := aesgcm.EncryptReader(f)
+		if err != nil {
+			result.Err = fmt.Errorf("encrypting file: %w", err)
+			return result
+		}
+
+		// Upload encrypted data
+		reader := bytes.NewReader(ciphertext)
+		url, err = s.client.Load().UploadFileWithReader(ctx, path, reader)
+		if err != nil {
+			result.Err = fmt.Errorf("uploading encrypted file: %w", err)
+			return result
+		}
+
+		// Build aesgcm:// URL with IV+key in anchor
+		url, err = aesgcm.BuildAESGCMURL(url, iv, key)
+		if err != nil {
+			result.Err = fmt.Errorf("building aesgcm URL: %w", err)
+			return result
+		}
+	} else {
+		// Unencrypted upload
+		url, err = s.client.Load().UploadFile(ctx, path)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+	}
+
 	id, err := a.send(ctx, accountIdx, to, url, ui.SendOptions{})
 	if err != nil {
 		result.Err = err
@@ -1387,9 +1435,13 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 // attachmentURLs recognizes the URL-only message produced by SendFile. A
 // plain link body remains visible as fallback text for every XMPP client,
 // while Kage additionally exposes it as a downloadable attachment.
+// Also recognizes aesgcm:// URLs (XEP-0454 encrypted file sharing).
 func attachmentURLs(body string) []string {
 	body = strings.TrimSpace(body)
 	if strings.HasPrefix(body, "https://") || strings.HasPrefix(body, "http://") {
+		return []string{body}
+	}
+	if strings.HasPrefix(body, "aesgcm://") {
 		return []string{body}
 	}
 	return nil

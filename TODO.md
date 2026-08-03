@@ -1,5 +1,3 @@
-- replies compatibility text not encrypted?
-- encrypted file-sharing?
 - store all accounts data in single sqlite db?
 - chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view
 - chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts

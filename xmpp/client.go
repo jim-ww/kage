@@ -4,6 +4,7 @@
 package xmpp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -30,6 +31,19 @@ import (
 	"mellium.im/xmpp/stanza"
 	"mellium.im/xmpp/upload"
 )
+
+// mockFileInfo is a minimal os.FileInfo implementation for encrypted uploads.
+type mockFileInfo struct {
+	size int64
+	name string
+}
+
+func (m mockFileInfo) Name() string       { return m.name }
+func (m mockFileInfo) Size() int64        { return m.size }
+func (m mockFileInfo) Mode() os.FileMode  { return 0644 }
+func (m mockFileInfo) ModTime() time.Time { return time.Now() }
+func (m mockFileInfo) IsDir() bool         { return false }
+func (m mockFileInfo) Sys() any           { return nil }
 
 // Client is a connected session for a single XMPP account. The session's
 // stream is read continuously in the background from the moment Dial
@@ -457,6 +471,60 @@ func (c *Client) UploadFile(ctx context.Context, path string) (string, error) {
 	// NewRequest cannot infer a length from an *os.File. Supplying it avoids
 	// chunked transfer encoding, which a number of XEP-0363 services reject or
 	// wait on indefinitely.
+	req.ContentLength = info.Size()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("uploading file: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+		return "", fmt.Errorf("upload failed: HTTP %d", resp.StatusCode)
+	}
+	return slot.GetURL.String(), nil
+}
+
+// UploadFileWithReader uploads data from reader using XEP-0363 HTTP File Upload.
+// Used for encrypted file uploads where the data is already in memory.
+func (c *Client) UploadFileWithReader(ctx context.Context, path string, reader io.Reader) (string, error) {
+	// Read all data to get size
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", fmt.Errorf("reading data: %w", err)
+	}
+
+	info := mockFileInfo{size: int64(len(data)), name: filepath.Base(path)}
+	reader = bytes.NewReader(data)
+
+	// Service discovery and slot negotiation
+	discoveryCtx, cancelDiscovery := context.WithTimeout(ctx, 15*time.Second)
+	defer cancelDiscovery()
+	service, err := c.uploadService(discoveryCtx)
+	if err != nil {
+		return "", err
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(path))
+	slot, err := upload.GetSlot(discoveryCtx, upload.File{
+		Name: filepath.Base(path),
+		Size: int(info.Size()),
+		Type: contentType,
+	}, service, c.session)
+	if err != nil {
+		return "", fmt.Errorf("requesting upload slot: %w", err)
+	}
+	if slot.PutURL == nil || slot.GetURL == nil {
+		return "", fmt.Errorf("upload service returned an incomplete slot")
+	}
+	req, err := slot.Put(ctx, reader)
+	if err != nil {
+		return "", fmt.Errorf("creating upload request: %w", err)
+	}
+	if contentType != "" {
+		if req.Header == nil {
+			req.Header = make(http.Header)
+		}
+		req.Header.Set("Content-Type", contentType)
+	}
 	req.ContentLength = info.Size()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
