@@ -1,17 +1,23 @@
 - nix flake: add desktop entry
 - do not write duplicate image files on image view
 - dont cycle through encryption
-- show encryption
-- panic on minimized window
+- chat view: dont show names in 1:1 chats
+- show current encryption configured for chat
+- chat list: toggle on bind/button
+- chat list: resize by dragging border
+- chat view: add attach file, emoji buttons
+- fix: panic on tiny window
 - ctrl+? for full help, remove help bar
-- show files in chat more beautifully
-- add padding for messages names to make messages start from same point
+- message status? 'sent' / 'delivered' icons?
+- save last chat ID? open it on startup, if exists
+- file picker: add fuzzy find on '/'
+- add padding for messages names to make messages start from same point?
+- fix(save as): must always ask for location. add UI component?
 - move statuline to center
-- add loading indicator for uploading files
-- add normalized name for uploaded files and show nice icons based on file type
-- code syntax highlight
-- preview files
-- fix save as dialog
+- add loading indicator (spinning line | ) for uploading files
+- show files in chat more beautifully: add normalized name for uploaded files and show nice icons based on file type
+- code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
+- preview files text contents
 - account manager: fix adding duplicate accounts
 - desktop notifications on new messages
 - store all accounts data in single sqlite db?
@@ -21,13 +27,14 @@
 - implement background read-only daemon for desktop notifications?
 - list chat participants, ability to see info about them, start chat with them
 - account manager: status ('● Online', '◐ Away', '○ Offline') and manage it (e.g. offline stops syncing that account)
-- message status? 'sent' / 'delivered'?
+- refactor main.go, xmpp/client.go, others
+- setup dev prosody fully with nix
 - send/receive messages: text, images, files
 - search message content in single/multiple chats
-- import/export messages
-- manage(add/remove/see) contacts
+- import/export messages in json format
+- manage(add/remove/see) contacts, also remove contacts permanently?
+- speed up cursor message selection in chat
 
 
-# e2ee: OpenPGP https://xmpp.org/extensions/xep-0374.html
 # calls: Jingle (XEP-0166) https://xmpp.org/extensions/xep-0166.html
 - sound: https://github.com/ebitengine/oto
