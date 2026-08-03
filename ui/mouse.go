@@ -22,16 +22,48 @@ func zoneAccountRow(i int) string { return fmt.Sprintf("account-row-%d", i) }
 func zoneChatItem(i int) string   { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string    { return fmt.Sprintf("msg-%d", i) }
 
-// handleMouseClick dispatches a left-click to whichever marked zone it
+// handleMouseClick routes a click to the context menu (if one is open), or
+// otherwise dispatches by button: left click acts directly, right click
+// opens a context menu of actions for whatever was clicked.
+func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if m.contextMenu != nil {
+		return m.handleContextMenuClick(msg)
+	}
+
+	switch msg.Mouse().Button {
+	case tea.MouseLeft:
+		return m.handleLeftClick(msg)
+	case tea.MouseRight:
+		return m.handleRightClick(msg)
+	}
+	return m, nil
+}
+
+// handleContextMenuClick is the only input the open context menu responds
+// to: clicking one of its items runs that item's action and closes the
+// menu; any other click (a different item's popup, or empty space) just
+// closes it without acting — nothing under the popup is clicked "through".
+func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if msg.Mouse().Button != tea.MouseLeft {
+		m.closeContextMenu()
+		return m, nil
+	}
+	for i, item := range m.contextMenu.items {
+		if m.zone.Get(zoneContextMenuItem(i)).InBounds(msg) {
+			cmd := item.run(&m)
+			m.closeContextMenu()
+			return m, cmd
+		}
+	}
+	m.closeContextMenu()
+	return m, nil
+}
+
+// handleLeftClick dispatches a left-click to whichever marked zone it
 // landed in: an account row, a chat list item, a message, or one of the
 // three panes (sidebar / viewport / input) when the click missed anything
 // more specific inside it.
-func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft {
-		return m, nil
-	}
-
+func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.zone.Get(zonePaneAccountBar).InBounds(msg) {
 		m.notifyTypingStopped()
 		m.selectedView = viewAccounts
@@ -49,17 +81,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i := range m.chats.Items() {
 		if m.zone.Get(zoneChatItem(i)).InBounds(msg) {
 			m.notifyTypingStopped()
-			m.chats.Select(i)
-			chatIdx := m.currentChatIndex()
-			if chatIdx < 0 {
-				m.selectedMsg = 0
-			} else if msgs := m.currentMessages(); len(msgs) > 0 {
-				m.selectedMsg = len(msgs) - 1
-			} else {
-				m.selectedMsg = 0
-			}
-			m.refreshViewport()
-			m.viewport.GotoBottom()
+			m.selectChatItem(i)
 			return m.openCurrentChat()
 		}
 	}
@@ -103,9 +125,69 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleRightClick opens a context menu of actions for whatever was
+// right-clicked, first moving selection onto it exactly as the equivalent
+// left-click would (see handleLeftClick) so the menu's actions — which
+// read back the current selection — operate on the right thing.
+func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	for i := range m.accounts {
+		if m.zone.Get(zoneAccountRow(i)).InBounds(msg) {
+			m.selectedView = viewAccounts
+			cmd := m.switchAccount(i)
+			m.openContextMenu(m.accountRowContextMenuItems(i))
+			return m, cmd
+		}
+	}
+
+	for i := range m.chats.Items() {
+		if m.zone.Get(zoneChatItem(i)).InBounds(msg) {
+			m.selectChatItem(i)
+			m.openContextMenu(m.chatItemContextMenuItems(i))
+			return m, nil
+		}
+	}
+
+	if m.selectedView == viewChat {
+		msgs := m.currentMessages()
+		for i := range msgs {
+			if m.zone.Get(zoneMessage(i)).InBounds(msg) {
+				m.selectedMsg = i
+				m.refreshViewportScrollTo(i)
+				m.openContextMenu(m.messageContextMenuItems(i))
+				return m, nil
+			}
+		}
+	}
+
+	return m, nil
+}
+
+// selectChatItem moves the chat-list cursor to i and keeps message
+// selection/viewport in sync, without opening the chat — shared by
+// handleLeftClick (which opens it right after) and handleRightClick
+// (which doesn't).
+func (m *Model) selectChatItem(i int) {
+	m.chats.Select(i)
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		m.selectedMsg = 0
+	} else if msgs := m.currentMessages(); len(msgs) > 0 {
+		m.selectedMsg = len(msgs) - 1
+	} else {
+		m.selectedMsg = 0
+	}
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+}
+
 // handleMouseWheel scrolls whichever pane the wheel event landed over: the
-// chat list in the sidebar, or the message viewport.
+// chat list in the sidebar, or the message viewport. Swallowed entirely
+// while a context menu is open, so it can't scroll what's underneath it.
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if m.contextMenu != nil {
+		return m, nil
+	}
+
 	mouse := msg.Mouse()
 
 	if m.zone.Get(zonePaneSidebar).InBounds(msg) {
@@ -117,16 +199,7 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		default:
 			return m, nil
 		}
-		chatIdx := m.currentChatIndex()
-		if chatIdx < 0 {
-			m.selectedMsg = 0
-		} else if msgs := m.currentMessages(); len(msgs) > 0 {
-			m.selectedMsg = len(msgs) - 1
-		} else {
-			m.selectedMsg = 0
-		}
-		m.refreshViewport()
-		m.viewport.GotoBottom()
+		m.selectChatItem(m.currentChatIndex())
 		return m, nil
 	}
 

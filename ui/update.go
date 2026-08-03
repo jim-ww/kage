@@ -210,6 +210,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// ── Context menu intercepts all input until dismissed ───────────────
+		// It's mouse-only otherwise (every action it lists already has its
+		// own keybinding), so the keyboard's only job here is closing it.
+		if m.contextMenu != nil {
+			switch {
+			case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
+				m.closeContextMenu()
+			}
+			return m, nil
+		}
+
 		// ── Delete confirmation popup intercepts all input ─────────────────
 		if m.confirmTarget != confirmNone {
 			switch {
@@ -460,140 +471,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// ── Message actions ────────────────────────────────────────────────
 		case key.Matches(msg, m.keys.DeleteMsg):
-			if m.selectedView == viewChat {
-				if m.currentChatIndex() < 0 {
-					return m, nil
-				}
-				if len(m.currentMessages()) > 0 {
-					m.confirmTarget = confirmDeleteMessage
-				} else {
-					cmds = append(cmds, m.showNotification("no messages to delete"))
-				}
-				return m, tea.Batch(cmds...)
-			}
-			if m.selectedView == viewChats {
-				if m.currentChatIndex() >= 0 {
-					m.confirmTarget = confirmDeleteChat
-				} else {
-					cmds = append(cmds, m.showNotification("no chat selected"))
-				}
-				return m, tea.Batch(cmds...)
+			switch m.selectedView {
+			case viewChat:
+				return m, m.actionDeleteMessage()
+			case viewChats:
+				return m, m.actionLeaveChat()
 			}
 
 		case key.Matches(msg, m.keys.YankMsg):
 			if m.selectedView == viewChat {
-				if err := m.yankSelectedMsg(); err != nil {
-					cmds = append(cmds, m.showNotification("copy failed"))
-				} else {
-					cmds = append(cmds, m.showNotification("message copied"))
-				}
-				return m, tea.Batch(cmds...)
+				return m, m.actionYankMessage()
 			}
 
 		case key.Matches(msg, m.keys.EditMsg):
 			if m.selectedView == viewChat {
-				if m.currentChatIndex() < 0 {
-					return m, nil
-				}
-				msgs := m.currentMessages()
-				if m.canEdit(msgs) {
-					m.editingMsgIdx = m.selectedMsg
-					m.input.SetValue(msgs[m.selectedMsg].Content)
-					m.input.Placeholder = "edit message..."
-					cmds = append(cmds, m.input.Focus())
-				} else {
-					cmds = append(cmds, m.showNotification("can only edit your last message"))
-				}
-				return m, tea.Batch(cmds...)
+				return m, m.actionEditMessage()
 			}
 
 		case key.Matches(msg, m.keys.ReplyMsg):
 			if m.selectedView == viewChat {
-				if m.currentChatIndex() < 0 {
-					return m, nil
-				}
-				if len(m.currentMessages()) > 0 {
-					if m.replyToIdx == m.selectedMsg {
-						m.replyToIdx = -1 // pressed again on the same message: clear reply
-					} else {
-						m.replyToIdx = m.selectedMsg
-					}
-					m.updateSizes()
-					m.refreshViewport()
-					cmds = append(cmds, m.input.Focus())
-				} else {
-					cmds = append(cmds, m.showNotification("no message to reply to"))
-				}
-				return m, tea.Batch(cmds...)
+				return m, m.actionReplyMessage()
 			}
 
 		case key.Matches(msg, m.keys.InfoMsg):
 			if m.selectedView == viewChat {
-				msgs := m.currentMessages()
-				if m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
-					m.showMsgInfo = true
-				} else {
-					cmds = append(cmds, m.showNotification("no message selected"))
-				}
-				return m, tea.Batch(cmds...)
+				return m, m.actionInfoMessage()
 			}
 
 		case key.Matches(msg, m.keys.OpenMsg):
 			if m.selectedView == viewChat {
-				msgs := m.currentMessages()
-				if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
-					cmds = append(cmds, m.showNotification("no message selected"))
-					return m, tea.Batch(cmds...)
-				}
-				items := openableItems(msgs[m.selectedMsg])
-				switch len(items) {
-				case 0:
-					cmds = append(cmds, m.showNotification("nothing to open"))
-				case 1:
-					cmds = append(cmds, openWithXDGOpen(items[0]))
-				default:
-					m.openItems = items
-					m.openPage = 0
-					m.openMode = pickerModeOpen
-				}
-				return m, tea.Batch(cmds...)
+				return m, m.actionOpenMessage()
 			}
 
 		case key.Matches(msg, m.keys.SaveMsg):
 			if m.selectedView == viewChat {
-				msgs := m.currentMessages()
-				if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
-					cmds = append(cmds, m.showNotification("no message selected"))
-					return m, tea.Batch(cmds...)
-				}
-				items := openableItems(msgs[m.selectedMsg])
-				switch len(items) {
-				case 0:
-					cmds = append(cmds, m.showNotification("nothing to save"))
-				case 1:
-					cmds = append(cmds, saveURLToDownloads(items[0]))
-				default:
-					m.openItems = items
-					m.openPage = 0
-					m.openMode = pickerModeSave
-				}
-				return m, tea.Batch(cmds...)
+				return m, m.actionSaveMessage()
 			}
 
 		case key.Matches(msg, m.keys.ReactMsg):
 			if m.selectedView == viewChat {
-				msgs := m.currentMessages()
-				if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
-					cmds = append(cmds, m.showNotification("no message selected"))
-					return m, tea.Batch(cmds...)
-				}
-				m.reactingMsgIdx = m.selectedMsg
-				m.input.SetValue("")
-				m.input.Placeholder = "react: :shortcode: or emoji, enter to send..."
-				m.setEmojiSuggestions(nil)
-				m.updateSizes()
-				cmds = append(cmds, m.input.Focus())
-				return m, tea.Batch(cmds...)
+				return m, m.actionReactMessage()
 			}
 		}
 	}

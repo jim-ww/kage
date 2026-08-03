@@ -111,6 +111,7 @@ type uiStyles struct {
 	accountNormal         lipgloss.Style
 	accountSelected       lipgloss.Style
 	sendButton            lipgloss.Style
+	contextMenuItem       lipgloss.Style
 }
 
 func newUIStyles(theme Theme) uiStyles {
@@ -177,6 +178,9 @@ func newUIStyles(theme Theme) uiStyles {
 			Background(colors.accentCyan).
 			Bold(true).
 			Padding(0, 1),
+		contextMenuItem: lipgloss.NewStyle().
+			Foreground(colors.themFg).
+			PaddingLeft(1),
 	}
 }
 
@@ -311,6 +315,10 @@ const sendButtonWidth = len(sendButtonLabel) + 2
 
 func (s uiStyles) renderSendButton() string {
 	return s.sendButton.Render(sendButtonLabel)
+}
+
+func (s uiStyles) contextMenuRow(label string) string {
+	return s.contextMenuItem.Render(label)
 }
 
 func (s uiStyles) viewportContent(width, height int, content string) string {

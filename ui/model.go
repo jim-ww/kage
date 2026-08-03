@@ -281,10 +281,11 @@ type Model struct {
 	emojiSuggestions []emojiSuggestion // live fuzzy matches for the shortcode being typed, while reactingMsgIdx >= 0
 	emojiSuggestIdx  int               // which suggestion is highlighted; left/right to move, tab to accept it
 	confirmTarget    confirmTarget
-	showMsgInfo      bool       // true while the message-info popup is open
-	openItems        []string   // non-empty while the open-link/attachment picker is open
-	openPage         int        // current page (of openItemsPerPage items) in the open picker
-	openMode         pickerMode // what picking an item from openItems actually does: open or save
+	contextMenu      *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
+	showMsgInfo      bool         // true while the message-info popup is open
+	openItems        []string     // non-empty while the open-link/attachment picker is open
+	openPage         int          // current page (of openItemsPerPage items) in the open picker
+	openMode         pickerMode   // what picking an item from openItems actually does: open or save
 	filePicker       filepicker.Model
 	pickingFile      bool  // true while the Bubble file picker is open
 	msgOffsets       []int // line offset of each message inside viewport content

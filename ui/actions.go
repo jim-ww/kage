@@ -204,6 +204,133 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// The action* methods below each implement one message/chat action against
+// the current selection (m.selectedMsg / m.currentChatIndex()). They exist
+// so the DeleteMsg/YankMsg/EditMsg/etc. keybindings and the mouse
+// context-menu (see ui/contextmenu.go) share one implementation instead of
+// drifting apart.
+
+// actionDeleteMessage opens the delete-confirmation popup for the selected
+// message (viewChat's DeleteMsg / a message context-menu's "Delete").
+func (m *Model) actionDeleteMessage() tea.Cmd {
+	if m.currentChatIndex() < 0 {
+		return nil
+	}
+	if len(m.currentMessages()) == 0 {
+		return m.showNotification("no messages to delete")
+	}
+	m.confirmTarget = confirmDeleteMessage
+	return nil
+}
+
+// actionLeaveChat opens the leave-chat confirmation popup for the selected
+// chat (viewChats' DeleteMsg / a chat-item context-menu's "Leave chat").
+func (m *Model) actionLeaveChat() tea.Cmd {
+	if m.currentChatIndex() < 0 {
+		return m.showNotification("no chat selected")
+	}
+	m.confirmTarget = confirmDeleteChat
+	return nil
+}
+
+func (m *Model) actionYankMessage() tea.Cmd {
+	if err := m.yankSelectedMsg(); err != nil {
+		return m.showNotification("copy failed")
+	}
+	return m.showNotification("message copied")
+}
+
+func (m *Model) actionEditMessage() tea.Cmd {
+	if m.currentChatIndex() < 0 {
+		return nil
+	}
+	msgs := m.currentMessages()
+	if !m.canEdit(msgs) {
+		return m.showNotification("can only edit your last message")
+	}
+	m.editingMsgIdx = m.selectedMsg
+	m.input.SetValue(msgs[m.selectedMsg].Content)
+	m.input.Placeholder = "edit message..."
+	return m.input.Focus()
+}
+
+func (m *Model) actionReplyMessage() tea.Cmd {
+	if m.currentChatIndex() < 0 {
+		return nil
+	}
+	if len(m.currentMessages()) == 0 {
+		return m.showNotification("no message to reply to")
+	}
+	if m.replyToIdx == m.selectedMsg {
+		m.replyToIdx = -1 // pressed/clicked again on the same message: clear reply
+	} else {
+		m.replyToIdx = m.selectedMsg
+	}
+	m.updateSizes()
+	m.refreshViewport()
+	return m.input.Focus()
+}
+
+func (m *Model) actionInfoMessage() tea.Cmd {
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return m.showNotification("no message selected")
+	}
+	m.showMsgInfo = true
+	return nil
+}
+
+func (m *Model) actionOpenMessage() tea.Cmd {
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return m.showNotification("no message selected")
+	}
+	items := openableItems(msgs[m.selectedMsg])
+	switch len(items) {
+	case 0:
+		return m.showNotification("nothing to open")
+	case 1:
+		return openWithXDGOpen(items[0])
+	default:
+		m.openItems = items
+		m.openPage = 0
+		m.openMode = pickerModeOpen
+		return nil
+	}
+}
+
+func (m *Model) actionSaveMessage() tea.Cmd {
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return m.showNotification("no message selected")
+	}
+	items := openableItems(msgs[m.selectedMsg])
+	switch len(items) {
+	case 0:
+		return m.showNotification("nothing to save")
+	case 1:
+		return saveURLToDownloads(items[0])
+	default:
+		m.openItems = items
+		m.openPage = 0
+		m.openMode = pickerModeSave
+		return nil
+	}
+}
+
+func (m *Model) actionReactMessage() tea.Cmd {
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return m.showNotification("no message selected")
+	}
+	m.reactingMsgIdx = m.selectedMsg
+	m.input.SetValue("")
+	m.input.Placeholder = "react: :shortcode: or emoji, enter to send..."
+	m.setEmojiSuggestions(nil)
+	m.updateSizes()
+	return m.input.Focus()
+}
+
 func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	if m.currentChatIndex() < 0 {
 		return m, nil

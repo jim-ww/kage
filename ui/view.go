@@ -69,6 +69,8 @@ func (m Model) View() tea.View {
 	// ── Viewport / popup ───────────────────────────────────────────────────
 	var viewportArea string
 	switch {
+	case m.contextMenu != nil:
+		viewportArea = m.renderContextMenuPopup()
 	case m.confirmTarget != confirmNone:
 		viewportArea = m.renderDeletePopup()
 	case m.showMsgInfo:
@@ -112,6 +114,24 @@ func (m Model) View() tea.View {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
+}
+
+// renderContextMenuPopup lists the actions available on whatever was
+// right-clicked; each row is a marked zone so handleContextMenuClick can
+// map a click back to the item that produced it.
+func (m Model) renderContextMenuPopup() string {
+	cw := m.chatAreaWidth()
+	vh := m.height - m.inputAreaHeight()
+
+	rows := make([]string, len(m.contextMenu.items))
+	for i, item := range m.contextMenu.items {
+		rows[i] = m.zone.Mark(zoneContextMenuItem(i), m.styles.contextMenuRow(item.label))
+	}
+
+	body := m.styles.listPopup("Actions", rows, "click an action, or click elsewhere to cancel")
+	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+
+	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
 // renderDeletePopup renders a centered confirmation dialog inside the viewport
