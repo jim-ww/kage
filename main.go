@@ -1060,7 +1060,19 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		return id, nil
 	}
 
-	wireBody := body
+	plaintext := body
+	if opts.ReplyToID != "" {
+		// Build quoted text for encrypted replies - the quoted text is inside the encrypted payload
+		// Don't include author name in encrypted quotes (just the quoted content)
+		lines := strings.Split(opts.QuotedBody, "\n")
+		for i, l := range lines {
+			lines[i] = "> " + l
+		}
+		quote := strings.Join(lines, "\n") + "\n"
+		plaintext = quote + body
+	}
+
+	wireBody := plaintext
 	sendOpts := xmpp.SendOptions{
 		ReplaceID:    opts.ReplaceID,
 		ReplyToID:    opts.ReplyToID,
@@ -1072,7 +1084,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	case "omemo":
 		debugf("send: using omemo encryption for %s to %s", s.account.JID, to)
 		if s.omemoMgr != nil {
-			enc, deviceErrs, err := s.omemoMgr.EncryptMessage(ctx, to, []byte(body))
+			enc, deviceErrs, err := s.omemoMgr.EncryptMessage(ctx, to, []byte(plaintext))
 			if err != nil {
 				debugf("send: omemo encrypt failed for %s to %s: %v (device errors: %v)", s.account.JID, to, err, deviceErrs)
 				return "", fmt.Errorf("omemo-encrypting to %s: %w", to, err)
@@ -1085,7 +1097,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}
 	case "gpg":
 		if peerKey := resolvePeerKey(ctx, s, to); peerKey != "" {
-			ct, err := s.gpg.Encrypt(body, peerKey)
+			ct, err := s.gpg.Encrypt(plaintext, peerKey)
 			if err != nil {
 				return "", fmt.Errorf("encrypting to %s: %w", to, err)
 			}

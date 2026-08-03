@@ -318,11 +318,11 @@ type SendOptions struct {
 
 const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
 
-// buildFallbackQuote renders XEP-0461's suggested quoted-text fallback:
+// BuildFallbackQuote renders XEP-0461's suggested quoted-text fallback:
 // each line of the quoted message prefixed with "> ", first line labeled
 // with the author, ending in a newline so it reads naturally before the
 // real reply text that follows it in the body.
-func buildFallbackQuote(author, body string) string {
+func BuildFallbackQuote(author, body string) string {
 	lines := strings.Split(body, "\n")
 	if len(lines) > 0 {
 		lines[0] = author + ": " + lines[0]
@@ -364,6 +364,10 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 	case opts.Encrypted != nil:
 		msg.Encrypted = opts.Encrypted
 		msg.Body = "This message is encrypted with OMEMO v2 (XEP-0384)" // fallback for non-OMEMO clients
+		// For encrypted replies, also send the <reply/> element (IDs only, unencrypted)
+		if opts.ReplyToID != "" {
+			msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
+		}
 	case opts.ReactionTargetID != "":
 		msg.Reactions = &reactionsElem{ID: opts.ReactionTargetID, Reactions: opts.Reactions}
 	case opts.RetractID != "":
@@ -376,7 +380,7 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 	case opts.ReplaceID != "":
 		msg.Replace = &replaceElem{ID: opts.ReplaceID}
 	case opts.ReplyToID != "":
-		quote := buildFallbackQuote(opts.QuotedAuthor, opts.QuotedBody)
+		quote := BuildFallbackQuote(opts.QuotedAuthor, opts.QuotedBody)
 		end := len(quote)
 		msg.Body = quote + body
 		msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
