@@ -7,6 +7,8 @@ password_cmd = "pass show xmpp/user"
 # [accounts.gpg_peers]
 # "friend@example.com" = "friend's key fingerprint, used to encrypt outgoing messages to them"
 
+# mouse = true # click/scroll support (chat list, messages, send button); on by default
+
 [keybinds]
 quit = ["q", "ctrl+c"]
 back = ["esc"]

@@ -14,12 +14,14 @@ import (
 type fileConfig struct {
 	Keybinds map[string]any `toml:"keybinds"`
 	Theme    ui.Theme       `toml:"theme"`
+	Mouse    *bool          `toml:"mouse"` // nil (unset) means the default: on
 	Accounts []Account      `toml:"accounts"`
 }
 
 type UIConfig struct {
 	KeyMap ui.KeyMap
 	Theme  ui.Theme
+	Mouse  bool // enables mouse click/scroll support; on by default
 }
 
 // Config is the fully resolved application configuration.
@@ -38,6 +40,7 @@ func Load(path string) (Config, error) {
 		UI: UIConfig{
 			KeyMap: ui.DefaultKeyMap,
 			Theme:  ui.DefaultTheme(),
+			Mouse:  true,
 		},
 	}
 	paths := append([]string{path}, candidatePaths()...)
@@ -53,6 +56,9 @@ func Load(path string) (Config, error) {
 			}
 			cfgOut.UI.KeyMap = keys
 			cfgOut.UI.Theme = mergeTheme(ui.DefaultTheme(), cfg.Theme)
+			if cfg.Mouse != nil {
+				cfgOut.UI.Mouse = *cfg.Mouse
+			}
 			cfgOut.Accounts = cfg.Accounts
 			cfgOut.Path = path
 			return cfgOut, nil

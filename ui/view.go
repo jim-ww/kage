@@ -48,11 +48,20 @@ func (m Model) View() tea.View {
 	}
 
 	inputWidth := m.chatAreaWidth() - 2
+	fieldWidth := inputWidth
+	if m.mouseEnabled {
+		fieldWidth -= sendButtonWidth
+	}
+	inputLine := m.styles.inputInnerBox(fieldWidth, m.input.View())
+	if m.mouseEnabled {
+		button := m.zone.Mark(zoneSendButton, m.styles.renderSendButton())
+		inputLine = lipgloss.JoinHorizontal(lipgloss.Top, inputLine, button)
+	}
 	var inputInner string
 	if hint := m.inputHint(); hint != "" {
-		inputInner = m.styles.inputInnerBox(inputWidth, hint) + "\n" + m.styles.inputInnerBox(inputWidth, m.input.View())
+		inputInner = m.styles.inputInnerBox(inputWidth, hint) + "\n" + inputLine
 	} else {
-		inputInner = m.styles.inputInnerBox(inputWidth, m.input.View())
+		inputInner = inputLine
 	}
 
 	inputBox := m.zone.Mark(zonePaneInput, m.styles.inputContainer(inputBorder, inputInner))
@@ -99,7 +108,9 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(m.zone.Scan(root))
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	if m.mouseEnabled {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	return v
 }
 

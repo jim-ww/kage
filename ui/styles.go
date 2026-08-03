@@ -110,6 +110,7 @@ type uiStyles struct {
 	footer                lipgloss.Style
 	accountNormal         lipgloss.Style
 	accountSelected       lipgloss.Style
+	sendButton            lipgloss.Style
 }
 
 func newUIStyles(theme Theme) uiStyles {
@@ -171,10 +172,15 @@ func newUIStyles(theme Theme) uiStyles {
 			Foreground(colors.themFg).
 			Bold(true).
 			PaddingLeft(1),
+		sendButton: lipgloss.NewStyle().
+			Foreground(colors.panelEdge).
+			Background(colors.accentCyan).
+			Bold(true).
+			Padding(0, 1),
 	}
 }
 
-func newChatListDelegate(colors uiColors, zm *zone.Manager) list.ItemDelegate {
+func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool) list.ItemDelegate {
 	delegate := list.NewDefaultDelegate()
 	delegate.SetSpacing(0)
 	delegate.SetHeight(2)
@@ -198,12 +204,17 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager) list.ItemDelegate {
 	delegate.Styles.DimmedTitle = delegate.Styles.DimmedTitle.Foreground(colors.time)
 	delegate.Styles.DimmedDesc = delegate.Styles.DimmedDesc.Foreground(colors.time)
 	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(colors.filterMatch).Bold(true)
+	if !mouseEnabled {
+		return delegate
+	}
 	return zoneChatListDelegate{DefaultDelegate: delegate, zone: zm}
 }
 
 // zoneChatListDelegate wraps DefaultDelegate's rendering with a bubblezone
 // mark per row so clicks/wheel events can be mapped back to the chat at
-// that index (see zoneChatItem, handleMouseClick).
+// that index (see zoneChatItem, handleMouseClick). Only used when mouse
+// support is enabled — otherwise the plain DefaultDelegate is returned, so
+// no zone markers are ever emitted into the rendered output.
 type zoneChatListDelegate struct {
 	list.DefaultDelegate
 	zone *zone.Manager
@@ -287,6 +298,19 @@ func (s uiStyles) inputInnerBox(width int, content string) string {
 
 func (s uiStyles) inputContainer(border color.Color, content string) string {
 	return s.inputBox.BorderForeground(border).Render(content)
+}
+
+// sendButtonLabel is the send button's rendered text (including its
+// padding), used both to draw the button and to size the input field
+// around it — see sendButtonWidth.
+const sendButtonLabel = " Send "
+
+// sendButtonWidth is lipgloss.Width(rendered send button): the label plus
+// its Padding(0, 1).
+const sendButtonWidth = len(sendButtonLabel) + 2
+
+func (s uiStyles) renderSendButton() string {
+	return s.sendButton.Render(sendButtonLabel)
 }
 
 func (s uiStyles) viewportContent(width, height int, content string) string {

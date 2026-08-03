@@ -15,6 +15,7 @@ const (
 	zonePaneViewport   = "pane-viewport"
 	zonePaneInput      = "pane-input"
 	zonePaneAccountBar = "pane-account-bar"
+	zoneSendButton     = "send-button"
 )
 
 func zoneAccountRow(i int) string { return fmt.Sprintf("account-row-%d", i) }
@@ -72,6 +73,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+	}
+
+	if m.zone.Get(zoneSendButton).InBounds(msg) {
+		return m, m.sendCurrentInput()
 	}
 
 	if m.zone.Get(zonePaneInput).InBounds(msg) {

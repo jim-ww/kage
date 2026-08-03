@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/list"
@@ -102,6 +103,105 @@ func (m *Model) showNotification(text string) tea.Cmd {
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
 		return noticeClearMsg{id: id}
 	})
+}
+
+// sendCurrentInput performs the SelectSend action for viewChat: sends the
+// composed message (wired as an edit/reply/reaction as appropriate given
+// the current compose state), clears the input, and refreshes the
+// viewport. Shared by the SelectSend keybinding and a click on the mouse
+// send button — both must produce identical behavior.
+func (m *Model) sendCurrentInput() tea.Cmd {
+	var cmds []tea.Cmd
+
+	if m.reactingMsgIdx >= 0 {
+		// Unlike a normal send, an empty input is meaningful here (it's how
+		// you clear your reaction set), so this bypasses the "empty means
+		// do nothing" rule below entirely.
+		newMine := toEmojiSet(m.input.Value())
+		cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, newMine))
+		m.notifyTypingStopped()
+		m.reactingMsgIdx = -1
+		m.setEmojiSuggestions(nil)
+		m.input.SetValue("")
+		m.input.Placeholder = "message..."
+		m.updateSizes()
+		m.refreshViewport()
+		return tea.Batch(cmds...)
+	}
+
+	text := strings.TrimSpace(m.input.Value())
+	if text == "" {
+		return nil
+	}
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return nil
+	}
+
+	if m.editingMsgIdx >= 0 {
+		// Apply edit in-place, and wire it as a XEP-0308 correction so the
+		// other party actually sees the update — a message can only be
+		// corrected on the network if it was sent with an ID in the first
+		// place (e.g. locally-seeded/demo data never was), so degrade to a
+		// local-only edit otherwise.
+		msgs := m.currentMessages()
+		if m.editingMsgIdx < len(msgs) {
+			msgs[m.editingMsgIdx].Content = text
+			m.setCurrentMessages(msgs)
+
+			if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil && msgs[m.editingMsgIdx].ID != "" {
+				_, err := m.sender.Send(m.currentAccount, chat.Address, text, SendOptions{
+					ReplaceID: msgs[m.editingMsgIdx].ID,
+				})
+				if err != nil {
+					cmds = append(cmds, m.showNotification("edit not delivered: "+err.Error()))
+				}
+			}
+		}
+		m.editingMsgIdx = -1
+		m.input.Placeholder = "message..."
+	} else {
+		// Send new message, optionally quoting a reply.
+		newMsg := Message{
+			Author:  "me",
+			Content: text,
+			SentAt:  time.Now(),
+			IsMe:    true,
+		}
+
+		var sendOpts SendOptions
+		if m.replyToIdx >= 0 {
+			rt := m.replyToIdx
+			newMsg.ReplyTo = &rt
+			if msgs := m.currentMessages(); rt < len(msgs) && msgs[rt].ID != "" {
+				sendOpts = SendOptions{
+					ReplyToID:    msgs[rt].ID,
+					QuotedAuthor: msgs[rt].Author,
+					QuotedBody:   msgs[rt].Content,
+				}
+			}
+			m.replyToIdx = -1
+		}
+
+		if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
+			id, err := m.sender.Send(m.currentAccount, chat.Address, text, sendOpts)
+			if err != nil {
+				cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
+			} else {
+				newMsg.ID = id
+			}
+		}
+
+		msgs := append(m.currentMessages(), newMsg)
+		m.setCurrentMessages(msgs)
+	}
+
+	m.notifyTypingStopped()
+	m.input.SetValue("")
+	m.updateSizes()
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
