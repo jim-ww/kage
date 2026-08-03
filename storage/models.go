@@ -8,6 +8,12 @@ import (
 	"database/sql"
 )
 
+type Chatencryption struct {
+	Accountjid string `db:"accountjid"`
+	Rosterjid  string `db:"rosterjid"`
+	Mode       string `db:"mode"`
+}
+
 type Discofeature struct {
 	ID  int64  `db:"id"`
 	Var string `db:"var"`
@@ -75,6 +81,59 @@ type Messagereaction struct {
 	Idattr     string `db:"idattr"`
 	Fromjid    string `db:"fromjid"`
 	Emoji      string `db:"emoji"`
+}
+
+type Omemodevice struct {
+	Accountjid string `db:"accountjid"`
+	Peerjid    string `db:"peerjid"`
+	Deviceid   int64  `db:"deviceid"`
+}
+
+type Omemoidentity struct {
+	Accountjid string `db:"accountjid"`
+	Privatekey []byte `db:"privatekey"`
+	Deviceid   int64  `db:"deviceid"`
+}
+
+type Omemonextprekeyid struct {
+	Accountjid string `db:"accountjid"`
+	Nextid     int64  `db:"nextid"`
+}
+
+type Omemoprekey struct {
+	Accountjid string `db:"accountjid"`
+	ID         int64  `db:"id"`
+	Public     []byte `db:"public"`
+	Private    []byte `db:"private"`
+}
+
+type Omemoremoteidentity struct {
+	Accountjid  string `db:"accountjid"`
+	Peerjid     string `db:"peerjid"`
+	Deviceid    int64  `db:"deviceid"`
+	Identitykey []byte `db:"identitykey"`
+}
+
+type Omemosession struct {
+	Accountjid string `db:"accountjid"`
+	Peerjid    string `db:"peerjid"`
+	Deviceid   int64  `db:"deviceid"`
+	Data       []byte `db:"data"`
+}
+
+type Omemosignedprekey struct {
+	Accountjid string `db:"accountjid"`
+	ID         int64  `db:"id"`
+	Public     []byte `db:"public"`
+	Private    []byte `db:"private"`
+	Signature  []byte `db:"signature"`
+	Stale      bool   `db:"stale"`
+}
+
+type Omemotrust struct {
+	Accountjid  string `db:"accountjid"`
+	Identitykey []byte `db:"identitykey"`
+	State       int64  `db:"state"`
 }
 
 type Pgppeerkey struct {

@@ -69,6 +69,10 @@ type Chat struct {
 	LastMessage string
 	Presence    Presence
 	Typing      bool // true while the peer has an active XEP-0085 "composing" state
+
+	// EncryptionMode is this chat's outgoing message encryption: "omemo"
+	// (default), "gpg", or "none". Set by ChatEncryptionSetter.
+	EncryptionMode string
 }
 
 func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }
@@ -314,6 +318,14 @@ type DefaultAccountSetter interface {
 	SetDefaultAccount(jid string) error
 }
 
+// ChatEncryptionSetter persists per-chat outgoing message encryption choice
+// ("omemo", "gpg", or "none"), implemented outside ui (main.go's adapter) so
+// ui stays decoupled from the storage layer. A local database write, called
+// inline like Send/SetTyping rather than through a tea.Cmd.
+type ChatEncryptionSetter interface {
+	SetChatEncryption(accountIdx int, peerJID, mode string) error
+}
+
 type Model struct {
 	width, height int
 	selectedView
@@ -368,6 +380,7 @@ type Model struct {
 	accountAdder         AccountAdder
 	renamer              ContactRenamer
 	defaultAccountSetter DefaultAccountSetter
+	chatEncryptionSetter ChatEncryptionSetter
 
 	// rename-chat prompt state, active while renamingChat is true. Opened by
 	// RenameChat (viewChats) or a chat-item context menu's "Rename", prefilled
@@ -434,6 +447,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	fileSender, _ := sender.(FileSender)
 	renamer, _ := sender.(ContactRenamer)
 	defaultAccountSetter, _ := sender.(DefaultAccountSetter)
+	chatEncryptionSetter, _ := sender.(ChatEncryptionSetter)
 
 	return Model{
 		selectedView:         viewChat,
@@ -456,6 +470,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		accountAdder:         accountAdder,
 		renamer:              renamer,
 		defaultAccountSetter: defaultAccountSetter,
+		chatEncryptionSetter: chatEncryptionSetter,
 		filePicker:           picker,
 	}
 }

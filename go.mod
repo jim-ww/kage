@@ -1,6 +1,6 @@
 module github.com/jim-ww/kage
 
-go 1.26.1
+go 1.26.4
 
 require (
 	charm.land/bubbles/v2 v2.1.0
@@ -33,6 +33,8 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/jim-ww/omemo-go v0.0.0-20260803165642-8bb37fdfe420 // indirect
+	github.com/jim-ww/xochimilco v0.0.0-20260803155350-8ba75d822d33 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect

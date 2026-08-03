@@ -114,6 +114,38 @@ func (m *Model) actionMakeDefaultAccount(index int) tea.Cmd {
 	return m.showNotification("Default account set")
 }
 
+// encryptionModeOrDefault returns mode, or "omemo" (kage's default) if unset.
+func encryptionModeOrDefault(mode string) string {
+	if mode == "" {
+		return "omemo"
+	}
+	return mode
+}
+
+// actionCycleChatEncryption cycles the selected chat's outgoing message
+// encryption: omemo -> gpg -> none -> omemo (chat-item context menu's
+// "Encryption").
+func (m *Model) actionCycleChatEncryption() tea.Cmd {
+	idx := m.currentChatIndex()
+	items := m.chats.Items()
+	if idx < 0 || idx >= len(items) || m.chatEncryptionSetter == nil {
+		return m.showNotification("no chat selected")
+	}
+	chat, ok := items[idx].(Chat)
+	if !ok {
+		return nil
+	}
+
+	next := map[string]string{"omemo": "gpg", "gpg": "none", "none": "omemo"}[encryptionModeOrDefault(chat.EncryptionMode)]
+	if err := m.chatEncryptionSetter.SetChatEncryption(m.currentAccount, chat.Address, next); err != nil {
+		return m.showNotification("setting encryption: " + err.Error())
+	}
+	chat.EncryptionMode = next
+	m.accounts[m.currentAccount].Chats[idx] = chat
+	cmd := m.chats.SetItem(idx, chat)
+	return tea.Batch(cmd, m.showNotification("Encryption: "+next))
+}
+
 func (m *Model) showNotification(text string) tea.Cmd {
 	m.noticeID++
 	m.noticeText = text

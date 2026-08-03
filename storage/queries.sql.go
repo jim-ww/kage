@@ -10,6 +10,43 @@ import (
 	"database/sql"
 )
 
+const consumeOmemoPreKey = `-- name: ConsumeOmemoPreKey :one
+DELETE FROM omemoPreKey
+WHERE accountJID = ?1 AND id = ?2
+RETURNING id, public, private
+`
+
+type ConsumeOmemoPreKeyParams struct {
+	AccountJid string `db:"account_jid"`
+	ID         int64  `db:"id"`
+}
+
+type ConsumeOmemoPreKeyRow struct {
+	ID      int64  `db:"id"`
+	Public  []byte `db:"public"`
+	Private []byte `db:"private"`
+}
+
+func (q *Queries) ConsumeOmemoPreKey(ctx context.Context, arg ConsumeOmemoPreKeyParams) (ConsumeOmemoPreKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, consumeOmemoPreKey, arg.AccountJid, arg.ID)
+	var i ConsumeOmemoPreKeyRow
+	err := row.Scan(&i.ID, &i.Public, &i.Private)
+	return i, err
+}
+
+const countOmemoPreKeys = `-- name: CountOmemoPreKeys :one
+SELECT count(*)
+FROM omemoPreKey
+WHERE accountJID = ?1
+`
+
+func (q *Queries) CountOmemoPreKeys(ctx context.Context, accountJid string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOmemoPreKeys, accountJid)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteMessageByID = `-- name: DeleteMessageByID :execrows
 DELETE FROM messages
 WHERE accountJID = ?1
@@ -29,6 +66,47 @@ func (q *Queries) DeleteMessageByID(ctx context.Context, arg DeleteMessageByIDPa
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const deleteOmemoDevices = `-- name: DeleteOmemoDevices :exec
+DELETE FROM omemoDevice
+WHERE accountJID = ?1 AND peerJID = ?2
+`
+
+type DeleteOmemoDevicesParams struct {
+	AccountJid string `db:"account_jid"`
+	PeerJid    string `db:"peer_jid"`
+}
+
+func (q *Queries) DeleteOmemoDevices(ctx context.Context, arg DeleteOmemoDevicesParams) error {
+	_, err := q.db.ExecContext(ctx, deleteOmemoDevices, arg.AccountJid, arg.PeerJid)
+	return err
+}
+
+const deleteOmemoSession = `-- name: DeleteOmemoSession :exec
+DELETE FROM omemoSession
+WHERE accountJID = ?1 AND peerJID = ?2 AND deviceID = ?3
+`
+
+type DeleteOmemoSessionParams struct {
+	AccountJid string `db:"account_jid"`
+	PeerJid    string `db:"peer_jid"`
+	DeviceID   int64  `db:"device_id"`
+}
+
+func (q *Queries) DeleteOmemoSession(ctx context.Context, arg DeleteOmemoSessionParams) error {
+	_, err := q.db.ExecContext(ctx, deleteOmemoSession, arg.AccountJid, arg.PeerJid, arg.DeviceID)
+	return err
+}
+
+const deleteOmemoStaleSignedPreKey = `-- name: DeleteOmemoStaleSignedPreKey :exec
+DELETE FROM omemoSignedPreKey
+WHERE accountJID = ?1 AND stale = TRUE
+`
+
+func (q *Queries) DeleteOmemoStaleSignedPreKey(ctx context.Context, accountJid string) error {
+	_, err := q.db.ExecContext(ctx, deleteOmemoStaleSignedPreKey, accountJid)
+	return err
 }
 
 const deleteReactionsByReactor = `-- name: DeleteReactionsByReactor :exec
@@ -85,6 +163,25 @@ func (q *Queries) GetCapsByJID(ctx context.Context, jid string) (GetCapsByJIDRow
 	var i GetCapsByJIDRow
 	err := row.Scan(&i.Hash, &i.Ver)
 	return i, err
+}
+
+const getChatEncryptionMode = `-- name: GetChatEncryptionMode :one
+SELECT mode
+FROM chatEncryption
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+`
+
+type GetChatEncryptionModeParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+}
+
+func (q *Queries) GetChatEncryptionMode(ctx context.Context, arg GetChatEncryptionModeParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getChatEncryptionMode, arg.AccountJid, arg.RosterJid)
+	var mode string
+	err := row.Scan(&mode)
+	return mode, err
 }
 
 const getDiscoFeaturesByJID = `-- name: GetDiscoFeaturesByJID :many
@@ -194,6 +291,146 @@ func (q *Queries) GetLocalKeySalt(ctx context.Context) ([]byte, error) {
 	var salt []byte
 	err := row.Scan(&salt)
 	return salt, err
+}
+
+const getOmemoCurrentSignedPreKey = `-- name: GetOmemoCurrentSignedPreKey :one
+SELECT id, public, private, signature
+FROM omemoSignedPreKey
+WHERE accountJID = ?1 AND stale = FALSE
+ORDER BY id DESC
+LIMIT 1
+`
+
+type GetOmemoCurrentSignedPreKeyRow struct {
+	ID        int64  `db:"id"`
+	Public    []byte `db:"public"`
+	Private   []byte `db:"private"`
+	Signature []byte `db:"signature"`
+}
+
+func (q *Queries) GetOmemoCurrentSignedPreKey(ctx context.Context, accountJid string) (GetOmemoCurrentSignedPreKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, getOmemoCurrentSignedPreKey, accountJid)
+	var i GetOmemoCurrentSignedPreKeyRow
+	err := row.Scan(
+		&i.ID,
+		&i.Public,
+		&i.Private,
+		&i.Signature,
+	)
+	return i, err
+}
+
+const getOmemoIdentity = `-- name: GetOmemoIdentity :one
+SELECT privateKey, deviceID
+FROM omemoIdentity
+WHERE accountJID = ?1
+`
+
+type GetOmemoIdentityRow struct {
+	Privatekey []byte `db:"privatekey"`
+	Deviceid   int64  `db:"deviceid"`
+}
+
+func (q *Queries) GetOmemoIdentity(ctx context.Context, accountJid string) (GetOmemoIdentityRow, error) {
+	row := q.db.QueryRowContext(ctx, getOmemoIdentity, accountJid)
+	var i GetOmemoIdentityRow
+	err := row.Scan(&i.Privatekey, &i.Deviceid)
+	return i, err
+}
+
+const getOmemoNextPreKeyID = `-- name: GetOmemoNextPreKeyID :one
+SELECT nextID
+FROM omemoNextPreKeyID
+WHERE accountJID = ?1
+`
+
+func (q *Queries) GetOmemoNextPreKeyID(ctx context.Context, accountJid string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getOmemoNextPreKeyID, accountJid)
+	var nextid int64
+	err := row.Scan(&nextid)
+	return nextid, err
+}
+
+const getOmemoRemoteIdentity = `-- name: GetOmemoRemoteIdentity :one
+SELECT identityKey
+FROM omemoRemoteIdentity
+WHERE accountJID = ?1 AND peerJID = ?2 AND deviceID = ?3
+`
+
+type GetOmemoRemoteIdentityParams struct {
+	AccountJid string `db:"account_jid"`
+	PeerJid    string `db:"peer_jid"`
+	DeviceID   int64  `db:"device_id"`
+}
+
+func (q *Queries) GetOmemoRemoteIdentity(ctx context.Context, arg GetOmemoRemoteIdentityParams) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getOmemoRemoteIdentity, arg.AccountJid, arg.PeerJid, arg.DeviceID)
+	var identitykey []byte
+	err := row.Scan(&identitykey)
+	return identitykey, err
+}
+
+const getOmemoSession = `-- name: GetOmemoSession :one
+SELECT data
+FROM omemoSession
+WHERE accountJID = ?1 AND peerJID = ?2 AND deviceID = ?3
+`
+
+type GetOmemoSessionParams struct {
+	AccountJid string `db:"account_jid"`
+	PeerJid    string `db:"peer_jid"`
+	DeviceID   int64  `db:"device_id"`
+}
+
+func (q *Queries) GetOmemoSession(ctx context.Context, arg GetOmemoSessionParams) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getOmemoSession, arg.AccountJid, arg.PeerJid, arg.DeviceID)
+	var data []byte
+	err := row.Scan(&data)
+	return data, err
+}
+
+const getOmemoStaleSignedPreKey = `-- name: GetOmemoStaleSignedPreKey :one
+SELECT id, public, private, signature
+FROM omemoSignedPreKey
+WHERE accountJID = ?1 AND stale = TRUE
+LIMIT 1
+`
+
+type GetOmemoStaleSignedPreKeyRow struct {
+	ID        int64  `db:"id"`
+	Public    []byte `db:"public"`
+	Private   []byte `db:"private"`
+	Signature []byte `db:"signature"`
+}
+
+func (q *Queries) GetOmemoStaleSignedPreKey(ctx context.Context, accountJid string) (GetOmemoStaleSignedPreKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, getOmemoStaleSignedPreKey, accountJid)
+	var i GetOmemoStaleSignedPreKeyRow
+	err := row.Scan(
+		&i.ID,
+		&i.Public,
+		&i.Private,
+		&i.Signature,
+	)
+	return i, err
+}
+
+const getOmemoTrust = `-- name: GetOmemoTrust :one
+SELECT state
+FROM omemoTrust
+WHERE accountJID = ?1 AND identityKey = ?2
+`
+
+type GetOmemoTrustParams struct {
+	AccountJid  string `db:"account_jid"`
+	IdentityKey []byte `db:"identity_key"`
+}
+
+func (q *Queries) GetOmemoTrust(ctx context.Context, arg GetOmemoTrustParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getOmemoTrust, arg.AccountJid, arg.IdentityKey)
+	var state int64
+	err := row.Scan(&state)
+	return state, err
 }
 
 const getPGPPeerKey = `-- name: GetPGPPeerKey :one
@@ -381,6 +618,69 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 	return id, err
 }
 
+const insertOmemoDevice = `-- name: InsertOmemoDevice :exec
+INSERT INTO omemoDevice (accountJID, peerJID, deviceID)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, peerJID, deviceID) DO NOTHING
+`
+
+type InsertOmemoDeviceParams struct {
+	AccountJid string `db:"account_jid"`
+	PeerJid    string `db:"peer_jid"`
+	DeviceID   int64  `db:"device_id"`
+}
+
+func (q *Queries) InsertOmemoDevice(ctx context.Context, arg InsertOmemoDeviceParams) error {
+	_, err := q.db.ExecContext(ctx, insertOmemoDevice, arg.AccountJid, arg.PeerJid, arg.DeviceID)
+	return err
+}
+
+const insertOmemoPreKey = `-- name: InsertOmemoPreKey :exec
+INSERT INTO omemoPreKey (accountJID, id, public, private)
+VALUES (?1, ?2, ?3, ?4)
+`
+
+type InsertOmemoPreKeyParams struct {
+	AccountJid string `db:"account_jid"`
+	ID         int64  `db:"id"`
+	Public     []byte `db:"public"`
+	Private    []byte `db:"private"`
+}
+
+func (q *Queries) InsertOmemoPreKey(ctx context.Context, arg InsertOmemoPreKeyParams) error {
+	_, err := q.db.ExecContext(ctx, insertOmemoPreKey,
+		arg.AccountJid,
+		arg.ID,
+		arg.Public,
+		arg.Private,
+	)
+	return err
+}
+
+const insertOmemoSignedPreKey = `-- name: InsertOmemoSignedPreKey :exec
+INSERT INTO omemoSignedPreKey (accountJID, id, public, private, signature, stale)
+VALUES (?1, ?2, ?3, ?4, ?5, FALSE)
+`
+
+type InsertOmemoSignedPreKeyParams struct {
+	AccountJid string `db:"account_jid"`
+	ID         int64  `db:"id"`
+	Public     []byte `db:"public"`
+	Private    []byte `db:"private"`
+	Signature  []byte `db:"signature"`
+}
+
+func (q *Queries) InsertOmemoSignedPreKey(ctx context.Context, arg InsertOmemoSignedPreKeyParams) error {
+	_, err := q.db.ExecContext(ctx, insertOmemoSignedPreKey,
+		arg.AccountJid,
+		arg.ID,
+		arg.Public,
+		arg.Private,
+		arg.Signature,
+	)
+	return err
+}
+
 const insertReaction = `-- name: InsertReaction :exec
 INSERT INTO messageReactions (accountJID, idAttr, fromJID, emoji)
 VALUES (?1, ?2, ?3, ?4)
@@ -483,6 +783,75 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Replytoidattr,
 			&i.Retracted,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOmemoDevices = `-- name: ListOmemoDevices :many
+SELECT deviceID
+FROM omemoDevice
+WHERE accountJID = ?1 AND peerJID = ?2
+`
+
+type ListOmemoDevicesParams struct {
+	AccountJid string `db:"account_jid"`
+	PeerJid    string `db:"peer_jid"`
+}
+
+func (q *Queries) ListOmemoDevices(ctx context.Context, arg ListOmemoDevicesParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listOmemoDevices, arg.AccountJid, arg.PeerJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var deviceid int64
+		if err := rows.Scan(&deviceid); err != nil {
+			return nil, err
+		}
+		items = append(items, deviceid)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOmemoPreKeys = `-- name: ListOmemoPreKeys :many
+SELECT id, public, private
+FROM omemoPreKey
+WHERE accountJID = ?1
+`
+
+type ListOmemoPreKeysRow struct {
+	ID      int64  `db:"id"`
+	Public  []byte `db:"public"`
+	Private []byte `db:"private"`
+}
+
+func (q *Queries) ListOmemoPreKeys(ctx context.Context, accountJid string) ([]ListOmemoPreKeysRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOmemoPreKeys, accountJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOmemoPreKeysRow
+	for rows.Next() {
+		var i ListOmemoPreKeysRow
+		if err := rows.Scan(&i.ID, &i.Public, &i.Private); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -617,6 +986,83 @@ func (q *Queries) MarkMessagesReceived(ctx context.Context, arg MarkMessagesRece
 	return err
 }
 
+const markOmemoSignedPreKeyStale = `-- name: MarkOmemoSignedPreKeyStale :exec
+UPDATE omemoSignedPreKey
+SET stale = TRUE
+WHERE accountJID = ?1 AND stale = FALSE
+`
+
+func (q *Queries) MarkOmemoSignedPreKeyStale(ctx context.Context, accountJid string) error {
+	_, err := q.db.ExecContext(ctx, markOmemoSignedPreKeyStale, accountJid)
+	return err
+}
+
+const putOmemoRemoteIdentity = `-- name: PutOmemoRemoteIdentity :exec
+INSERT INTO omemoRemoteIdentity (accountJID, peerJID, deviceID, identityKey)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (accountJID, peerJID, deviceID) DO UPDATE
+SET identityKey = excluded.identityKey
+`
+
+type PutOmemoRemoteIdentityParams struct {
+	AccountJid  string `db:"account_jid"`
+	PeerJid     string `db:"peer_jid"`
+	DeviceID    int64  `db:"device_id"`
+	IdentityKey []byte `db:"identity_key"`
+}
+
+func (q *Queries) PutOmemoRemoteIdentity(ctx context.Context, arg PutOmemoRemoteIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, putOmemoRemoteIdentity,
+		arg.AccountJid,
+		arg.PeerJid,
+		arg.DeviceID,
+		arg.IdentityKey,
+	)
+	return err
+}
+
+const putOmemoSession = `-- name: PutOmemoSession :exec
+INSERT INTO omemoSession (accountJID, peerJID, deviceID, data)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (accountJID, peerJID, deviceID) DO UPDATE
+SET data = excluded.data
+`
+
+type PutOmemoSessionParams struct {
+	AccountJid string `db:"account_jid"`
+	PeerJid    string `db:"peer_jid"`
+	DeviceID   int64  `db:"device_id"`
+	Data       []byte `db:"data"`
+}
+
+func (q *Queries) PutOmemoSession(ctx context.Context, arg PutOmemoSessionParams) error {
+	_, err := q.db.ExecContext(ctx, putOmemoSession,
+		arg.AccountJid,
+		arg.PeerJid,
+		arg.DeviceID,
+		arg.Data,
+	)
+	return err
+}
+
+const setChatEncryptionMode = `-- name: SetChatEncryptionMode :exec
+INSERT INTO chatEncryption (accountJID, rosterJID, mode)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET mode = excluded.mode
+`
+
+type SetChatEncryptionModeParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+	Mode       string `db:"mode"`
+}
+
+func (q *Queries) SetChatEncryptionMode(ctx context.Context, arg SetChatEncryptionModeParams) error {
+	_, err := q.db.ExecContext(ctx, setChatEncryptionMode, arg.AccountJid, arg.RosterJid, arg.Mode)
+	return err
+}
+
 const setLocalKeySalt = `-- name: SetLocalKeySalt :exec
 INSERT INTO localKeySalt (id, salt)
 VALUES (FALSE, ?)
@@ -626,6 +1072,59 @@ SET salt = excluded.salt
 
 func (q *Queries) SetLocalKeySalt(ctx context.Context, salt []byte) error {
 	_, err := q.db.ExecContext(ctx, setLocalKeySalt, salt)
+	return err
+}
+
+const setOmemoIdentity = `-- name: SetOmemoIdentity :exec
+INSERT INTO omemoIdentity (accountJID, privateKey, deviceID)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID) DO UPDATE
+SET privateKey = excluded.privateKey, deviceID = excluded.deviceID
+`
+
+type SetOmemoIdentityParams struct {
+	AccountJid string `db:"account_jid"`
+	PrivateKey []byte `db:"private_key"`
+	DeviceID   int64  `db:"device_id"`
+}
+
+func (q *Queries) SetOmemoIdentity(ctx context.Context, arg SetOmemoIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, setOmemoIdentity, arg.AccountJid, arg.PrivateKey, arg.DeviceID)
+	return err
+}
+
+const setOmemoNextPreKeyID = `-- name: SetOmemoNextPreKeyID :exec
+INSERT INTO omemoNextPreKeyID (accountJID, nextID)
+VALUES (?1, ?2)
+ON CONFLICT (accountJID) DO UPDATE
+SET nextID = excluded.nextID
+`
+
+type SetOmemoNextPreKeyIDParams struct {
+	AccountJid string `db:"account_jid"`
+	NextID     int64  `db:"next_id"`
+}
+
+func (q *Queries) SetOmemoNextPreKeyID(ctx context.Context, arg SetOmemoNextPreKeyIDParams) error {
+	_, err := q.db.ExecContext(ctx, setOmemoNextPreKeyID, arg.AccountJid, arg.NextID)
+	return err
+}
+
+const setOmemoTrust = `-- name: SetOmemoTrust :exec
+INSERT INTO omemoTrust (accountJID, identityKey, state)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, identityKey) DO UPDATE
+SET state = excluded.state
+`
+
+type SetOmemoTrustParams struct {
+	AccountJid  string `db:"account_jid"`
+	IdentityKey []byte `db:"identity_key"`
+	State       int64  `db:"state"`
+}
+
+func (q *Queries) SetOmemoTrust(ctx context.Context, arg SetOmemoTrustParams) error {
+	_, err := q.db.ExecContext(ctx, setOmemoTrust, arg.AccountJid, arg.IdentityKey, arg.State)
 	return err
 }
 

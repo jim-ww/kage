@@ -81,6 +81,7 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 			return cmd
 		}},
 		{label: "Rename", run: (*Model).actionRenameChat},
+		{label: "Encryption", run: (*Model).actionCycleChatEncryption},
 		{label: "Leave chat", run: (*Model).actionLeaveChat},
 	}
 }

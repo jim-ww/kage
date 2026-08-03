@@ -72,6 +72,94 @@ CREATE TABLE IF NOT EXISTS localKeySalt (
 	salt BLOB    NOT NULL
 ) WITHOUT ROWID;
 
+-- Per-chat encryption preference (crypto/omemo, crypto/gpg, or none). Absent
+-- row means the default: "omemo".
+CREATE TABLE IF NOT EXISTS chatEncryption (
+	accountJID TEXT NOT NULL,
+	rosterJID  TEXT NOT NULL,
+	mode       TEXT NOT NULL, -- "omemo" | "gpg" | "none"
+
+	PRIMARY KEY (accountJID, rosterJID)
+) WITHOUT ROWID;
+
+-- OMEMO (XEP-0384) storage, backing crypto/omemo's omemo.Store. One row per
+-- account for our own identity keypair + device id.
+CREATE TABLE IF NOT EXISTS omemoIdentity (
+	accountJID TEXT   NOT NULL PRIMARY KEY,
+	privateKey BLOB   NOT NULL, -- ed25519 private key
+	deviceID   INTEGER NOT NULL
+) WITHOUT ROWID;
+
+-- Our own signed prekey(s): the current one, and (while rotating) the
+-- previous one kept around so in-flight sessions built against it still
+-- decrypt.
+CREATE TABLE IF NOT EXISTS omemoSignedPreKey (
+	accountJID TEXT    NOT NULL,
+	id         INTEGER NOT NULL,
+	public     BLOB    NOT NULL,
+	private    BLOB    NOT NULL,
+	signature  BLOB    NOT NULL,
+	stale      BOOLEAN NOT NULL DEFAULT FALSE,
+
+	PRIMARY KEY (accountJID, id)
+);
+
+-- Our own one-time prekey pool.
+CREATE TABLE IF NOT EXISTS omemoPreKey (
+	accountJID TEXT    NOT NULL,
+	id         INTEGER NOT NULL,
+	public     BLOB    NOT NULL,
+	private    BLOB    NOT NULL,
+
+	PRIMARY KEY (accountJID, id)
+);
+
+-- Monotonic prekey id counter per account — ids must never repeat, even
+-- once consumed.
+CREATE TABLE IF NOT EXISTS omemoNextPreKeyID (
+	accountJID TEXT    NOT NULL PRIMARY KEY,
+	nextID     INTEGER NOT NULL
+) WITHOUT ROWID;
+
+-- Double Ratchet session state per (account, peer device).
+CREATE TABLE IF NOT EXISTS omemoSession (
+	accountJID TEXT    NOT NULL,
+	peerJID    TEXT    NOT NULL,
+	deviceID   INTEGER NOT NULL,
+	data       BLOB    NOT NULL,
+
+	PRIMARY KEY (accountJID, peerJID, deviceID)
+);
+
+-- Trust decision per (account, peer identity key).
+CREATE TABLE IF NOT EXISTS omemoTrust (
+	accountJID  TEXT    NOT NULL,
+	identityKey BLOB    NOT NULL,
+	state       INTEGER NOT NULL,
+
+	PRIMARY KEY (accountJID, identityKey)
+);
+
+-- Cached device list per (account, peer jid).
+CREATE TABLE IF NOT EXISTS omemoDevice (
+	accountJID TEXT    NOT NULL,
+	peerJID    TEXT    NOT NULL,
+	deviceID   INTEGER NOT NULL,
+
+	PRIMARY KEY (accountJID, peerJID, deviceID)
+);
+
+-- Cached remote identity key per (account, peer device) — the key that
+-- device's bundle was last seen publishing.
+CREATE TABLE IF NOT EXISTS omemoRemoteIdentity (
+	accountJID  TEXT    NOT NULL,
+	peerJID     TEXT    NOT NULL,
+	deviceID    INTEGER NOT NULL,
+	identityKey BLOB    NOT NULL,
+
+	PRIMARY KEY (accountJID, peerJID, deviceID)
+);
+
 
 -- Roster storage
 

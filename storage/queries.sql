@@ -304,3 +304,141 @@ INSERT INTO localKeySalt (id, salt)
 VALUES (FALSE, ?)
 ON CONFLICT(id) DO UPDATE
 SET salt = excluded.salt;
+
+-- name: GetChatEncryptionMode :one
+SELECT mode
+FROM chatEncryption
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid);
+
+-- name: SetChatEncryptionMode :exec
+INSERT INTO chatEncryption (accountJID, rosterJID, mode)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(mode))
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET mode = excluded.mode;
+
+
+-- name: GetOmemoIdentity :one
+SELECT privateKey, deviceID
+FROM omemoIdentity
+WHERE accountJID = sqlc.arg(account_jid);
+
+-- name: SetOmemoIdentity :exec
+INSERT INTO omemoIdentity (accountJID, privateKey, deviceID)
+VALUES (sqlc.arg(account_jid), sqlc.arg(private_key), sqlc.arg(device_id))
+ON CONFLICT (accountJID) DO UPDATE
+SET privateKey = excluded.privateKey, deviceID = excluded.deviceID;
+
+
+-- name: GetOmemoCurrentSignedPreKey :one
+SELECT id, public, private, signature
+FROM omemoSignedPreKey
+WHERE accountJID = sqlc.arg(account_jid) AND stale = FALSE
+ORDER BY id DESC
+LIMIT 1;
+
+-- name: GetOmemoStaleSignedPreKey :one
+SELECT id, public, private, signature
+FROM omemoSignedPreKey
+WHERE accountJID = sqlc.arg(account_jid) AND stale = TRUE
+LIMIT 1;
+
+-- name: MarkOmemoSignedPreKeyStale :exec
+UPDATE omemoSignedPreKey
+SET stale = TRUE
+WHERE accountJID = sqlc.arg(account_jid) AND stale = FALSE;
+
+-- name: DeleteOmemoStaleSignedPreKey :exec
+DELETE FROM omemoSignedPreKey
+WHERE accountJID = sqlc.arg(account_jid) AND stale = TRUE;
+
+-- name: InsertOmemoSignedPreKey :exec
+INSERT INTO omemoSignedPreKey (accountJID, id, public, private, signature, stale)
+VALUES (sqlc.arg(account_jid), sqlc.arg(id), sqlc.arg(public), sqlc.arg(private), sqlc.arg(signature), FALSE);
+
+
+-- name: CountOmemoPreKeys :one
+SELECT count(*)
+FROM omemoPreKey
+WHERE accountJID = sqlc.arg(account_jid);
+
+-- name: ListOmemoPreKeys :many
+SELECT id, public, private
+FROM omemoPreKey
+WHERE accountJID = sqlc.arg(account_jid);
+
+-- name: InsertOmemoPreKey :exec
+INSERT INTO omemoPreKey (accountJID, id, public, private)
+VALUES (sqlc.arg(account_jid), sqlc.arg(id), sqlc.arg(public), sqlc.arg(private));
+
+-- name: ConsumeOmemoPreKey :one
+DELETE FROM omemoPreKey
+WHERE accountJID = sqlc.arg(account_jid) AND id = sqlc.arg(id)
+RETURNING id, public, private;
+
+
+-- name: GetOmemoNextPreKeyID :one
+SELECT nextID
+FROM omemoNextPreKeyID
+WHERE accountJID = sqlc.arg(account_jid);
+
+-- name: SetOmemoNextPreKeyID :exec
+INSERT INTO omemoNextPreKeyID (accountJID, nextID)
+VALUES (sqlc.arg(account_jid), sqlc.arg(next_id))
+ON CONFLICT (accountJID) DO UPDATE
+SET nextID = excluded.nextID;
+
+
+-- name: GetOmemoSession :one
+SELECT data
+FROM omemoSession
+WHERE accountJID = sqlc.arg(account_jid) AND peerJID = sqlc.arg(peer_jid) AND deviceID = sqlc.arg(device_id);
+
+-- name: PutOmemoSession :exec
+INSERT INTO omemoSession (accountJID, peerJID, deviceID, data)
+VALUES (sqlc.arg(account_jid), sqlc.arg(peer_jid), sqlc.arg(device_id), sqlc.arg(data))
+ON CONFLICT (accountJID, peerJID, deviceID) DO UPDATE
+SET data = excluded.data;
+
+-- name: DeleteOmemoSession :exec
+DELETE FROM omemoSession
+WHERE accountJID = sqlc.arg(account_jid) AND peerJID = sqlc.arg(peer_jid) AND deviceID = sqlc.arg(device_id);
+
+
+-- name: GetOmemoTrust :one
+SELECT state
+FROM omemoTrust
+WHERE accountJID = sqlc.arg(account_jid) AND identityKey = sqlc.arg(identity_key);
+
+-- name: SetOmemoTrust :exec
+INSERT INTO omemoTrust (accountJID, identityKey, state)
+VALUES (sqlc.arg(account_jid), sqlc.arg(identity_key), sqlc.arg(state))
+ON CONFLICT (accountJID, identityKey) DO UPDATE
+SET state = excluded.state;
+
+
+-- name: ListOmemoDevices :many
+SELECT deviceID
+FROM omemoDevice
+WHERE accountJID = sqlc.arg(account_jid) AND peerJID = sqlc.arg(peer_jid);
+
+-- name: DeleteOmemoDevices :exec
+DELETE FROM omemoDevice
+WHERE accountJID = sqlc.arg(account_jid) AND peerJID = sqlc.arg(peer_jid);
+
+-- name: InsertOmemoDevice :exec
+INSERT INTO omemoDevice (accountJID, peerJID, deviceID)
+VALUES (sqlc.arg(account_jid), sqlc.arg(peer_jid), sqlc.arg(device_id))
+ON CONFLICT (accountJID, peerJID, deviceID) DO NOTHING;
+
+
+-- name: GetOmemoRemoteIdentity :one
+SELECT identityKey
+FROM omemoRemoteIdentity
+WHERE accountJID = sqlc.arg(account_jid) AND peerJID = sqlc.arg(peer_jid) AND deviceID = sqlc.arg(device_id);
+
+-- name: PutOmemoRemoteIdentity :exec
+INSERT INTO omemoRemoteIdentity (accountJID, peerJID, deviceID, identityKey)
+VALUES (sqlc.arg(account_jid), sqlc.arg(peer_jid), sqlc.arg(device_id), sqlc.arg(identity_key))
+ON CONFLICT (accountJID, peerJID, deviceID) DO UPDATE
+SET identityKey = excluded.identityKey;

@@ -3,8 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -20,9 +23,11 @@ import (
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/gpg"
 	"github.com/jim-ww/kage/crypto/localstore"
+	kageomemo "github.com/jim-ww/kage/crypto/omemo"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
+	omemolib "github.com/jim-ww/omemo-go"
 	"golang.org/x/term"
 	"mellium.im/xmpp/jid"
 )
@@ -372,6 +377,7 @@ type accountSession struct {
 	tlsConfig *tls.Config      // reused on reconnect; nil means Dial's default verified config
 	db        *storage.Queries // shared across every account: one database, rows scoped by account.JID
 	gpg       gpg.Encrypter
+	omemoMgr  *omemolib.Manager // nil until connectAccountLive sets it up (needs a dialed client for its Transport)
 
 	// localKey is the AES-256 key message bodies are sealed under at rest
 	// (crypto/localstore), derived once in main from the local storage
@@ -429,7 +435,11 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 			name = r.Jid
 		}
 		entries[r.Jid] = rosterEntry{Name: r.Name, Subs: r.Subs}
-		chats = append(chats, ui.Chat{Name: name, Address: r.Jid})
+		mode, err := queries.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{AccountJid: acct.JID, RosterJid: r.Jid})
+		if err != nil {
+			mode = "omemo"
+		}
+		chats = append(chats, ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode})
 		histStart := time.Now()
 		hist := loadHistory(ctx, sess, r.Jid, name)
 		debugf("account %s: loadHistory(%s) done in %s (%d messages)", acct.JID, r.Jid, time.Since(histStart), len(hist))
@@ -478,6 +488,11 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		publishOwnGPGKey(ctx, sess)
 		debugf("account %s: publishOwnGPGKey done in %s", sess.account.JID, time.Since(start))
 	}
+
+	debugf("account %s: setupOmemo starting", sess.account.JID)
+	start = time.Now()
+	setupOmemo(ctx, sess)
+	debugf("account %s: setupOmemo done in %s", sess.account.JID, time.Since(start))
 
 	debugf("account %s: fetching live roster", sess.account.JID)
 	start = time.Now()
@@ -638,6 +653,75 @@ func publishOwnGPGKey(ctx context.Context, s *accountSession) {
 		fmt.Fprintf(os.Stderr, "warning: publishing gpg key via PEP (XEP-0373): %v\n", err)
 		return
 	}
+}
+
+// setupOmemo loads (or, on first run, generates) this account's OMEMO
+// identity, builds its Manager against the just-dialed client's Transport
+// (XEP-0384 PEP bundle/device-list exchange), and publishes our bundle and
+// device ID so contacts can start sessions with us. Trust is TOFU: any
+// device we haven't seen before is trusted on first use, matching gpg's
+// --trust-model always. Best-effort like publishOwnGPGKey — a failure here
+// just means omemo-mode chats fall back to sending unencrypted (see
+// resolveEncryptionMode/send).
+func setupOmemo(ctx context.Context, s *accountSession) {
+	store := kageomemo.NewStore(s.db, s.account.JID)
+
+	if _, err := store.IdentityKeyPair(ctx); err != nil {
+		var deviceID [4]byte
+		if _, err := rand.Read(deviceID[:]); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: generating omemo device id for %s: %v\n", s.account.JID, err)
+			return
+		}
+		id := omemolib.DeviceID(binary.BigEndian.Uint32(deviceID[:]))
+		if err := omemolib.InitIdentity(ctx, store, s.account.JID, id); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: initializing omemo identity for %s: %v\n", s.account.JID, err)
+			return
+		}
+	}
+
+	client := s.client.Load()
+	mgr, err := omemolib.NewManager(ctx, store, client.OmemoTransport(),
+		omemolib.WithTrustResolver(func(context.Context, omemolib.Device, ed25519.PublicKey) error { return nil }))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: setting up omemo for %s: %v\n", s.account.JID, err)
+		return
+	}
+	s.omemoMgr = mgr
+
+	if err := mgr.PublishBundle(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: publishing omemo bundle for %s: %v\n", s.account.JID, err)
+	}
+
+	devices, err := client.FetchOmemoDeviceList(ctx, s.account.JID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: fetching own omemo device list for %s: %v\n", s.account.JID, err)
+		return
+	}
+	local := mgr.LocalDevice().ID
+	for _, id := range devices.Devices {
+		if id == local {
+			return // already listed
+		}
+	}
+	devices.JID = s.account.JID
+	devices.Devices = append(devices.Devices, local)
+	if err := client.PublishOmemoDeviceList(ctx, devices); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: publishing omemo device list for %s: %v\n", s.account.JID, err)
+	}
+}
+
+// resolveEncryptionMode returns the outgoing message encryption mode for
+// peerJID ("omemo" the default, "gpg", or "none" if the user explicitly
+// disabled encryption for this chat — see ui.ChatEncryptionSetter).
+func resolveEncryptionMode(ctx context.Context, s *accountSession, peerJID string) string {
+	mode, err := s.db.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{
+		AccountJid: s.account.JID,
+		RosterJid:  peerJID,
+	})
+	if err != nil {
+		return "omemo"
+	}
+	return mode
 }
 
 // resolvePeerKey returns the GPG key fingerprint to encrypt to-messages with
@@ -914,6 +998,20 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 	return nil
 }
 
+// SetChatEncryption implements ui.ChatEncryptionSetter: persists the chosen
+// outgoing message encryption ("omemo", "gpg", or "none") for one chat.
+func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return s.db.SetChatEncryptionMode(context.Background(), storage.SetChatEncryptionModeParams{
+		AccountJid: s.account.JID,
+		RosterJid:  peerJID,
+		Mode:       mode,
+	})
+}
+
 func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
 	return a.send(context.Background(), accountIdx, to, body, opts)
 }
@@ -960,20 +1058,36 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	}
 
 	wireBody := body
-	if peerKey := resolvePeerKey(ctx, s, to); peerKey != "" {
-		ct, err := s.gpg.Encrypt(body, peerKey)
-		if err != nil {
-			return "", fmt.Errorf("encrypting to %s: %w", to, err)
-		}
-		wireBody = ct
-	}
-
-	id, err := s.client.Load().Send(ctx, to, wireBody, xmpp.SendOptions{
+	sendOpts := xmpp.SendOptions{
 		ReplaceID:    opts.ReplaceID,
 		ReplyToID:    opts.ReplyToID,
 		QuotedAuthor: opts.QuotedAuthor,
 		QuotedBody:   opts.QuotedBody,
-	})
+	}
+
+	switch resolveEncryptionMode(ctx, s, to) {
+	case "omemo":
+		if s.omemoMgr != nil {
+			enc, _, err := s.omemoMgr.EncryptMessage(ctx, to, []byte(body))
+			if err != nil {
+				return "", fmt.Errorf("omemo-encrypting to %s: %w", to, err)
+			}
+			sendOpts.Encrypted = xmpp.EncodeOmemoMessage(enc)
+			wireBody = ""
+		} else {
+			fmt.Fprintf(os.Stderr, "note: omemo not ready for %s; sending unencrypted\n", s.account.JID)
+		}
+	case "gpg":
+		if peerKey := resolvePeerKey(ctx, s, to); peerKey != "" {
+			ct, err := s.gpg.Encrypt(body, peerKey)
+			if err != nil {
+				return "", fmt.Errorf("encrypting to %s: %w", to, err)
+			}
+			wireBody = ct
+		}
+	}
+
+	id, err := s.client.Load().Send(ctx, to, wireBody, sendOpts)
 	if err != nil {
 		return "", err
 	}
@@ -1167,6 +1281,26 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	}
 
 	body := msgEv.Body
+	if msgEv.Encrypted != nil {
+		if s.omemoMgr == nil {
+			fmt.Fprintf(os.Stderr, "warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
+			return
+		}
+		enc, err := xmpp.DecodeOmemoMessage(msgEv.Encrypted, bareJID(msgEv.From))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: decoding omemo message from %s: %v\n", msgEv.From, err)
+			return
+		}
+		pt, err := s.omemoMgr.DecryptMessage(ctx, enc)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: decrypting omemo message from %s: %v\n", msgEv.From, err)
+			return
+		}
+		if pt == nil {
+			return // key-transport message: session established/refreshed, no content to show
+		}
+		body = string(pt)
+	}
 	if gpg.Looks(body) {
 		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])
 		if err != nil {

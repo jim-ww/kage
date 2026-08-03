@@ -170,12 +170,13 @@ func (c *Client) SetRosterName(ctx context.Context, addr, name string) error {
 // and for decoding incoming stanzas.
 type messageBody struct {
 	stanza.Message
-	Body      string         `xml:"body,omitempty"`
-	Replace   *replaceElem   `xml:"urn:xmpp:message-correct:0 replace"`
-	Reply     *replyElem     `xml:"urn:xmpp:reply:0 reply"`
-	Retract   *retractElem   `xml:"urn:xmpp:message-retract:1 retract"`
-	Reactions *reactionsElem `xml:"urn:xmpp:reactions:0 reactions"`
-	Fallback  *fallbackElem  `xml:"urn:xmpp:fallback:0 fallback"`
+	Body      string              `xml:"body,omitempty"`
+	Replace   *replaceElem        `xml:"urn:xmpp:message-correct:0 replace"`
+	Reply     *replyElem          `xml:"urn:xmpp:reply:0 reply"`
+	Retract   *retractElem        `xml:"urn:xmpp:message-retract:1 retract"`
+	Reactions *reactionsElem      `xml:"urn:xmpp:reactions:0 reactions"`
+	Fallback  *fallbackElem       `xml:"urn:xmpp:fallback:0 fallback"`
+	Encrypted *omemoEncryptedElem `xml:"urn:xmpp:omemo:2 encrypted"`
 
 	// XEP-0085 chat state notification: at most one of these is set, on
 	// send or receive. Modeled as five separate pointer fields (rather than
@@ -308,6 +309,10 @@ type SendOptions struct {
 	// Mutually exclusive with the other options above.
 	ReactionTargetID string
 	Reactions        []string
+
+	// Encrypted, if set, sends a XEP-0384 <encrypted/> element instead of a
+	// plaintext body. Mutually exclusive with the other options above.
+	Encrypted *omemoEncryptedElem
 }
 
 const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
@@ -355,6 +360,9 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 		Body: body,
 	}
 	switch {
+	case opts.Encrypted != nil:
+		msg.Encrypted = opts.Encrypted
+		msg.Body = "" // XEP-0384: plaintext body carries no content once encrypted
 	case opts.ReactionTargetID != "":
 		msg.Reactions = &reactionsElem{ID: opts.ReactionTargetID, Reactions: opts.Reactions}
 	case opts.RetractID != "":
@@ -561,6 +569,11 @@ type MessageEvent struct {
 	// set, other fields besides ID/From/SentAt carry no meaningful content.
 	ReactionTargetID string
 	Reactions        []string
+
+	// Encrypted is non-nil if this is a XEP-0384 OMEMO message; Body/other
+	// fields carry no meaningful content and the caller must decrypt this
+	// (crypto/omemo) to get the actual message.
+	Encrypted *omemoEncryptedElem
 }
 
 func (MessageEvent) isEvent() {}
@@ -633,6 +646,16 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				SentAt:           time.Now(),
 				ReactionTargetID: msg.Reactions.ID,
 				Reactions:        reactions,
+			}
+			return
+		}
+
+		if msg.Encrypted != nil {
+			events <- MessageEvent{
+				ID:        msg.ID,
+				From:      msg.From.String(),
+				SentAt:    time.Now(),
+				Encrypted: msg.Encrypted,
 			}
 			return
 		}
