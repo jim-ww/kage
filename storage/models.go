@@ -65,7 +65,6 @@ type Message struct {
 	Received      bool           `db:"received"`
 	Delay         int64          `db:"delay"`
 	Rosterjid     sql.NullString `db:"rosterjid"`
-	Archiveid     sql.NullString `db:"archiveid"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
 }

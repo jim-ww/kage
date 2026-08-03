@@ -25,12 +25,10 @@ CREATE TABLE IF NOT EXISTS messages (
 	received      BOOLEAN  NOT NULL DEFAULT FALSE,
 	delay         INTEGER  NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
 	rosterJID     TEXT,
-	archiveID     TEXT,
 	replyToIdAttr TEXT, -- XEP-0461: idAttr of the message this one replies to
 	retracted     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0424: sender attempted to retract this; content is kept, just flagged
 
-	UNIQUE (accountJID, originID, fromAttr),
-	UNIQUE (accountJID, archiveID)
+	UNIQUE (accountJID, originID, fromAttr)
 );
 
 -- A message's stanza id is unique within one conversation on one account, so

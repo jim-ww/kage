@@ -289,8 +289,7 @@ type AccountConnectedMsg struct {
 // Connecting. NewChats/NewMessages carry only contacts the local snapshot
 // didn't already know about (freshly added on another device); existing
 // chats/history are left untouched rather than re-fetched, since they're
-// already showing and any messages missed while offline arrive separately
-// via HistorySyncedMsg.
+// already showing.
 type AccountLiveMsg struct {
 	Index       int
 	NewChats    []list.Item
@@ -305,16 +304,6 @@ type AccountLiveMsg struct {
 type AccountConnectErrorMsg struct {
 	Index int
 	Err   error
-}
-
-// HistorySyncedMsg is sent into the Bubble Tea loop with a batch of XEP-0313
-// (MAM) archive messages that were missed while offline, backfilled after an
-// account finishes connecting. Handled identically to a batch of
-// IncomingMessageMsg for the same chat.
-type HistorySyncedMsg struct {
-	AccountIdx int
-	From       string
-	Messages   []Message
 }
 
 // DefaultAccountSetter persists which account should be selected on startup,

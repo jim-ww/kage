@@ -59,7 +59,6 @@ INSERT INTO messages (
 	originID,
 	delay,
 	rosterJID,
-	archiveID,
 	replyToIdAttr
 )
 VALUES (
@@ -77,11 +76,10 @@ VALUES (
 		CAST(strftime('%s', 'now') AS INTEGER)
 	),
 	sqlc.arg(roster_jid),
-	sqlc.arg(archive_id),
 	sqlc.arg(reply_to_id_attr)
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
-SET archiveID = excluded.archiveID
+SET accountJID = excluded.accountJID
 RETURNING id;
 
 
@@ -165,28 +163,6 @@ SELECT fromJID, emoji
 FROM messageReactions
 WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr);
-
-
--- name: ListLatestArchiveIDs :many
-SELECT
-	m.rosterJID,
-	m.archiveID,
-	MAX(m.delay)
-FROM messages AS m
-WHERE m.accountJID = sqlc.arg(account_jid)
-	AND m.archiveID IS NOT NULL
-GROUP BY m.rosterJID;
-
-
--- name: ListEarliestArchiveIDs :many
-SELECT
-	archiveID,
-	MIN(delay) AS mindelay
-FROM messages
-WHERE accountJID = sqlc.arg(account_jid)
-	AND rosterJID = sqlc.arg(roster_jid)
-GROUP BY delay
-HAVING mindelay NOT NULL;
 
 
 -- name: InsertEntityCaps :exec
