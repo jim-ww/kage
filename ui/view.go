@@ -326,10 +326,29 @@ func (m Model) inputHint() string {
 	if m.reactingMsgIdx >= 0 {
 		msgs := m.currentMessages()
 		if m.reactingMsgIdx < len(msgs) {
-			return m.styles.renderReactHint(previewText(msgs[m.reactingMsgIdx].Content, previewLen), m.emojiSuggestions, m.emojiSuggestIdx)
+			return m.renderReactHint(previewText(msgs[m.reactingMsgIdx].Content, previewLen))
 		}
 	}
 	return ""
+}
+
+// renderReactHint renders the "react to ..." line plus the live
+// emoji-shortcode suggestions, each one a marked, hoverable zone so a click
+// accepts it exactly like pressing tab after arrowing onto it.
+func (m Model) renderReactHint(target string) string {
+	hint := fmt.Sprintf("react to %q", target)
+	if len(m.emojiSuggestions) == 0 {
+		return m.styles.messageReply.Render(hint)
+	}
+
+	codes := make([]string, len(m.emojiSuggestions))
+	for i, sug := range m.emojiSuggestions {
+		label := sug.Emoji + sug.Shortcode
+		styled := m.styles.emojiSuggestionLabel(label, i == m.emojiSuggestIdx, m.isHovered(zoneEmojiSuggestion(i)))
+		codes[i] = m.zone.Mark(zoneEmojiSuggestion(i), styled)
+	}
+	hint += "  →  " + strings.Join(codes, " ") + "  [←/→] pick · [tab/click] accept"
+	return m.styles.messageReply.Render(hint)
 }
 
 func (m Model) renderChatStatusBar(width int) string {

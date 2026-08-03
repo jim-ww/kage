@@ -456,18 +456,19 @@ func (s uiStyles) renderReplyHint(author, preview string) string {
 	return s.messageReply.Render(fmt.Sprintf("↩ %s: %s", author, preview))
 }
 
-func (s uiStyles) renderReactHint(target string, suggestions []emojiSuggestion, selected int) string {
-	hint := fmt.Sprintf("react to %q", target)
-	if len(suggestions) > 0 {
-		codes := make([]string, len(suggestions))
-		for i, sug := range suggestions {
-			label := sug.Emoji + sug.Shortcode
-			if i == selected {
-				label = s.messageSelectedPrefix.Render("[" + label + "]")
-			}
-			codes[i] = label
-		}
-		hint += "  →  " + strings.Join(codes, " ") + "  [←/→] pick · [tab] accept"
+// emojiSuggestionLabel styles one react-hint suggestion label: bracketed
+// (like the selected-message prefix) when it's the arrow-key selection,
+// dimmer-bracketed on hover, plain otherwise. Applied once to the plain
+// label text — not layered on top of another already-rendered style — so
+// it can't hit the corruption double-render risk described on
+// zoneChatListDelegate.Render.
+func (s uiStyles) emojiSuggestionLabel(label string, selected, hovered bool) string {
+	switch {
+	case selected:
+		return s.messageSelectedPrefix.Render("[" + label + "]")
+	case hovered:
+		return s.messageHoverPrefix.Render("[" + label + "]")
+	default:
+		return label
 	}
-	return s.messageReply.Render(hint)
 }

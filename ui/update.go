@@ -347,14 +347,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case msg.String() == "tab" && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
-			chosen := m.emojiSuggestions[m.emojiSuggestIdx].Shortcode
-			m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), chosen))
-			m.input.CursorEnd()
-			var next []emojiSuggestion
-			if token, _, ok := currentWordToken(m.input.Value()); ok {
-				next = emojiSuggestionsFor(token)
-			}
-			m.setEmojiSuggestions(next)
+			m.acceptEmojiSuggestion(m.emojiSuggestIdx)
 			return m, nil
 
 		// ── Global ────────────────────────────────────────────────────────

@@ -20,9 +20,10 @@ const (
 	zoneSendButton     = "send-button"
 )
 
-func zoneAccountRow(i int) string { return fmt.Sprintf("account-row-%d", i) }
-func zoneChatItem(i int) string   { return fmt.Sprintf("chat-item-%d", i) }
-func zoneMessage(i int) string    { return fmt.Sprintf("msg-%d", i) }
+func zoneAccountRow(i int) string      { return fmt.Sprintf("account-row-%d", i) }
+func zoneChatItem(i int) string        { return fmt.Sprintf("chat-item-%d", i) }
+func zoneMessage(i int) string         { return fmt.Sprintf("msg-%d", i) }
+func zoneEmojiSuggestion(i int) string { return fmt.Sprintf("emoji-suggest-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
 // (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
@@ -89,6 +90,11 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.zone.Get(zoneSendButton).InBounds(mouse) {
 		return zoneSendButton
 	}
+	for i := range m.emojiSuggestions {
+		if m.zone.Get(zoneEmojiSuggestion(i)).InBounds(mouse) {
+			return zoneEmojiSuggestion(i)
+		}
+	}
 	for i := range m.accounts {
 		if m.zone.Get(zoneAccountRow(i)).InBounds(mouse) {
 			return zoneAccountRow(i)
@@ -152,6 +158,13 @@ func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 // three panes (sidebar / viewport / input) when the click missed anything
 // more specific inside it.
 func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	for i := range m.emojiSuggestions {
+		if m.zone.Get(zoneEmojiSuggestion(i)).InBounds(msg) {
+			m.acceptEmojiSuggestion(i)
+			return m, nil
+		}
+	}
+
 	if m.zone.Get(zonePaneAccountBar).InBounds(msg) {
 		m.notifyTypingStopped()
 		m.selectedView = viewAccounts

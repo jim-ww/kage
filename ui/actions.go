@@ -486,6 +486,23 @@ func (m *Model) setEmojiSuggestions(sugs []emojiSuggestion) {
 	m.emojiSuggestIdx = 0
 }
 
+// acceptEmojiSuggestion accepts emojiSuggestions[idx] into the input —
+// shared by the tab keybinding (idx == emojiSuggestIdx) and a click on a
+// suggestion in the react hint (see handleLeftClick).
+func (m *Model) acceptEmojiSuggestion(idx int) {
+	if idx < 0 || idx >= len(m.emojiSuggestions) {
+		return
+	}
+	chosen := m.emojiSuggestions[idx].Shortcode
+	m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), chosen))
+	m.input.CursorEnd()
+	var next []emojiSuggestion
+	if token, _, ok := currentWordToken(m.input.Value()); ok {
+		next = emojiSuggestionsFor(token)
+	}
+	m.setEmojiSuggestions(next)
+}
+
 // cancelPending clears any in-progress edit, reply, or reaction composition.
 func (m *Model) cancelPending() {
 	m.editingMsgIdx = -1
