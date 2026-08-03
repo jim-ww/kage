@@ -295,9 +295,26 @@ func (m *Model) submitRenameChat() tea.Cmd {
 		}
 	}
 
+	oldName := chat.Name
 	chat.Name = name
 	m.accounts[m.currentAccount].Chats[idx] = chat
-	return m.chats.SetItem(idx, chat)
+
+	// Message.Author is a resolved display name, not a live lookup (see
+	// IncomingMessageMsg/loadHistory) — it needs to be patched everywhere
+	// it was stamped with the old name, or already-shown messages would
+	// keep displaying it forever.
+	msgs := m.accounts[m.currentAccount].Messages[idx]
+	for i := range msgs {
+		if !msgs[i].IsMe && msgs[i].Author == oldName {
+			msgs[i].Author = name
+		}
+	}
+
+	cmd := m.chats.SetItem(idx, chat)
+	if idx == m.currentChatIndex() {
+		m.refreshViewport()
+	}
+	return cmd
 }
 
 func (m *Model) actionYankMessage() tea.Cmd {
