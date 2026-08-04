@@ -93,6 +93,8 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	bodyContent := msg.Content
 	if len(msg.Attachments) == 1 && strings.TrimSpace(msg.Content) == msg.Attachments[0] {
 		bodyContent = renderAttachmentLine(msg.Attachments[0], m.icons)
+	} else {
+		bodyContent = highlightCodeBlocks(bodyContent)
 	}
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	for i, line := range bodyLines {
