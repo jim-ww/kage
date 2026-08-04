@@ -44,13 +44,16 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	isSelected := msgIdx == m.selectedMsg
 	prefix := m.styles.renderMessagePrefix(isSelected, m.isHovered(zoneMessage(msgIdx)))
 
-	nick := msg.Author
 	timeLabel := msg.SentAt.Format("15:04")
 	if !sameDay(msg.SentAt, time.Now()) {
 		timeLabel = msg.SentAt.Format("2006-01-02 15:04")
 	}
-	headerPlain := fmt.Sprintf("[%s] <%s> ", timeLabel, nick)
-	header := m.styles.renderMessageHeader(timeLabel, nick, msg.IsMe)
+	dirGlyph := "«"
+	if msg.IsMe {
+		dirGlyph = "»"
+	}
+	headerPlain := fmt.Sprintf("%s [%s] ", dirGlyph, timeLabel)
+	header := m.styles.renderMessageHeader(timeLabel, msg.IsMe)
 	indent := strings.Repeat(" ", lipgloss.Width(headerPlain))
 	wrapWidth := totalWidth - lipgloss.Width(prefix) - lipgloss.Width(indent)
 	wrapWidth = max(wrapWidth, 8)

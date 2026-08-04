@@ -1,5 +1,4 @@
 - dont cycle through encryption
-- chat view: dont show names in 1:1 chats
 - show current encryption configured for chat
 - chat list: toggle on bind/button
 - chat list: resize by dragging border

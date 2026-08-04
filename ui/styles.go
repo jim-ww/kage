@@ -517,12 +517,17 @@ func (s uiStyles) renderMessagePrefix(selected, hovered bool) string {
 	}
 }
 
-func (s uiStyles) renderMessageHeader(timeLabel, nick string, isMe bool) string {
-	nickStyle := s.messageNickThem
+// renderMessageHeader renders a directional glyph (« them, » me) plus the
+// timestamp, both color-coded by sender — chats are always 1:1 here, so the
+// nick would be redundant on every line.
+func (s uiStyles) renderMessageHeader(timeLabel string, isMe bool) string {
+	timeStyle := s.messageNickThem
+	glyph := "«"
 	if isMe {
-		nickStyle = s.messageNickMe
+		timeStyle = s.messageNickMe
+		glyph = "»"
 	}
-	return s.messageTime.Render("["+timeLabel+"]") + " " + nickStyle.Render("<"+nick+">") + " "
+	return timeStyle.Render(glyph+" ["+timeLabel+"]") + " "
 }
 
 func (s uiStyles) renderReplyHint(author, preview string) string {
