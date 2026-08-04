@@ -42,6 +42,13 @@ type Account struct {
 	Chats    []list.Item
 	Messages map[int][]Message
 
+	// HistoryMore marks, per chat index, whether older messages exist in
+	// storage beyond what's currently loaded in Messages — set from the
+	// initial paginated load and updated after each "load older" fetch.
+	// Absent (or false) means either the chat has no more history, or
+	// nothing is known yet (treated the same: no further fetch attempted).
+	HistoryMore map[int]bool
+
 	// Connecting is true from New()/AddAccount until the account's dial,
 	// roster fetch, and local history load complete asynchronously in the
 	// background — see AccountConnectedMsg/AccountConnectErrorMsg.

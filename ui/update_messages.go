@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"maps"
 	"path/filepath"
 	"time"
 
@@ -121,6 +122,43 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case OlderHistoryMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		delete(m.loadingOlderHistory, chatIdx)
+		if m.accounts[msg.AccountIdx].HistoryMore == nil {
+			m.accounts[msg.AccountIdx].HistoryMore = make(map[int]bool)
+		}
+		m.accounts[msg.AccountIdx].HistoryMore[chatIdx] = msg.HasMore
+		if len(msg.Messages) == 0 {
+			return m, nil, true
+		}
+		if m.accounts[msg.AccountIdx].Messages == nil {
+			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
+		}
+		existing := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		// Prepending shifts every already-loaded message's position by
+		// len(msg.Messages); their ReplyTo indices (set when that page was
+		// built) point within the slice as it existed before this shift, so
+		// they need to move with it.
+		for i := range existing {
+			if existing[i].ReplyTo != nil {
+				shifted := *existing[i].ReplyTo + len(msg.Messages)
+				existing[i].ReplyTo = &shifted
+			}
+		}
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = append(msg.Messages, existing...)
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			// Prepended messages shift every existing index up by
+			// len(msg.Messages) — keep the selection on the same message
+			// rather than letting it silently jump.
+			m.selectedMsg += len(msg.Messages)
+			m.refreshViewportScrollTo(m.selectedMsg)
+		}
+		return m, nil, true
+
 	case MessageCorrectedMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
@@ -204,9 +242,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			if m.accounts[msg.Index].Messages == nil {
 				m.accounts[msg.Index].Messages = make(map[int][]Message)
 			}
-			for idx, msgs := range msg.NewMessages {
-				m.accounts[msg.Index].Messages[idx] = msgs
+			maps.Copy(m.accounts[msg.Index].Messages, msg.NewMessages)
+			if m.accounts[msg.Index].HistoryMore == nil {
+				m.accounts[msg.Index].HistoryMore = make(map[int]bool)
 			}
+			maps.Copy(m.accounts[msg.Index].HistoryMore, msg.NewHistoryMore)
 		}
 		var cmd tea.Cmd
 		if msg.Index == m.currentAccount {

@@ -121,6 +121,12 @@ type Model struct {
 	inputHeightSetter    InputHeightSetter
 	chatEncryptionSetter ChatEncryptionSetter
 	lastChatSetter       LastChatSetter
+	historyLoader        HistoryLoader
+
+	// loadingOlderHistory marks chat indices with a LoadOlderHistory fetch
+	// currently in flight, so scrolling/MsgUp near the top of a long history
+	// doesn't fire duplicate requests while the first is still pending.
+	loadingOlderHistory map[int]bool
 
 	// pendingOpenChatAddress is the peer JID to auto-open once its owning
 	// account's chats have loaded (see AccountConnectedMsg/AccountLiveMsg
@@ -215,6 +221,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	sidebarHiddenSetter, _ := sender.(SidebarHiddenSetter)
 	inputHeightSetter, _ := sender.(InputHeightSetter)
 	lastChatSetter, _ := sender.(LastChatSetter)
+	historyLoader, _ := sender.(HistoryLoader)
 
 	return Model{
 		selectedView:           viewChat,
@@ -247,6 +254,8 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		sidebarHiddenSetter:    sidebarHiddenSetter,
 		inputHeightSetter:      inputHeightSetter,
 		lastChatSetter:         lastChatSetter,
+		historyLoader:          historyLoader,
+		loadingOlderHistory:    make(map[int]bool),
 		pendingOpenChatAddress: openLastChatAddress,
 		sidebarWidthOverride:   initialSidebarWidth,
 		sidebarHidden:          initialSidebarHidden,

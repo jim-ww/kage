@@ -42,6 +42,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS messagesAccountRosterJIDIdAttr
 	ON messages (accountJID, rosterJID, idAttr)
 	WHERE idAttr IS NOT NULL;
 
+-- Serves ListMessagesByRosterBefore's keyset pagination (newest-first range
+-- scan per chat) without a full table scan on large histories.
+CREATE INDEX IF NOT EXISTS messagesAccountRosterJIDDelay
+	ON messages (accountJID, rosterJID, delay DESC, id DESC);
+
 -- XEP-0444: each row is one reactor's one emoji on one message. A reactor's
 -- full set is replaced (not added-to) whenever a new <reactions/> stanza
 -- arrives for them, by deleting their existing rows for that idAttr first.

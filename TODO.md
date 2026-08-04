@@ -1,8 +1,8 @@
+- bind keybinds with key codes, not to latin
 - make margin above help line (below textinput ) slighly smaller
 - chat view: add attach file, emoji buttons
 - show encryption information in message info
 - message status? 'sent' / 'delivered' icons?
-- bind keybinds with key codes, not to latin
 - code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
 - speed up chat view (messages render)
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jim-ww/kage/crypto/localstore"
@@ -16,12 +18,28 @@ import (
 // account's real JID.
 const meReactorJID = "me"
 
+// historyRow is the subset of a messages row loadHistory/loadHistoryPage
+// need, shared between ListMessagesByRoster's and ListMessagesByRosterBefore's
+// (differently-shaped, sqlc-generated) row types so the decrypt/build logic
+// below isn't duplicated per query.
+type historyRow struct {
+	ID            int64
+	Sent          bool
+	Idattr        sql.NullString
+	Body          sql.NullString
+	Encrypted     bool
+	E2eencrypted  bool
+	Delay         int64
+	Replytoidattr sql.NullString
+	Retracted     bool
+}
+
 // readStoredBody returns row's plaintext body, decrypting it if row.Encrypted
 // is set — that fails if no local storage password is configured. A
 // plaintext row read while a password *is* now available gets
 // opportunistically re-sealed and written back, so it only sits unencrypted
 // until the next time it's read.
-func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row storage.ListMessagesByRosterRow) (string, error) {
+func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row historyRow) (string, error) {
 	if !row.Encrypted {
 		if s.localKey != nil {
 			sealedBody, encrypted := encryptForStorage(s, row.Body.String)
@@ -43,20 +61,11 @@ func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row
 	return localstore.Open(s.localKey, row.Body.String)
 }
 
-// loadHistory reads chatAddr's persisted history back from storage,
-// decrypting each body with the local storage key (crypto/localstore).
-// Rows with no body (encryption failed at write time) are skipped since
-// there is nothing to recover.
-func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName string) []ui.Message {
-	rows, err := s.db.ListMessagesByRoster(ctx, storage.ListMessagesByRosterParams{
-		AccountJid: s.account.JID,
-		RosterJid:  nullString(chatAddr),
-	})
-	if err != nil {
-		debugf("warning: loading history for %s: %v\n", chatAddr, err)
-		return nil
-	}
-
+// buildMessages decrypts and converts rows (already in chronological, oldest
+// first, order) into ui.Message, resolving reply targets to indices within
+// the returned slice. Rows with no body (encryption failed at write time)
+// are skipped since there is nothing to recover.
+func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName string, rows []historyRow) []ui.Message {
 	msgs := make([]ui.Message, 0, len(rows))
 	replyTo := make([]string, 0, len(rows)) // parallel to msgs: each entry's ReplyToIdAttr, resolved to an index below
 	for _, row := range rows {
@@ -103,6 +112,101 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		}
 	}
 	return msgs
+}
+
+// loadHistory reads chatAddr's entire persisted history back from storage,
+// decrypting each body with the local storage key (crypto/localstore). Used
+// where the full history is genuinely needed (tests, export); interactive
+// chat loading uses the paginated loadHistoryPage instead so very long
+// histories don't get decrypted/rendered all at once.
+func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName string) []ui.Message {
+	rows, err := s.db.ListMessagesByRoster(ctx, storage.ListMessagesByRosterParams{
+		AccountJid: s.account.JID,
+		RosterJid:  nullString(chatAddr),
+	})
+	if err != nil {
+		debugf("warning: loading history for %s: %v\n", chatAddr, err)
+		return nil
+	}
+
+	hrows := make([]historyRow, len(rows))
+	for i, r := range rows {
+		hrows[i] = historyRow{
+			Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
+			E2eencrypted: r.E2eencrypted, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+		}
+	}
+	return buildMessages(ctx, s, chatAddr, chatName, hrows)
+}
+
+// historyPageSize messages are fetched at a time by loadHistoryPage; set
+// from config.Config.HistoryPageSize by main before any account connects.
+var historyPageSize = 200
+
+// historyCursor is a chat's "load older" keyset pagination position: the
+// (delay, id) of the oldest message loaded so far. The zero value means
+// "nothing loaded yet" and fetches the most recent page.
+type historyCursor struct {
+	delay, id int64
+	exhausted bool // true once a page came back shorter than requested — no older rows remain
+}
+
+// loadHistoryPage loads the next (older) page of chatAddr's history,
+// starting from s's cursor for chatAddr (or the most recent page, if none is
+// set yet), and advances that cursor past what it returned. Returned
+// messages are in chronological order, ready to prepend to whatever's
+// already loaded. hasMore is false once the oldest stored message has been
+// reached.
+func loadHistoryPage(ctx context.Context, s *accountSession, chatAddr, chatName string) (msgs []ui.Message, hasMore bool) {
+	s.histMu.Lock()
+	cur, ok := s.histPos[chatAddr]
+	s.histMu.Unlock()
+	if ok && cur.exhausted {
+		return nil, false
+	}
+
+	beforeDelay, beforeID := int64(math.MaxInt64), int64(math.MaxInt64)
+	if ok {
+		beforeDelay, beforeID = cur.delay, cur.id
+	}
+
+	rows, err := s.db.ListMessagesByRosterBefore(ctx, storage.ListMessagesByRosterBeforeParams{
+		AccountJid:  s.account.JID,
+		RosterJid:   nullString(chatAddr),
+		BeforeDelay: beforeDelay,
+		BeforeID:    beforeID,
+		PageLimit:   int64(historyPageSize),
+	})
+	if err != nil {
+		debugf("warning: loading history page for %s: %v\n", chatAddr, err)
+		return nil, false
+	}
+
+	next := historyCursor{exhausted: len(rows) < historyPageSize}
+	// rows arrive newest-first; reverse into chronological order and build
+	// historyRow in the same pass.
+	hrows := make([]historyRow, len(rows))
+	for i, r := range rows {
+		hrows[len(rows)-1-i] = historyRow{
+			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
+			E2eencrypted: r.E2eencrypted, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+		}
+	}
+	if len(rows) > 0 {
+		oldest := rows[len(rows)-1]
+		next.delay, next.id = oldest.Delay, oldest.ID
+	} else if ok {
+		next.delay, next.id = cur.delay, cur.id
+	}
+
+	s.histMu.Lock()
+	if s.histPos == nil {
+		s.histPos = make(map[string]historyCursor)
+	}
+	s.histPos[chatAddr] = next
+	s.histMu.Unlock()
+
+	return buildMessages(ctx, s, chatAddr, chatName, hrows), !next.exhausted
 }
 
 // replaceReactions fully replaces reactorJID's reaction set on msgID with

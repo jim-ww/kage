@@ -27,6 +27,7 @@ type fileConfig struct {
 	LastChatAccount string         `toml:"last_chat_account,omitempty"` // JID of the account owning the last opened chat
 	LastChatAddress string         `toml:"last_chat_address,omitempty"` // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
 	Notifications   *bool          `toml:"notifications"`               // nil (unset) means the default: on; whether to spawn the desktop notification daemon
+	HistoryPageSize int            `toml:"history_page_size,omitempty"` // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
 	Storage         StorageConfig  `toml:"storage"`
 	Accounts        []Account      `toml:"accounts"`
 }
@@ -71,12 +72,21 @@ type Config struct {
 	// alongside a non-empty LastChatAddress.
 	LastChatAccountIdx int
 	LastChatAddress    string
+	// HistoryPageSize is the number of messages loaded per chat at a time,
+	// both on startup and for each "load older messages" fetch as the user
+	// scrolls up — keeps very long histories from being decrypted/rendered
+	// all at once. DefaultHistoryPageSize when unset or non-positive.
+	HistoryPageSize int
 	// Path is the config file this was actually loaded from, or the
 	// default write location if none was found — always non-empty, so
 	// callers that need to persist a change (e.g. an auto-detected GPG key)
 	// have somewhere to write it back to.
 	Path string
 }
+
+// DefaultHistoryPageSize is how many messages are loaded per chat at a time
+// when history_page_size isn't set in config.toml.
+const DefaultHistoryPageSize = 200
 
 func Load(path string) (Config, error) {
 	cfgOut := Config{
@@ -88,7 +98,8 @@ func Load(path string) (Config, error) {
 			TimeOnlyToday: true,
 			Icons:         true,
 		},
-		Notifications: true,
+		Notifications:   true,
+		HistoryPageSize: DefaultHistoryPageSize,
 	}
 	paths := append([]string{path}, candidatePaths()...)
 	for _, path := range paths {
@@ -122,6 +133,9 @@ func Load(path string) (Config, error) {
 			}
 			if cfg.Notifications != nil {
 				cfgOut.Notifications = *cfg.Notifications
+			}
+			if cfg.HistoryPageSize > 0 {
+				cfgOut.HistoryPageSize = cfg.HistoryPageSize
 			}
 			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts

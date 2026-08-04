@@ -250,6 +250,9 @@ func main() {
 
 	ensureGPGKeys(&cfg)
 	primeGPGAgent(cfg.Accounts)
+	if cfg.HistoryPageSize > 0 {
+		historyPageSize = cfg.HistoryPageSize
+	}
 
 	dbPath, err := dataFilePath()
 	if err != nil {

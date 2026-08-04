@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -241,6 +242,73 @@ func TestLoadHistoryHandlesPlaintextAndEncryptedRows(t *testing.T) {
 	}
 }
 
+// TestLoadHistoryPagePaginatesOldestFirst verifies loadHistoryPage's keyset
+// pagination: each call returns the next older page in chronological order,
+// hasMore stays true until the oldest stored message is reached, and the
+// last page is exactly what's left.
+func TestLoadHistoryPagePaginatesOldestFirst(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kage.db")
+	db, q, err := storage.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	s := &accountSession{account: config.Account{JID: "me@example.com"}, db: q, gpg: gpg.Encrypter{}}
+	const chatAddr = "peer@example.com"
+
+	// 5 messages, insertion order == chronological order (increasing delay).
+	// InsertMessage's delay defaults to "now" (second granularity), so a
+	// fixed sleep isn't used — id (insertion order) breaks same-second ties,
+	// which is exactly what the id tiebreaker in the query is for.
+	for i := range 5 {
+		if _, err := q.InsertMessage(ctx, storage.InsertMessageParams{
+			AccountJid: s.account.JID, Sent: true, IDAttr: nullString(fmt.Sprintf("m%d", i)),
+			Body: nullString(fmt.Sprintf("body %d", i)), Encrypted: false,
+			StanzaType: "chat", RosterJid: nullString(chatAddr),
+		}); err != nil {
+			t.Fatalf("InsertMessage %d: %v", i, err)
+		}
+	}
+
+	origPageSize := historyPageSize
+	historyPageSize = 2
+	defer func() { historyPageSize = origPageSize }()
+
+	// Each successive page is *older* than the last (newest page first) —
+	// mirrors how the UI prepends each "load older" fetch to what's already
+	// displayed, to reconstruct the full chronological list.
+	var got []string
+	for page := 0; ; page++ {
+		msgs, hasMore := loadHistoryPage(ctx, s, chatAddr, chatAddr)
+		if page == 0 && len(msgs) != 2 {
+			t.Fatalf("page 0: got %d messages, want 2", len(msgs))
+		}
+		ids := make([]string, len(msgs))
+		for i, m := range msgs {
+			ids[i] = m.ID
+		}
+		got = append(ids, got...)
+		if !hasMore {
+			break
+		}
+		if page > 5 {
+			t.Fatal("loadHistoryPage never reported hasMore=false — pagination stuck in a loop")
+		}
+	}
+
+	want := []string{"m0", "m1", "m2", "m3", "m4"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
 // TestReadStoredBodyErrorsWithoutKey verifies that an encrypted row can't be
 // silently misread as plaintext — with no local storage key available, it's
 // a hard error, not garbage content.
@@ -274,7 +342,9 @@ func TestReadStoredBodyErrorsWithoutKey(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("ListMessagesByRoster: %d rows, err %v", len(rows), err)
 	}
-	if _, err := readStoredBody(ctx, unkeyed, chatAddr, rows[0]); err == nil {
+	r := rows[0]
+	hrow := historyRow{Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted, E2eencrypted: r.E2eencrypted, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted}
+	if _, err := readStoredBody(ctx, unkeyed, chatAddr, hrow); err == nil {
 		t.Fatal("expected readStoredBody to fail decrypting an encrypted row with no key available")
 	}
 }

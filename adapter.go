@@ -78,6 +78,21 @@ func (a *adapter) session(accountIdx int) (*accountSession, bool) {
 	return a.sessions[accountIdx], true
 }
 
+// LoadOlderHistory implements ui.HistoryLoader: fetches the next older page
+// of to's persisted history (see loadHistoryPage) as a tea.Cmd, off the main
+// goroutine, since it's a disk read plus decrypt of up to a page's worth of
+// messages.
+func (a *adapter) LoadOlderHistory(accountIdx int, to string) tea.Cmd {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		msgs, hasMore := loadHistoryPage(context.Background(), sess, to, sess.rosterName(to))
+		return ui.OlderHistoryMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasMore: hasMore}
+	}
+}
+
 // SetDefaultAccount implements ui.DefaultAccountSetter: persists jid as the
 // account selected on startup.
 func (a *adapter) SetDefaultAccount(jid string) error {

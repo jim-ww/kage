@@ -149,6 +149,44 @@ WHERE accountJID = sqlc.arg(account_jid)
 	)
 ORDER BY delay ASC;
 
+-- ListMessagesByRosterBefore returns one page of a chat's history older
+-- than the (before_delay, before_id) cursor, newest-first (the caller
+-- reverses rows back to chronological order for display). Pass
+-- math.MaxInt64 for both cursor args to fetch the most recent page. Keyset
+-- (not OFFSET) pagination: every page is an indexed range scan regardless
+-- of how deep the user has scrolled, and pages stay correct even as new
+-- messages are inserted concurrently. id (the table's rowid) breaks ties
+-- between messages sharing the same delay (second-granularity timestamp).
+-- Used instead of ListMessagesByRoster to avoid loading/decrypting an
+-- entire multi-thousand message history at once.
+-- name: ListMessagesByRosterBefore :many
+SELECT
+	id,
+	sent,
+	toAttr,
+	fromAttr,
+	idAttr,
+	body,
+	encrypted,
+	e2eEncrypted,
+	stanzaType,
+	delay,
+	replyToIdAttr,
+	retracted
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND stanzaType = COALESCE(
+		NULLIF(sqlc.arg(stanza_type), ''),
+		stanzaType
+	)
+	AND (
+		delay < sqlc.arg(before_delay)
+		OR (delay = sqlc.arg(before_delay) AND id < sqlc.arg(before_id))
+	)
+ORDER BY delay DESC, id DESC
+LIMIT sqlc.arg(page_limit);
+
 
 -- name: DeleteReactionsByReactor :exec
 DELETE FROM messageReactions

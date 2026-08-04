@@ -847,6 +847,112 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 	return items, nil
 }
 
+const listMessagesByRosterBefore = `-- name: ListMessagesByRosterBefore :many
+SELECT
+	id,
+	sent,
+	toAttr,
+	fromAttr,
+	idAttr,
+	body,
+	encrypted,
+	e2eEncrypted,
+	stanzaType,
+	delay,
+	replyToIdAttr,
+	retracted
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND stanzaType = COALESCE(
+		NULLIF(?3, ''),
+		stanzaType
+	)
+	AND (
+		delay < ?4
+		OR (delay = ?4 AND id < ?5)
+	)
+ORDER BY delay DESC, id DESC
+LIMIT ?6
+`
+
+type ListMessagesByRosterBeforeParams struct {
+	AccountJid  string         `db:"account_jid"`
+	RosterJid   sql.NullString `db:"roster_jid"`
+	StanzaType  interface{}    `db:"stanza_type"`
+	BeforeDelay int64          `db:"before_delay"`
+	BeforeID    int64          `db:"before_id"`
+	PageLimit   int64          `db:"page_limit"`
+}
+
+type ListMessagesByRosterBeforeRow struct {
+	ID            int64          `db:"id"`
+	Sent          bool           `db:"sent"`
+	Toattr        sql.NullString `db:"toattr"`
+	Fromattr      sql.NullString `db:"fromattr"`
+	Idattr        sql.NullString `db:"idattr"`
+	Body          sql.NullString `db:"body"`
+	Encrypted     bool           `db:"encrypted"`
+	E2eencrypted  bool           `db:"e2eencrypted"`
+	Stanzatype    string         `db:"stanzatype"`
+	Delay         int64          `db:"delay"`
+	Replytoidattr sql.NullString `db:"replytoidattr"`
+	Retracted     bool           `db:"retracted"`
+}
+
+// ListMessagesByRosterBefore returns one page of a chat's history older
+// than the (before_delay, before_id) cursor, newest-first (the caller
+// reverses rows back to chronological order for display). Pass
+// math.MaxInt64 for both cursor args to fetch the most recent page. Keyset
+// (not OFFSET) pagination: every page is an indexed range scan regardless
+// of how deep the user has scrolled, and pages stay correct even as new
+// messages are inserted concurrently. id (the table's rowid) breaks ties
+// between messages sharing the same delay (second-granularity timestamp).
+// Used instead of ListMessagesByRoster to avoid loading/decrypting an
+// entire multi-thousand message history at once.
+func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessagesByRosterBeforeParams) ([]ListMessagesByRosterBeforeRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMessagesByRosterBefore,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.StanzaType,
+		arg.BeforeDelay,
+		arg.BeforeID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMessagesByRosterBeforeRow
+	for rows.Next() {
+		var i ListMessagesByRosterBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Sent,
+			&i.Toattr,
+			&i.Fromattr,
+			&i.Idattr,
+			&i.Body,
+			&i.Encrypted,
+			&i.E2eencrypted,
+			&i.Stanzatype,
+			&i.Delay,
+			&i.Replytoidattr,
+			&i.Retracted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOmemoDevices = `-- name: ListOmemoDevices :many
 SELECT deviceID
 FROM omemoDevice

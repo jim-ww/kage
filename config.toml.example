@@ -8,6 +8,7 @@ password_cmd = "pass show xmpp/user"
 # "friend@example.com" = "friend's key fingerprint, used to encrypt outgoing messages to them"
 
 # mouse = true # click/scroll support (chat list, messages, send button); on by default
+# history_page_size = 200 # messages loaded per chat at a time (initial load + each "load older"); 200 by default
 
 [keybinds]
 quit = ["q", "ctrl+c"]

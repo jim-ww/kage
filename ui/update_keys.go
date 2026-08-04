@@ -291,6 +291,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				m.refreshViewport()
 				m.viewport.SetYOffset(newOffset)
 			}
+			if newOffset == 0 {
+				cmds = append(cmds, m.maybeLoadOlderHistory())
+			}
 			return m, tea.Batch(cmds...), true
 		}
 
@@ -315,6 +318,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.lastClickTime = time.Time{}
 			m.refreshViewportScrollTo(m.selectedMsg)
 			return m, nil, true
+		}
+		if m.selectedView == viewChat && m.selectedMsg == 0 {
+			return m, m.maybeLoadOlderHistory(), true
 		}
 
 	case key.Matches(msg, m.keys.MsgDown):

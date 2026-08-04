@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +37,14 @@ type accountSession struct {
 	localKey []byte
 
 	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
+
+	// histMu guards histPos: loadHistoryPage's "load older" keyset
+	// pagination cursor per chat (roster JID), advanced each time a page is
+	// fetched. Only ever touched from the Bubble Tea event loop today (via
+	// adapter.LoadOlderHistory), but guarded since accountSession's other
+	// mutable state is all concurrency-safe by construction.
+	histMu  sync.Mutex
+	histPos map[string]historyCursor
 }
 
 // rosterEntry is a contact's cached roster state, refreshed at connect time
@@ -78,7 +87,7 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 
 	debugf("account %s: connectAccountLive starting", acct.JID)
 	start = time.Now()
-	newChats, newMessages, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
+	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
 	if err != nil {
 		debugf("account %s: connectAccountLive failed after %s: %v", acct.JID, time.Since(start), err)
 		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
@@ -90,7 +99,7 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 	a.sessions[idx] = sess
 	a.mu.Unlock()
 
-	p.Send(ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages})
+	p.Send(ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore})
 
 	debugf("account %s: syncArchive starting", acct.JID)
 	start = time.Now()
@@ -121,6 +130,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 
 	chats := make([]list.Item, 0, len(rows))
 	messages := make(map[int][]ui.Message, len(rows))
+	historyMore := make(map[int]bool, len(rows))
 	entries := make(map[string]rosterEntry, len(rows))
 	for i, r := range rows {
 		name := r.Name
@@ -134,15 +144,16 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		}
 		chats = append(chats, ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode})
 		histStart := time.Now()
-		hist := loadHistory(ctx, sess, r.Jid, name)
-		debugf("account %s: loadHistory(%s) done in %s (%d messages)", acct.JID, r.Jid, time.Since(histStart), len(hist))
+		hist, hasMore := loadHistoryPage(ctx, sess, r.Jid, name)
+		debugf("account %s: loadHistoryPage(%s) done in %s (%d messages, more=%t)", acct.JID, r.Jid, time.Since(histStart), len(hist), hasMore)
 		if len(hist) > 0 {
 			messages[i] = hist
 		}
+		historyMore[i] = hasMore
 	}
 	sess.roster.Store(&entries)
 
-	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages, Connecting: true}, nil
+	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages, HistoryMore: historyMore, Connecting: true}, nil
 }
 
 // connectAccountLive dials sess's account, publishes our GPG key, and fetches
@@ -155,12 +166,12 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 // entries only, with message indices relative to a Chats slice that starts
 // right after existingChatCount, so the caller can append rather than
 // replace what's already displayed.
-func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int) ([]list.Item, map[int][]ui.Message, error) {
+func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int) ([]list.Item, map[int][]ui.Message, map[int]bool, error) {
 	debugf("account %s: resolving password", sess.account.JID)
 	start := time.Now()
 	password, err := sess.account.ResolvePassword()
 	if err != nil {
-		return nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
+		return nil, nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
 	}
 	debugf("account %s: password resolved in %s", sess.account.JID, time.Since(start))
 
@@ -170,7 +181,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	client, err := xmpp.Dial(ctx, sess.account.JID, password, tlsConfig)
 	if err != nil {
 		debugf("account %s: dial failed after %s: %v", sess.account.JID, time.Since(start), err)
-		return nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
+		return nil, nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
 	}
 	debugf("account %s: dialed in %s", sess.account.JID, time.Since(start))
 	sess.tlsConfig = tlsConfig
@@ -195,7 +206,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	if err != nil {
 		debugf("account %s: roster fetch failed after %s: %v", sess.account.JID, time.Since(start), err)
 		client.Close()
-		return nil, nil, fmt.Errorf("account %s: fetching roster: %w", sess.account.JID, err)
+		return nil, nil, nil, fmt.Errorf("account %s: fetching roster: %w", sess.account.JID, err)
 	}
 	debugf("account %s: live roster fetched in %s (%d contacts)", sess.account.JID, time.Since(start), len(contacts))
 
@@ -209,6 +220,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 
 	var newChats []list.Item
 	newMessages := make(map[int][]ui.Message)
+	newHistoryMore := make(map[int]bool)
 	for _, c := range contacts {
 		name := c.Name
 		if name == "" {
@@ -226,13 +238,15 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 		idx := existingChatCount + len(newChats)
 		newChats = append(newChats, ui.Chat{Name: name, Address: c.JID})
-		if hist := loadHistory(ctx, sess, c.JID, name); len(hist) > 0 {
+		hist, hasMore := loadHistoryPage(ctx, sess, c.JID, name)
+		if len(hist) > 0 {
 			newMessages[idx] = hist
 		}
+		newHistoryMore[idx] = hasMore
 	}
 	sess.roster.Store(&merged)
 
-	return newChats, newMessages, nil
+	return newChats, newMessages, newHistoryMore, nil
 }
 
 // connectAccount runs connectAccountLocal then connectAccountLive back to
@@ -246,7 +260,7 @@ func connectAccount(ctx context.Context, acct config.Account, queries *storage.Q
 		return nil, ui.Account{}, err
 	}
 
-	newChats, newMessages, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
+	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
 	if err != nil {
 		return nil, ui.Account{}, err
 	}
@@ -257,6 +271,12 @@ func connectAccount(ctx context.Context, acct config.Account, queries *storage.Q
 	}
 	for idx, msgs := range newMessages {
 		uiAcct.Messages[idx] = msgs
+	}
+	if uiAcct.HistoryMore == nil {
+		uiAcct.HistoryMore = make(map[int]bool)
+	}
+	for idx, more := range newHistoryMore {
+		uiAcct.HistoryMore[idx] = more
 	}
 	uiAcct.Connecting = false
 

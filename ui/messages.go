@@ -28,6 +28,25 @@ type FileSender interface {
 	SendFile(accountIdx int, to, path string, opts SendOptions) tea.Msg
 }
 
+// HistoryLoader fetches the next older page of a chat's persisted history —
+// implemented outside ui by an adapter that knows about local storage, kept
+// off the main goroutine as a tea.Cmd since it's a disk read plus decrypt of
+// up to a page's worth of messages. "to" is the chat's peer address (bare or
+// full JID, whatever the chat is keyed by).
+type HistoryLoader interface {
+	LoadOlderHistory(accountIdx int, to string) tea.Cmd
+}
+
+// OlderHistoryMsg reports the result of HistoryLoader.LoadOlderHistory:
+// Messages (already in chronological order) to prepend to the chat matching
+// AccountIdx/From, and whether further older history remains beyond that.
+type OlderHistoryMsg struct {
+	AccountIdx int
+	From       string
+	Messages   []Message
+	HasMore    bool
+}
+
 // ContactRenamer sets a custom display name for a contact — a roster set
 // (RFC 6121), persisted server-side and mirrored to local storage — so ui
 // stays decoupled from the XMPP/storage layers. Called synchronously from
@@ -166,9 +185,10 @@ type AccountConnectedMsg struct {
 // chats/history are left untouched rather than re-fetched, since they're
 // already showing.
 type AccountLiveMsg struct {
-	Index       int
-	NewChats    []list.Item
-	NewMessages map[int][]Message // indices are relative to Chats *after* NewChats is appended
+	Index          int
+	NewChats       []list.Item
+	NewMessages    map[int][]Message // indices are relative to Chats *after* NewChats is appended
+	NewHistoryMore map[int]bool      // same indexing as NewMessages; whether older history exists beyond what's loaded
 }
 
 // AccountConnectErrorMsg is sent into the Bubble Tea loop when a configured

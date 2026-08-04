@@ -1,5 +1,7 @@
 package ui
 
+import tea "charm.land/bubbletea/v2"
+
 func (m Model) currentChatIndex() int {
 	idx := m.chats.GlobalIndex()
 	if idx < 0 || idx >= len(m.chats.Items()) {
@@ -60,6 +62,29 @@ func (m Model) chatIndexByAddress(accountIdx int, address string) int {
 		}
 	}
 	return -1
+}
+
+// maybeLoadOlderHistory fires a HistoryLoader fetch for the current chat's
+// next older page, if one is configured, more history is known to exist,
+// and a fetch isn't already in flight for this chat. Called when the
+// message selection/viewport reaches the top of what's currently loaded.
+func (m *Model) maybeLoadOlderHistory() tea.Cmd {
+	if m.historyLoader == nil {
+		return nil
+	}
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return nil
+	}
+	if !m.accounts[m.currentAccount].HistoryMore[chatIdx] || m.loadingOlderHistory[chatIdx] {
+		return nil
+	}
+	chat, ok := m.currentChat()
+	if !ok {
+		return nil
+	}
+	m.loadingOlderHistory[chatIdx] = true
+	return m.historyLoader.LoadOlderHistory(m.currentAccount, chat.Address)
 }
 
 // messageIndexByID returns the index of the message with the given stanza ID
