@@ -1,7 +1,8 @@
 - make margin above help line (below textinput ) slighly smaller
 - chat view: add attach file, emoji buttons
 - only launch notification daemon if its enabled in config, enabled by default
-- add config ui toggle options (e.g. show/hide names in chat, show glyphs in chat, chat time/date layout + only show time (if its today)(only with default time layout))
+- add config ui toggle options (e.g. show/hide icons, names in chat, show glyphs in chat, chat time/date layout + only show time (if its today)(only with default time layout))
+- add 'enc' as padlock icon fallback
 - show encryption information in message info
 - message status? 'sent' / 'delivered' icons?
 - bind keybinds with key codes, not to latin
@@ -25,16 +26,16 @@
 - message deletion: shouldnt delete message locally, instead just show in deleted message state, with option to see its contents
 - list chat participants, ability to see info about them, start chat with them
 - account manager: status ('● Online', '◐ Away', '○ Offline') and manage it (e.g. offline stops syncing that account)
-- refactor main.go, xmpp/client.go, others
-- setup dev prosody fully with nix
-- send/receive messages: text, images, files
-- search message content in single/multiple chats
+- setup dev prosody fully with nix?
+- search message content in across chats
 - import/export messages in json format
 - manage(add/remove/see) contacts, also remove contacts permanently?
-- speed up cursor message selection in chat
-- optimisation: load messages history per chat, in batches as needed, instead of fetching full list for all at startup
+- optimization speed up cursor message selection in chat
+- optimization: load messages history per chat, in batches as needed, instead of fetching full list for all at startup
 - chat view: vim motions for textinput (visual/insert mode emulation)
 
 
 # calls: Jingle (XEP-0166) https://xmpp.org/extensions/xep-0166.html
 - sound: https://github.com/ebitengine/oto
+# screen-sharing in calls
+# video calls

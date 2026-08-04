@@ -125,11 +125,23 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		if msg.Encrypted != nil {
+			// Unlike the plaintext body, an OMEMO ciphertext can't be sliced
+			// by the <fallback/> element's start/end offsets - the reply
+			// quote lives in-band inside the decrypted plaintext instead
+			// (see adapter.go's send()/stripReplyQuote). But the <reply/>
+			// element itself is sent unencrypted alongside Encrypted (see
+			// xmpp/send.go), so it's still available here and must be read,
+			// or an encrypted reply never gets linked to what it replied to.
+			var replyToID string
+			if msg.Reply != nil {
+				replyToID = msg.Reply.ID
+			}
 			events <- MessageEvent{
 				ID:        msg.ID,
 				From:      msg.From.String(),
 				SentAt:    time.Now(),
 				Encrypted: msg.Encrypted,
+				ReplyToID: replyToID,
 			}
 			return
 		}
