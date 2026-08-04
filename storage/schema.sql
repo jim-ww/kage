@@ -54,11 +54,14 @@ CREATE INDEX IF NOT EXISTS messagesAccountRosterJIDDelay
 CREATE TABLE IF NOT EXISTS messageReactions (
 	id         INTEGER  PRIMARY KEY NOT NULL,
 	accountJID TEXT     NOT NULL,
+	rosterJID  TEXT     NOT NULL, -- bare JID of the chat the reacted-to message belongs to; a stanza id is only
+	                              -- unique within one conversation, so a reaction must be scoped by it too, same
+	                              -- as messages.rosterJID (see messagesAccountRosterJIDIdAttr)
 	idAttr     TEXT     NOT NULL, -- idAttr of the message being reacted to
 	fromJID    TEXT     NOT NULL, -- bare JID of the reactor ("me" for our own account)
 	emoji      TEXT     NOT NULL,
 
-	UNIQUE (accountJID, idAttr, fromJID, emoji)
+	UNIQUE (accountJID, rosterJID, idAttr, fromJID, emoji)
 );
 
 -- XEP-0373: caches a peer's OpenPGP key fingerprint, discovered from their

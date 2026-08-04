@@ -42,5 +42,11 @@ func Open(path string) (*sql.DB, *Queries, error) {
 	// exists from before this column was introduced, so add it explicitly —
 	// ignoring the error when it's already there.
 	db.ExecContext(context.Background(), "ALTER TABLE messages ADD COLUMN e2eEncrypted BOOLEAN NOT NULL DEFAULT FALSE")
+	// rosterJID scopes a reaction to the conversation its target message
+	// belongs to (a stanza id is only unique within one conversation) -
+	// existing rows predate this and get '' (no chat will ever match that),
+	// so old reactions are dropped rather than risk them resolving against
+	// the wrong peer's message after this migration.
+	db.ExecContext(context.Background(), "ALTER TABLE messageReactions ADD COLUMN rosterJID TEXT NOT NULL DEFAULT ''")
 	return db, New(db), nil
 }

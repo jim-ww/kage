@@ -100,7 +100,7 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 			Retracted:   row.Retracted,
 			Encrypted:   row.E2eencrypted,
 			EncMethod:   row.E2eemethod.String,
-			Reactions:   loadReactionsForMessage(ctx, s, row.Idattr.String),
+			Reactions:   loadReactionsForMessage(ctx, s, chatAddr, row.Idattr.String),
 			Attachments: attachmentURLs(pt),
 		})
 		replyTo = append(replyTo, row.Replytoidattr.String)
@@ -211,18 +211,20 @@ func loadHistoryPage(ctx context.Context, s *accountSession, chatAddr, chatName 
 	return buildMessages(ctx, s, chatAddr, chatName, hrows), !next.exhausted
 }
 
-// replaceReactions fully replaces reactorJID's reaction set on msgID with
-// emojis, matching XEP-0444 semantics (a new reaction stanza always replaces
-// the sender's previous set, never adds to it).
-func replaceReactions(ctx context.Context, s *accountSession, msgID, reactorJID string, emojis []string) error {
+// replaceReactions fully replaces reactorJID's reaction set on msgID (scoped
+// to chatAddr, the conversation the target message belongs to - a stanza id
+// is only unique within one conversation) with emojis, matching XEP-0444
+// semantics (a new reaction stanza always replaces the sender's previous
+// set, never adds to it).
+func replaceReactions(ctx context.Context, s *accountSession, chatAddr, msgID, reactorJID string, emojis []string) error {
 	if err := s.db.DeleteReactionsByReactor(ctx, storage.DeleteReactionsByReactorParams{
-		AccountJid: s.account.JID, IDAttr: msgID, FromJid: reactorJID,
+		AccountJid: s.account.JID, RosterJid: chatAddr, IDAttr: msgID, FromJid: reactorJID,
 	}); err != nil {
 		return err
 	}
 	for _, e := range emojis {
 		if err := s.db.InsertReaction(ctx, storage.InsertReactionParams{
-			AccountJid: s.account.JID, IDAttr: msgID, FromJid: reactorJID, Emoji: e,
+			AccountJid: s.account.JID, RosterJid: chatAddr, IDAttr: msgID, FromJid: reactorJID, Emoji: e,
 		}); err != nil {
 			return err
 		}
@@ -230,11 +232,12 @@ func replaceReactions(ctx context.Context, s *accountSession, msgID, reactorJID 
 	return nil
 }
 
-// loadReactionsForMessage aggregates all reactors' current sets on msgID into
-// per-emoji counts, flagging whether our own account is among the reactors.
-func loadReactionsForMessage(ctx context.Context, s *accountSession, msgID string) []ui.Reaction {
+// loadReactionsForMessage aggregates all reactors' current sets on msgID
+// (within chatAddr) into per-emoji counts, flagging whether our own account
+// is among the reactors.
+func loadReactionsForMessage(ctx context.Context, s *accountSession, chatAddr, msgID string) []ui.Reaction {
 	rows, err := s.db.ListReactionsForMessage(ctx, storage.ListReactionsForMessageParams{
-		AccountJid: s.account.JID, IDAttr: msgID,
+		AccountJid: s.account.JID, RosterJid: chatAddr, IDAttr: msgID,
 	})
 	if err != nil {
 		debugf("warning: loading reactions for %s: %v\n", msgID, err)

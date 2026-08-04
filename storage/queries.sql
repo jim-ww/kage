@@ -195,20 +195,22 @@ LIMIT sqlc.arg(page_limit);
 -- name: DeleteReactionsByReactor :exec
 DELETE FROM messageReactions
 WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
 	AND idAttr = sqlc.arg(id_attr)
 	AND fromJID = sqlc.arg(from_jid);
 
 
 -- name: InsertReaction :exec
-INSERT INTO messageReactions (accountJID, idAttr, fromJID, emoji)
-VALUES (sqlc.arg(account_jid), sqlc.arg(id_attr), sqlc.arg(from_jid), sqlc.arg(emoji))
-ON CONFLICT (accountJID, idAttr, fromJID, emoji) DO NOTHING;
+INSERT INTO messageReactions (accountJID, rosterJID, idAttr, fromJID, emoji)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(id_attr), sqlc.arg(from_jid), sqlc.arg(emoji))
+ON CONFLICT (accountJID, rosterJID, idAttr, fromJID, emoji) DO NOTHING;
 
 
 -- name: ListReactionsForMessage :many
 SELECT fromJID, emoji
 FROM messageReactions
 WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
 	AND idAttr = sqlc.arg(id_attr);
 
 

@@ -273,7 +273,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		if err != nil {
 			return "", err
 		}
-		if err := replaceReactions(ctx, s, opts.ReactionTargetID, meReactorJID, opts.Reactions); err != nil {
+		if err := replaceReactions(ctx, s, to, opts.ReactionTargetID, meReactorJID, opts.Reactions); err != nil {
 			debugf("warning: persisting our own reactions: %v\n", err)
 		}
 		return id, nil

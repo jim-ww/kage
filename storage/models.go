@@ -81,6 +81,7 @@ type Message struct {
 type Messagereaction struct {
 	ID         int64  `db:"id"`
 	Accountjid string `db:"accountjid"`
+	Rosterjid  string `db:"rosterjid"`
 	Idattr     string `db:"idattr"`
 	Fromjid    string `db:"fromjid"`
 	Emoji      string `db:"emoji"`

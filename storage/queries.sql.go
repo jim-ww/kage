@@ -112,18 +112,25 @@ func (q *Queries) DeleteOmemoStaleSignedPreKey(ctx context.Context, accountJid s
 const deleteReactionsByReactor = `-- name: DeleteReactionsByReactor :exec
 DELETE FROM messageReactions
 WHERE accountJID = ?1
-	AND idAttr = ?2
-	AND fromJID = ?3
+	AND rosterJID = ?2
+	AND idAttr = ?3
+	AND fromJID = ?4
 `
 
 type DeleteReactionsByReactorParams struct {
 	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
 	IDAttr     string `db:"id_attr"`
 	FromJid    string `db:"from_jid"`
 }
 
 func (q *Queries) DeleteReactionsByReactor(ctx context.Context, arg DeleteReactionsByReactorParams) error {
-	_, err := q.db.ExecContext(ctx, deleteReactionsByReactor, arg.AccountJid, arg.IDAttr, arg.FromJid)
+	_, err := q.db.ExecContext(ctx, deleteReactionsByReactor,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.IDAttr,
+		arg.FromJid,
+	)
 	return err
 }
 
@@ -694,13 +701,14 @@ func (q *Queries) InsertOmemoSignedPreKey(ctx context.Context, arg InsertOmemoSi
 }
 
 const insertReaction = `-- name: InsertReaction :exec
-INSERT INTO messageReactions (accountJID, idAttr, fromJID, emoji)
-VALUES (?1, ?2, ?3, ?4)
-ON CONFLICT (accountJID, idAttr, fromJID, emoji) DO NOTHING
+INSERT INTO messageReactions (accountJID, rosterJID, idAttr, fromJID, emoji)
+VALUES (?1, ?2, ?3, ?4, ?5)
+ON CONFLICT (accountJID, rosterJID, idAttr, fromJID, emoji) DO NOTHING
 `
 
 type InsertReactionParams struct {
 	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
 	IDAttr     string `db:"id_attr"`
 	FromJid    string `db:"from_jid"`
 	Emoji      string `db:"emoji"`
@@ -709,6 +717,7 @@ type InsertReactionParams struct {
 func (q *Queries) InsertReaction(ctx context.Context, arg InsertReactionParams) error {
 	_, err := q.db.ExecContext(ctx, insertReaction,
 		arg.AccountJid,
+		arg.RosterJid,
 		arg.IDAttr,
 		arg.FromJid,
 		arg.Emoji,
@@ -1036,11 +1045,13 @@ const listReactionsForMessage = `-- name: ListReactionsForMessage :many
 SELECT fromJID, emoji
 FROM messageReactions
 WHERE accountJID = ?1
-	AND idAttr = ?2
+	AND rosterJID = ?2
+	AND idAttr = ?3
 `
 
 type ListReactionsForMessageParams struct {
 	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
 	IDAttr     string `db:"id_attr"`
 }
 
@@ -1050,7 +1061,7 @@ type ListReactionsForMessageRow struct {
 }
 
 func (q *Queries) ListReactionsForMessage(ctx context.Context, arg ListReactionsForMessageParams) ([]ListReactionsForMessageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listReactionsForMessage, arg.AccountJid, arg.IDAttr)
+	rows, err := q.db.QueryContext(ctx, listReactionsForMessage, arg.AccountJid, arg.RosterJid, arg.IDAttr)
 	if err != nil {
 		return nil, err
 	}

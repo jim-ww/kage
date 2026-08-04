@@ -492,14 +492,14 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				continue
 			}
 			if am.ReactionTargetID != "" {
-				if err := replaceReactions(ctx, s, am.ReactionTargetID, bareJID(am.From), am.Reactions); err != nil {
+				if err := replaceReactions(ctx, s, peerJID, am.ReactionTargetID, bareJID(am.From), am.Reactions); err != nil {
 					debugf("warning: persisting mam reactions for %s: %v", peerJID, err)
 				}
 				p.Send(ui.MessageReactionsMsg{
 					AccountIdx: accountIdx,
 					From:       peerJID,
 					MessageID:  am.ReactionTargetID,
-					Reactions:  loadReactionsForMessage(ctx, s, am.ReactionTargetID),
+					Reactions:  loadReactionsForMessage(ctx, s, peerJID, am.ReactionTargetID),
 				})
 				continue
 			}

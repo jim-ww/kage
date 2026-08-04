@@ -20,14 +20,14 @@ import (
 func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
 	if msgEv.ReactionTargetID != "" {
 		from := bareJID(msgEv.From)
-		if err := replaceReactions(ctx, s, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
+		if err := replaceReactions(ctx, s, from, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
 			debugf("warning: persisting reactions from %s: %v\n", from, err)
 		}
 		p.Send(ui.MessageReactionsMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			MessageID:  msgEv.ReactionTargetID,
-			Reactions:  loadReactionsForMessage(ctx, s, msgEv.ReactionTargetID),
+			Reactions:  loadReactionsForMessage(ctx, s, from, msgEv.ReactionTargetID),
 		})
 		return
 	}
