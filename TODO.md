@@ -1,3 +1,6 @@
+- hovering on chat list / chat view should change focused tab state
+- open chat at very end
+- show 'typing...' event only in one place
 - nix flake: add desktop entry
 - do not write duplicate image files on image view
 - dont cycle through encryption
@@ -34,6 +37,7 @@
 - import/export messages in json format
 - manage(add/remove/see) contacts, also remove contacts permanently?
 - speed up cursor message selection in chat
+- optimisation: load messages history per chat, in batches as needed, instead of fetching full list for all at startup
 
 
 # calls: Jingle (XEP-0166) https://xmpp.org/extensions/xep-0166.html

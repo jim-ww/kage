@@ -7,3 +7,5 @@ devtest/prosody/*.log
 devtest/prosody/*.pid
 
 CLAUDE.md
+# Added by goreleaser init:
+dist/
