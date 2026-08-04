@@ -78,8 +78,6 @@ type Chat struct {
 func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }
 func (c Chat) Description() string {
 	switch {
-	case c.Typing:
-		return "typing..."
 	case c.LastMessage != "":
 		return c.LastMessage
 	case c.Address != "" && c.Address != c.Name:

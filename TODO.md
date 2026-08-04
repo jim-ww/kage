@@ -1,4 +1,3 @@
-- show 'typing...' event only in one place
 - nix flake: add desktop entry
 - do not write duplicate image files on image view
 - dont cycle through encryption
