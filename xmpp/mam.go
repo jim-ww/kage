@@ -60,6 +60,22 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		return
 	}
 
+	msg := r.Forwarded.Message
+	// MAM archives every <message/> a server saw, including ones carrying no
+	// displayable content of their own - chat states, XEP-0424 retractions,
+	// XEP-0444 reactions, XEP-0308 corrections (all handled, if at all, via
+	// their own live-path events - see handleStanza) - and a message with
+	// neither body nor OMEMO payload. Forwarding those here as an
+	// ArchivedMessage produces a timestamped row with nothing in it, since
+	// ArchivedMessage only carries Body/Encrypted. Skip them at the source
+	// rather than growing every caller a duplicate set of guards.
+	if _, isChatState := msg.chatState(); isChatState || msg.Retract != nil || msg.Reactions != nil || msg.Replace != nil {
+		return
+	}
+	if msg.Body == "" && msg.Encrypted == nil {
+		return
+	}
+
 	am := ArchivedMessage{
 		ArchiveID: r.ID,
 		From:      r.Forwarded.Message.From.String(),

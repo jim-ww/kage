@@ -15,6 +15,7 @@
 - save message drafts for each chat (encrypted), on exit/chat switch
 - account manager: remove 'accounts:' labewnloaded
 - chat view: add ctrl+d/ctrl+u for half page messages traversal
+- optional: read receipts, typing notifications, last seen, share local time
 
 - preview files text contents (in separate viewport?)
 - chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts

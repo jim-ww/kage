@@ -473,6 +473,14 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				}
 			}
 
+			// Belt-and-suspenders alongside dispatchArchiveResult's own
+			// filtering (xmpp/mam.go) - a plain message with neither body nor
+			// an OMEMO payload has nothing to show, matching
+			// handleIncomingMessage's live-path guard (events.go).
+			if am.Body == "" && am.Encrypted == nil {
+				continue
+			}
+
 			body := am.Body
 			e2eEncrypted := am.Encrypted != nil || gpg.Looks(body)
 			e2eeMethod := ""
