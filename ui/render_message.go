@@ -98,6 +98,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	for i, line := range bodyLines {
+		line = m.styles.plainTextLine(line)
 		if i == 0 {
 			lines = append(lines, prefix+header+line)
 			continue
@@ -112,7 +113,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	if len(msg.Reactions) > 0 {
-		lines = append(lines, "  "+indent+renderReactions(msg.Reactions))
+		lines = append(lines, "  "+indent+m.styles.plainText.Render(renderReactions(msg.Reactions)))
 	}
 
 	return strings.Join(lines, "\n")

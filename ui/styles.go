@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -36,6 +37,7 @@ type uiStyles struct {
 	inputInner            lipgloss.Style
 	inputBox              lipgloss.Style
 	viewportBody          lipgloss.Style
+	plainText             lipgloss.Style
 	notice                lipgloss.Style
 	viewportArea          lipgloss.Style
 	root                  lipgloss.Style
@@ -83,7 +85,14 @@ func newUIStyles(theme Theme) uiStyles {
 			Foreground(colors.themFg).
 			Border(lipgloss.NormalBorder(), true, false, false, false).
 			Padding(0, 1),
-		viewportBody: lipgloss.NewStyle().
+		// viewportBody sizes the chat viewport only (Width/Height in
+		// viewportContent below) — it must NOT set Foreground. The content it
+		// wraps is already full of per-message ANSI color codes; layering
+		// another Foreground on top of already-styled text causes embedded
+		// resets (e.g. a message header's own style) to bleed the wrong
+		// color into whatever plain text follows on that same line.
+		viewportBody: lipgloss.NewStyle(),
+		plainText: lipgloss.NewStyle().
 			Foreground(colors.themFg),
 		notice: lipgloss.NewStyle().
 			Foreground(colors.noticeFg).
@@ -214,6 +223,18 @@ func (s uiStyles) contextMenuRow(label string, hovered bool, width int) string {
 		st = s.contextMenuItemHover
 	}
 	return st.Width(width).Render(label)
+}
+
+// plainTextLine applies the default body foreground to line, unless it
+// already carries its own ANSI codes (e.g. chroma syntax highlighting) —
+// wrapping already-colored text in another Foreground style would only take
+// effect up to that text's own embedded reset, leaving whatever follows the
+// reset in the wrong color instead of themFg.
+func (s uiStyles) plainTextLine(line string) string {
+	if strings.Contains(line, "\x1b[") {
+		return line
+	}
+	return s.plainText.Render(line)
 }
 
 func (s uiStyles) viewportContent(width, height int, content string) string {

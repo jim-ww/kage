@@ -8,7 +8,7 @@ func (m *Model) refreshViewport() {
 		m.msgOffsets = nil
 		m.viewportLines = nil
 		if m.currentAccountConnecting() {
-			m.viewport.SetContent("connecting...")
+			m.viewport.SetContent(m.styles.plainText.Render("connecting..."))
 		} else {
 			m.viewport.SetContent("")
 		}
@@ -17,7 +17,7 @@ func (m *Model) refreshViewport() {
 	if len(m.currentMessages()) == 0 && m.currentAccountConnecting() {
 		m.msgOffsets = nil
 		m.viewportLines = nil
-		m.viewport.SetContent("connecting...")
+		m.viewport.SetContent(m.styles.plainText.Render("connecting..."))
 		return
 	}
 	content, offsets := m.renderMessagesWithOffsets()

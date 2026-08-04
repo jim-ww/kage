@@ -1,6 +1,5 @@
 - chat view: improve pagination. messages beyond config-set limit should be discarded from view, always keeping it in range (e.g. message unloading). Also note, that MAM import can make list go over limits too
 - check if replies are working correctly, not duplicating messages
-- invalid highlighting of non-reply messages, partially gray
 - chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view
 - make margin above help line (below textinput ) slighly smaller
 - chat view: add attach file, emoji buttons

@@ -188,11 +188,11 @@ func applyTextAreaStyles(ta *textarea.Model, colors uiColors) {
 	taStyles.Focused.Prompt = taStyles.Focused.Prompt.Foreground(colors.accentCyan)
 	taStyles.Focused.Text = taStyles.Focused.Text.Foreground(colors.themFg)
 	taStyles.Focused.Placeholder = taStyles.Focused.Placeholder.Foreground(colors.time)
-	taStyles.Focused.CursorLine = taStyles.Focused.CursorLine.UnsetBackground()
+	taStyles.Focused.CursorLine = taStyles.Focused.CursorLine.UnsetBackground().Foreground(colors.themFg)
 	taStyles.Blurred.Prompt = taStyles.Blurred.Prompt.Foreground(colors.borderD)
 	taStyles.Blurred.Text = taStyles.Blurred.Text.Foreground(colors.textMuted)
 	taStyles.Blurred.Placeholder = taStyles.Blurred.Placeholder.Foreground(colors.time)
-	taStyles.Blurred.CursorLine = taStyles.Blurred.CursorLine.UnsetBackground()
+	taStyles.Blurred.CursorLine = taStyles.Blurred.CursorLine.UnsetBackground().Foreground(colors.textMuted)
 	taStyles.Cursor.Color = colors.accentCyan
 	ta.SetStyles(taStyles)
 }
