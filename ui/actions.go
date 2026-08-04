@@ -476,6 +476,7 @@ func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
 		m.selectedMsg = len(msgs) - 1
 	}
 	m.refreshViewport()
+	m.viewport.GotoBottom()
 	return m, m.input.Focus()
 }
 
