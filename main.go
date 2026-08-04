@@ -287,7 +287,7 @@ func main() {
 		}
 	}()
 
-	model := ui.New(uiAccounts, cfg.DefaultAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse)
+	model := ui.New(uiAccounts, cfg.DefaultAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth)
 	p := tea.NewProgram(model)
 	sender.program = p
 
@@ -942,6 +942,12 @@ func messageIndexByIDs(msgs []ui.Message, id string) int {
 // account selected on startup.
 func (a *adapter) SetDefaultAccount(jid string) error {
 	return config.SetDefaultAccount(a.cfgPath, jid)
+}
+
+// SetSidebarWidth implements ui.SidebarWidthSetter: persists the
+// user-dragged sidebar width so it's restored on the next launch.
+func (a *adapter) SetSidebarWidth(width int) error {
+	return config.SetSidebarWidth(a.cfgPath, width)
 }
 
 func (a *adapter) session(accountIdx int) (*accountSession, bool) {

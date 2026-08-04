@@ -1,5 +1,6 @@
 - show current encryption configured for chat
 - chat list: toggle on bind/button
+- chat list: resize by dragging border
 - chat view: add attach file, emoji buttons
 - fix: panic on tiny window
 - ctrl+? for full help, remove help bar

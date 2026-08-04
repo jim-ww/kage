@@ -324,6 +324,14 @@ type ChatEncryptionSetter interface {
 	SetChatEncryption(accountIdx int, peerJID, mode string) error
 }
 
+// SidebarWidthSetter persists the sidebar width the user last dragged it to,
+// implemented outside ui (main.go's adapter) so ui stays decoupled from the
+// config layer. A local file write, called inline like Send/SetTyping
+// rather than through a tea.Cmd.
+type SidebarWidthSetter interface {
+	SetSidebarWidth(width int) error
+}
+
 type Model struct {
 	width, height int
 	selectedView
@@ -345,6 +353,15 @@ type Model struct {
 	// not Model — so a hover update via a pointer-receiver method is
 	// visible everywhere without threading it through render call chains.
 	hover *hoverState
+
+	// sidebarWidthOverride is the user-dragged sidebar width (see
+	// zonePaneSidebarBorder in ui/mouse.go); 0 means "not set yet, use the
+	// width/4-based default computed by sidebarWidth".
+	sidebarWidthOverride int
+	// resizingSidebar is true from the moment the sidebar border is
+	// pressed until the mouse button is released (tea.MouseReleaseMsg),
+	// even if the pointer drifts off the border column mid-drag.
+	resizingSidebar bool
 
 	accounts       []Account
 	currentAccount int
@@ -382,6 +399,7 @@ type Model struct {
 	accountAdder         AccountAdder
 	renamer              ContactRenamer
 	defaultAccountSetter DefaultAccountSetter
+	sidebarWidthSetter   SidebarWidthSetter
 	chatEncryptionSetter ChatEncryptionSetter
 
 	// rename-chat prompt state, active while renamingChat is true. Opened by
@@ -413,7 +431,7 @@ type noticeClearMsg struct {
 	id int
 }
 
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool) Model {
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
@@ -450,6 +468,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	renamer, _ := sender.(ContactRenamer)
 	defaultAccountSetter, _ := sender.(DefaultAccountSetter)
 	chatEncryptionSetter, _ := sender.(ChatEncryptionSetter)
+	sidebarWidthSetter, _ := sender.(SidebarWidthSetter)
 
 	return Model{
 		selectedView:         viewChat,
@@ -474,6 +493,8 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		renamer:              renamer,
 		defaultAccountSetter: defaultAccountSetter,
 		chatEncryptionSetter: chatEncryptionSetter,
+		sidebarWidthSetter:   sidebarWidthSetter,
+		sidebarWidthOverride: initialSidebarWidth,
 		filePicker:           picker,
 	}
 }
@@ -553,11 +574,22 @@ func (m Model) inputFieldWidth() int {
 	return w
 }
 
+const sidebarMinWidth = 20
+
+// sidebarMaxWidth caps how wide a user-drag can push the sidebar, leaving
+// at least this much room for the chat area.
+func (m Model) sidebarMaxWidth() int {
+	return max(sidebarMinWidth, m.width-20)
+}
+
 func (m Model) sidebarWidth() int {
-	const minWidth, maxWidth = 20, 36
+	if m.sidebarWidthOverride > 0 {
+		return min(max(m.sidebarWidthOverride, sidebarMinWidth), m.sidebarMaxWidth())
+	}
+	const maxWidth = 36
 	w := m.width / 4
-	if w < minWidth {
-		w = minWidth
+	if w < sidebarMinWidth {
+		w = sidebarMinWidth
 	}
 	if w > maxWidth {
 		w = maxWidth

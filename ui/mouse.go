@@ -80,6 +80,14 @@ func (m Model) isHovered(zoneID string) bool {
 // message also moves the message cursor to it, mirroring how the sidebar's
 // list cursor already follows the mouse.
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	if m.resizingSidebar {
+		if z := m.zone.Get(zonePaneSidebar); !z.IsZero() {
+			m.sidebarWidthOverride = msg.Mouse().X - z.StartX
+			m.updateSizes()
+		}
+		return m, nil
+	}
+
 	m.hover.id = m.zoneUnderMouse(msg)
 
 	if m.contextMenu == nil {
@@ -165,11 +173,35 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.handleContextMenuClick(msg)
 	}
 
+	if msg.Mouse().Button == tea.MouseLeft {
+		if z := m.zone.Get(zonePaneSidebar); !z.IsZero() && msg.Mouse().X == z.EndX {
+			m.resizingSidebar = true
+			return m, nil
+		}
+	}
+
 	switch msg.Mouse().Button {
 	case tea.MouseLeft:
 		return m.handleLeftClick(msg)
 	case tea.MouseRight:
 		return m.handleRightClick(msg)
+	}
+	return m, nil
+}
+
+// handleMouseRelease ends a sidebar-border drag started in
+// handleMouseClick; the terminal only sends this once, on button-up. The
+// resulting width is persisted so it's restored on the next launch.
+func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
+	if !m.resizingSidebar {
+		return m, nil
+	}
+	m.resizingSidebar = false
+	if m.sidebarWidthSetter == nil {
+		return m, nil
+	}
+	if err := m.sidebarWidthSetter.SetSidebarWidth(m.sidebarWidth()); err != nil {
+		return m, m.showNotification("saving sidebar width: " + err.Error())
 	}
 	return m, nil
 }

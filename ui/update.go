@@ -41,6 +41,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.handleMouseMotion(msg)
 
+	case tea.MouseReleaseMsg:
+		if !m.mouseEnabled {
+			return m, nil
+		}
+		return m.handleMouseRelease(msg)
+
 	case noticeClearMsg:
 		if msg.id == m.noticeID {
 			m.noticeText = ""

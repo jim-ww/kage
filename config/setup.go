@@ -79,6 +79,18 @@ func SetDefaultAccount(path, jid string) error {
 	return writeFileConfig(path, cfg)
 }
 
+// SetSidebarWidth sets (or updates) the sidebar_width setting in the config
+// file at path, preserving everything else — called after the user finishes
+// dragging the sidebar border (see ui.SidebarWidthSetter).
+func SetSidebarWidth(path string, width int) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	cfg.SidebarWidth = width
+	return writeFileConfig(path, cfg)
+}
+
 func loadOrEmpty(path string) (fileConfig, error) {
 	existing, err := loadFile(path)
 	if err != nil {
