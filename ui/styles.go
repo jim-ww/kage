@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -297,7 +298,7 @@ func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item 
 		d.hoverSelected.Render(&sb, m, index, item)
 	case hovered:
 		if chat, ok := item.(Chat); ok {
-			sb.WriteString(renderHoverChatRow(chat, d.colors))
+			sb.WriteString(renderHoverChatRow(chat, d.colors, m.Width()))
 		} else {
 			d.DefaultDelegate.Render(&sb, m, index, item)
 		}
@@ -336,18 +337,27 @@ func padLinesToWidth(content string, width int) string {
 // render in the first place: each fragment below is rendered exactly once,
 // carries the row's background itself, and fragments are joined by plain
 // string concatenation — ordinary lipgloss usage, not manual SGR.
-func renderHoverChatRow(c Chat, colors uiColors) string {
+func renderHoverChatRow(c Chat, colors uiColors, width int) string {
 	bg := colors.accentCyan
 	fg := colors.panelEdge
 
 	pad := lipgloss.NewStyle().Background(bg).Render(" ")
 	dot := presenceGlyphOn(c.Presence, bg)
-	name := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(true).Render(c.Name)
+	// Truncate name/desc to width ourselves — unlike list.DefaultDelegate
+	// (which truncates to its own textwidth), nothing downstream of this
+	// row does, and an untruncated long name/address wraps the row instead
+	// of clipping, growing the list taller than its allotted height (same
+	// failure mode fixed for the selected row and the sidebar border).
+	nameWidth := max(1, width-3) // pad + dot + pad
+	name := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(true).
+		Render(ansi.Truncate(c.Name, nameWidth, "…"))
 	title := pad + dot + pad + name
 
 	desc := ""
 	if text := c.Description(); text != "" {
-		desc = pad + lipgloss.NewStyle().Background(bg).Foreground(fg).Render(text)
+		descWidth := max(1, width-1) // pad
+		desc = pad + lipgloss.NewStyle().Background(bg).Foreground(fg).
+			Render(ansi.Truncate(text, descWidth, "…"))
 	}
 
 	return title + "\n" + desc
