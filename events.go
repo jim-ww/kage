@@ -156,6 +156,23 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		return
 	}
 
+	// A redelivered stanza (e.g. after stream resumption) can reach here with
+	// an idAttr already stored - the OMEMO branch above checks this before
+	// decrypting for its own reason (ratchet safety), but a plaintext message
+	// needs the same check for InsertMessage's sake: without it, the unique
+	// index below rejects the row but the message still gets sent to the UI,
+	// producing a visible duplicate that vanishes on next reload.
+	if msgEv.ID != "" {
+		if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
+			AccountJid: s.account.JID,
+			RosterJid:  nullString(from),
+			IDAttr:     nullString(msgEv.ID),
+		}); err == nil && exists {
+			debugf("message %s from %s already stored, skipping duplicate", msgEv.ID, msgEv.From)
+			return
+		}
+	}
+
 	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:    s.account.JID,
@@ -170,7 +187,12 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		RosterJid:     nullString(from),
 		ReplyToIDAttr: nullString(msgEv.ReplyToID),
 	}); err != nil {
+		// Insertion failed (most likely the unique index rejecting a
+		// duplicate idAttr that slipped past the check above in a race) -
+		// don't forward it to the UI, or a message with no corresponding
+		// stored row appears in chat and then vanishes on next reload.
 		debugf("warning: persisting received message: %v\n", err)
+		return
 	}
 
 	p.Send(ui.IncomingMessageMsg{
