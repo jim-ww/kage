@@ -3,9 +3,11 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 func shiftEnterKey() tea.KeyMsg {
@@ -226,5 +228,62 @@ func TestComposeInputHeightOverride(t *testing.T) {
 	m.updateSizes()
 	if got, want := m.inputHeightOverride, m.inputHeightMaxDrag(); got != want {
 		t.Fatalf("inputHeightOverride after an over-large drag = %d, want clamped to %d", got, want)
+	}
+}
+
+// TestComposeMouseWheelScrollsOverflowingInput checks that a wheel event
+// over the compose box moves its cursor (and so its internal viewport, per
+// textarea's DynamicHeight/MaxHeight-clamped scrolling) once the message is
+// too tall to fit — mirroring the wheel scroll already wired up for the
+// chat list and message viewport panes.
+func TestComposeMouseWheelScrollsOverflowingInput(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.termHeight = 40
+	m.updateSizes()
+
+	// More lines than inputMaxHeight, so the box is capped and scrolling
+	// internally rather than still growing.
+	for i := 0; i < 10; i++ {
+		if i > 0 {
+			next, _ := m.Update(shiftEnterKey())
+			m = next.(Model)
+		}
+		next, _ := m.Update(keyText("line"))
+		m = next.(Model)
+	}
+	if got := m.input.Height(); got != inputMaxHeight {
+		t.Fatalf("input Height() with 10 lines = %d, want capped at inputMaxHeight (%d)", got, inputMaxHeight)
+	}
+	startLine := m.input.Line()
+
+	// Render so the input pane's zone bounds are populated. bubblezone's
+	// Scan() buffers the update through a channel/worker goroutine (its own
+	// docs warn Get() right after Scan() may not see it yet), so poll
+	// briefly instead of asserting immediately.
+	_ = m.View()
+	var z *zone.ZoneInfo
+	deadline := time.Now().Add(time.Second)
+	for {
+		z = m.zone.Get(zonePaneInput)
+		if !z.IsZero() || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if z.IsZero() {
+		t.Fatal("zonePaneInput has no bounds after View()")
+	}
+
+	next, _ := m.Update(tea.MouseWheelMsg{X: z.StartX, Y: z.StartY, Button: tea.MouseWheelUp})
+	m = next.(Model)
+	if want := startLine - inputWheelScrollLines; m.input.Line() != want {
+		t.Fatalf("input cursor line after wheel-up = %d, want %d", m.input.Line(), want)
+	}
+
+	next, _ = m.Update(tea.MouseWheelMsg{X: z.StartX, Y: z.StartY, Button: tea.MouseWheelDown})
+	m = next.(Model)
+	if m.input.Line() != startLine {
+		t.Fatalf("input cursor line after wheel-down = %d, want back to %d", m.input.Line(), startLine)
 	}
 }

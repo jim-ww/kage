@@ -23,6 +23,10 @@ const (
 	zoneToggleSidebar  = "toggle-sidebar-button"
 )
 
+// inputWheelScrollLines is how many lines a single wheel notch moves the
+// compose box's cursor (and so its internal viewport) by.
+const inputWheelScrollLines = 2
+
 func zoneAccountRow(i int) string      { return fmt.Sprintf("account-row-%d", i) }
 func zoneChatItem(i int) string        { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string         { return fmt.Sprintf("msg-%d", i) }
@@ -451,6 +455,24 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			m.viewport.SetYOffset(m.viewport.YOffset())
 		}
 		return m, cmd
+	}
+
+	if m.zone.Get(zonePaneInput).InBounds(msg) {
+		// The textarea has no public "scroll by N" — moving the cursor is
+		// the only way to shift its internal viewport, but that's exactly
+		// what a wheel notch should do here anyway. A no-op when there's
+		// nothing to scroll past (content fits within the box's height).
+		// inputWheelScrollLines per notch, matching the viewport pane's feel
+		// (one line per CursorUp/Down reads as sluggish for a wheel notch).
+		for range inputWheelScrollLines {
+			switch mouse.Button {
+			case tea.MouseWheelUp:
+				m.input.CursorUp()
+			case tea.MouseWheelDown:
+				m.input.CursorDown()
+			}
+		}
+		return m, nil
 	}
 
 	return m, nil
