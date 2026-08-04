@@ -96,6 +96,12 @@ func (a *adapter) SetSidebarHidden(hidden bool) error {
 	return config.SetSidebarHidden(a.cfgPath, hidden)
 }
 
+// SetLastChat implements ui.LastChatSetter: persists which chat was last
+// opened so it can be reopened on startup when open_last_chat is set.
+func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
+	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
+}
+
 // SetTyping implements ui.MessageSender: sends a XEP-0085 chat state
 // notification to "to" — no persistence, no encryption, it's ephemeral.
 func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {

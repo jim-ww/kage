@@ -12,14 +12,17 @@ import (
 )
 
 type fileConfig struct {
-	Keybinds       map[string]any `toml:"keybinds"`
-	Theme          ui.Theme       `toml:"theme"`
-	Mouse          *bool          `toml:"mouse"`                    // nil (unset) means the default: on
-	SidebarWidth   int            `toml:"sidebar_width,omitempty"`  // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
-	SidebarHidden  bool           `toml:"sidebar_hidden,omitempty"` // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
-	DefaultAccount string         `toml:"default_account"`          // JID selected on startup; unset means the first configured account
-	Storage        StorageConfig  `toml:"storage"`
-	Accounts       []Account      `toml:"accounts"`
+	Keybinds        map[string]any `toml:"keybinds"`
+	Theme           ui.Theme       `toml:"theme"`
+	Mouse           *bool          `toml:"mouse"`                       // nil (unset) means the default: on
+	SidebarWidth    int            `toml:"sidebar_width,omitempty"`     // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
+	SidebarHidden   bool           `toml:"sidebar_hidden,omitempty"`    // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
+	DefaultAccount  string         `toml:"default_account"`             // JID selected on startup; unset means the first configured account
+	OpenLastChat    *bool          `toml:"open_last_chat"`              // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
+	LastChatAccount string         `toml:"last_chat_account,omitempty"` // JID of the account owning the last opened chat
+	LastChatAddress string         `toml:"last_chat_address,omitempty"` // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
+	Storage         StorageConfig  `toml:"storage"`
+	Accounts        []Account      `toml:"accounts"`
 }
 
 // StorageConfig configures the password local message history is encrypted
@@ -36,6 +39,7 @@ type UIConfig struct {
 	Mouse         bool // enables mouse click/scroll support; on by default
 	SidebarWidth  int  // 0 means "use the width/4-based default"
 	SidebarHidden bool // persisted chat list visibility; false (open) by default
+	OpenLastChat  bool // whether to reopen the last chat on startup; on by default
 }
 
 // Config is the fully resolved application configuration.
@@ -47,6 +51,12 @@ type Config struct {
 	// resolved from the default_account JID setting. 0 (the first account)
 	// when unset or when the configured JID doesn't match any account.
 	DefaultAccountIdx int
+	// LastChatAccountIdx/LastChatAddress identify the chat to reopen on
+	// startup when UI.OpenLastChat is set. LastChatAddress is empty when no
+	// chat has been opened yet. LastChatAccountIdx is only meaningful
+	// alongside a non-empty LastChatAddress.
+	LastChatAccountIdx int
+	LastChatAddress    string
 	// Path is the config file this was actually loaded from, or the
 	// default write location if none was found — always non-empty, so
 	// callers that need to persist a change (e.g. an auto-detected GPG key)
@@ -57,9 +67,10 @@ type Config struct {
 func Load(path string) (Config, error) {
 	cfgOut := Config{
 		UI: UIConfig{
-			KeyMap: ui.DefaultKeyMap,
-			Theme:  ui.DefaultTheme(),
-			Mouse:  true,
+			KeyMap:       ui.DefaultKeyMap,
+			Theme:        ui.DefaultTheme(),
+			Mouse:        true,
+			OpenLastChat: true,
 		},
 	}
 	paths := append([]string{path}, candidatePaths()...)
@@ -80,6 +91,9 @@ func Load(path string) (Config, error) {
 			}
 			cfgOut.UI.SidebarWidth = cfg.SidebarWidth
 			cfgOut.UI.SidebarHidden = cfg.SidebarHidden
+			if cfg.OpenLastChat != nil {
+				cfgOut.UI.OpenLastChat = *cfg.OpenLastChat
+			}
 			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts
 			cfgOut.Path = path
@@ -87,6 +101,15 @@ func Load(path string) (Config, error) {
 				for i, acct := range cfg.Accounts {
 					if acct.JID == cfg.DefaultAccount {
 						cfgOut.DefaultAccountIdx = i
+						break
+					}
+				}
+			}
+			if cfg.LastChatAddress != "" {
+				cfgOut.LastChatAddress = cfg.LastChatAddress
+				for i, acct := range cfg.Accounts {
+					if acct.JID == cfg.LastChatAccount {
+						cfgOut.LastChatAccountIdx = i
 						break
 					}
 				}

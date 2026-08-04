@@ -185,6 +185,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if msg.Index == m.currentAccount {
 			cmd = m.chats.SetItems(msg.Account.Chats)
 			m.refreshViewport()
+			cmd = tea.Batch(cmd, m.openPendingChat())
 		}
 		return m, cmd, true
 
@@ -209,6 +210,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				cmd = m.chats.SetItems(m.accounts[msg.Index].Chats)
 			}
 			m.refreshViewport()
+			cmd = tea.Batch(cmd, m.openPendingChat())
 		}
 		return m, cmd, true
 

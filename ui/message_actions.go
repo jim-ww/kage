@@ -320,6 +320,27 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	return m.input.Focus()
 }
 
+// openPendingChat opens pendingOpenChatAddress (set from config's
+// open_last_chat/last_chat_address on startup) once the current account's
+// chats have loaded and contain a matching chat, then clears it so it's
+// only attempted once.
+func (m *Model) openPendingChat() tea.Cmd {
+	if m.pendingOpenChatAddress == "" {
+		return nil
+	}
+	addr := m.pendingOpenChatAddress
+	m.pendingOpenChatAddress = ""
+	for i, item := range m.chats.Items() {
+		if chat, ok := item.(Chat); ok && chat.Address == addr {
+			m.chats.Select(i)
+			model, cmd := m.openCurrentChat()
+			*m = model.(Model)
+			return cmd
+		}
+	}
+	return nil
+}
+
 func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	if m.currentChatIndex() < 0 {
 		return m, nil
@@ -330,6 +351,11 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	}
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+	if m.lastChatSetter != nil && m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
+		if chat, ok := m.currentChat(); ok {
+			_ = m.lastChatSetter.SetLastChat(m.accounts[m.currentAccount].Name, chat.Address)
+		}
+	}
 	return m, m.input.Focus()
 }
 

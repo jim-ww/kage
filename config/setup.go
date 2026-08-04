@@ -103,6 +103,20 @@ func SetSidebarHidden(path string, hidden bool) error {
 	return writeFileConfig(path, cfg)
 }
 
+// SetLastChat sets (or updates) the last_chat_account/last_chat_address
+// settings in the config file at path, preserving everything else — called
+// whenever the user opens a chat, so it can be reopened on startup when
+// open_last_chat is set (see ui.LastChatSetter).
+func SetLastChat(path, accountJID, chatAddress string) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	cfg.LastChatAccount = accountJID
+	cfg.LastChatAddress = chatAddress
+	return writeFileConfig(path, cfg)
+}
+
 func loadOrEmpty(path string) (fileConfig, error) {
 	existing, err := loadFile(path)
 	if err != nil {

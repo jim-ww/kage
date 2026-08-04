@@ -210,6 +210,14 @@ type SidebarHiddenSetter interface {
 	SetSidebarHidden(hidden bool) error
 }
 
+// LastChatSetter persists which chat was last opened, implemented outside
+// ui (main.go's adapter) so ui stays decoupled from the config layer. A
+// local file write, called inline like Send/SetTyping rather than through a
+// tea.Cmd. Used to reopen the same chat on startup when configured.
+type LastChatSetter interface {
+	SetLastChat(accountJID, chatAddress string) error
+}
+
 type noticeClearMsg struct {
 	id int
 }

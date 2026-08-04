@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jim-ww/kage/crypto/aesgcm"
 	tea "charm.land/bubbletea/v2"
+	"github.com/jim-ww/kage/crypto/aesgcm"
 )
 
 var urlPattern = regexp.MustCompile(`https?://\S+|aesgcm://\S+`)

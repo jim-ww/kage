@@ -89,6 +89,13 @@ type Model struct {
 	sidebarWidthSetter   SidebarWidthSetter
 	sidebarHiddenSetter  SidebarHiddenSetter
 	chatEncryptionSetter ChatEncryptionSetter
+	lastChatSetter       LastChatSetter
+
+	// pendingOpenChatAddress is the peer JID to auto-open once its owning
+	// account's chats have loaded (see AccountConnectedMsg/AccountLiveMsg
+	// handling), populated from config when open_last_chat is set. Cleared
+	// after the first attempt, whether or not a matching chat was found.
+	pendingOpenChatAddress string
 
 	// rename-chat prompt state, active while renamingChat is true. Opened by
 	// RenameChat (viewChats) or a chat-item context menu's "Rename", prefilled
@@ -115,7 +122,7 @@ type Model struct {
 	addAccountBusy   bool
 }
 
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool) Model {
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
@@ -159,35 +166,38 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	chatEncryptionSetter, _ := sender.(ChatEncryptionSetter)
 	sidebarWidthSetter, _ := sender.(SidebarWidthSetter)
 	sidebarHiddenSetter, _ := sender.(SidebarHiddenSetter)
+	lastChatSetter, _ := sender.(LastChatSetter)
 
 	return Model{
-		selectedView:         viewChat,
-		keys:                 keys,
-		theme:                theme,
-		styles:               styles,
-		zone:                 zm,
-		mouseEnabled:         mouseEnabled,
-		hover:                hv,
-		accounts:             accounts,
-		currentAccount:       startAccount,
-		chats:                l,
-		input:                ti,
-		viewport:             viewport.New(),
-		editingMsgIdx:        -1,
-		replyToIdx:           -1,
-		reactingMsgIdx:       -1,
-		lastClickedMsgIdx:    -1,
-		sender:               sender,
-		fileSender:           fileSender,
-		accountAdder:         accountAdder,
-		renamer:              renamer,
-		defaultAccountSetter: defaultAccountSetter,
-		chatEncryptionSetter: chatEncryptionSetter,
-		sidebarWidthSetter:   sidebarWidthSetter,
-		sidebarHiddenSetter:  sidebarHiddenSetter,
-		sidebarWidthOverride: initialSidebarWidth,
-		sidebarHidden:        initialSidebarHidden,
-		filePicker:           picker,
+		selectedView:           viewChat,
+		keys:                   keys,
+		theme:                  theme,
+		styles:                 styles,
+		zone:                   zm,
+		mouseEnabled:           mouseEnabled,
+		hover:                  hv,
+		accounts:               accounts,
+		currentAccount:         startAccount,
+		chats:                  l,
+		input:                  ti,
+		viewport:               viewport.New(),
+		editingMsgIdx:          -1,
+		replyToIdx:             -1,
+		reactingMsgIdx:         -1,
+		lastClickedMsgIdx:      -1,
+		sender:                 sender,
+		fileSender:             fileSender,
+		accountAdder:           accountAdder,
+		renamer:                renamer,
+		defaultAccountSetter:   defaultAccountSetter,
+		chatEncryptionSetter:   chatEncryptionSetter,
+		sidebarWidthSetter:     sidebarWidthSetter,
+		sidebarHiddenSetter:    sidebarHiddenSetter,
+		lastChatSetter:         lastChatSetter,
+		pendingOpenChatAddress: openLastChatAddress,
+		sidebarWidthOverride:   initialSidebarWidth,
+		sidebarHidden:          initialSidebarHidden,
+		filePicker:             picker,
 	}
 }
 

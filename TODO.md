@@ -1,6 +1,7 @@
 - chat view: add attach file, emoji buttons
 - message status? 'sent' / 'delivered' icons?
 - save last chat ID? open it on startup, if exists
+- on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - improve chat view text input. shift+enter should break to new line, and also show multiline properly
 - account manager should look like button and show hover indication
 - account manager: remove 'accounts:' labewnloaded
