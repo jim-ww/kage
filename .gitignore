@@ -1,4 +1,5 @@
 /kage
+/result
 
 devtest/prosody/prosody.cfg.lua
 devtest/prosody/certs/

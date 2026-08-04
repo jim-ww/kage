@@ -13,7 +13,16 @@
   }:
     flake-parts.lib.mkFlake {inherit inputs;} {
       systems = flake-utils.lib.defaultSystems;
-      perSystem = {pkgs, ...}: {
+      perSystem = {pkgs, ...}: let
+        desktopItem = pkgs.makeDesktopItem {
+          name = "kage";
+          desktopName = "Kage";
+          comment = "TUI XMPP client";
+          exec = "kage";
+          terminal = true;
+          categories = ["Network" "Chat" "InstantMessaging"];
+        };
+      in {
         packages.default = pkgs.buildGoModule {
           pname = "kage";
           version = "0.0.1";
@@ -23,6 +32,11 @@
           nativeCheckInputs = [
             pkgs.gnupg
           ];
+
+          postInstall = ''
+            mkdir -p $out/share/applications
+            cp ${desktopItem}/share/applications/*.desktop $out/share/applications/
+          '';
         };
 
         # `nix develop` gives you `prosody`/`prosodyctl`/`openssl` for
