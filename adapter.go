@@ -319,8 +319,8 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 // SendFile implements ui.FileSender. Uploading and the follow-up message send
 // run as a Bubble Tea command, so the terminal remains responsive while a
 // slot is discovered and the file is transferred.
-func (a *adapter) SendFile(accountIdx int, to, path string) tea.Msg {
-	result := ui.FileSendResultMsg{AccountIdx: accountIdx, To: to, Path: path}
+func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions) tea.Msg {
+	result := ui.FileSendResultMsg{AccountIdx: accountIdx, To: to, Path: path, ReplyToID: opts.ReplyToID}
 	s, ok := a.session(accountIdx)
 	if !ok {
 		result.Err = fmt.Errorf("unknown account %d", accountIdx)
@@ -379,7 +379,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string) tea.Msg {
 		}
 	}
 
-	id, err := a.send(ctx, accountIdx, to, url, ui.SendOptions{})
+	id, err := a.send(ctx, accountIdx, to, url, opts)
 	if err != nil {
 		result.Err = err
 		return result

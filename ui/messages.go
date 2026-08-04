@@ -21,9 +21,11 @@ type MessageSender interface {
 }
 
 // FileSender uploads a local file and sends its download URL to a chat. It is
-// separate from MessageSender so text-only senders remain compatible.
+// separate from MessageSender so text-only senders remain compatible. opts
+// carries the same reply/correction metadata as MessageSender.Send — only
+// ReplyToID/QuotedAuthor/QuotedBody are meaningful here.
 type FileSender interface {
-	SendFile(accountIdx int, to, path string) tea.Msg
+	SendFile(accountIdx int, to, path string, opts SendOptions) tea.Msg
 }
 
 // ContactRenamer sets a custom display name for a contact — a roster set
@@ -42,6 +44,7 @@ type FileSendResultMsg struct {
 	Path       string
 	URL        string
 	ID         string
+	ReplyToID  string // non-empty if this upload was sent in reply to a message
 	Err        error
 }
 

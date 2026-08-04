@@ -22,12 +22,28 @@ func (m Model) startFileUpload(to, path string) (Model, tea.Cmd) {
 		return m, m.showNotification("no chat selected")
 	}
 	accountIdx := m.currentAccount
+
+	// An attachment can be sent in reply, same as a text message: carry
+	// whatever m.replyToIdx points at and clear it, mirroring the text-send
+	// path in message_actions.go.
+	var opts SendOptions
+	if m.replyToIdx >= 0 {
+		if msgs := m.currentMessages(); m.replyToIdx < len(msgs) && msgs[m.replyToIdx].ID != "" {
+			opts = SendOptions{
+				ReplyToID:    msgs[m.replyToIdx].ID,
+				QuotedAuthor: msgs[m.replyToIdx].Author,
+				QuotedBody:   msgs[m.replyToIdx].Content,
+			}
+		}
+		m.replyToIdx = -1
+	}
+
 	// Uploading can take a while and runs asynchronously; make the
 	// accepted selection visible immediately instead of leaving the
 	// user looking at an unchanged chat.
 	m.noticeID++
 	m.noticeText = "uploading " + filepath.Base(path) + "..."
-	return m, func() tea.Msg { return m.fileSender.SendFile(accountIdx, to, path) }
+	return m, func() tea.Msg { return m.fileSender.SendFile(accountIdx, to, path, opts) }
 }
 
 // updateKeyMsg handles every tea.KeyMsg. handled is false only when the key

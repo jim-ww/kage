@@ -80,14 +80,18 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
 		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
-		msgs = append(msgs, Message{
+		newMsg := Message{
 			ID:          msg.ID,
 			Author:      "me",
 			Content:     msg.URL,
 			SentAt:      time.Now(),
 			IsMe:        true,
 			Attachments: []string{msg.URL},
-		})
+		}
+		if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
+			newMsg.ReplyTo = &replyIdx
+		}
+		msgs = append(msgs, newMsg)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1

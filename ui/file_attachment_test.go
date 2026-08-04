@@ -13,13 +13,15 @@ import (
 
 type fakeFileSender struct {
 	path string
+	opts SendOptions
 }
 
 func (f *fakeFileSender) Send(int, string, string, SendOptions) (string, error) { return "", nil }
 func (f *fakeFileSender) SetTyping(int, string, bool) error                     { return nil }
-func (f *fakeFileSender) SendFile(_ int, to, path string) tea.Msg {
+func (f *fakeFileSender) SendFile(_ int, to, path string, opts SendOptions) tea.Msg {
 	f.path = path
-	return FileSendResultMsg{To: to, Path: path, URL: "https://upload.example.test/report.pdf", ID: "file-id"}
+	f.opts = opts
+	return FileSendResultMsg{To: to, Path: path, URL: "https://upload.example.test/report.pdf", ID: "file-id", ReplyToID: opts.ReplyToID}
 }
 
 func TestFilePickerReceivesAsyncDirectoryRead(t *testing.T) {
@@ -78,6 +80,57 @@ func TestFilePickerEnterStartsFileSend(t *testing.T) {
 	_ = cmd()
 	if sender.path != path {
 		t.Fatalf("sent path = %q, want %q", sender.path, path)
+	}
+}
+
+func TestFilePickerEnterSendsAsReplyWhenReplyToIdxSet(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeFileSender{}
+	m := newTestModelWithSender(sender, nil)
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{
+		Chats: []list.Item{chat},
+		Messages: map[int][]Message{
+			0: {{ID: "orig-id", Author: "Bob", Content: "hi there"}},
+		},
+	}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 0
+	m.replyToIdx = 0
+
+	m.filePicker.CurrentDirectory = dir
+	m.filePicker.SetHeight(8)
+	m.pickingFile = true
+	next, _ := m.Update(m.filePicker.Init()())
+	m = next.(Model)
+
+	next, cmd := m.Update(keyCode(tea.KeyEnter))
+	m = next.(Model)
+	if m.replyToIdx != -1 {
+		t.Fatal("replyToIdx not cleared after starting an attachment reply")
+	}
+	if cmd == nil {
+		t.Fatal("selecting a file did not start a send command")
+	}
+	result := cmd()
+	if sender.opts.ReplyToID != "orig-id" {
+		t.Fatalf("SendFile opts.ReplyToID = %q, want %q", sender.opts.ReplyToID, "orig-id")
+	}
+
+	next, _ = m.Update(result)
+	m = next.(Model)
+	msgs := m.accounts[0].Messages[0]
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+	if msgs[1].ReplyTo == nil || *msgs[1].ReplyTo != 0 {
+		t.Fatalf("attachment message ReplyTo = %v, want pointer to 0", msgs[1].ReplyTo)
 	}
 }
 
