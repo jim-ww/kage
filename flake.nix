@@ -54,7 +54,7 @@
         # devtest/prosody/ (a throwaway local XMPP server used to exercise
         # the xmpp/ package against a real server — see devtest/prosody/README.md).
         devShells.default = pkgs.mkShell {
-          packages = [pkgs.go pkgs.prosody pkgs.openssl];
+          packages = [pkgs.go pkgs.prosody pkgs.openssl pkgs.libnotify];
         };
       };
     };

@@ -1,22 +1,21 @@
-fix: "send failed: omemo-encrypting to ADDRESS: omemo: no recipient device could be encrypted for"
+- make margin above help line (below textinput ) slighly smaller
+- chat view: add attach file, emoji buttons
+- only launch notification daemon if its enabled in config, enabled by default
+- show encryption information in message info
+- message status? 'sent' / 'delivered' icons?
+- bind keybinds with key codes, not to latin
+- code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
+- add OMEMO v1 support?
+
 - ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - chat view: cursor can get out of view (not scrolled to)
-- drag drop files
-- add OMEMO v1 support?
-- chat view: show [padlock] icon after date in messages, if its encrypted
-- show encryption information in message info
-- bind keybinds with key codes, not to latin
 - invalid highlighting of non-reply messages, partially gray
-- make margin above help line (below textinput ) slighly smaller
-- improve chat view text input. shift+enter should break to new line, and also show multiline properly
-- chat view: add attach file, emoji buttons
-- message status? 'sent' / 'delivered' icons?
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager should look like button and show hover indication
 - save message drafts for each chat (encrypted), on exit/chat switch
 - account manager: remove 'accounts:' labewnloaded
 - add config ui toggle options (e.g. show/hide names in chat, show glyphs in chat, chat time/date layout + only show time (if its today)(only with default time layout))
-- code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
+
 - preview files text contents
 - account manager: fix adding duplicate accounts
 - store all accounts data in single sqlite db?

@@ -11,6 +11,25 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// startFileUpload kicks off an asynchronous upload+send of the local file at
+// path to the given chat address, shared by both the file-picker's
+// DidSelectFile path and drag-and-drop.
+func (m Model) startFileUpload(to, path string) (Model, tea.Cmd) {
+	if m.fileSender == nil {
+		return m, m.showNotification("file sending unavailable")
+	}
+	if to == "" {
+		return m, m.showNotification("no chat selected")
+	}
+	accountIdx := m.currentAccount
+	// Uploading can take a while and runs asynchronously; make the
+	// accepted selection visible immediately instead of leaving the
+	// user looking at an unchanged chat.
+	m.noticeID++
+	m.noticeText = "uploading " + filepath.Base(path) + "..."
+	return m, func() tea.Msg { return m.fileSender.SendFile(accountIdx, to, path) }
+}
+
 // updateKeyMsg handles every tea.KeyMsg. handled is false only when the key
 // didn't match anything and should fall through to Update's focused-component
 // routing (the compose input, chat list, etc).
@@ -100,20 +119,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		m.filePicker, pickerCmd = m.filePicker.Update(msg)
 		if selected, path := m.filePicker.DidSelectFile(msg); selected {
 			m.pickingFile = false
-			if m.fileSender == nil {
-				return m, m.showNotification("file sending unavailable"), true
-			}
-			chat, ok := m.currentChat()
-			if !ok || chat.Address == "" {
-				return m, m.showNotification("no chat selected"), true
-			}
-			accountIdx, to := m.currentAccount, chat.Address
-			// Uploading can take a while and runs asynchronously; make the
-			// accepted selection visible immediately instead of leaving the
-			// user looking at an unchanged chat.
-			m.noticeID++
-			m.noticeText = "uploading " + filepath.Base(path) + "..."
-			return m, func() tea.Msg { return m.fileSender.SendFile(accountIdx, to, path) }, true
+			chat, _ := m.currentChat()
+			model, cmd := m.startFileUpload(chat.Address, path)
+			return model, cmd, true
 		}
 		if disabled, _ := m.filePicker.DidSelectDisabledFile(msg); disabled {
 			cmds = append(cmds, m.showNotification("that file type cannot be selected"))

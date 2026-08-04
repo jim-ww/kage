@@ -1,8 +1,34 @@
 package ui
 
 import (
+	"net/url"
+	"os"
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 )
+
+// droppedFilePath recognizes bracketed-paste content that is actually a
+// dragged-and-dropped file rather than typed/pasted text: terminals deliver a
+// drop as the file's absolute path (some as a file:// URI), pasted as a
+// single line. Multi-line content, or content that isn't an existing regular
+// file, is left alone so it reaches the compose input as normal paste text.
+func droppedFilePath(content string) (string, bool) {
+	content = strings.TrimSpace(content)
+	if content == "" || strings.ContainsAny(content, "\n\r") {
+		return "", false
+	}
+	path := content
+	if u, err := url.Parse(content); err == nil && u.Scheme == "file" && u.Path != "" {
+		path = u.Path
+	}
+	path = strings.Trim(path, `"'`)
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	return path, true
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if model, cmd, handled := m.handleEventMsg(msg); handled {
@@ -69,6 +95,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		}
 	case viewChat:
+		// Dragging a file onto most terminal emulators isn't a distinct
+		// bubbletea event — the terminal just bracketed-pastes the file's
+		// absolute path as text. Treat a paste that resolves to a single
+		// existing file, rather than typed/pasted prose, as a drop and
+		// upload it instead of inserting the path into the compose box.
+		if pasteMsg, ok := msg.(tea.PasteMsg); ok {
+			if path, ok := droppedFilePath(pasteMsg.Content); ok {
+				chat, _ := m.currentChat()
+				model, cmd := m.startFileUpload(chat.Address, path)
+				return model, cmd
+			}
+		}
+
 		oldValue := m.input.Value()
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)

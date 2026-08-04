@@ -152,6 +152,54 @@ func TestIncomingMessageInitializesMissingMessageMap(t *testing.T) {
 	}
 }
 
+func TestDraggedFilePastedIntoChatStartsFileSend(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeFileSender{}
+	m := newTestModelWithSender(sender, nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+
+	next, cmd := m.Update(tea.PasteMsg{Content: path})
+	m = next.(Model)
+	if m.noticeText != "uploading report.pdf..." {
+		t.Fatalf("notice = %q, want upload progress", m.noticeText)
+	}
+	if cmd == nil {
+		t.Fatal("dropping a file did not start a send command")
+	}
+	_ = cmd()
+	if sender.path != path {
+		t.Fatalf("sent path = %q, want %q", sender.path, path)
+	}
+	if strings.Contains(m.input.Value(), path) {
+		t.Fatal("dropped file path leaked into the compose input")
+	}
+}
+
+func TestPastedTextThatIsNotAFilePathGoesToInput(t *testing.T) {
+	m := newTestModel(nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+
+	next, _ := m.Update(tea.PasteMsg{Content: "hello world"})
+	m = next.(Model)
+	if m.input.Value() != "hello world" {
+		t.Fatalf("input = %q, want pasted text", m.input.Value())
+	}
+}
+
 func TestFileSendFailureDoesNotAddMessage(t *testing.T) {
 	m := newTestModel(nil)
 	chat := Chat{Name: "Bob", Address: "bob@example.test"}
