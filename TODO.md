@@ -1,4 +1,3 @@
-- dont cycle through encryption
 - show current encryption configured for chat
 - chat list: toggle on bind/button
 - chat list: resize by dragging border

@@ -124,10 +124,15 @@ func encryptionModeOrDefault(mode string) string {
 	return mode
 }
 
-// actionCycleChatEncryption cycles the selected chat's outgoing message
-// encryption: omemo -> gpg -> none -> omemo (chat-item context menu's
-// "Encryption").
-func (m *Model) actionCycleChatEncryption() tea.Cmd {
+// encryptionModes lists every selectable outgoing-encryption mode, in the
+// order they're offered in the encryption picker.
+var encryptionModes = []string{"omemo", "gpg", "none"}
+
+// actionOpenEncryptionMenu opens a picker submenu (chat-item context menu's
+// "Encryption") listing every mode with the current one marked, so picking
+// one sets it directly instead of cycling through them one keypress at a
+// time.
+func (m *Model) actionOpenEncryptionMenu() tea.Cmd {
 	idx := m.currentChatIndex()
 	items := m.chats.Items()
 	if idx < 0 || idx >= len(items) || m.chatEncryptionSetter == nil {
@@ -138,14 +143,43 @@ func (m *Model) actionCycleChatEncryption() tea.Cmd {
 		return nil
 	}
 
-	next := map[string]string{"omemo": "gpg", "gpg": "none", "none": "omemo"}[encryptionModeOrDefault(chat.EncryptionMode)]
-	if err := m.chatEncryptionSetter.SetChatEncryption(m.currentAccount, chat.Address, next); err != nil {
+	current := encryptionModeOrDefault(chat.EncryptionMode)
+	menuItems := make([]contextMenuItem, len(encryptionModes))
+	for i, mode := range encryptionModes {
+		mode := mode
+		label := mode
+		if mode == current {
+			label = "✓ " + mode
+		}
+		menuItems[i] = contextMenuItem{
+			label: label,
+			run:   func(m *Model) tea.Cmd { return m.actionSetChatEncryption(mode) },
+		}
+	}
+	m.openContextMenu(menuItems)
+	return nil
+}
+
+// actionSetChatEncryption sets the selected chat's outgoing message
+// encryption to mode directly (the encryption picker's per-mode entries).
+func (m *Model) actionSetChatEncryption(mode string) tea.Cmd {
+	idx := m.currentChatIndex()
+	items := m.chats.Items()
+	if idx < 0 || idx >= len(items) || m.chatEncryptionSetter == nil {
+		return m.showNotification("no chat selected")
+	}
+	chat, ok := items[idx].(Chat)
+	if !ok {
+		return nil
+	}
+
+	if err := m.chatEncryptionSetter.SetChatEncryption(m.currentAccount, chat.Address, mode); err != nil {
 		return m.showNotification("setting encryption: " + err.Error())
 	}
-	chat.EncryptionMode = next
+	chat.EncryptionMode = mode
 	m.accounts[m.currentAccount].Chats[idx] = chat
 	cmd := m.chats.SetItem(idx, chat)
-	return tea.Batch(cmd, m.showNotification("Encryption: "+next))
+	return tea.Batch(cmd, m.showNotification("Encryption: "+mode))
 }
 
 func (m *Model) showNotification(text string) tea.Cmd {

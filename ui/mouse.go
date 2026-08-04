@@ -178,15 +178,20 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // to: clicking one of its items runs that item's action and closes the
 // menu; any other click (a different item's popup, or empty space) just
 // closes it without acting — nothing under the popup is clicked "through".
+// An item's run can open a submenu (e.g. the "Encryption" picker) by setting
+// m.contextMenu itself — don't stomp that back to nil afterward.
 func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Mouse().Button != tea.MouseLeft {
 		m.closeContextMenu()
 		return m, nil
 	}
+	before := m.contextMenu
 	for i, item := range m.contextMenu.items {
 		if m.zone.Get(zoneContextMenuItem(i)).InBounds(msg) {
 			cmd := item.run(&m)
-			m.closeContextMenu()
+			if m.contextMenu == before {
+				m.closeContextMenu()
+			}
 			return m, cmd
 		}
 	}
