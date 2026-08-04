@@ -293,10 +293,12 @@ func main() {
 	}()
 
 	openLastChatAddress := ""
-	if cfg.UI.OpenLastChat && cfg.LastChatAddress != "" && cfg.LastChatAccountIdx == cfg.DefaultAccountIdx {
+	startAccountIdx := cfg.DefaultAccountIdx
+	if cfg.UI.OpenLastChat && cfg.LastChatAddress != "" && cfg.LastChatAccountIdx >= 0 && cfg.LastChatAccountIdx < len(cfg.Accounts) {
 		openLastChatAddress = cfg.LastChatAddress
+		startAccountIdx = cfg.LastChatAccountIdx
 	}
-	model := ui.New(uiAccounts, cfg.DefaultAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, cfg.UI.NerdFontIcons)
+	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, cfg.UI.NerdFontIcons)
 	p := tea.NewProgram(model)
 	sender.program = p
 
