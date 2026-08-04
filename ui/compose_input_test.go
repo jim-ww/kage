@@ -103,6 +103,41 @@ func TestComposeUpDownCursorVsMessageNav(t *testing.T) {
 	}
 }
 
+// TestComposeUpDownSoftWrapCountsAsMultiline checks that a single long line
+// with no explicit newline, once it's word-wrapped onto multiple visible
+// rows, is treated the same as an explicit multi-line message for up/down
+// purposes — it looks multiline on screen, so it should traverse like one.
+func TestComposeUpDownSoftWrapCountsAsMultiline(t *testing.T) {
+	chat := Chat{Address: "bob@localhost"}
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+	m.setCurrentMessages([]Message{{Author: "bob", Content: "one"}, {Author: "bob", Content: "two"}})
+	m.selectedMsg = 1
+
+	// A single logical line, but long enough to wrap across several visual
+	// rows at the input's (narrow, test-fixture) width.
+	next, _ := m.Update(keyText(strings.Repeat("a", 300)))
+	m = next.(Model)
+
+	if lines := m.input.LineCount(); lines != 1 {
+		t.Fatalf("input LineCount() = %d, want 1 (still one logical line)", lines)
+	}
+	if !m.composeMultiline() {
+		t.Fatal("expected composeMultiline() true once the single line wraps onto multiple rows")
+	}
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = next.(Model)
+	if m.selectedMsg != 1 {
+		t.Fatalf("selectedMsg changed by up while the wrapped line is being edited, got %d", m.selectedMsg)
+	}
+}
+
 // TestComposeEnterSendsNotNewline checks a plain enter still submits the
 // message (via SelectSend) rather than inserting a newline into the input.
 func TestComposeEnterSendsNotNewline(t *testing.T) {
