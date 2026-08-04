@@ -77,11 +77,37 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 	m.viewport.SetContentLines(m.viewportLines)
 }
 
-// refreshViewportScrollTo re-renders and scrolls so msgIdx is visible.
+// refreshViewportScrollTo re-renders and, like vim's scrolloff, keeps the
+// selected message at least scrollMargin lines away from whichever edge of
+// the viewport it's approaching — once it gets that close, the viewport
+// scrolls in lockstep so the message holds that same distance from the edge
+// on every subsequent move, instead of sitting still until it hits the edge
+// and then snapping back. If the message is already further than the margin
+// from both edges, the viewport doesn't move at all.
 func (m *Model) refreshViewportScrollTo(msgIdx int) {
 	m.refreshViewport()
-	if msgIdx >= 0 && msgIdx < len(m.msgOffsets) {
-		m.viewport.SetYOffset(m.msgOffsets[msgIdx])
+	if msgIdx < 0 || msgIdx >= len(m.msgOffsets) {
+		return
+	}
+
+	start := m.msgOffsets[msgIdx]
+	end := len(m.viewportLines) - 1
+	if msgIdx+1 < len(m.msgOffsets) {
+		end = m.msgOffsets[msgIdx+1] - 1
+	}
+
+	height := m.viewport.Height()
+	if height <= 0 {
+		return
+	}
+	margin := min(height/3, (height-1)/2)
+	top := m.viewport.YOffset()
+
+	switch {
+	case start < top+margin:
+		m.viewport.SetYOffset(max(0, start-margin))
+	case end > top+height-1-margin:
+		m.viewport.SetYOffset(end - height + 1 + margin)
 	}
 }
 

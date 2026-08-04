@@ -1,6 +1,5 @@
 - chat view: improve pagination. messages beyond config-set limit should be discarded from view, always keeping it in range (e.g. message unloading). Also note, that MAM import can make list go over limits too
 - check if replies are working correctly, not duplicating messages
-- chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view
 - make margin above help line (below textinput ) slighly smaller
 - chat view: add attach file, emoji buttons
 - show encryption information in message info
@@ -15,6 +14,7 @@
 - account manager should look like button and show hover indication
 - save message drafts for each chat (encrypted), on exit/chat switch
 - account manager: remove 'accounts:' labewnloaded
+- chat view: add ctrl+d/ctrl+u for half page messages traversal
 
 - preview files text contents (in separate viewport?)
 - chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts
