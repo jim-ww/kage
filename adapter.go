@@ -96,6 +96,12 @@ func (a *adapter) SetSidebarHidden(hidden bool) error {
 	return config.SetSidebarHidden(a.cfgPath, hidden)
 }
 
+// SetInputHeight implements ui.InputHeightSetter: persists the user-dragged
+// compose box height so it's restored on the next launch.
+func (a *adapter) SetInputHeight(height int) error {
+	return config.SetInputHeight(a.cfgPath, height)
+}
+
 // SetLastChat implements ui.LastChatSetter: persists which chat was last
 // opened so it can be reopened on startup when open_last_chat is set.
 func (a *adapter) SetLastChat(accountJID, chatAddress string) error {

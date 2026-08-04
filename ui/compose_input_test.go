@@ -195,3 +195,36 @@ func TestComposeEnterSendsNotNewline(t *testing.T) {
 		t.Fatalf("input should be cleared after send, got %q", got)
 	}
 }
+
+// TestComposeInputHeightOverride checks that dragging the compose box
+// taller (inputHeightOverride, set by the mouse handlers in ui/mouse.go)
+// actually grows the box beyond its default auto-grow cap, and that the
+// drag is clamped to leave the viewport some room rather than being able to
+// swallow the whole chat pane.
+func TestComposeInputHeightOverride(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	// newTestModel's m.height comes out of updateSizes() using termHeight,
+	// which the fixture leaves at 0 — give it real room so
+	// inputHeightMaxDrag has space to work with instead of clamping to 1.
+	m.termHeight = 40
+	m.updateSizes()
+
+	if got := m.input.Height(); got != 1 {
+		t.Fatalf("input Height() before any override = %d, want 1 (empty box)", got)
+	}
+
+	m.inputHeightOverride = inputMaxHeight + 3
+	m.updateSizes()
+	if got, want := m.input.Height(), inputMaxHeight+3; got != want {
+		t.Fatalf("input Height() after override = %d, want %d (past the auto-grow cap)", got, want)
+	}
+
+	// A drag past inputHeightMaxDrag clamps down instead of eating the
+	// whole chat pane.
+	m.inputHeightOverride = m.inputHeightMaxDrag() + 100
+	m.updateSizes()
+	if got, want := m.inputHeightOverride, m.inputHeightMaxDrag(); got != want {
+		t.Fatalf("inputHeightOverride after an over-large drag = %d, want clamped to %d", got, want)
+	}
+}

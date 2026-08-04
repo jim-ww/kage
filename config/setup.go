@@ -91,6 +91,18 @@ func SetSidebarWidth(path string, width int) error {
 	return writeFileConfig(path, cfg)
 }
 
+// SetInputHeight sets (or updates) the input_height setting in the config
+// file at path, preserving everything else — called after the user finishes
+// dragging the compose box's top border (see ui.InputHeightSetter).
+func SetInputHeight(path string, height int) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	cfg.InputHeight = height
+	return writeFileConfig(path, cfg)
+}
+
 // SetSidebarHidden sets (or updates) the sidebar_hidden setting in the
 // config file at path, preserving everything else — called whenever the
 // user toggles the chat list (see ui.SidebarHiddenSetter).

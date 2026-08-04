@@ -16,6 +16,7 @@ type fileConfig struct {
 	Theme           ui.Theme       `toml:"theme"`
 	Mouse           *bool          `toml:"mouse"`                       // nil (unset) means the default: on
 	SidebarWidth    int            `toml:"sidebar_width,omitempty"`     // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
+	InputHeight     int            `toml:"input_height,omitempty"`      // persisted from dragging the compose box border; 0 (unset) means the DynamicHeight-based default
 	SidebarHidden   bool           `toml:"sidebar_hidden,omitempty"`    // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
 	DefaultAccount  string         `toml:"default_account"`             // JID selected on startup; unset means the first configured account
 	OpenLastChat    *bool          `toml:"open_last_chat"`              // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
@@ -38,6 +39,7 @@ type UIConfig struct {
 	Theme         ui.Theme
 	Mouse         bool // enables mouse click/scroll support; on by default
 	SidebarWidth  int  // 0 means "use the width/4-based default"
+	InputHeight   int  // 0 means "use the DynamicHeight-based default"
 	SidebarHidden bool // persisted chat list visibility; false (open) by default
 	OpenLastChat  bool // whether to reopen the last chat on startup; on by default
 }
@@ -91,6 +93,7 @@ func Load(path string) (Config, error) {
 			}
 			cfgOut.UI.SidebarWidth = cfg.SidebarWidth
 			cfgOut.UI.SidebarHidden = cfg.SidebarHidden
+			cfgOut.UI.InputHeight = cfg.InputHeight
 			if cfg.OpenLastChat != nil {
 				cfgOut.UI.OpenLastChat = *cfg.OpenLastChat
 			}

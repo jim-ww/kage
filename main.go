@@ -279,7 +279,7 @@ func main() {
 	if cfg.UI.OpenLastChat && cfg.LastChatAddress != "" && cfg.LastChatAccountIdx == cfg.DefaultAccountIdx {
 		openLastChatAddress = cfg.LastChatAddress
 	}
-	model := ui.New(uiAccounts, cfg.DefaultAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress)
+	model := ui.New(uiAccounts, cfg.DefaultAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight)
 	p := tea.NewProgram(model)
 	sender.program = p
 

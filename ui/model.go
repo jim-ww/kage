@@ -51,6 +51,17 @@ type Model struct {
 	// give the chat area the full width.
 	sidebarHidden bool
 
+	// inputHeightOverride is the user-dragged compose box height (see
+	// zonePaneInput in ui/mouse.go); 0 means "not set yet, use the
+	// DynamicHeight/inputMaxHeight-based default". Applied as the
+	// textarea's MinHeight so it holds even when content would otherwise
+	// shrink it back down.
+	inputHeightOverride int
+	// resizingInput is true from the moment the compose box's top border is
+	// pressed until the mouse button is released (tea.MouseReleaseMsg),
+	// even if the pointer drifts off the border row mid-drag.
+	resizingInput bool
+
 	accounts       []Account
 	currentAccount int
 	chats          list.Model
@@ -89,6 +100,7 @@ type Model struct {
 	defaultAccountSetter DefaultAccountSetter
 	sidebarWidthSetter   SidebarWidthSetter
 	sidebarHiddenSetter  SidebarHiddenSetter
+	inputHeightSetter    InputHeightSetter
 	chatEncryptionSetter ChatEncryptionSetter
 	lastChatSetter       LastChatSetter
 
@@ -123,7 +135,7 @@ type Model struct {
 	addAccountBusy   bool
 }
 
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string) Model {
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
@@ -157,6 +169,10 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	ti.DynamicHeight = true
 	ti.MinHeight = 1
 	ti.MaxHeight = inputMaxHeight
+	if initialInputHeight > 0 {
+		ti.MinHeight = initialInputHeight
+		ti.MaxHeight = max(inputMaxHeight, initialInputHeight)
+	}
 	ti.Focus()
 	applyTextAreaStyles(&ti, styles.colors)
 	picker := filepicker.New()
@@ -171,6 +187,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	chatEncryptionSetter, _ := sender.(ChatEncryptionSetter)
 	sidebarWidthSetter, _ := sender.(SidebarWidthSetter)
 	sidebarHiddenSetter, _ := sender.(SidebarHiddenSetter)
+	inputHeightSetter, _ := sender.(InputHeightSetter)
 	lastChatSetter, _ := sender.(LastChatSetter)
 
 	return Model{
@@ -198,10 +215,12 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		chatEncryptionSetter:   chatEncryptionSetter,
 		sidebarWidthSetter:     sidebarWidthSetter,
 		sidebarHiddenSetter:    sidebarHiddenSetter,
+		inputHeightSetter:      inputHeightSetter,
 		lastChatSetter:         lastChatSetter,
 		pendingOpenChatAddress: openLastChatAddress,
 		sidebarWidthOverride:   initialSidebarWidth,
 		sidebarHidden:          initialSidebarHidden,
+		inputHeightOverride:    initialInputHeight,
 		filePicker:             picker,
 	}
 }

@@ -210,6 +210,14 @@ type SidebarHiddenSetter interface {
 	SetSidebarHidden(hidden bool) error
 }
 
+// InputHeightSetter persists the compose box height the user last dragged
+// it to, implemented outside ui (main.go's adapter) so ui stays decoupled
+// from the config layer. A local file write, called inline like Send/
+// SetTyping rather than through a tea.Cmd.
+type InputHeightSetter interface {
+	SetInputHeight(height int) error
+}
+
 // LastChatSetter persists which chat was last opened, implemented outside
 // ui (main.go's adapter) so ui stays decoupled from the config layer. A
 // local file write, called inline like Send/SetTyping rather than through a

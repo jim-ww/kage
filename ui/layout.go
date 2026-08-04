@@ -14,13 +14,27 @@ func (m *Model) updateSizes() {
 	fl := footerLineCount(m.keys.helpHint(m.selectedView), max(1, m.width-2), footerMaxLines)
 	m.height = max(0, m.termHeight-fl-footerMarginTop)
 
+	// Apply any user-dragged compose height (see zonePaneInput in
+	// ui/mouse.go) as the textarea's floor before SetWidth below triggers
+	// its DynamicHeight recalculation — Height() must already reflect the
+	// override by the time inputAreaHeight() reads it a few lines down.
+	if m.inputHeightOverride > 0 {
+		h := clamp(m.inputHeightOverride, 1, m.inputHeightMaxDrag())
+		m.inputHeightOverride = h
+		m.input.MinHeight = h
+		m.input.MaxHeight = max(inputMaxHeight, h)
+	} else {
+		m.input.MinHeight = 1
+		m.input.MaxHeight = inputMaxHeight
+	}
+
 	cw := m.chatAreaWidth()
+	m.input.SetWidth(m.inputFieldWidth())
 	ih := m.inputAreaHeight()
 
 	m.chats.SetHeight(max(0, m.height-sidebarStatusHeight))
 	m.chats.SetWidth(m.sidebarContentWidth())
 
-	m.input.SetWidth(m.inputFieldWidth())
 	m.viewport.SetWidth(cw)
 	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
 }
@@ -151,9 +165,23 @@ func (m Model) chatAreaWidth() int {
 func (m Model) sidebarContentWidth() int { return max(0, m.sidebarWidth()-1) }
 
 // inputMaxHeight caps how many rows the compose box (a DynamicHeight
-// textarea) can grow to before it starts scrolling internally instead of
-// pushing the viewport further up.
+// textarea) auto-grows to before it starts scrolling internally instead of
+// pushing the viewport further up. A user drag (inputHeightOverride) can
+// still push it taller than this, up to inputHeightMaxDrag.
 const inputMaxHeight = 6
+
+// clamp restricts v to [lo, hi]. hi < lo (a degenerate/negative available
+// space) collapses to lo, same as min/max composed the naive way would.
+func clamp(v, lo, hi int) int {
+	return max(lo, min(v, max(lo, hi)))
+}
+
+// inputHeightMaxDrag caps how tall a user can drag the compose box's top
+// border — leaves at least a couple of rows for the viewport above it so
+// the chat pane never disappears entirely behind the input.
+func (m Model) inputHeightMaxDrag() int {
+	return max(1, m.height-chatStatusHeight-3)
+}
 
 // composeMultiline reports whether the compose box currently renders on more
 // than one row — used to let the up/down arrows move the textarea's cursor

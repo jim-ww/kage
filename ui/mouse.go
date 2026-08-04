@@ -88,6 +88,17 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.resizingInput {
+		if z := m.zone.Get(zonePaneInput); !z.IsZero() {
+			// Dragging the top border up should grow the box (its bottom
+			// edge stays put), so height is measured from the drag point
+			// down to the box's fixed bottom edge, not from its own
+			// (moving) top edge.
+			m.inputHeightOverride = z.EndY - msg.Mouse().Y
+			m.updateSizes()
+		}
+		return m, nil
+	}
 
 	m.hover.id = m.zoneUnderMouse(msg)
 
@@ -182,6 +193,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			m.resizingSidebar = true
 			return m, nil
 		}
+		if z := m.zone.Get(zonePaneInput); !z.IsZero() && msg.Mouse().Y == z.StartY {
+			m.resizingInput = true
+			return m, nil
+		}
 	}
 
 	switch msg.Mouse().Button {
@@ -193,19 +208,28 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleMouseRelease ends a sidebar-border drag started in
-// handleMouseClick; the terminal only sends this once, on button-up. The
-// resulting width is persisted so it's restored on the next launch.
+// handleMouseRelease ends a sidebar-border or compose-box-border drag
+// started in handleMouseClick; the terminal only sends this once, on
+// button-up. The resulting size is persisted so it's restored on the next
+// launch.
 func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
-	if !m.resizingSidebar {
-		return m, nil
-	}
-	m.resizingSidebar = false
-	if m.sidebarWidthSetter == nil {
-		return m, nil
-	}
-	if err := m.sidebarWidthSetter.SetSidebarWidth(m.sidebarWidth()); err != nil {
-		return m, m.showNotification("saving sidebar width: " + err.Error())
+	switch {
+	case m.resizingSidebar:
+		m.resizingSidebar = false
+		if m.sidebarWidthSetter == nil {
+			return m, nil
+		}
+		if err := m.sidebarWidthSetter.SetSidebarWidth(m.sidebarWidth()); err != nil {
+			return m, m.showNotification("saving sidebar width: " + err.Error())
+		}
+	case m.resizingInput:
+		m.resizingInput = false
+		if m.inputHeightSetter == nil {
+			return m, nil
+		}
+		if err := m.inputHeightSetter.SetInputHeight(m.inputHeightOverride); err != nil {
+			return m, m.showNotification("saving compose box height: " + err.Error())
+		}
 	}
 	return m, nil
 }
