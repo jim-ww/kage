@@ -25,9 +25,9 @@
       in {
         packages.default = pkgs.buildGoModule {
           pname = "kage";
-          version = "0.0.1";
+          version = "0.0.2";
           src = pkgs.lib.cleanSource ./.;
-          vendorHash = "sha256-qtmnwBl5Ex50lAXow5suLrqqlNqDQJcIDvoAvweQnhw=";
+          vendorHash = "sha256-c45x+UMljnMmziiKWJ4SnedQILh+Qxfew2Ziphls468=";
 
           nativeCheckInputs = [
             pkgs.gnupg
