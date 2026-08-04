@@ -458,3 +458,25 @@ FROM messages AS m
 WHERE m.accountJID = sqlc.arg(account_jid)
 	AND m.archiveID IS NOT NULL
 GROUP BY m.rosterJID;
+
+
+-- name: MessageExistsByArchiveID :one
+-- Checked before decrypting a XEP-0313 (MAM) archive item, so a page
+-- re-fetched after a stale cursor doesn't re-run OMEMO decrypt (and its
+-- ratchet side effects) on ciphertext already stored.
+SELECT EXISTS (
+	SELECT 1 FROM messages
+	WHERE accountJID = sqlc.arg(account_jid)
+		AND archiveID = sqlc.arg(archive_id)
+);
+
+-- name: MessageExistsByIDAttr :one
+-- Checked before decrypting a live incoming OMEMO message, so a message
+-- already backfilled via MAM (or otherwise already stored) isn't decrypted
+-- a second time.
+SELECT EXISTS (
+	SELECT 1 FROM messages
+	WHERE accountJID = sqlc.arg(account_jid)
+		AND rosterJID = sqlc.arg(roster_jid)
+		AND idAttr = sqlc.arg(id_attr)
+);

@@ -1048,6 +1048,54 @@ func (q *Queries) MarkOmemoSignedPreKeyStale(ctx context.Context, accountJid str
 	return err
 }
 
+const messageExistsByArchiveID = `-- name: MessageExistsByArchiveID :one
+SELECT EXISTS (
+	SELECT 1 FROM messages
+	WHERE accountJID = ?1
+		AND archiveID = ?2
+)
+`
+
+type MessageExistsByArchiveIDParams struct {
+	AccountJid string         `db:"account_jid"`
+	ArchiveID  sql.NullString `db:"archive_id"`
+}
+
+// Checked before decrypting a XEP-0313 (MAM) archive item, so a page
+// re-fetched after a stale cursor doesn't re-run OMEMO decrypt (and its
+// ratchet side effects) on ciphertext already stored.
+func (q *Queries) MessageExistsByArchiveID(ctx context.Context, arg MessageExistsByArchiveIDParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, messageExistsByArchiveID, arg.AccountJid, arg.ArchiveID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const messageExistsByIDAttr = `-- name: MessageExistsByIDAttr :one
+SELECT EXISTS (
+	SELECT 1 FROM messages
+	WHERE accountJID = ?1
+		AND rosterJID = ?2
+		AND idAttr = ?3
+)
+`
+
+type MessageExistsByIDAttrParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+}
+
+// Checked before decrypting a live incoming OMEMO message, so a message
+// already backfilled via MAM (or otherwise already stored) isn't decrypted
+// a second time.
+func (q *Queries) MessageExistsByIDAttr(ctx context.Context, arg MessageExistsByIDAttrParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, messageExistsByIDAttr, arg.AccountJid, arg.RosterJid, arg.IDAttr)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const putOmemoRemoteIdentity = `-- name: PutOmemoRemoteIdentity :exec
 INSERT INTO omemoRemoteIdentity (accountJID, peerJID, deviceID, identityKey)
 VALUES (?1, ?2, ?3, ?4)

@@ -416,6 +416,19 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 		for _, am := range items {
 			afterArchiveID = am.ArchiveID
 
+			// A page re-fetched after a stale cursor (e.g. the previous run
+			// crashed mid-backfill before advancing lastArchiveID) would
+			// otherwise re-run OMEMO decrypt on ciphertext already stored -
+			// wasteful at best, and for a message key already consumed out
+			// of the double ratchet's skip buffer, not guaranteed to fail
+			// cleanly the second time. Check storage before decrypting.
+			if exists, err := s.db.MessageExistsByArchiveID(ctx, storage.MessageExistsByArchiveIDParams{
+				AccountJid: s.account.JID,
+				ArchiveID:  nullString(am.ArchiveID),
+			}); err == nil && exists {
+				continue
+			}
+
 			body := am.Body
 			e2eEncrypted := am.Encrypted != nil || gpg.Looks(body)
 			if am.Encrypted != nil {

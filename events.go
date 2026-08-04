@@ -50,6 +50,23 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	body := msgEv.Body
 	e2eEncrypted := msgEv.Encrypted != nil || gpg.Looks(body)
 	if msgEv.Encrypted != nil {
+		// A message already backfilled via MAM (or otherwise already stored -
+		// e.g. redelivered after a reconnect) would otherwise get OMEMO
+		// decrypt re-run on it here: wasteful at best, and for a message key
+		// already consumed out of the double ratchet's skip buffer, not
+		// guaranteed to fail cleanly the second time. Check storage first.
+		from := bareJID(msgEv.From)
+		if msgEv.ID != "" {
+			if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
+				AccountJid: s.account.JID,
+				RosterJid:  nullString(from),
+				IDAttr:     nullString(msgEv.ID),
+			}); err == nil && exists {
+				debugf("omemo message %s from %s already stored, skipping re-decrypt", msgEv.ID, msgEv.From)
+				return
+			}
+		}
+
 		debugf("received omemo message from %s for %s", msgEv.From, s.account.JID)
 		if s.omemoMgr == nil {
 			debugf("warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
