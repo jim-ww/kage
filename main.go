@@ -304,10 +304,11 @@ func main() {
 		startAccountIdx = cfg.LastChatAccountIdx
 	}
 	display := ui.DisplayOptions{
-		Icons:         cfg.UI.Icons,
-		ShowNames:     cfg.UI.ShowNames,
-		TimeLayout:    cfg.UI.TimeLayout,
-		TimeOnlyToday: cfg.UI.TimeOnlyToday,
+		Icons:              cfg.UI.Icons,
+		ShowNames:          cfg.UI.ShowNames,
+		TimeLayout:         cfg.UI.TimeLayout,
+		TimeOnlyToday:      cfg.UI.TimeOnlyToday,
+		MaxMessagesPerChat: cfg.MaxMessagesPerChat,
 	}
 	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display)
 	p := tea.NewProgram(model)

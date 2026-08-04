@@ -12,24 +12,25 @@ import (
 )
 
 type fileConfig struct {
-	Keybinds        map[string]any `toml:"keybinds"`
-	Theme           ui.Theme       `toml:"theme"`
-	Mouse           *bool          `toml:"mouse"`                       // nil (unset) means the default: on
-	SidebarWidth    int            `toml:"sidebar_width,omitempty"`     // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
-	InputHeight     int            `toml:"input_height,omitempty"`      // persisted from dragging the compose box border; 0 (unset) means the DynamicHeight-based default
-	SidebarHidden   bool           `toml:"sidebar_hidden,omitempty"`    // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
-	Icons           *bool          `toml:"icons"`                       // nil (unset) means the default: on; show icons for attachments/encryption instead of plain-text tags
-	ShowNames       bool           `toml:"show_names,omitempty"`        // show the sender's name in the message header instead of just a direction glyph; off by default
-	TimeLayout      string         `toml:"time_layout,omitempty"`       // custom Go time layout for message timestamps; unset means the default ("15:04"/"2006-01-02 15:04")
-	TimeOnlyToday   *bool          `toml:"time_only_today"`             // nil (unset) means the default: on; with the default time layout, show time-only for messages sent today instead of a full date
-	DefaultAccount  string         `toml:"default_account"`             // JID selected on startup; unset means the first configured account
-	OpenLastChat    *bool          `toml:"open_last_chat"`              // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
-	LastChatAccount string         `toml:"last_chat_account,omitempty"` // JID of the account owning the last opened chat
-	LastChatAddress string         `toml:"last_chat_address,omitempty"` // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
-	Notifications   *bool          `toml:"notifications"`               // nil (unset) means the default: on; whether to spawn the desktop notification daemon
-	HistoryPageSize int            `toml:"history_page_size,omitempty"` // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
-	Storage         StorageConfig  `toml:"storage"`
-	Accounts        []Account      `toml:"accounts"`
+	Keybinds           map[string]any `toml:"keybinds"`
+	Theme              ui.Theme       `toml:"theme"`
+	Mouse              *bool          `toml:"mouse"`                           // nil (unset) means the default: on
+	SidebarWidth       int            `toml:"sidebar_width,omitempty"`         // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
+	InputHeight        int            `toml:"input_height,omitempty"`          // persisted from dragging the compose box border; 0 (unset) means the DynamicHeight-based default
+	SidebarHidden      bool           `toml:"sidebar_hidden,omitempty"`        // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
+	Icons              *bool          `toml:"icons"`                           // nil (unset) means the default: on; show icons for attachments/encryption instead of plain-text tags
+	ShowNames          bool           `toml:"show_names,omitempty"`            // show the sender's name in the message header instead of just a direction glyph; off by default
+	TimeLayout         string         `toml:"time_layout,omitempty"`           // custom Go time layout for message timestamps; unset means the default ("15:04"/"2006-01-02 15:04")
+	TimeOnlyToday      *bool          `toml:"time_only_today"`                 // nil (unset) means the default: on; with the default time layout, show time-only for messages sent today instead of a full date
+	DefaultAccount     string         `toml:"default_account"`                 // JID selected on startup; unset means the first configured account
+	OpenLastChat       *bool          `toml:"open_last_chat"`                  // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
+	LastChatAccount    string         `toml:"last_chat_account,omitempty"`     // JID of the account owning the last opened chat
+	LastChatAddress    string         `toml:"last_chat_address,omitempty"`     // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
+	Notifications      *bool          `toml:"notifications"`                   // nil (unset) means the default: on; whether to spawn the desktop notification daemon
+	HistoryPageSize    int            `toml:"history_page_size,omitempty"`     // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
+	MaxMessagesPerChat int            `toml:"max_messages_per_chat,omitempty"` // cap on messages kept in memory/view per chat; 0 (unset) means the default
+	Storage            StorageConfig  `toml:"storage"`
+	Accounts           []Account      `toml:"accounts"`
 }
 
 // StorageConfig configures the password local message history is encrypted
@@ -77,6 +78,13 @@ type Config struct {
 	// scrolls up — keeps very long histories from being decrypted/rendered
 	// all at once. DefaultHistoryPageSize when unset or non-positive.
 	HistoryPageSize int
+	// MaxMessagesPerChat caps how many messages are kept loaded in memory/view
+	// per chat — older messages beyond this are dropped from the UI slice
+	// (still intact in storage, reloadable via "load older") as new ones
+	// come in from live traffic or MAM sync, keeping very long histories or
+	// large MAM backfills from growing the in-memory view unbounded.
+	// DefaultMaxMessagesPerChat when unset or non-positive.
+	MaxMessagesPerChat int
 	// Path is the config file this was actually loaded from, or the
 	// default write location if none was found — always non-empty, so
 	// callers that need to persist a change (e.g. an auto-detected GPG key)
@@ -88,6 +96,10 @@ type Config struct {
 // when history_page_size isn't set in config.toml.
 const DefaultHistoryPageSize = 200
 
+// DefaultMaxMessagesPerChat is how many messages are kept loaded per chat
+// when max_messages_per_chat isn't set in config.toml.
+const DefaultMaxMessagesPerChat = 1000
+
 func Load(path string) (Config, error) {
 	cfgOut := Config{
 		UI: UIConfig{
@@ -98,8 +110,9 @@ func Load(path string) (Config, error) {
 			TimeOnlyToday: true,
 			Icons:         true,
 		},
-		Notifications:   true,
-		HistoryPageSize: DefaultHistoryPageSize,
+		Notifications:      true,
+		HistoryPageSize:    DefaultHistoryPageSize,
+		MaxMessagesPerChat: DefaultMaxMessagesPerChat,
 	}
 	paths := append([]string{path}, candidatePaths()...)
 	for _, path := range paths {
@@ -136,6 +149,9 @@ func Load(path string) (Config, error) {
 			}
 			if cfg.HistoryPageSize > 0 {
 				cfgOut.HistoryPageSize = cfg.HistoryPageSize
+			}
+			if cfg.MaxMessagesPerChat > 0 {
+				cfgOut.MaxMessagesPerChat = cfg.MaxMessagesPerChat
 			}
 			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts

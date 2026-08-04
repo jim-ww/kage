@@ -8,6 +8,52 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// trimMessagesFront drops the oldest messages from msgs so at most limit
+// remain, used when new messages are appended at the tail (live incoming
+// traffic, MAM sync backfill) and the chat has grown past the configured
+// cap. Returns the trimmed slice and how many messages were dropped so the
+// caller can adjust any index (selectedMsg, ReplyTo) that pointed into the
+// old slice. limit <= 0 disables trimming.
+func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
+	if limit <= 0 || len(msgs) <= limit {
+		return msgs, 0
+	}
+	drop := len(msgs) - limit
+	trimmed := make([]Message, limit)
+	copy(trimmed, msgs[drop:])
+	for i := range trimmed {
+		if trimmed[i].ReplyTo == nil {
+			continue
+		}
+		if *trimmed[i].ReplyTo < drop {
+			trimmed[i].ReplyTo = nil
+		} else {
+			shifted := *trimmed[i].ReplyTo - drop
+			trimmed[i].ReplyTo = &shifted
+		}
+	}
+	return trimmed, drop
+}
+
+// trimMessagesBack drops the newest messages from msgs so at most limit
+// remain, used after prepending an older-history page ("load older") pushes
+// the chat past the configured cap — the messages dropped here are the ones
+// furthest from what the user just scrolled to. limit <= 0 disables
+// trimming.
+func trimMessagesBack(msgs []Message, limit int) []Message {
+	if limit <= 0 || len(msgs) <= limit {
+		return msgs
+	}
+	trimmed := make([]Message, limit)
+	copy(trimmed, msgs[:limit])
+	for i := range trimmed {
+		if trimmed[i].ReplyTo != nil && *trimmed[i].ReplyTo >= limit {
+			trimmed[i].ReplyTo = nil
+		}
+	}
+	return trimmed
+}
+
 // handleEventMsg handles every non-key message Update can receive (window
 // resizes, mouse events, and all the async network/timer messages). handled
 // is false only when msg isn't one of these — Update then falls through to
@@ -93,6 +139,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			newMsg.ReplyTo = &replyIdx
 		}
 		msgs = append(msgs, newMsg)
+		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
@@ -114,9 +161,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
 			newMsg.ReplyTo = &replyIdx
 		}
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = append(msgs, newMsg)
+		msgs = append(msgs, newMsg)
+		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
-			m.selectedMsg = len(m.accounts[msg.AccountIdx].Messages[chatIdx]) - 1
+			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
@@ -149,12 +198,17 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				existing[i].ReplyTo = &shifted
 			}
 		}
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = append(msg.Messages, existing...)
+		combined := append(msg.Messages, existing...)
+		combined = trimMessagesBack(combined, m.maxMessagesPerChat)
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = combined
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			// Prepended messages shift every existing index up by
 			// len(msg.Messages) — keep the selection on the same message
 			// rather than letting it silently jump.
 			m.selectedMsg += len(msg.Messages)
+			if m.selectedMsg >= len(combined) {
+				m.selectedMsg = len(combined) - 1
+			}
 			m.refreshViewportScrollTo(m.selectedMsg)
 		}
 		return m, nil, true
@@ -322,6 +376,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
 		msgs := append(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Messages...)
+		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
