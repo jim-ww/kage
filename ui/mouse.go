@@ -84,7 +84,13 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 
 	if m.contextMenu == nil {
 		if m.zone.Get(zonePaneSidebar).InBounds(msg) {
-			m.selectedView = viewChats
+			// Don't steal focus away from the account manager — it renders
+			// inside this same sidebar zone, so hovering an account row
+			// would otherwise bounce selectedView back to viewChats and
+			// the popup would look like it instantly closed.
+			if m.selectedView != viewAccounts {
+				m.selectedView = viewChats
+			}
 		} else if m.zone.Get(zonePaneViewport).InBounds(msg) || m.zone.Get(zonePaneInput).InBounds(msg) {
 			if m.currentChatIndex() >= 0 {
 				m.selectedView = viewChat
