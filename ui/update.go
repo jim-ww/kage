@@ -442,6 +442,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.Blur()
 			return m, nil
 
+		case key.Matches(msg, m.keys.ToggleSidebar):
+			m.sidebarHidden = !m.sidebarHidden
+			return m, nil
+
 		case key.Matches(msg, m.keys.ChatOpen):
 			if m.selectedView == viewChats {
 				return m.openCurrentChat()

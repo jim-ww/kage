@@ -363,6 +363,10 @@ type Model struct {
 	// pressed until the mouse button is released (tea.MouseReleaseMsg),
 	// even if the pointer drifts off the border column mid-drag.
 	resizingSidebar bool
+	// sidebarHidden is true when the chat list sidebar has been toggled off
+	// (Ctrl+\ or the toggle button) — sidebarWidth/chatAreaWidth collapse to
+	// give the chat area the full width.
+	sidebarHidden bool
 
 	accounts       []Account
 	currentAccount int
@@ -599,6 +603,9 @@ func (m Model) sidebarMaxWidth() int {
 }
 
 func (m Model) sidebarWidth() int {
+	if m.sidebarHidden {
+		return 0
+	}
 	if m.sidebarWidthOverride > 0 {
 		return min(max(m.sidebarWidthOverride, sidebarMinWidth), m.sidebarMaxWidth())
 	}
@@ -612,7 +619,12 @@ func (m Model) sidebarWidth() int {
 	}
 	return min(w, m.width)
 }
-func (m Model) chatAreaWidth() int { return m.width - m.sidebarWidth() - 1 }
+func (m Model) chatAreaWidth() int {
+	if m.sidebarHidden {
+		return m.width
+	}
+	return m.width - m.sidebarWidth() - 1
+}
 
 // sidebarContentWidth is how wide content rendered *inside* the sidebar box
 // (the chat list, the account bar, the accounts list) may be — sidebarWidth

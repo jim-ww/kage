@@ -46,7 +46,10 @@ func (m Model) View() tea.View {
 		statusLine,
 		m.styles.sidebarInner(scw, max(0, m.height-sidebarStatusHeight), sidebarBody),
 	)
-	sidebar := m.zone.Mark(zonePaneSidebar, m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner))
+	sidebar := ""
+	if !m.sidebarHidden {
+		sidebar = m.zone.Mark(zonePaneSidebar, m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner))
+	}
 
 	// ── Input box ──────────────────────────────────────────────────────────
 	inputBorder := colors.borderD
@@ -100,9 +103,11 @@ func (m Model) View() tea.View {
 		viewportArea = m.zone.Mark(zonePaneViewport, m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody))
 	}
 
-	chatStatus := m.styles.chatStatusLine(
-		m.chatAreaWidth(),
-		m.renderChatStatusBar(m.chatAreaWidth()),
+	toggleBtn := m.zone.Mark(zoneToggleSidebar, m.styles.renderSidebarToggleButton(m.sidebarHidden, m.isHovered(zoneToggleSidebar)))
+	statusWidth := max(0, m.chatAreaWidth()-lipgloss.Width(toggleBtn))
+	chatStatus := lipgloss.JoinHorizontal(lipgloss.Top,
+		toggleBtn,
+		m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth)),
 	)
 	chatArea := lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 

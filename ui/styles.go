@@ -464,6 +464,22 @@ func (s uiStyles) renderSendButton(hovered bool) string {
 	return st.Render(sendButtonLabel)
 }
 
+// renderSidebarToggleButton renders the chat-status-bar icon button that
+// shows/hides the chat list sidebar (mirrors DefaultKeyMap.ToggleSidebar,
+// bound to Ctrl+\). Shows a closed-side icon when the list is hidden (click
+// to open it) and an open-side icon when visible (click to close it).
+func (s uiStyles) renderSidebarToggleButton(hidden, hovered bool) string {
+	icon := " ◧ "
+	if hidden {
+		icon = " ◨ "
+	}
+	st := s.sendButton
+	if hovered {
+		st = st.Reverse(true)
+	}
+	return st.Render(icon)
+}
+
 // contextMenuRow renders one action label, padded/highlighted to width so
 // every row is a consistent, easy-to-hit target — narrow rows packed
 // tightly together (the original complaint) invite misclicks.

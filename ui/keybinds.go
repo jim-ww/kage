@@ -30,6 +30,7 @@ type KeyMap struct {
 	AddAccount    key.Binding // a — open the add-account form (only while accounts panel is focused)
 	AttachFile    key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
 	RenameChat    key.Binding // r — open the rename-contact prompt for the selected chat
+	ToggleSidebar key.Binding // Ctrl+\ — show/hide the chat list sidebar
 	ListKeys      list.KeyMap
 	TextInputKeys textinput.KeyMap
 }
@@ -51,27 +52,28 @@ func NewBinding(keys []string, desc string) key.Binding {
 }
 
 var DefaultKeyMap = KeyMap{
-	Quit:       NewBinding([]string{"q", "ctrl+c"}, "quit"),
-	Back:       NewBinding([]string{"esc"}, "back to chats"),
-	Switch:     NewBinding([]string{"tab"}, "switch focus"),
-	FocusChats: NewBinding([]string{"\\"}, "focus chats"),
-	ChatOpen:   NewBinding([]string{"l", "right"}, "open chat"),
-	SelectSend: NewBinding([]string{"enter"}, "select/send"),
-	MsgUp:      NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
-	MsgDown:    NewBinding([]string{"ctrl+j", "down"}, "next msg"),
-	DeleteMsg:  NewBinding([]string{"ctrl+d"}, "delete"),
-	YankMsg:    NewBinding([]string{"ctrl+y"}, "yank"),
-	EditMsg:    NewBinding([]string{"ctrl+e"}, "edit (own last)"),
-	ReplyMsg:   NewBinding([]string{"ctrl+r"}, "reply"),
-	InfoMsg:    NewBinding([]string{"ctrl+g"}, "message info"),
-	OpenMsg:    NewBinding([]string{"ctrl+o"}, "open links/attachments"),
-	SaveMsg:    NewBinding([]string{"ctrl+w"}, "save links/attachments"),
-	ReactMsg:   NewBinding([]string{"ctrl+t"}, "react"),
-	ConfirmYes: NewBinding([]string{"y"}, "yes"),
-	ConfirmNo:  NewBinding([]string{"n", "esc"}, "no"),
-	AddAccount: NewBinding([]string{"a"}, "add account"),
-	AttachFile: NewBinding([]string{"ctrl+f"}, "attach file"),
-	RenameChat: NewBinding([]string{"r"}, "rename chat"),
+	Quit:          NewBinding([]string{"q", "ctrl+c"}, "quit"),
+	Back:          NewBinding([]string{"esc"}, "back to chats"),
+	Switch:        NewBinding([]string{"tab"}, "switch focus"),
+	FocusChats:    NewBinding([]string{"\\"}, "focus chats"),
+	ChatOpen:      NewBinding([]string{"l", "right"}, "open chat"),
+	SelectSend:    NewBinding([]string{"enter"}, "select/send"),
+	MsgUp:         NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
+	MsgDown:       NewBinding([]string{"ctrl+j", "down"}, "next msg"),
+	DeleteMsg:     NewBinding([]string{"ctrl+d"}, "delete"),
+	YankMsg:       NewBinding([]string{"ctrl+y"}, "yank"),
+	EditMsg:       NewBinding([]string{"ctrl+e"}, "edit (own last)"),
+	ReplyMsg:      NewBinding([]string{"ctrl+r"}, "reply"),
+	InfoMsg:       NewBinding([]string{"ctrl+g"}, "message info"),
+	OpenMsg:       NewBinding([]string{"ctrl+o"}, "open links/attachments"),
+	SaveMsg:       NewBinding([]string{"ctrl+w"}, "save links/attachments"),
+	ReactMsg:      NewBinding([]string{"ctrl+t"}, "react"),
+	ConfirmYes:    NewBinding([]string{"y"}, "yes"),
+	ConfirmNo:     NewBinding([]string{"n", "esc"}, "no"),
+	AddAccount:    NewBinding([]string{"a"}, "add account"),
+	AttachFile:    NewBinding([]string{"ctrl+f"}, "attach file"),
+	RenameChat:    NewBinding([]string{"r"}, "rename chat"),
+	ToggleSidebar: NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -86,7 +88,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
 		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.ReactMsg},
-		{k.AddAccount, k.AttachFile, k.RenameChat},
+		{k.AddAccount, k.AttachFile, k.RenameChat, k.ToggleSidebar},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -137,6 +139,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.RenameChat, "rename"),
 			part(k.DeleteMsg, "delete"),
 			part(k.ListKeys.Filter, "filter"),
+			part(k.ToggleSidebar, "hide list"),
 			part(k.Switch, "accounts"),
 			part(k.Quit, "quit"),
 		}, " · ")
@@ -162,6 +165,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.SaveMsg, "save"),
 			part(k.AttachFile, "attach"),
 			part(k.FocusChats, "chats"),
+			part(k.ToggleSidebar, "hide list"),
 			part(k.Back, "back"),
 		}, " · ")
 	default:

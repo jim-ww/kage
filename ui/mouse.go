@@ -20,6 +20,7 @@ const (
 	zonePaneInput      = "pane-input"
 	zonePaneAccountBar = "pane-account-bar"
 	zoneSendButton     = "send-button"
+	zoneToggleSidebar  = "toggle-sidebar-button"
 )
 
 func zoneAccountRow(i int) string      { return fmt.Sprintf("account-row-%d", i) }
@@ -136,6 +137,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.zone.Get(zoneSendButton).InBounds(mouse) {
 		return zoneSendButton
 	}
+	if m.zone.Get(zoneToggleSidebar).InBounds(mouse) {
+		return zoneToggleSidebar
+	}
 	if m.zone.Get(zonePaneAccountBar).InBounds(mouse) {
 		return zonePaneAccountBar
 	}
@@ -236,6 +240,11 @@ func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 // three panes (sidebar / viewport / input) when the click missed anything
 // more specific inside it.
 func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if m.zone.Get(zoneToggleSidebar).InBounds(msg) {
+		m.sidebarHidden = !m.sidebarHidden
+		return m, nil
+	}
+
 	for i := range m.emojiSuggestions {
 		if m.zone.Get(zoneEmojiSuggestion(i)).InBounds(msg) {
 			m.acceptEmojiSuggestion(i)
