@@ -390,6 +390,16 @@ func (s uiStyles) sidebarStatusLine(width int, bg, fg color.Color, content strin
 		Render(content)
 }
 
+// chatStatusLine renders the chat pane's status bar (peer name/presence,
+// typing indicator) centered; the content is expected to already be colored
+// (see renderChatStatusBar) to match our own messages' "» [time]" glyph.
+func (s uiStyles) chatStatusLine(width int, content string) string {
+	return s.sidebarStatus.
+		Width(width).
+		Align(lipgloss.Center).
+		Render(content)
+}
+
 func (s uiStyles) sidebarInner(width, height int, content string) string {
 	return s.sidebarPanel.
 		Width(width).

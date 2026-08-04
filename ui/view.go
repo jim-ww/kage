@@ -99,10 +99,8 @@ func (m Model) View() tea.View {
 		viewportArea = m.zone.Mark(zonePaneViewport, m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody))
 	}
 
-	chatStatus := m.styles.sidebarStatusLine(
+	chatStatus := m.styles.chatStatusLine(
 		m.chatAreaWidth(),
-		colors.panelEdge,
-		colors.statusFg,
 		m.renderChatStatusBar(m.chatAreaWidth()),
 	)
 	chatArea := lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
@@ -391,11 +389,16 @@ func (m Model) renderChatStatusBar(width int) string {
 	case strings.HasPrefix(chat.Name, "#"):
 		label = chat.Name
 	}
-	if chat.Address != "" {
-		label = presenceGlyph(chat.Presence) + " " + label
-	}
 	if chat.Typing {
 		label += "  ·  typing..."
+	}
+	// nickMe-color the text ourselves rather than let chatStatusLine wrap
+	// the whole string in one Foreground — presenceGlyph's own Render call
+	// ends in a full ANSI reset, which would otherwise cut the outer color
+	// off right after the dot, leaving the rest of the label uncolored.
+	label = m.styles.messageNickMe.Render(label)
+	if chat.Address != "" {
+		label = presenceGlyph(chat.Presence) + " " + label
 	}
 
 	return ansi.Truncate(label, max(1, width-2), "…")

@@ -10,7 +10,6 @@
 - file picker: add fuzzy find on '/'
 - add padding for messages names to make messages start from same point?
 - fix(save as): must always ask for location. add UI component?
-- move statuline to center
 - add loading indicator (spinning line | ) for uploading files
 - show files in chat more beautifully: add normalized name for uploaded files and show nice icons based on file type
 - code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
