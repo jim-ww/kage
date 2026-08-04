@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -180,6 +181,20 @@ func applyTextInputStyles(ti *textinput.Model, colors uiColors) {
 	tiStyles.Blurred.Placeholder = tiStyles.Blurred.Placeholder.Foreground(colors.time)
 	tiStyles.Cursor.Color = colors.accentCyan
 	ti.SetStyles(tiStyles)
+}
+
+func applyTextAreaStyles(ta *textarea.Model, colors uiColors) {
+	taStyles := ta.Styles()
+	taStyles.Focused.Prompt = taStyles.Focused.Prompt.Foreground(colors.accentCyan)
+	taStyles.Focused.Text = taStyles.Focused.Text.Foreground(colors.themFg)
+	taStyles.Focused.Placeholder = taStyles.Focused.Placeholder.Foreground(colors.time)
+	taStyles.Focused.CursorLine = taStyles.Focused.CursorLine.UnsetBackground()
+	taStyles.Blurred.Prompt = taStyles.Blurred.Prompt.Foreground(colors.borderD)
+	taStyles.Blurred.Text = taStyles.Blurred.Text.Foreground(colors.textMuted)
+	taStyles.Blurred.Placeholder = taStyles.Blurred.Placeholder.Foreground(colors.time)
+	taStyles.Blurred.CursorLine = taStyles.Blurred.CursorLine.UnsetBackground()
+	taStyles.Cursor.Color = colors.accentCyan
+	ta.SetStyles(taStyles)
 }
 
 func applyFilePickerStyles(p *filepicker.Model, colors uiColors) {

@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -54,7 +55,7 @@ type Model struct {
 	currentAccount int
 	chats          list.Model
 
-	input    textinput.Model
+	input    textarea.Model
 	viewport viewport.Model
 
 	// message interaction state
@@ -148,12 +149,16 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	l.InfiniteScrolling = true
 	applyChatListStyles(&l, styles.colors)
 
-	ti := textinput.New()
+	ti := textarea.New()
 	ti.Placeholder = "message..."
 	ti.Prompt = "› "
-	ti.KeyMap = keys.TextInputKeys
+	ti.ShowLineNumbers = false
+	ti.KeyMap = keys.InputAreaKeys
+	ti.DynamicHeight = true
+	ti.MinHeight = 1
+	ti.MaxHeight = inputMaxHeight
 	ti.Focus()
-	applyTextInputStyles(&ti, styles.colors)
+	applyTextAreaStyles(&ti, styles.colors)
 	picker := filepicker.New()
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		picker.CurrentDirectory = home

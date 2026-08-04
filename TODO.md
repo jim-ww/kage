@@ -1,11 +1,10 @@
+- improve chat view text input. shift+enter should break to new line, and also show multiline properly
 - chat view: add attach file, emoji buttons
 - message status? 'sent' / 'delivered' icons?
-- save last chat ID? open it on startup, if exists
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
-- improve chat view text input. shift+enter should break to new line, and also show multiline properly
 - account manager should look like button and show hover indication
 - account manager: remove 'accounts:' labewnloaded
-- add config ui toggle options (e.g. show/hide names in chat, show glyphs in chat, chat date layout)
+- add config ui toggle options (e.g. show/hide names in chat, show glyphs in chat, chat time/date layout + only show time (if its today)(only with default time layout))
 - code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
 - preview files text contents
 - account manager: fix adding duplicate accounts

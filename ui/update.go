@@ -72,6 +72,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		oldValue := m.input.Value()
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
+		if m.input.Value() != oldValue {
+			// The textarea grows/shrinks with content (DynamicHeight), which
+			// shifts inputAreaHeight() — the viewport must be resized in
+			// lockstep or it'll under/overlap the compose box by however
+			// many rows just changed.
+			m.updateSizes()
+		}
 		// This branch runs for every message type routed here, including
 		// the textinput cursor-blink tick — not just keystrokes. Recomputing
 		// (and resetting the highlighted suggestion) on every blink would

@@ -150,10 +150,18 @@ func (m Model) chatAreaWidth() int {
 // column and wrap every single line.
 func (m Model) sidebarContentWidth() int { return max(0, m.sidebarWidth()-1) }
 
-// inputAreaHeight accounts for the optional reply-hint / reacting-hint line.
+// inputMaxHeight caps how many rows the compose box (a DynamicHeight
+// textarea) can grow to before it starts scrolling internally instead of
+// pushing the viewport further up.
+const inputMaxHeight = 6
+
+// inputAreaHeight accounts for the optional reply-hint / reacting-hint line
+// plus however many rows the compose textarea currently occupies (it grows
+// with multi-line content, up to inputMaxHeight).
 func (m Model) inputAreaHeight() int {
+	h := 1 + m.input.Height() // top border + input rows
 	if m.replyToIdx >= 0 || m.reactingMsgIdx >= 0 {
-		return 3 // top border + hint line + input line
+		h++ // hint line
 	}
-	return 2 // top border + input line
+	return h
 }

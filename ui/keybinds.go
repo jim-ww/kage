@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 )
 
@@ -33,6 +34,22 @@ type KeyMap struct {
 	ToggleSidebar key.Binding // Ctrl+\ — show/hide the chat list sidebar
 	ListKeys      list.KeyMap
 	TextInputKeys textinput.KeyMap
+	InputAreaKeys textarea.KeyMap
+}
+
+// defaultInputAreaKeys is textarea.DefaultKeyMap with InsertNewline moved off
+// plain "enter" — enter is globally bound to SelectSend (send the message),
+// so the compose box's own newline key must be something else to avoid the
+// two racing for the same keypress. shift+enter only arrives as a distinct
+// key when the terminal supports the Kitty keyboard protocol (kitty,
+// wezterm, ghostty, alacritty, foot, ...) — plain VTE/xterm-family terminals
+// and unpatched tmux report it identically to bare enter, which SelectSend
+// would swallow first. alt+enter (ESC + CR, no special protocol needed) is
+// kept as a fallback that works in effectively every terminal.
+func defaultInputAreaKeys() textarea.KeyMap {
+	km := textarea.DefaultKeyMap()
+	km.InsertNewline = key.NewBinding(key.WithKeys("shift+enter", "alt+enter"), key.WithHelp("shift+enter", "new line"))
+	return km
 }
 
 // caretKey shortens a "ctrl+x" key label to "^X" — the footer hint is
@@ -77,6 +94,7 @@ var DefaultKeyMap = KeyMap{
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
+	InputAreaKeys: defaultInputAreaKeys(),
 }
 
 func (k KeyMap) ShortHelp() []key.Binding {
