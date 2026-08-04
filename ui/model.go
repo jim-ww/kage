@@ -608,6 +608,33 @@ func (m Model) inputFieldWidth() int {
 
 const sidebarMinWidth = 20
 
+// narrowWidth is the terminal width below which there isn't room to show the
+// chat list and a chat side by side at all — below it the layout collapses
+// to a single full-width pane (list or chat), switched with ToggleSidebar /
+// opening a chat, like a phone-sized single-column view. Unlike sidebarHidden
+// this is never persisted: it's a property of the current terminal size, not
+// a user preference, and stops applying the moment the window is widened.
+const narrowWidth = 60
+
+func (m Model) narrow() bool { return m.width < narrowWidth }
+
+// popupActive reports whether a popup/form is on screen that renders inside
+// the chat area regardless of which pane is logically focused (context menu,
+// delete/info dialogs, add-account/rename-chat forms, the open-item or file
+// picker). In narrow mode these need the full-width chat pane to render
+// into even while the chat list is the logically selected view.
+func (m Model) popupActive() bool {
+	return m.contextMenu != nil || m.confirmTarget != confirmNone || m.showMsgInfo ||
+		m.addingAccount || m.renamingChat || len(m.openItems) > 0 || m.pickingFile
+}
+
+// narrowShowChat reports, in narrow mode, whether the single visible pane
+// should be the chat (true) or the chat list (false). Meaningless outside
+// narrow mode, where both panes are shown together.
+func (m Model) narrowShowChat() bool {
+	return m.selectedView == viewChat || m.popupActive()
+}
+
 // sidebarMaxWidth caps how wide a user-drag can push the sidebar, leaving
 // at least this much room for the chat area.
 func (m Model) sidebarMaxWidth() int {
@@ -615,6 +642,12 @@ func (m Model) sidebarMaxWidth() int {
 }
 
 func (m Model) sidebarWidth() int {
+	if m.narrow() {
+		if m.narrowShowChat() {
+			return 0
+		}
+		return m.width
+	}
 	if m.sidebarHidden {
 		return 0
 	}
@@ -632,10 +665,22 @@ func (m Model) sidebarWidth() int {
 	return min(w, m.width)
 }
 
-// toggleSidebar flips sidebarHidden and persists the new value (if a
-// SidebarHiddenSetter is wired up), so the chat list's visibility survives
-// across launches like its dragged width does — see SidebarHiddenSetter.
+// toggleSidebar is bound to ToggleSidebar (Ctrl+\) and the chat-status-bar
+// button. In narrow mode it just flips which single pane is shown (chat vs.
+// list) — an ephemeral, unpersisted choice driven by the current terminal
+// size, mirroring how opening a chat already replaces the list. At normal
+// width it flips sidebarHidden and persists the choice (if a
+// SidebarHiddenSetter is wired up) so it survives across launches like the
+// dragged sidebar width does — see SidebarHiddenSetter.
 func (m Model) toggleSidebar() (Model, tea.Cmd) {
+	if m.narrow() {
+		if m.selectedView == viewChat {
+			m.setSelectedView(viewChats)
+			return m, nil
+		}
+		_, cmd := (&m).openCurrentChat()
+		return m, cmd
+	}
 	m.sidebarHidden = !m.sidebarHidden
 	if m.sidebarHiddenSetter == nil {
 		return m, nil
@@ -647,6 +692,12 @@ func (m Model) toggleSidebar() (Model, tea.Cmd) {
 }
 
 func (m Model) chatAreaWidth() int {
+	if m.narrow() {
+		if m.narrowShowChat() {
+			return m.width
+		}
+		return 0
+	}
 	if m.sidebarHidden {
 		return m.width
 	}

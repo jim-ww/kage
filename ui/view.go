@@ -47,10 +47,35 @@ func (m Model) View() tea.View {
 		m.styles.sidebarInner(scw, max(0, m.height-sidebarStatusHeight), sidebarBody),
 	)
 	sidebar := ""
-	if !m.sidebarHidden {
+	if sw > 0 {
 		sidebar = m.zone.Mark(zonePaneSidebar, m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner))
 	}
 
+	chatArea := ""
+	if m.chatAreaWidth() > 0 {
+		chatArea = m.renderChatArea(colors)
+	}
+
+	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea)
+	footerText := wrapFooterHint(m.keys.helpHint(m.selectedView), max(1, m.width-2), footerMaxLines)
+	footer := m.styles.footerBar(m.width, footerText)
+	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, "", footer))
+
+	v := tea.NewView(m.zone.Scan(root))
+	v.AltScreen = true
+	if m.mouseEnabled {
+		// AllMotion (not just CellMotion) so hover highlighting works without
+		// a button held — see handleMouseMotion.
+		v.MouseMode = tea.MouseModeAllMotion
+	}
+	return v
+}
+
+// renderChatArea builds the chat status bar + viewport/popup + input box
+// column. Only called when chatAreaWidth() > 0 — in narrow mode that's
+// exactly when the chat pane (rather than the chat list) is the single
+// visible pane.
+func (m Model) renderChatArea(colors uiColors) string {
 	// ── Input box ──────────────────────────────────────────────────────────
 	inputBorder := colors.borderD
 	if m.selectedView == viewChat {
@@ -103,27 +128,18 @@ func (m Model) View() tea.View {
 		viewportArea = m.zone.Mark(zonePaneViewport, m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody))
 	}
 
-	toggleBtn := m.zone.Mark(zoneToggleSidebar, m.styles.renderSidebarToggleButton(m.sidebarHidden, m.isHovered(zoneToggleSidebar)))
+	// renderChatArea is only called when the chat pane is the visible one, so
+	// in narrow mode the list is by definition hidden right now — the icon
+	// should always offer to bring it back, regardless of sidebarHidden
+	// (which narrow mode ignores; see sidebarWidth/chatAreaWidth).
+	listHidden := m.sidebarHidden || m.narrow()
+	toggleBtn := m.zone.Mark(zoneToggleSidebar, m.styles.renderSidebarToggleButton(listHidden, m.isHovered(zoneToggleSidebar)))
 	statusWidth := max(0, m.chatAreaWidth()-lipgloss.Width(toggleBtn))
 	chatStatus := lipgloss.JoinHorizontal(lipgloss.Top,
 		toggleBtn,
 		m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth)),
 	)
-	chatArea := lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
-
-	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea)
-	footerText := wrapFooterHint(m.keys.helpHint(m.selectedView), max(1, m.width-2), footerMaxLines)
-	footer := m.styles.footerBar(m.width, footerText)
-	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, "", footer))
-
-	v := tea.NewView(m.zone.Scan(root))
-	v.AltScreen = true
-	if m.mouseEnabled {
-		// AllMotion (not just CellMotion) so hover highlighting works without
-		// a button held — see handleMouseMotion.
-		v.MouseMode = tea.MouseModeAllMotion
-	}
-	return v
+	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 }
 
 // wrapFooterHint word-wraps a helpHint string (entries joined by " · ", each
