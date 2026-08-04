@@ -417,6 +417,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			afterArchiveID = am.ArchiveID
 
 			body := am.Body
+			e2eEncrypted := am.Encrypted != nil || gpg.Looks(body)
 			if am.Encrypted != nil {
 				if s.omemoMgr == nil {
 					body = "[message could not be decrypted: omemo isn't ready]"
@@ -443,10 +444,11 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				ToAttr:     nullString(am.To),
 				FromAttr:   nullString(am.From),
 				IDAttr:     nullString(am.ID),
-				Body:       sealedBody,
-				Encrypted:  encrypted,
-				StanzaType: "chat",
-				Delay:      am.SentAt.Unix(),
+				Body:         sealedBody,
+				Encrypted:    encrypted,
+				E2eEncrypted: e2eEncrypted,
+				StanzaType:   "chat",
+				Delay:        am.SentAt.Unix(),
 				RosterJid:  nullString(peerJID),
 				ArchiveID:  nullString(am.ArchiveID),
 			})
@@ -471,6 +473,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				Content:     body,
 				SentAt:      am.SentAt,
 				IsMe:        sent,
+				Encrypted:   e2eEncrypted,
 				Attachments: attachmentURLs(body),
 			})
 		}

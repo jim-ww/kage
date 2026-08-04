@@ -55,6 +55,7 @@ INSERT INTO messages (
 	idAttr,
 	body,
 	encrypted,
+	e2eEncrypted,
 	stanzaType,
 	originID,
 	delay,
@@ -70,6 +71,7 @@ VALUES (
 	sqlc.arg(id_attr),
 	sqlc.arg(body),
 	sqlc.arg(encrypted),
+	sqlc.arg(e2e_encrypted),
 	sqlc.arg(stanza_type),
 	sqlc.arg(origin_id),
 	IFNULL(
@@ -133,6 +135,7 @@ SELECT
 	idAttr,
 	body,
 	encrypted,
+	e2eEncrypted,
 	stanzaType,
 	delay,
 	replyToIdAttr,

@@ -48,11 +48,18 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	if !sameDay(msg.SentAt, time.Now()) {
 		timeLabel = msg.SentAt.Format("2006-01-02 15:04")
 	}
+	if msg.Encrypted {
+		lockIcon := "🔒"
+		if m.nerdFontIcons {
+			lockIcon = "" // nf-fa-lock
+		}
+		timeLabel += " " + lockIcon
+	}
 	dirGlyph := "«"
 	if msg.IsMe {
 		dirGlyph = "»"
 	}
-	headerPlain := fmt.Sprintf("%s [%s] ", dirGlyph, timeLabel)
+	headerPlain := fmt.Sprintf("%s [%s ] ", dirGlyph, timeLabel)
 	header := m.styles.renderMessageHeader(timeLabel, msg.IsMe)
 	indent := strings.Repeat(" ", lipgloss.Width(headerPlain))
 	wrapWidth := totalWidth - lipgloss.Width(prefix) - lipgloss.Width(indent)

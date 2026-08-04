@@ -48,6 +48,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	}
 
 	body := msgEv.Body
+	e2eEncrypted := msgEv.Encrypted != nil || gpg.Looks(body)
 	if msgEv.Encrypted != nil {
 		debugf("received omemo message from %s for %s", msgEv.From, s.account.JID)
 		if s.omemoMgr == nil {
@@ -113,6 +114,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		IDAttr:        nullString(msgEv.ID),
 		Body:          sealedBody,
 		Encrypted:     encrypted,
+		E2eEncrypted:  e2eEncrypted,
 		StanzaType:    "chat",
 		RosterJid:     nullString(from),
 		ReplyToIDAttr: nullString(msgEv.ReplyToID),
@@ -130,6 +132,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			Content:     body,
 			SentAt:      msgEv.SentAt,
 			IsMe:        false,
+			Encrypted:   e2eEncrypted,
 			Attachments: attachmentURLs(body),
 		},
 	})

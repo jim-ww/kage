@@ -15,6 +15,10 @@ type Message struct {
 	ReplyTo     *int     // index into the message slice; nil = not a reply
 	Attachments []string // file paths or URLs attached to the message
 
+	// Encrypted is set when the message was end-to-end encrypted (OMEMO or
+	// GPG) on the wire, rather than sent as plaintext.
+	Encrypted bool
+
 	// Retracted is set when the sender attempted a XEP-0424 retraction of
 	// this message. Content is kept and still shown — we don't trust a
 	// remote retraction to erase what was said on our side — but flagged so

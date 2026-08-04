@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	idAttr        TEXT,
 	body          TEXT,
 	encrypted     BOOLEAN  NOT NULL DEFAULT FALSE, -- whether body is AES-sealed (crypto/localstore) or plain text
+	e2eEncrypted  BOOLEAN  NOT NULL DEFAULT FALSE, -- whether the message was end-to-end encrypted (OMEMO/GPG) on the wire
 	originID      TEXT,
 	stanzaType    TEXT     NOT NULL DEFAULT 'normal', -- RFC 6121 § 5.2.2
 	received      BOOLEAN  NOT NULL DEFAULT FALSE,

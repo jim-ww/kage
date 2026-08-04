@@ -238,6 +238,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		QuotedBody:   opts.QuotedBody,
 	}
 
+	e2eEncrypted := false
 	switch resolveEncryptionMode(ctx, s, to) {
 	case "omemo":
 		debugf("send: using omemo encryption for %s to %s", s.account.JID, to)
@@ -261,6 +262,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			debugf("send: omemo encrypt succeeded for %s to %s, %d keys", s.account.JID, to, len(enc.Keys))
 			sendOpts.Encrypted = xmpp.EncodeOmemoMessage(enc)
 			wireBody = ""
+			e2eEncrypted = true
 		} else {
 			debugf("note: omemo not ready for %s; sending unencrypted\n", s.account.JID)
 		}
@@ -271,6 +273,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 				return "", fmt.Errorf("encrypting to %s: %w", to, err)
 			}
 			wireBody = ct
+			e2eEncrypted = true
 		}
 	}
 
@@ -303,6 +306,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		IDAttr:        nullString(id),
 		Body:          sealedBody,
 		Encrypted:     encrypted,
+		E2eEncrypted:  e2eEncrypted,
 		StanzaType:    "chat",
 		RosterJid:     nullString(to),
 		ReplyToIDAttr: nullString(opts.ReplyToID),

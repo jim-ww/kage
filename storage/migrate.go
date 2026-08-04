@@ -38,5 +38,9 @@ func Open(path string) (*sql.DB, *Queries, error) {
 		db.Close()
 		return nil, nil, fmt.Errorf("applying schema: %w", err)
 	}
+	// CREATE TABLE IF NOT EXISTS doesn't add columns to a table that already
+	// exists from before this column was introduced, so add it explicitly —
+	// ignoring the error when it's already there.
+	db.ExecContext(context.Background(), "ALTER TABLE messages ADD COLUMN e2eEncrypted BOOLEAN NOT NULL DEFAULT FALSE")
 	return db, New(db), nil
 }

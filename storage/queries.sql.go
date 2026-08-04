@@ -555,6 +555,7 @@ INSERT INTO messages (
 	idAttr,
 	body,
 	encrypted,
+	e2eEncrypted,
 	stanzaType,
 	originID,
 	delay,
@@ -572,13 +573,14 @@ VALUES (
 	?7,
 	?8,
 	?9,
+	?10,
 	IFNULL(
-		NULLIF(?10, 0),
+		NULLIF(?11, 0),
 		CAST(strftime('%s', 'now') AS INTEGER)
 	),
-	?11,
 	?12,
-	?13
+	?13,
+	?14
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -593,6 +595,7 @@ type InsertMessageParams struct {
 	IDAttr        sql.NullString `db:"id_attr"`
 	Body          sql.NullString `db:"body"`
 	Encrypted     bool           `db:"encrypted"`
+	E2eEncrypted  bool           `db:"e2e_encrypted"`
 	StanzaType    string         `db:"stanza_type"`
 	OriginID      sql.NullString `db:"origin_id"`
 	Delay         interface{}    `db:"delay"`
@@ -610,6 +613,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.IDAttr,
 		arg.Body,
 		arg.Encrypted,
+		arg.E2eEncrypted,
 		arg.StanzaType,
 		arg.OriginID,
 		arg.Delay,
@@ -773,6 +777,7 @@ SELECT
 	idAttr,
 	body,
 	encrypted,
+	e2eEncrypted,
 	stanzaType,
 	delay,
 	replyToIdAttr,
@@ -800,6 +805,7 @@ type ListMessagesByRosterRow struct {
 	Idattr        sql.NullString `db:"idattr"`
 	Body          sql.NullString `db:"body"`
 	Encrypted     bool           `db:"encrypted"`
+	E2eencrypted  bool           `db:"e2eencrypted"`
 	Stanzatype    string         `db:"stanzatype"`
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
@@ -822,6 +828,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Idattr,
 			&i.Body,
 			&i.Encrypted,
+			&i.E2eencrypted,
 			&i.Stanzatype,
 			&i.Delay,
 			&i.Replytoidattr,

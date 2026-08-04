@@ -79,6 +79,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 			SentAt:      time.Unix(row.Delay, 0),
 			IsMe:        row.Sent,
 			Retracted:   row.Retracted,
+			Encrypted:   row.E2eencrypted,
 			Reactions:   loadReactionsForMessage(ctx, s, row.Idattr.String),
 			Attachments: attachmentURLs(pt),
 		})

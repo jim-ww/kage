@@ -66,6 +66,7 @@ type Message struct {
 	Idattr        sql.NullString `db:"idattr"`
 	Body          sql.NullString `db:"body"`
 	Encrypted     bool           `db:"encrypted"`
+	E2eencrypted  bool           `db:"e2eencrypted"`
 	Originid      sql.NullString `db:"originid"`
 	Stanzatype    string         `db:"stanzatype"`
 	Received      bool           `db:"received"`
