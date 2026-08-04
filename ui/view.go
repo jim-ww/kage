@@ -63,6 +63,19 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(m.zone.Scan(root))
 	v.AltScreen = true
+	// Ask Kitty-protocol terminals to report Key.BaseCode (the PC-101 key
+	// regardless of active keyboard layout) alongside the layout-shifted
+	// code. Key.String()/Keystroke() already prefer BaseCode when present,
+	// so this makes "ctrl+e"-style bindings match the physical E key even
+	// on non-Latin layouts (e.g. Cyrillic) without touching match logic.
+	//
+	// ReportAlternateKeys alone isn't enough: a plain "ctrl+<letter>" combo
+	// already has an unambiguous legacy encoding (a single C0 control
+	// byte), so terminals keep sending it that way — with no room to carry
+	// BaseCode — unless ReportAllKeysAsEscapeCodes forces every key through
+	// the full CSI u encoding instead.
+	v.KeyboardEnhancements.ReportAlternateKeys = true
+	v.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
 	if m.mouseEnabled {
 		// AllMotion (not just CellMotion) so hover highlighting works without
 		// a button held — see handleMouseMotion.
