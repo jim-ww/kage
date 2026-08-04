@@ -55,6 +55,54 @@ func TestComposeShiftEnterInsertsNewline(t *testing.T) {
 	}
 }
 
+// TestComposeUpDownCursorVsMessageNav checks that plain up/down move the
+// compose textarea's cursor while it holds more than one line, but fall
+// back to their usual job of moving the selected-message highlight once the
+// input is back to a single line (or empty).
+func TestComposeUpDownCursorVsMessageNav(t *testing.T) {
+	chat := Chat{Address: "bob@localhost"}
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+	m.setCurrentMessages([]Message{{Author: "bob", Content: "one"}, {Author: "bob", Content: "two"}})
+	m.selectedMsg = 1
+
+	// Single line: up/down navigate messages, untouched by the input.
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = next.(Model)
+	if m.selectedMsg != 0 {
+		t.Fatalf("selectedMsg after up (single-line input) = %d, want 0", m.selectedMsg)
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("input should be untouched by message-nav up, got %q", m.input.Value())
+	}
+
+	// Multiple lines: up/down move the textarea cursor, not the message
+	// selection.
+	next, _ = m.Update(keyText("a"))
+	m = next.(Model)
+	next, _ = m.Update(shiftEnterKey())
+	m = next.(Model)
+	next, _ = m.Update(keyText("b"))
+	m = next.(Model)
+	if !m.composeMultiline() {
+		t.Fatal("expected composeMultiline() true after inserting a newline")
+	}
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = next.(Model)
+	if m.selectedMsg != 0 {
+		t.Fatalf("selectedMsg changed by up while composing multiline, got %d", m.selectedMsg)
+	}
+	if m.input.Line() != 0 {
+		t.Fatalf("input cursor line after up = %d, want 0 (moved onto first line)", m.input.Line())
+	}
+}
+
 // TestComposeEnterSendsNotNewline checks a plain enter still submits the
 // message (via SelectSend) rather than inserting a newline into the input.
 func TestComposeEnterSendsNotNewline(t *testing.T) {

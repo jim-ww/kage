@@ -155,6 +155,14 @@ func (m Model) sidebarContentWidth() int { return max(0, m.sidebarWidth()-1) }
 // pushing the viewport further up.
 const inputMaxHeight = 6
 
+// composeMultiline reports whether the compose box currently holds more than
+// one line — used to let the up/down arrows move the textarea's cursor
+// instead of the selected message while there's more than one line to move
+// between (see the MsgUp/MsgDown cases in update_keys.go).
+func (m Model) composeMultiline() bool {
+	return m.selectedView == viewChat && m.input.LineCount() > 1
+}
+
 // inputAreaHeight accounts for the optional reply-hint / reacting-hint line
 // plus however many rows the compose textarea currently occupies (it grows
 // with multi-line content, up to inputMaxHeight).

@@ -1,3 +1,5 @@
+fix: "send failed: omemo-encrypting to ADDRESS: omemo: no recipient device could be encrypted for"
+
 - improve chat view text input. shift+enter should break to new line, and also show multiline properly
 - chat view: add attach file, emoji buttons
 - message status? 'sent' / 'delivered' icons?

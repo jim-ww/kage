@@ -271,7 +271,16 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	// ── Message navigation ─────────────────────────────────────────────
+	// The plain up/down arrows are shared with the compose box: while it
+	// holds more than one line, up/down move the cursor between those lines
+	// instead of the selected message — falls through (handled=false) so
+	// Update's normal routing reaches m.input.Update. ctrl+k/ctrl+j (MsgUp/
+	// MsgDown's other bound keys) always navigate messages regardless, since
+	// they're not keys the textarea itself binds to anything.
 	case key.Matches(msg, m.keys.MsgUp):
+		if msg.String() == "up" && m.composeMultiline() {
+			break
+		}
 		if m.selectedView == viewAccounts && m.currentAccount > 0 {
 			cmds = append(cmds, m.switchAccount(m.currentAccount-1))
 			return m, tea.Batch(cmds...), true
@@ -285,6 +294,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	case key.Matches(msg, m.keys.MsgDown):
+		if msg.String() == "down" && m.composeMultiline() {
+			break
+		}
 		if m.selectedView == viewAccounts && m.currentAccount < len(m.accounts)-1 {
 			cmds = append(cmds, m.switchAccount(m.currentAccount+1))
 			return m, tea.Batch(cmds...), true
