@@ -134,6 +134,21 @@ func TestFilePickerEnterSendsAsReplyWhenReplyToIdxSet(t *testing.T) {
 	}
 }
 
+func TestReplyPreviewShowsFilenameNotRawURLForAttachment(t *testing.T) {
+	m := newTestModel(nil)
+	msgs := []Message{
+		{Author: "Bob", Content: "https://upload.example.test/files/x/photo.jpg", Attachments: []string{"https://upload.example.test/files/x/photo.jpg"}},
+		{Author: "me", Content: "nice", ReplyTo: new(int)},
+	}
+	preview := m.replyPreview(0, msgs)
+	if strings.Contains(preview, "https://") {
+		t.Fatalf("reply preview leaked raw URL: %q", preview)
+	}
+	if !strings.Contains(preview, "photo.jpg") {
+		t.Fatalf("reply preview = %q, want it to mention the filename", preview)
+	}
+}
+
 func TestFileSendResultAddsAttachmentToTargetChat(t *testing.T) {
 	m := newTestModel(nil)
 	chat := Chat{Name: "Bob", Address: "bob@example.test"}

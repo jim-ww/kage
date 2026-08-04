@@ -397,7 +397,7 @@ func (m Model) inputHint() string {
 		msgs := m.currentMessages()
 		if m.replyToIdx < len(msgs) {
 			orig := msgs[m.replyToIdx]
-			return m.styles.renderReplyHint(orig.Author, previewText(orig.Content, previewLen))
+			return m.styles.renderReplyHint(orig.Author, previewText(messagePreviewContent(orig), previewLen))
 		}
 	}
 	if m.reactingMsgIdx >= 0 {

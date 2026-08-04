@@ -100,6 +100,19 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			body = pt
 		}
 	}
+	// Encrypted replies carry their reply-quote in-band (adapter.go's send()
+	// prepends "> ..." lines to the plaintext before encrypting, since a
+	// wire-level XEP-0461 <fallback> range can't mark up ciphertext) - strip
+	// it back off now that we've decrypted, mirroring what the unencrypted
+	// path already gets for free from the <fallback> element (see
+	// xmpp/events.go's Body doc comment). Left in place, this "> quoted\n"
+	// prefix breaks attachmentURLs' scheme prefix match below for a reply to
+	// (or consisting of) a file. Applied unconditionally rather than gated
+	// on msgEv.ReplyToID: some peers (e.g. this doesn't always round-trip
+	// through our own <reply/> parsing) still send an in-band quote without
+	// a recognized reply element, and stripReplyQuote is a no-op on a body
+	// that doesn't start with one anyway.
+	body = stripReplyQuote(body)
 
 	from := bareJID(msgEv.From) // chats are keyed by bare JID (roster entries); From with a resource never matches
 
@@ -153,6 +166,22 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			Attachments: attachmentURLs(body),
 		},
 	})
+}
+
+// stripReplyQuote removes the leading "> "-prefixed quote block adapter.go's
+// send() bakes into an encrypted reply's plaintext, returning just the
+// sender's actual message. A body with no such block (e.g. a message from a
+// client that doesn't do in-band quoting) is returned unchanged.
+func stripReplyQuote(body string) string {
+	lines := strings.Split(body, "\n")
+	i := 0
+	for i < len(lines) && strings.HasPrefix(lines[i], "> ") {
+		i++
+	}
+	if i == 0 {
+		return body
+	}
+	return strings.Join(lines[i:], "\n")
 }
 
 // attachmentURLs recognizes the URL-only message produced by SendFile. A

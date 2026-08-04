@@ -68,6 +68,15 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 			debugf("warning: decrypting history for %s: %v\n", chatAddr, err)
 			continue
 		}
+		// Rows persisted before the in-band reply quote was stripped at
+		// receive time (see handleIncomingMessage) still carry a leading
+		// "> ..." block in their stored body - strip it here too so old
+		// history doesn't show mangled multi-line text where a file
+		// attachment (or a plain reply) should render normally. Applied
+		// unconditionally (not gated on Replytoidattr) since some peers'
+		// in-band quotes don't round-trip through our <reply/> parsing, and
+		// stripReplyQuote is a no-op on a body with no leading quote block.
+		pt = stripReplyQuote(pt)
 		author := chatName
 		if row.Sent {
 			author = "me"

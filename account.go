@@ -448,6 +448,13 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 					body = pt
 				}
 			}
+			// MAM doesn't currently surface the <reply/> element (see
+			// ArchivedMessage), so unlike handleIncomingMessage this can't
+			// gate on ReplyToID - stripReplyQuote is a no-op on a body that
+			// doesn't start with a quote block, so applying it unconditionally
+			// is safe and still fixes attachment identification for
+			// backfilled replies.
+			body = stripReplyQuote(body)
 			sent := bareJID(am.From) == ownBare
 			sealedBody, encrypted := encryptForStorage(s, body)
 

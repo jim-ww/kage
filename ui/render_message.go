@@ -120,12 +120,23 @@ func (m Model) replyPreview(idx int, allMsgs []Message) string {
 		return ""
 	}
 	orig := allMsgs[idx]
-	return fmt.Sprintf("↪ %s: %s", orig.Author, previewText(orig.Content, previewLen))
+	return fmt.Sprintf("↪ %s: %s", orig.Author, previewText(messagePreviewContent(orig), previewLen))
 }
 
 // previewLen is the shared truncation budget for single-line message
 // previews shown in reply hints and delete-confirmation popups.
 const previewLen = 40
+
+// messagePreviewContent returns the text to preview for msg in a reply quote
+// or hint: for a lone-attachment message, Content is the raw upload URL
+// (aesgcm:// or https://), which isn't meaningful to a human — show the
+// decoded filename instead, same as the attachment's own rendered body line.
+func messagePreviewContent(msg Message) string {
+	if len(msg.Attachments) == 1 && strings.TrimSpace(msg.Content) == msg.Attachments[0] {
+		return attachmentDisplayName(msg.Attachments[0])
+	}
+	return msg.Content
+}
 
 // previewText collapses newlines and truncates s to at most n runes,
 // appending an ellipsis when truncated.
