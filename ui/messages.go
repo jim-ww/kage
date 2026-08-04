@@ -211,6 +211,18 @@ type HistorySyncedMsg struct {
 	Messages   []Message
 }
 
+// HistorySyncStartedMsg marks an account entering the post-connect MAM
+// backfill (see syncArchive) so the UI can show a "syncing…" indicator
+// instead of leaving the user guessing why history keeps growing.
+type HistorySyncStartedMsg struct {
+	AccountIdx int
+}
+
+// HistorySyncFinishedMsg marks the end of that backfill, successful or not.
+type HistorySyncFinishedMsg struct {
+	AccountIdx int
+}
+
 // DefaultAccountSetter persists which account should be selected on startup,
 // implemented outside ui (main.go's adapter) so ui stays decoupled from the
 // config layer. It's a local file write, not network I/O, so ui calls it

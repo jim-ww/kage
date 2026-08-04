@@ -19,6 +19,10 @@ type Message struct {
 	// GPG) on the wire, rather than sent as plaintext.
 	Encrypted bool
 
+	// EncMethod names the mechanism that did the encrypting when Encrypted is
+	// set: "omemo" or "gpg". Empty when Encrypted is false.
+	EncMethod string
+
 	// Retracted is set when the sender attempted a XEP-0424 retraction of
 	// this message. Content is kept and still shown — we don't trust a
 	// remote retraction to erase what was said on our side — but flagged so
@@ -57,6 +61,12 @@ type Account struct {
 	// failed; the account stays in the sidebar so the user can see which one
 	// is down rather than it silently vanishing.
 	ConnectError string
+
+	// SyncingHistory is true while syncArchive is paging through XEP-0313
+	// MAM archives for this account's contacts, after Connecting clears.
+	// Purely informational — chats and messages already stream in as pages
+	// arrive, this just tells the user why more keep showing up.
+	SyncingHistory bool
 }
 
 // Presence is a contact's coarse online status.

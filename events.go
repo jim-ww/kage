@@ -49,6 +49,13 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 
 	body := msgEv.Body
 	e2eEncrypted := msgEv.Encrypted != nil || gpg.Looks(body)
+	e2eeMethod := ""
+	switch {
+	case msgEv.Encrypted != nil:
+		e2eeMethod = "omemo"
+	case gpg.Looks(body):
+		e2eeMethod = "gpg"
+	}
 	if msgEv.Encrypted != nil {
 		// A message already backfilled via MAM (or otherwise already stored -
 		// e.g. redelivered after a reconnect) would otherwise get OMEMO
@@ -145,6 +152,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		Body:          sealedBody,
 		Encrypted:     encrypted,
 		E2eEncrypted:  e2eEncrypted,
+		E2eeMethod:    nullString(e2eeMethod),
 		StanzaType:    "chat",
 		RosterJid:     nullString(from),
 		ReplyToIDAttr: nullString(msgEv.ReplyToID),
@@ -163,6 +171,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			SentAt:      msgEv.SentAt,
 			IsMe:        false,
 			Encrypted:   e2eEncrypted,
+			EncMethod:   e2eeMethod,
 			Attachments: attachmentURLs(body),
 		},
 	})

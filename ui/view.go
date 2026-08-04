@@ -269,6 +269,23 @@ func (m Model) renderInfoPopup() string {
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
+// encryptionLabel describes a message's wire-level encryption state for the
+// info popup: which mechanism (OMEMO/GPG) encrypted it, or that it went
+// unencrypted.
+func encryptionLabel(msg Message) string {
+	if !msg.Encrypted {
+		return "None (plaintext)"
+	}
+	switch msg.EncMethod {
+	case "omemo":
+		return "OMEMO"
+	case "gpg":
+		return "GPG"
+	default:
+		return "Yes"
+	}
+}
+
 func (m Model) infoPrompt() string {
 	closeKey := m.keys.InfoMsg.Help().Key
 	msgs := m.currentMessages()
@@ -286,6 +303,7 @@ func (m Model) infoPrompt() string {
 		fmt.Sprintf("From:  %s", from),
 		fmt.Sprintf("Sent:  %s", msg.SentAt.Format("2006-01-02 15:04:05")),
 		fmt.Sprintf("Length: %d chars", len([]rune(msg.Content))),
+		fmt.Sprintf("Encryption: %s", encryptionLabel(msg)),
 	}
 	if msg.ReplyTo != nil {
 		rows = append(rows, fmt.Sprintf("Reply to: %s", m.replyPreview(*msg.ReplyTo, msgs)))
@@ -395,6 +413,8 @@ func (m Model) renderAccountsList(width int) string {
 			label = account.Name + " (connecting…)"
 		case account.ConnectError != "":
 			label = account.Name + " (offline)"
+		case account.SyncingHistory:
+			label = account.Name + " (syncing history…)"
 		}
 		name := ansi.Truncate(label, max(1, width-3), "…") // -3 for border + padding
 		rows[i] = m.zone.Mark(zoneAccountRow(i), m.styles.renderAccountRow(name, i == m.currentAccount, m.isHovered(zoneAccountRow(i))))
@@ -456,6 +476,9 @@ func (m Model) renderChatStatusBar(width int) string {
 	}
 	if chat.Typing {
 		label += "  ·  typing..."
+	}
+	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) && m.accounts[m.currentAccount].SyncingHistory {
+		label += "  ·  syncing history..."
 	}
 	// nickMe-color the text ourselves rather than let chatStatusLine wrap
 	// the whole string in one Foreground — presenceGlyph's own Render call

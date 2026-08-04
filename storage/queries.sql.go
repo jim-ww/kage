@@ -556,6 +556,7 @@ INSERT INTO messages (
 	body,
 	encrypted,
 	e2eEncrypted,
+	e2eeMethod,
 	stanzaType,
 	originID,
 	delay,
@@ -574,13 +575,14 @@ VALUES (
 	?8,
 	?9,
 	?10,
+	?11,
 	IFNULL(
-		NULLIF(?11, 0),
+		NULLIF(?12, 0),
 		CAST(strftime('%s', 'now') AS INTEGER)
 	),
-	?12,
 	?13,
-	?14
+	?14,
+	?15
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -596,6 +598,7 @@ type InsertMessageParams struct {
 	Body          sql.NullString `db:"body"`
 	Encrypted     bool           `db:"encrypted"`
 	E2eEncrypted  bool           `db:"e2e_encrypted"`
+	E2eeMethod    sql.NullString `db:"e2ee_method"`
 	StanzaType    string         `db:"stanza_type"`
 	OriginID      sql.NullString `db:"origin_id"`
 	Delay         interface{}    `db:"delay"`
@@ -614,6 +617,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.Body,
 		arg.Encrypted,
 		arg.E2eEncrypted,
+		arg.E2eeMethod,
 		arg.StanzaType,
 		arg.OriginID,
 		arg.Delay,
@@ -778,6 +782,7 @@ SELECT
 	body,
 	encrypted,
 	e2eEncrypted,
+	e2eeMethod,
 	stanzaType,
 	delay,
 	replyToIdAttr,
@@ -806,6 +811,7 @@ type ListMessagesByRosterRow struct {
 	Body          sql.NullString `db:"body"`
 	Encrypted     bool           `db:"encrypted"`
 	E2eencrypted  bool           `db:"e2eencrypted"`
+	E2eemethod    sql.NullString `db:"e2eemethod"`
 	Stanzatype    string         `db:"stanzatype"`
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
@@ -829,6 +835,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Body,
 			&i.Encrypted,
 			&i.E2eencrypted,
+			&i.E2eemethod,
 			&i.Stanzatype,
 			&i.Delay,
 			&i.Replytoidattr,
@@ -857,6 +864,7 @@ SELECT
 	body,
 	encrypted,
 	e2eEncrypted,
+	e2eeMethod,
 	stanzaType,
 	delay,
 	replyToIdAttr,
@@ -894,6 +902,7 @@ type ListMessagesByRosterBeforeRow struct {
 	Body          sql.NullString `db:"body"`
 	Encrypted     bool           `db:"encrypted"`
 	E2eencrypted  bool           `db:"e2eencrypted"`
+	E2eemethod    sql.NullString `db:"e2eemethod"`
 	Stanzatype    string         `db:"stanzatype"`
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
@@ -935,6 +944,7 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Body,
 			&i.Encrypted,
 			&i.E2eencrypted,
+			&i.E2eemethod,
 			&i.Stanzatype,
 			&i.Delay,
 			&i.Replytoidattr,

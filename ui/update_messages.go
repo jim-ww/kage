@@ -269,6 +269,18 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, m.showNotification("account " + m.accounts[msg.Index].Name + " failed to connect: " + msg.Err.Error()), true
 
+	case HistorySyncStartedMsg:
+		if msg.AccountIdx >= 0 && msg.AccountIdx < len(m.accounts) {
+			m.accounts[msg.AccountIdx].SyncingHistory = true
+		}
+		return m, nil, true
+
+	case HistorySyncFinishedMsg:
+		if msg.AccountIdx >= 0 && msg.AccountIdx < len(m.accounts) {
+			m.accounts[msg.AccountIdx].SyncingHistory = false
+		}
+		return m, nil, true
+
 	case HistorySyncedMsg:
 		if len(msg.Messages) == 0 {
 			return m, nil, true

@@ -1,4 +1,3 @@
-- bind keybinds with key codes, not to latin
 - make margin above help line (below textinput ) slighly smaller
 - chat view: add attach file, emoji buttons
 - show encryption information in message info
@@ -6,6 +5,7 @@
 - code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
 - speed up chat view (messages render)
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
+- implement go-to specific message
 - add OMEMO v1 support?
 - account manager: fix adding duplicate accounts
 - chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view

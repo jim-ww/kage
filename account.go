@@ -103,7 +103,9 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 
 	debugf("account %s: syncArchive starting", acct.JID)
 	start = time.Now()
+	p.Send(ui.HistorySyncStartedMsg{AccountIdx: idx})
 	syncArchive(ctx, p, idx, sess)
+	p.Send(ui.HistorySyncFinishedMsg{AccountIdx: idx})
 	debugf("account %s: syncArchive done in %s", acct.JID, time.Since(start))
 
 	superviseAccount(ctx, p, idx, sess)
@@ -413,9 +415,9 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 
 	ownBare := bareJID(s.account.JID)
 	name := s.rosterName(peerJID)
-	var newMsgs []ui.Message
 
 	for page := 0; page < maxPages; page++ {
+		var newMsgs []ui.Message
 		prevAfter := afterArchiveID
 		pageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		pageStart := time.Now()
@@ -451,6 +453,13 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 
 			body := am.Body
 			e2eEncrypted := am.Encrypted != nil || gpg.Looks(body)
+			e2eeMethod := ""
+			switch {
+			case am.Encrypted != nil:
+				e2eeMethod = "omemo"
+			case gpg.Looks(body):
+				e2eeMethod = "gpg"
+			}
 			if am.Encrypted != nil {
 				if s.omemoMgr == nil {
 					body = "[message could not be decrypted: omemo isn't ready]"
@@ -479,18 +488,19 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			sealedBody, encrypted := encryptForStorage(s, body)
 
 			_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-				AccountJid: s.account.JID,
-				Sent:       sent,
-				ToAttr:     nullString(am.To),
-				FromAttr:   nullString(am.From),
-				IDAttr:     nullString(am.ID),
+				AccountJid:   s.account.JID,
+				Sent:         sent,
+				ToAttr:       nullString(am.To),
+				FromAttr:     nullString(am.From),
+				IDAttr:       nullString(am.ID),
 				Body:         sealedBody,
 				Encrypted:    encrypted,
 				E2eEncrypted: e2eEncrypted,
+				E2eeMethod:   nullString(e2eeMethod),
 				StanzaType:   "chat",
 				Delay:        am.SentAt.Unix(),
-				RosterJid:  nullString(peerJID),
-				ArchiveID:  nullString(am.ArchiveID),
+				RosterJid:    nullString(peerJID),
+				ArchiveID:    nullString(am.ArchiveID),
 			})
 			if err != nil {
 				if strings.Contains(err.Error(), "archiveID") {
@@ -514,16 +524,16 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				SentAt:      am.SentAt,
 				IsMe:        sent,
 				Encrypted:   e2eEncrypted,
+				EncMethod:   e2eeMethod,
 				Attachments: attachmentURLs(body),
 			})
+		}
+		if len(newMsgs) > 0 {
+			p.Send(ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
 		}
 		if stop || complete || afterArchiveID == prevAfter {
 			break
 		}
-	}
-
-	if len(newMsgs) > 0 {
-		p.Send(ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
 	}
 }
 
