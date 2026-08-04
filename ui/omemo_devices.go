@@ -2,7 +2,7 @@ package ui
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -46,6 +46,7 @@ type deviceListState struct {
 	local      uint32 // this instance's own device ID; never selectable for removal
 	devices    []uint32
 	selected   map[uint32]bool // devices marked for removal
+	page       int             // current page (of openItemsPerPage) through the removable devices
 	busy       bool
 	err        string
 	confirming bool // true while showing the y/n "remove N device(s)?" confirmation
@@ -68,19 +69,19 @@ func (m Model) openDeviceList() (Model, tea.Cmd) {
 	return m, func() tea.Msg { return m.deviceManager.FetchOwnDeviceList(accountIdx) }
 }
 
-// sortedDevices returns dl.devices sorted with the local device first, then
-// ascending by ID — a stable, predictable numbering for the popup.
-func (dl *deviceListState) sortedDevices() []uint32 {
-	out := append([]uint32(nil), dl.devices...)
-	sort.Slice(out, func(i, j int) bool {
-		if out[i] == dl.local {
-			return true
+// removableDevices returns dl.devices minus the local device, sorted
+// ascending by ID — a stable, predictable numbering for the popup's
+// paginated, selectable rows. The local device is always shown separately,
+// pinned above the page and never counted against it (it's never
+// removable).
+func (dl *deviceListState) removableDevices() []uint32 {
+	out := make([]uint32, 0, len(dl.devices))
+	for _, d := range dl.devices {
+		if d != dl.local {
+			out = append(out, d)
 		}
-		if out[j] == dl.local {
-			return false
-		}
-		return out[i] < out[j]
-	})
+	}
+	slices.Sort(out)
 	return out
 }
 
@@ -105,10 +106,10 @@ func (m Model) deviceListPrompt() string {
 		return m.styles.infoPopup("OMEMO devices", []string{"Loading…"}, closeKey)
 	}
 
-	devices := dl.sortedDevices()
+	removable := dl.removableDevices()
 	if dl.confirming {
 		n := 0
-		for _, d := range devices {
+		for _, d := range removable {
 			if dl.selected[d] {
 				n++
 			}
@@ -116,22 +117,23 @@ func (m Model) deviceListPrompt() string {
 		return m.styles.deletePrompt(fmt.Sprintf("Remove %d device(s) from account?", n), "This republishes the account's device list without them.")
 	}
 
-	rows := make([]string, len(devices))
-	n := 0
-	for i, d := range devices {
-		label := fmt.Sprintf("Device %d", d)
-		if d == dl.local {
-			rows[i] = fmt.Sprintf("    %s (this device)", label)
-			continue
-		}
-		n++
+	start, end := openPageBounds(len(removable), dl.page)
+	page := removable[start:end]
+
+	rows := []string{fmt.Sprintf("    Device %d (this device)", dl.local)}
+	for i, d := range page {
 		mark := "[ ]"
 		if dl.selected[d] {
 			mark = "[x]"
 		}
-		rows[i] = fmt.Sprintf("%d. %s %s", n, mark, label)
+		rows = append(rows, fmt.Sprintf("%d. %s Device %d", i+1, mark, d))
 	}
-	rows = append(rows, "", "digit: toggle · y: remove selected")
+
+	hint := "digit: toggle · y: remove selected"
+	if pages := openPageCount(len(removable)); pages > 1 {
+		hint = fmt.Sprintf("page %d/%d · left/right: page · %s", dl.page+1, pages, hint)
+	}
+	rows = append(rows, "", hint)
 
 	return m.styles.infoPopup("OMEMO devices", rows, closeKey)
 }
@@ -171,20 +173,21 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
-	devices := dl.sortedDevices()
-	if i, ok := digitKey(msg); ok {
-		// Row numbering skips the local device (never removable), so map
-		// the 1-based digit back through sortedDevices accounting for that.
-		idx := 0
-		for _, d := range devices {
-			if d == dl.local {
-				continue
-			}
-			idx++
-			if idx == i {
-				dl.selected[d] = !dl.selected[d]
-				break
-			}
+	removable := dl.removableDevices()
+	start, end := openPageBounds(len(removable), dl.page)
+	if i, ok := digitKey(msg); ok && i >= 1 && i <= end-start {
+		d := removable[start+i-1]
+		dl.selected[d] = !dl.selected[d]
+		return m, nil, true
+	}
+
+	switch msg.String() {
+	case "left", "h":
+		dl.page = max(0, dl.page-1)
+		return m, nil, true
+	case "right", "l":
+		if dl.page < openPageCount(len(removable))-1 {
+			dl.page++
 		}
 		return m, nil, true
 	}
