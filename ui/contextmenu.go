@@ -77,7 +77,8 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 	}
 	return []contextMenuItem{
 		{label: "Open", run: func(m *Model) tea.Cmd {
-			_, cmd := m.openCurrentChat()
+			model, cmd := m.openCurrentChat()
+			*m = model.(Model)
 			return cmd
 		}},
 		{label: "Rename", run: (*Model).actionRenameChat},

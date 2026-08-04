@@ -110,8 +110,8 @@ func (m Model) toggleSidebar() (Model, tea.Cmd) {
 			m.setSelectedView(viewChats)
 			return m, nil
 		}
-		_, cmd := (&m).openCurrentChat()
-		return m, cmd
+		model, cmd := m.openCurrentChat()
+		return model.(Model), cmd
 	}
 	m.sidebarHidden = !m.sidebarHidden
 	// The chat list's own width (m.chats.SetWidth, set from

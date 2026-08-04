@@ -320,7 +320,7 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	return m.input.Focus()
 }
 
-func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
+func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	if m.currentChatIndex() < 0 {
 		return m, nil
 	}
