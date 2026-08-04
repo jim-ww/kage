@@ -1,5 +1,4 @@
 - dont print any errors in bubble view with fmt.Print
-- esc bind must not quit application
 - chat list: toggle on bind/button
 - chat view: add attach file, emoji buttons
 - ctrl+? for full help, remove help bar

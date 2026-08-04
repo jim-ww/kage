@@ -450,6 +450,11 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false) // superseded by the app-wide footer hint
+	// The list's default keymap binds esc/q to quit the whole program —
+	// we own quitting (and esc/back) ourselves via KeyMap.Quit/Back, so
+	// without this, esc reaching the list while browsing (unfiltered)
+	// would fall through to list.Model.Update's own Quit case.
+	l.DisableQuitKeybindings()
 	l.InfiniteScrolling = true
 	applyChatListStyles(&l, styles.colors)
 
