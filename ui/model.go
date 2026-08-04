@@ -682,6 +682,12 @@ func (m Model) toggleSidebar() (Model, tea.Cmd) {
 		return m, cmd
 	}
 	m.sidebarHidden = !m.sidebarHidden
+	// The chat list's own width (m.chats.SetWidth, set from
+	// sidebarContentWidth) is only recomputed in updateSizes — without this
+	// call it stays stuck at whatever it last was (possibly 0, if hidden
+	// while some other setSelectedView call ran updateSizes in between),
+	// leaving the list rendering empty even though its selection still moves.
+	m.updateSizes()
 	if m.sidebarHiddenSetter == nil {
 		return m, nil
 	}
