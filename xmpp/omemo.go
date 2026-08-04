@@ -75,6 +75,9 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 		_, r := iter.Item()
 		var devices omemoDevicesElem
 		if err := xml.NewTokenDecoder(r).Decode(&devices); err != nil {
+			if c.Debugf != nil {
+				c.Debugf("FetchOmemoDeviceList: %s: failed to decode device-list item: %v", peerJID, err)
+			}
 			continue
 		}
 		for _, d := range devices.Devices {
@@ -82,15 +85,18 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 		}
 	}
 	if err := iter.Err(); err != nil {
-		// Treat "item-not-found" / "Node not found" as empty list (first-time setup)
+		// Treat "item-not-found" / "Node not found" as empty list (first-time
+		// setup, no device-list node published yet). Anything else (timeout,
+		// service-unavailable, not-authorized, ...) is a real fetch failure
+		// and must propagate - otherwise it gets cached as "peer has zero
+		// devices" and every future send silently fails with ErrNoRecipients.
 		if strings.Contains(err.Error(), "item-not-found") || strings.Contains(err.Error(), "Node not found") {
 			return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
 		}
-		// Also check for common stanza error conditions
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "cancel") {
-			return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
-		}
 		return omemolib.DeviceList{}, fmt.Errorf("fetching omemo device list for %s: %w", peerJID, err)
+	}
+	if c.Debugf != nil {
+		c.Debugf("FetchOmemoDeviceList: %s has %d device(s): %v", peerJID, len(ids), ids)
 	}
 	return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
 }

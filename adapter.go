@@ -250,7 +250,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 				debugf("send: omemo encrypt failed for %s to %s: %v (device errors: %v); forcing device resync", s.account.JID, to, err, deviceErrs)
 				if syncErr := s.omemoMgr.SyncDevices(ctx, to); syncErr != nil {
 					debugf("send: omemo device resync for %s failed: %v", to, syncErr)
-					return "", fmt.Errorf("omemo-encrypting to %s: %w", to, err)
+					return "", fmt.Errorf("omemo-encrypting to %s: device list resync failed: %w", to, syncErr)
 				}
 				enc, deviceErrs, err = s.omemoMgr.EncryptMessage(ctx, to, []byte(plaintext))
 				if err != nil {
