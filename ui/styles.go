@@ -232,17 +232,23 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.
 		Foreground(colors.textMuted).
 		PaddingLeft(1)
+	// PaddingLeft(0), not 1: the list.DefaultDelegate truncates title/desc
+	// text to m.width minus NormalTitle's padding alone, regardless of which
+	// style ends up rendering the row — so SelectedTitle/Desc must consume
+	// the same total 1 column of left decoration as NormalTitle's padding
+	// does, or the selected row ends up 1 column wider than the list's
+	// width and wraps instead of fitting (border(1) + padding(1) = 2).
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(colors.borderA).
 		Foreground(colors.themFg).
 		Bold(true).
-		PaddingLeft(1)
+		PaddingLeft(0)
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(colors.borderA).
 		Foreground(colors.textMuted).
-		PaddingLeft(1)
+		PaddingLeft(0)
 	delegate.Styles.DimmedTitle = delegate.Styles.DimmedTitle.Foreground(colors.time)
 	delegate.Styles.DimmedDesc = delegate.Styles.DimmedDesc.Foreground(colors.time)
 	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(colors.filterMatch).Bold(true)

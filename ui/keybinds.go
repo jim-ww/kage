@@ -142,9 +142,14 @@ func (k KeyMap) helpHint(view selectedView) string {
 		}, " · ")
 	case viewChat:
 		// Ordered by how often each is used — least-used trail off the end
-		// so narrow terminals (this renders as a single line and truncates)
-		// still show the important ones. See KeyMap.FullHelp for the
-		// complete, view-agnostic reference.
+		// so narrow terminals still show the important ones first when
+		// footerMaxLines caps how far this wraps. See KeyMap.FullHelp for
+		// the complete, view-agnostic reference.
+		//
+		// Joined with " · " (spaces, not a bare "·") like the other views —
+		// wrapFooterHint only breaks on regular spaces (see helpHint's nbsp
+		// note), so a bare separator leaves it no break point between
+		// entries and it hard-splits mid-word instead.
 		return strings.Join([]string{
 			part(k.SelectSend, "send"),
 			part(k.ReplyMsg, "reply"),
@@ -158,7 +163,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.AttachFile, "attach"),
 			part(k.FocusChats, "chats"),
 			part(k.Back, "back"),
-		}, "·")
+		}, " · ")
 	default:
 		return ""
 	}

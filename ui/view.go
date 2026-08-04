@@ -18,6 +18,7 @@ func (m Model) View() tea.View {
 
 	colors := m.styles.colors
 	sw := m.sidebarWidth()
+	scw := m.sidebarContentWidth()
 
 	// ── Sidebar ────────────────────────────────────────────────────────────
 	sidebarBorder := colors.borderD
@@ -33,17 +34,17 @@ func (m Model) View() tea.View {
 	if m.isHovered(zonePaneAccountBar) {
 		accountBg = colors.accentCyan
 	}
-	statusLine := m.zone.Mark(zonePaneAccountBar, m.styles.sidebarStatusLine(sw, accountBg, accountFg, m.renderAccountBar(sw)))
+	statusLine := m.zone.Mark(zonePaneAccountBar, m.styles.sidebarStatusLine(scw, accountBg, accountFg, m.renderAccountBar(scw)))
 	sidebarBody := m.chats.View()
 	switch {
 	case m.selectedView == viewAccounts:
-		sidebarBody = m.renderAccountsList(sw)
+		sidebarBody = m.renderAccountsList(scw)
 	case len(m.chats.Items()) == 0 && m.currentAccountConnecting():
 		sidebarBody = m.styles.accountNormal.Render("connecting...")
 	}
 	sidebarInner := lipgloss.JoinVertical(lipgloss.Left,
 		statusLine,
-		m.styles.sidebarInner(sw, max(0, m.height-sidebarStatusHeight), sidebarBody),
+		m.styles.sidebarInner(scw, max(0, m.height-sidebarStatusHeight), sidebarBody),
 	)
 	sidebar := m.zone.Mark(zonePaneSidebar, m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner))
 

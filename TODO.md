@@ -1,5 +1,5 @@
+- fix(chat list): help line is hidden when hovering over non-selected chats
 - dont print any errors in bubble view with fmt.Print
-- chat list: toggle on bind/button
 - chat view: add attach file, emoji buttons
 - ctrl+? for full help, remove help bar
 - message status? 'sent' / 'delivered' icons?

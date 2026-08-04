@@ -566,12 +566,11 @@ func (m *Model) updateSizes() {
 	fl := footerLineCount(m.keys.helpHint(m.selectedView), max(1, m.width-2), footerMaxLines)
 	m.height = max(0, m.termHeight-fl-footerMarginTop)
 
-	sw := m.sidebarWidth()
 	cw := m.chatAreaWidth()
 	ih := m.inputAreaHeight()
 
 	m.chats.SetHeight(max(0, m.height-sidebarStatusHeight))
-	m.chats.SetWidth(sw)
+	m.chats.SetWidth(m.sidebarContentWidth())
 
 	m.input.SetWidth(m.inputFieldWidth())
 	m.viewport.SetWidth(cw)
@@ -614,6 +613,14 @@ func (m Model) sidebarWidth() int {
 	return min(w, m.width)
 }
 func (m Model) chatAreaWidth() int { return m.width - m.sidebarWidth() - 1 }
+
+// sidebarContentWidth is how wide content rendered *inside* the sidebar box
+// (the chat list, the account bar, the accounts list) may be — sidebarWidth
+// minus 1 for the box's own right border. lipgloss word-wraps (rather than
+// truncates) content that exceeds a Style's Width, so content sized to the
+// full sidebarWidth would overflow the bordered box by exactly that one
+// column and wrap every single line.
+func (m Model) sidebarContentWidth() int { return max(0, m.sidebarWidth()-1) }
 
 // inputAreaHeight accounts for the optional reply-hint / reacting-hint line.
 func (m Model) inputAreaHeight() int {
