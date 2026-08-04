@@ -1,4 +1,3 @@
-- hovering on chat list / chat view should change focused tab state
 - open chat at very end
 - show 'typing...' event only in one place
 - nix flake: add desktop entry

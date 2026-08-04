@@ -82,6 +82,16 @@ func (m Model) isHovered(zoneID string) bool {
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	m.hover.id = m.zoneUnderMouse(msg)
 
+	if m.contextMenu == nil {
+		if m.zone.Get(zonePaneSidebar).InBounds(msg) {
+			m.selectedView = viewChats
+		} else if m.zone.Get(zonePaneViewport).InBounds(msg) || m.zone.Get(zonePaneInput).InBounds(msg) {
+			if m.currentChatIndex() >= 0 {
+				m.selectedView = viewChat
+			}
+		}
+	}
+
 	if m.selectedView == viewChat && m.contextMenu == nil {
 		if idx, ok := messageIndexFromZone(m.hover.id); ok && idx != m.selectedMsg {
 			old := m.selectedMsg
