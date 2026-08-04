@@ -139,7 +139,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.RenameChat, "rename"),
 			part(k.DeleteMsg, "delete"),
 			part(k.ListKeys.Filter, "filter"),
-			part(k.ToggleSidebar, "hide list"),
+			part(k.ToggleSidebar, "hide chats"),
 			part(k.Switch, "accounts"),
 			part(k.Quit, "quit"),
 		}, " · ")
