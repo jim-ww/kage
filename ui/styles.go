@@ -16,7 +16,15 @@ import (
 const (
 	sidebarStatusHeight = 1
 	chatStatusHeight    = 1
-	footerHeight        = 1
+	// footerMaxLines caps how tall the key-hint footer can grow when word-
+	// wrapping a view's full hint list — even a wide terminal can't fit
+	// viewChat's dozen-odd bindings on one line, so it wraps instead of
+	// truncating, but only up to this many rows before the overflow is
+	// dropped with an ellipsis.
+	footerMaxLines = 2
+	// footerMarginTop is a blank row separating the main view from the
+	// footer, so the key hints don't read as glued to the input box.
+	footerMarginTop = 1
 )
 
 // Presence colors are fixed traffic-light semantics (green/amber/gray),

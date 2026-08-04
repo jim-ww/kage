@@ -1,14 +1,20 @@
-- show current encryption configured for chat
+- dont print any errors in bubble view with fmt.Print
+- esc bind must not quit application
 - chat list: toggle on bind/button
 - chat view: add attach file, emoji buttons
 - ctrl+? for full help, remove help bar
 - message status? 'sent' / 'delivered' icons?
 - save last chat ID? open it on startup, if exists
+- account manager should look like button and show hover indication
+- statusline: dont show name if address == name
+ account manager: add way to access options from keyboard
 - file picker: add fuzzy find on '/'
+- show current encryption configured for chat
 - add padding for messages names to make messages start from same point?
 - fix(save as): must always ask for location. add UI component?
 - add loading indicator (spinning line | ) for uploading files
-- show files in chat more beautifully: add normalized name for uploaded files and show nice icons based on file type
+- show files in chat more beautifully: add normalized name for uploaded files and show nice icons based on file type, and also show if its already downloaded
+- add config option to
 - code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
 - preview files text contents
 - account manager: fix adding duplicate accounts

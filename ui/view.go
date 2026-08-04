@@ -106,9 +106,9 @@ func (m Model) View() tea.View {
 	chatArea := lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea)
-	footerText := ansi.Truncate(m.keys.helpHint(m.selectedView), max(1, m.width-2), "…")
+	footerText := wrapFooterHint(m.keys.helpHint(m.selectedView), max(1, m.width-2), footerMaxLines)
 	footer := m.styles.footerBar(m.width, footerText)
-	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, footer))
+	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, "", footer))
 
 	v := tea.NewView(m.zone.Scan(root))
 	v.AltScreen = true
@@ -118,6 +118,36 @@ func (m Model) View() tea.View {
 		v.MouseMode = tea.MouseModeAllMotion
 	}
 	return v
+}
+
+// wrapFooterHint word-wraps a helpHint string (entries joined by " · ", each
+// entry internally held together with non-breaking spaces — see helpHint) to
+// width, keeping at most maxLines rows. A single line's width, even on a
+// wide terminal, isn't enough to list every binding for a busy view like
+// viewChat, so this lets the footer grow down instead of truncating early;
+// past maxLines the remaining entries are dropped with a trailing "…".
+func wrapFooterHint(hint string, width, maxLines int) string {
+	lines := footerWrapLines(hint, width, maxLines)
+	return strings.Join(lines, "\n")
+}
+
+// footerLineCount is how many rows wrapFooterHint's output will actually
+// take — used to size the rest of the layout so nothing is reserved for
+// footer rows a view doesn't need. Kept in lockstep with wrapFooterHint by
+// sharing footerWrapLines rather than reimplementing the wrap.
+func footerLineCount(hint string, width, maxLines int) int {
+	return len(footerWrapLines(hint, width, maxLines))
+}
+
+func footerWrapLines(hint string, width, maxLines int) []string {
+	wrapped := lipgloss.Wrap(hint, width, "")
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) <= maxLines {
+		return lines
+	}
+	lines = lines[:maxLines]
+	lines[maxLines-1] = ansi.Truncate(lines[maxLines-1], width, "…")
+	return lines
 }
 
 // renderContextMenuPopup lists the actions available on whatever was

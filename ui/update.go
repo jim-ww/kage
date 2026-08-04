@@ -17,7 +17,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = max(0, msg.Height-footerHeight)
+		m.termHeight = msg.Height
 		m.updateSizes()
 		m.refreshViewport()
 		m.viewport.GotoBottom()
@@ -421,14 +421,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedView != viewAccounts && m.selectedView != viewChats {
 				m.notifyTypingStopped()
 				m.cancelPending()
-				m.selectedView = viewChats
+				m.setSelectedView(viewChats)
 				m.input.Blur()
 				return m, nil
 			}
 
 		case key.Matches(msg, m.keys.FocusChats):
 			m.notifyTypingStopped()
-			m.selectedView = viewChats
+			m.setSelectedView(viewChats)
 			m.input.Blur()
 			return m, nil
 
@@ -440,7 +440,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.SelectSend):
 			switch m.selectedView {
 			case viewAccounts:
-				m.selectedView = viewChats
+				m.setSelectedView(viewChats)
 				return m, nil
 			case viewChats:
 				return m.openCurrentChat()
@@ -476,10 +476,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Switch):
 			switch m.selectedView {
 			case viewAccounts:
-				m.selectedView = viewChats
+				m.setSelectedView(viewChats)
 				return m, nil
 			case viewChats:
-				m.selectedView = viewAccounts
+				m.setSelectedView(viewAccounts)
 				return m, nil
 			}
 

@@ -334,6 +334,7 @@ type SidebarWidthSetter interface {
 
 type Model struct {
 	width, height int
+	termHeight    int // raw terminal rows from the last WindowSizeMsg; height is derived from this minus the footer's actual (view-dependent) row count
 	selectedView
 	keys   KeyMap
 	theme  Theme
@@ -548,7 +549,18 @@ func (m Model) Init() tea.Cmd {
 
 // ── Sizing ────────────────────────────────────────────────────────────────────
 
+// setSelectedView switches the focused view and resizes accordingly — the
+// footer's row count (and so m.height) is view-dependent, so every focus
+// change must go through this instead of a bare assignment.
+func (m *Model) setSelectedView(v selectedView) {
+	m.selectedView = v
+	m.updateSizes()
+}
+
 func (m *Model) updateSizes() {
+	fl := footerLineCount(m.keys.helpHint(m.selectedView), max(1, m.width-2), footerMaxLines)
+	m.height = max(0, m.termHeight-fl-footerMarginTop)
+
 	sw := m.sidebarWidth()
 	cw := m.chatAreaWidth()
 	ih := m.inputAreaHeight()

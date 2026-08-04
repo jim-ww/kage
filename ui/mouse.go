@@ -97,11 +97,11 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			// would otherwise bounce selectedView back to viewChats and
 			// the popup would look like it instantly closed.
 			if m.selectedView != viewAccounts {
-				m.selectedView = viewChats
+				m.setSelectedView(viewChats)
 			}
 		} else if m.zone.Get(zonePaneViewport).InBounds(msg) || m.zone.Get(zonePaneInput).InBounds(msg) {
 			if m.currentChatIndex() >= 0 {
-				m.selectedView = viewChat
+				m.setSelectedView(viewChat)
 			}
 		}
 	}
@@ -245,7 +245,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.zone.Get(zonePaneAccountBar).InBounds(msg) {
 		m.notifyTypingStopped()
-		m.selectedView = viewAccounts
+		m.setSelectedView(viewAccounts)
 		m.lastClickedMsgIdx = -1
 		m.lastClickTime = time.Time{}
 		m.input.Blur()
@@ -254,7 +254,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	for i := range m.accounts {
 		if m.zone.Get(zoneAccountRow(i)).InBounds(msg) {
-			m.selectedView = viewAccounts
+			m.setSelectedView(viewAccounts)
 			m.lastClickedMsgIdx = -1
 			m.lastClickTime = time.Time{}
 			return m, m.switchAccount(i)
@@ -318,7 +318,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.zone.Get(zonePaneSidebar).InBounds(msg) {
 		m.notifyTypingStopped()
-		m.selectedView = viewChats
+		m.setSelectedView(viewChats)
 		m.lastClickedMsgIdx = -1
 		m.lastClickTime = time.Time{}
 		m.input.Blur()
@@ -335,7 +335,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i := range m.accounts {
 		if m.zone.Get(zoneAccountRow(i)).InBounds(msg) {
-			m.selectedView = viewAccounts
+			m.setSelectedView(viewAccounts)
 			cmd := m.switchAccount(i)
 			m.openContextMenu(m.accountRowContextMenuItems(i))
 			return m, cmd

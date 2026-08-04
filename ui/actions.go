@@ -505,7 +505,7 @@ func (m *Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	if m.currentChatIndex() < 0 {
 		return m, nil
 	}
-	m.selectedView = viewChat
+	m.setSelectedView(viewChat)
 	if msgs := m.currentMessages(); len(msgs) > 0 {
 		m.selectedMsg = len(msgs) - 1
 	}
@@ -600,7 +600,7 @@ func (m *Model) deleteSelectedChat() tea.Cmd {
 
 	cmd := m.chats.SetItems(newItems)
 	if len(newItems) == 0 {
-		m.selectedView = viewChats
+		m.setSelectedView(viewChats)
 		m.selectedMsg = 0
 		m.cancelPending()
 		m.refreshViewport()

@@ -34,6 +34,18 @@ type KeyMap struct {
 	TextInputKeys textinput.KeyMap
 }
 
+// caretKey shortens a "ctrl+x" key label to "^X" — the footer hint is
+// already tight on space, and control-key labels are the common case there.
+// Anything else (plain letters, "up", "tab", "esc", ...) passes through
+// unchanged.
+func caretKey(k string) string {
+	rest, ok := strings.CutPrefix(k, "ctrl+")
+	if !ok {
+		return k
+	}
+	return "^" + strings.ToUpper(rest)
+}
+
 func NewBinding(keys []string, desc string) key.Binding {
 	return key.NewBinding(key.WithKeys(keys...), key.WithHelp(strings.Join(keys, "/"), desc))
 }
@@ -79,13 +91,20 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// helpHint returns a compact, view-specific key hint for the app-wide footer.
-// Key labels are pulled from the (possibly user-remapped) bindings; the
-// descriptions are tailored to what each key does in that particular view.
+// helpHint returns a view-specific key hint for the app-wide footer, one
+// "key desc" entry per binding joined by " · ". Key labels are pulled from
+// the (possibly user-remapped) bindings; the descriptions are tailored to
+// what each key does in that particular view.
 func (k KeyMap) helpHint(view selectedView) string {
 	// Use only the shortest bound key, not the full "ctrl+k/up"-style joined
-	// label Help().Key would give — this line is space-constrained and
-	// truncates easily; the full set of alternate keys is in FullHelp.
+	// label Help().Key would give — this stays compact even wrapped over
+	// several lines; the full set of alternate keys is in FullHelp.
+	//
+	// Within an entry, join key and desc (and desc's own words) with a
+	// non-breaking space instead of a regular one — wrapFooterHint word-wraps
+	// this whole string, and a regular space would let it break an entry
+	// across lines (e.g. "ctrl+k" on one line, "prev msg" on the next). Only
+	// the " · " between entries is meant to be a wrap point.
 	part := func(b key.Binding, desc string) string {
 		keys := b.Keys()
 		if len(keys) == 0 {
@@ -97,7 +116,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 				shortest = k
 			}
 		}
-		return shortest + " " + desc
+		return strings.Join(strings.Fields(caretKey(shortest)+" "+desc), " ")
 	}
 
 	switch view {
@@ -117,20 +136,27 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.ChatOpen, "open"),
 			part(k.RenameChat, "rename"),
 			part(k.DeleteMsg, "delete"),
+			part(k.ListKeys.Filter, "filter"),
 			part(k.Switch, "accounts"),
 			part(k.Quit, "quit"),
 		}, " · ")
 	case viewChat:
-		// Kept short on purpose — this renders as a single line and
-		// truncates on narrow terminals. Navigation (up/down) and
-		// less-frequent actions (yank, info, open) are still bound, just
-		// not listed here. See KeyMap.FullHelp for the complete reference.
+		// Ordered by how often each is used — least-used trail off the end
+		// so narrow terminals (this renders as a single line and truncates)
+		// still show the important ones. See KeyMap.FullHelp for the
+		// complete, view-agnostic reference.
 		return strings.Join([]string{
 			part(k.SelectSend, "send"),
 			part(k.ReplyMsg, "reply"),
 			part(k.EditMsg, "edit"),
 			part(k.DeleteMsg, "delete"),
 			part(k.ReactMsg, "react"),
+			part(k.YankMsg, "yank"),
+			part(k.InfoMsg, "info"),
+			part(k.OpenMsg, "open"),
+			part(k.SaveMsg, "save"),
+			part(k.AttachFile, "attach"),
+			part(k.FocusChats, "chats"),
 			part(k.Back, "back"),
 		}, "·")
 	default:
