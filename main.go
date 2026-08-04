@@ -527,7 +527,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		if err := sess.db.UpsertRoster(ctx, storage.UpsertRosterParams{
 			AccountJid: sess.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: persisting roster entry %s: %v\n", c.JID, err)
+			debugf("warning: persisting roster entry %s: %v\n", c.JID, err)
 		}
 		if known {
 			continue
@@ -598,7 +598,7 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 		// plaintext in config.toml rather than failing the add outright.
 		if err := config.SetKeyringPassword(jid, password); err != nil {
 			acct.Password = password
-			fmt.Fprintf(os.Stderr, "warning: storing password in keyring for %s: %v; falling back to plaintext in config\n", jid, err)
+			debugf("warning: storing password in keyring for %s: %v; falling back to plaintext in config\n", jid, err)
 		}
 	}
 	if err := config.WriteAccount(a.cfgPath, acct); err != nil {
@@ -634,7 +634,7 @@ func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString
 	}
 	ct, err := localstore.Seal(s.localKey, plaintext)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: encrypting message for storage: %v\n", err)
+		debugf("warning: encrypting message for storage: %v\n", err)
 		return sql.NullString{String: plaintext, Valid: true}, false
 	}
 	return sql.NullString{String: ct, Valid: true}, true
@@ -649,11 +649,11 @@ func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString
 func publishOwnGPGKey(ctx context.Context, s *accountSession) {
 	keyData, err := s.gpg.Export(s.account.GPGKeyID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: exporting own gpg key: %v\n", err)
+		debugf("warning: exporting own gpg key: %v\n", err)
 		return
 	}
 	if err := s.client.Load().PublishOpenPGPKey(ctx, s.account.GPGKeyID, keyData); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: publishing gpg key via PEP (XEP-0373): %v\n", err)
+		debugf("warning: publishing gpg key via PEP (XEP-0373): %v\n", err)
 		return
 	}
 }
@@ -672,12 +672,12 @@ func setupOmemo(ctx context.Context, s *accountSession) {
 	if _, err := store.IdentityKeyPair(ctx); err != nil {
 		var deviceID [4]byte
 		if _, err := rand.Read(deviceID[:]); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: generating omemo device id for %s: %v\n", s.account.JID, err)
+			debugf("warning: generating omemo device id for %s: %v\n", s.account.JID, err)
 			return
 		}
 		id := omemolib.DeviceID(binary.BigEndian.Uint32(deviceID[:]))
 		if err := omemolib.InitIdentity(ctx, store, s.account.JID, id); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: initializing omemo identity for %s: %v\n", s.account.JID, err)
+			debugf("warning: initializing omemo identity for %s: %v\n", s.account.JID, err)
 			return
 		}
 	}
@@ -686,18 +686,18 @@ func setupOmemo(ctx context.Context, s *accountSession) {
 	mgr, err := omemolib.NewManager(ctx, store, client.OmemoTransport(),
 		omemolib.WithTrustResolver(func(context.Context, omemolib.Device, ed25519.PublicKey) error { return nil }))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: setting up omemo for %s: %v\n", s.account.JID, err)
+		debugf("warning: setting up omemo for %s: %v\n", s.account.JID, err)
 		return
 	}
 	s.omemoMgr = mgr
 
 	if err := mgr.PublishBundle(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: publishing omemo bundle for %s: %v\n", s.account.JID, err)
+		debugf("warning: publishing omemo bundle for %s: %v\n", s.account.JID, err)
 	}
 
 	devices, err := client.FetchOmemoDeviceList(ctx, s.account.JID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: fetching own omemo device list for %s: %v\n", s.account.JID, err)
+		debugf("warning: fetching own omemo device list for %s: %v\n", s.account.JID, err)
 		return
 	}
 	local := mgr.LocalDevice().ID
@@ -712,7 +712,7 @@ func setupOmemo(ctx context.Context, s *accountSession) {
 	devices.Devices = append(devices.Devices, local)
 	debugf("omemo setup: publishing device list for %s with devices: %v", s.account.JID, devices.Devices)
 	if err := client.PublishOmemoDeviceList(ctx, devices); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: publishing omemo device list for %s: %v\n", s.account.JID, err)
+		debugf("warning: publishing omemo device list for %s: %v\n", s.account.JID, err)
 	}
 }
 
@@ -746,11 +746,11 @@ func resolvePeerKey(ctx context.Context, s *accountSession, peerJID string) stri
 
 	fpr, err := discoverPeerKey(ctx, s, peerJID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "note: no gpg key found for %s (%v); sending unencrypted\n", peerJID, err)
+		debugf("note: no gpg key found for %s (%v); sending unencrypted\n", peerJID, err)
 		return ""
 	}
 	if err := s.db.UpsertPGPPeerKey(ctx, storage.UpsertPGPPeerKeyParams{AccountJid: s.account.JID, Jid: peerJID, Fingerprint: fpr}); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: caching discovered gpg key for %s: %v\n", peerJID, err)
+		debugf("warning: caching discovered gpg key for %s: %v\n", peerJID, err)
 	}
 	return fpr
 }
@@ -807,7 +807,7 @@ func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row
 				IDAttr:     row.Idattr,
 				RosterJid:  nullString(chatAddr),
 			}); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: encrypting stored message: %v\n", err)
+				debugf("warning: encrypting stored message: %v\n", err)
 			}
 		}
 		return row.Body.String, nil
@@ -824,7 +824,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		RosterJid:  nullString(chatAddr),
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: loading history for %s: %v\n", chatAddr, err)
+		debugf("warning: loading history for %s: %v\n", chatAddr, err)
 		return nil
 	}
 
@@ -836,7 +836,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		}
 		pt, err := readStoredBody(ctx, s, chatAddr, row)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: decrypting history for %s: %v\n", chatAddr, err)
+			debugf("warning: decrypting history for %s: %v\n", chatAddr, err)
 			continue
 		}
 		author := chatName
@@ -897,7 +897,7 @@ func loadReactionsForMessage(ctx context.Context, s *accountSession, msgID strin
 		AccountJid: s.account.JID, IDAttr: msgID,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: loading reactions for %s: %v\n", msgID, err)
+		debugf("warning: loading reactions for %s: %v\n", msgID, err)
 		return nil
 	}
 
@@ -1001,7 +1001,7 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 	if err := s.db.UpsertRoster(context.Background(), storage.UpsertRosterParams{
 		AccountJid: s.account.JID, Jid: address, Name: name, Subs: subs,
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: persisting renamed roster entry %s: %v\n", address, err)
+		debugf("warning: persisting renamed roster entry %s: %v\n", address, err)
 	}
 
 	updated := make(map[string]rosterEntry)
@@ -1052,7 +1052,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			return "", err
 		}
 		if err := replaceReactions(ctx, s, opts.ReactionTargetID, meReactorJID, opts.Reactions); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: persisting our own reactions: %v\n", err)
+			debugf("warning: persisting our own reactions: %v\n", err)
 		}
 		return id, nil
 	}
@@ -1070,7 +1070,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			IDAttr:     nullString(opts.RetractID),
 			RosterJid:  nullString(to),
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: deleting retracted message from storage: %v\n", err)
+			debugf("warning: deleting retracted message from storage: %v\n", err)
 		}
 		return id, nil
 	}
@@ -1108,7 +1108,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			sendOpts.Encrypted = xmpp.EncodeOmemoMessage(enc)
 			wireBody = ""
 		} else {
-			fmt.Fprintf(os.Stderr, "note: omemo not ready for %s; sending unencrypted\n", s.account.JID)
+			debugf("note: omemo not ready for %s; sending unencrypted\n", s.account.JID)
 		}
 	case "gpg":
 		if peerKey := resolvePeerKey(ctx, s, to); peerKey != "" {
@@ -1136,7 +1136,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			IDAttr:     nullString(opts.ReplaceID),
 			RosterJid:  nullString(to),
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: persisting correction: %v\n", err)
+			debugf("warning: persisting correction: %v\n", err)
 		}
 		return id, nil
 	}
@@ -1153,7 +1153,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		RosterJid:     nullString(to),
 		ReplyToIDAttr: nullString(opts.ReplyToID),
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: persisting sent message: %v\n", err)
+		debugf("warning: persisting sent message: %v\n", err)
 	}
 	return id, nil
 }
@@ -1243,7 +1243,7 @@ func superviseAccount(ctx context.Context, p *tea.Program, accountIdx int, s *ac
 		if client.Closed() || ctx.Err() != nil {
 			return
 		}
-		fmt.Fprintf(os.Stderr, "warning: account %s disconnected (%v); reconnecting...\n", s.account.JID, client.Err())
+		debugf("warning: account %s disconnected (%v); reconnecting...\n", s.account.JID, client.Err())
 		reconnectWithBackoff(ctx, s)
 	}
 }
@@ -1265,12 +1265,12 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 			client, err = xmpp.Dial(ctx, s.account.JID, password, s.tlsConfig)
 			if err == nil {
 				s.client.Store(client)
-				fmt.Fprintf(os.Stderr, "account %s reconnected\n", s.account.JID)
+				debugf("account %s reconnected\n", s.account.JID)
 				return
 			}
 		}
 
-		fmt.Fprintf(os.Stderr, "warning: reconnecting %s failed: %v; retrying in %s\n", s.account.JID, err, backoff)
+		debugf("warning: reconnecting %s failed: %v; retrying in %s\n", s.account.JID, err, backoff)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -1331,7 +1331,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	if msgEv.ReactionTargetID != "" {
 		from := bareJID(msgEv.From)
 		if err := replaceReactions(ctx, s, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: persisting reactions from %s: %v\n", from, err)
+			debugf("warning: persisting reactions from %s: %v\n", from, err)
 		}
 		p.Send(ui.MessageReactionsMsg{
 			AccountIdx: accountIdx,
@@ -1349,7 +1349,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			IDAttr:     nullString(msgEv.RetractID),
 			RosterJid:  nullString(from),
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: persisting retraction flag: %v\n", err)
+			debugf("warning: persisting retraction flag: %v\n", err)
 		}
 		p.Send(ui.MessageRetractedMsg{
 			AccountIdx: accountIdx,
@@ -1363,18 +1363,18 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	if msgEv.Encrypted != nil {
 		debugf("received omemo message from %s for %s", msgEv.From, s.account.JID)
 		if s.omemoMgr == nil {
-			fmt.Fprintf(os.Stderr, "warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
+			debugf("warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
 			return
 		}
 		enc, err := xmpp.DecodeOmemoMessage(msgEv.Encrypted, bareJID(msgEv.From))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: decoding omemo message from %s: %v\n", msgEv.From, err)
+			debugf("warning: decoding omemo message from %s: %v\n", msgEv.From, err)
 			return
 		}
 		pt, err := s.omemoMgr.DecryptMessage(ctx, enc)
 		if err != nil {
 			debugf("decrypting omemo message from %s failed: %v", msgEv.From, err)
-			fmt.Fprintf(os.Stderr, "warning: decrypting omemo message from %s: %v\n", msgEv.From, err)
+			debugf("warning: decrypting omemo message from %s: %v\n", msgEv.From, err)
 			return
 		}
 		if pt == nil {
@@ -1387,7 +1387,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	if gpg.Looks(body) {
 		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: decrypting message from %s: %v\n", msgEv.From, err)
+			debugf("warning: decrypting message from %s: %v\n", msgEv.From, err)
 		} else {
 			body = pt
 		}
@@ -1404,7 +1404,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			IDAttr:     nullString(msgEv.ReplaceID),
 			RosterJid:  nullString(from),
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: persisting correction: %v\n", err)
+			debugf("warning: persisting correction: %v\n", err)
 		}
 		p.Send(ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,
@@ -1427,7 +1427,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		RosterJid:     nullString(from),
 		ReplyToIDAttr: nullString(msgEv.ReplyToID),
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: persisting received message: %v\n", err)
+		debugf("warning: persisting received message: %v\n", err)
 	}
 
 	p.Send(ui.IncomingMessageMsg{
