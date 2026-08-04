@@ -39,6 +39,12 @@ type Client struct {
 
 	// Debugf is called for debug logging (nil/no-op by default)
 	Debugf func(format string, args ...any)
+
+	// mamMu guards mamWaiters, the set of in-flight FetchArchive calls keyed
+	// by their queryid — populated by handleStanza as MAM <result/> messages
+	// stream in, ahead of the <iq> fin that FetchArchive is blocked on.
+	mamMu      sync.Mutex
+	mamWaiters map[string]chan ArchivedMessage
 }
 
 // Dial connects and authenticates address (a full or bare JID) with password,

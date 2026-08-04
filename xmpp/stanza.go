@@ -22,6 +22,7 @@ type messageBody struct {
 	Reactions *reactionsElem      `xml:"urn:xmpp:reactions:0 reactions"`
 	Fallback  *fallbackElem       `xml:"urn:xmpp:fallback:0 fallback"`
 	Encrypted *omemoEncryptedElem `xml:"urn:xmpp:omemo:2 encrypted"`
+	MAMResult *mamResultElem      `xml:"urn:xmpp:mam:2 result"`
 
 	// XEP-0085 chat state notification: at most one of these is set, on
 	// send or receive. Modeled as five separate pointer fields (rather than

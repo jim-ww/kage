@@ -559,6 +559,7 @@ INSERT INTO messages (
 	originID,
 	delay,
 	rosterJID,
+	archiveID,
 	replyToIdAttr
 )
 VALUES (
@@ -576,10 +577,11 @@ VALUES (
 		CAST(strftime('%s', 'now') AS INTEGER)
 	),
 	?11,
-	?12
+	?12,
+	?13
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
-SET accountJID = excluded.accountJID
+SET archiveID = excluded.archiveID
 RETURNING id
 `
 
@@ -595,6 +597,7 @@ type InsertMessageParams struct {
 	OriginID      sql.NullString `db:"origin_id"`
 	Delay         interface{}    `db:"delay"`
 	RosterJid     sql.NullString `db:"roster_jid"`
+	ArchiveID     sql.NullString `db:"archive_id"`
 	ReplyToIDAttr sql.NullString `db:"reply_to_id_attr"`
 }
 
@@ -611,6 +614,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.OriginID,
 		arg.Delay,
 		arg.RosterJid,
+		arg.ArchiveID,
 		arg.ReplyToIDAttr,
 	)
 	var id int64
@@ -719,6 +723,46 @@ type InsertRosterGroupParams struct {
 func (q *Queries) InsertRosterGroup(ctx context.Context, arg InsertRosterGroupParams) error {
 	_, err := q.db.ExecContext(ctx, insertRosterGroup, arg.AccountJid, arg.Jid, arg.Name)
 	return err
+}
+
+const listLatestArchiveIDs = `-- name: ListLatestArchiveIDs :many
+SELECT
+	m.rosterJID,
+	m.archiveID,
+	MAX(m.delay)
+FROM messages AS m
+WHERE m.accountJID = ?1
+	AND m.archiveID IS NOT NULL
+GROUP BY m.rosterJID
+`
+
+type ListLatestArchiveIDsRow struct {
+	Rosterjid sql.NullString `db:"rosterjid"`
+	Archiveid sql.NullString `db:"archiveid"`
+	Max       interface{}    `db:"max"`
+}
+
+func (q *Queries) ListLatestArchiveIDs(ctx context.Context, accountJid string) ([]ListLatestArchiveIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestArchiveIDs, accountJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLatestArchiveIDsRow
+	for rows.Next() {
+		var i ListLatestArchiveIDsRow
+		if err := rows.Scan(&i.Rosterjid, &i.Archiveid, &i.Max); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listMessagesByRoster = `-- name: ListMessagesByRoster :many

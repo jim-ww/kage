@@ -90,6 +90,11 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		// The decoded value is valid regardless; only bail if we got nothing.
 		_ = d.DecodeElement(&msg, start)
 
+		if msg.MAMResult != nil {
+			c.dispatchArchiveResult(msg.MAMResult)
+			return
+		}
+
 		if state, ok := msg.chatState(); ok {
 			events <- ChatStateEvent{From: msg.From.String(), State: state}
 		}

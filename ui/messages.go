@@ -178,6 +178,16 @@ type AccountConnectErrorMsg struct {
 	Err   error
 }
 
+// HistorySyncedMsg is sent into the Bubble Tea loop with a batch of XEP-0313
+// (MAM) archive messages that were missed while offline, backfilled after an
+// account finishes connecting. Handled identically to a batch of
+// IncomingMessageMsg for the same chat.
+type HistorySyncedMsg struct {
+	AccountIdx int
+	From       string
+	Messages   []Message
+}
+
 // DefaultAccountSetter persists which account should be selected on startup,
 // implemented outside ui (main.go's adapter) so ui stays decoupled from the
 // config layer. It's a local file write, not network I/O, so ui calls it

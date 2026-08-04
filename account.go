@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -61,8 +62,9 @@ func (s *accountSession) rosterName(bareJID string) string {
 // connectAndSuperviseAccount loads one configured account's local
 // roster/history from disk first — fast, no network — and reports it to the
 // UI immediately so local chats/messages appear on screen right away. Only
-// then does it dial and fetch the live roster in the background, and fall
-// into the normal event-listen/reconnect supervisor loop.
+// then does it dial and fetch the live roster in the background, backfill
+// anything missed via XEP-0313 MAM, and fall into the normal
+// event-listen/reconnect supervisor loop.
 func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter, idx int, acct config.Account, queries *storage.Queries, localKey []byte) {
 	debugf("account %s: connectAccountLocal starting", acct.JID)
 	start := time.Now()
@@ -90,6 +92,11 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 	a.mu.Unlock()
 
 	p.Send(ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages})
+
+	debugf("account %s: syncArchive starting", acct.JID)
+	start = time.Now()
+	syncArchive(ctx, p, idx, sess)
+	debugf("account %s: syncArchive done in %s", acct.JID, time.Since(start))
 
 	superviseAccount(ctx, p, idx, sess)
 }
@@ -142,9 +149,10 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 // connectAccountLive dials sess's account, publishes our GPG key, and fetches
 // the live roster, merging it into sess's already-loaded (by
 // connectAccountLocal) roster cache. Existing contacts' chat/history entries
-// are left completely untouched — they're already showing — only contacts
-// the local snapshot didn't know about (added from another device) get a
-// fresh history load here. The returned chats/messages are new
+// are left completely untouched — they're already showing, and anything
+// missed while offline is backfilled separately via syncArchive — only
+// contacts the local snapshot didn't know about (added from another device)
+// get a fresh history load here. The returned chats/messages are new
 // entries only, with message indices relative to a Chats slice that starts
 // right after existingChatCount, so the caller can append rather than
 // replace what's already displayed.
@@ -345,6 +353,123 @@ func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 		return ui.PresenceAway
 	default:
 		return ui.PresenceOnline
+	}
+}
+
+// syncArchive backfills every roster contact's history via XEP-0313 (MAM),
+// catching up on messages sent/received on another device or while this
+// client wasn't running — something local storage alone can never have. Runs
+// once, right after an account finishes connecting; best-effort per contact,
+// since not every server (or every contact's account) offers MAM.
+func syncArchive(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
+	client := s.client.Load()
+
+	lastArchiveID := make(map[string]string)
+	if latest, err := s.db.ListLatestArchiveIDs(ctx, s.account.JID); err == nil {
+		for _, row := range latest {
+			if row.Archiveid.Valid && row.Rosterjid.Valid {
+				lastArchiveID[row.Rosterjid.String] = row.Archiveid.String
+			}
+		}
+	}
+
+	entries := s.roster.Load()
+	if entries == nil {
+		return
+	}
+	debugf("account %s: syncArchive: %d contacts to check", s.account.JID, len(*entries))
+	for peerJID := range *entries {
+		start := time.Now()
+		syncArchiveForContact(ctx, p, accountIdx, s, client, peerJID, lastArchiveID[peerJID])
+		debugf("account %s: syncArchiveForContact(%s) done in %s", s.account.JID, peerJID, time.Since(start))
+	}
+}
+
+// syncArchiveForContact pages through peerJID's MAM archive strictly newer
+// than afterArchiveID until the server reports the page set complete,
+// persisting and forwarding each message to the UI as it's fetched.
+func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, client *xmpp.Client, peerJID, afterArchiveID string) {
+	const pageSize = 50
+	const maxPages = 200 // guards against a misbehaving server never reporting complete
+
+	ownBare := bareJID(s.account.JID)
+	name := s.rosterName(peerJID)
+	var newMsgs []ui.Message
+
+	for page := 0; page < maxPages; page++ {
+		prevAfter := afterArchiveID
+		pageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		pageStart := time.Now()
+		items, complete, err := client.FetchArchive(pageCtx, peerJID, afterArchiveID, pageSize)
+		cancel()
+		debugf("mam %s/%s: page %d fetched in %s (after=%q items=%d complete=%v err=%v)",
+			s.account.JID, peerJID, page, time.Since(pageStart), prevAfter, len(items), complete, err)
+		if err != nil {
+			// MAM isn't universally supported (by the server or by the peer's
+			// own account) — not an error worth surfacing per contact.
+			break
+		}
+		if len(items) == 0 {
+			break
+		}
+
+		stop := false
+		for _, am := range items {
+			afterArchiveID = am.ArchiveID
+
+			body := am.Body
+			if gpg.Looks(body) {
+				if pt, err := s.gpg.Decrypt(body, ""); err == nil {
+					body = pt
+				}
+			}
+			sent := bareJID(am.From) == ownBare
+			sealedBody, encrypted := encryptForStorage(s, body)
+
+			_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+				AccountJid: s.account.JID,
+				Sent:       sent,
+				ToAttr:     nullString(am.To),
+				FromAttr:   nullString(am.From),
+				IDAttr:     nullString(am.ID),
+				Body:       sealedBody,
+				Encrypted:  encrypted,
+				StanzaType: "chat",
+				Delay:      am.SentAt.Unix(),
+				RosterJid:  nullString(peerJID),
+				ArchiveID:  nullString(am.ArchiveID),
+			})
+			if err != nil {
+				if strings.Contains(err.Error(), "archiveID") {
+					// Already stored, and results arrive chronologically —
+					// everything after it is too.
+					stop = true
+					break
+				}
+				fmt.Fprintf(os.Stderr, "warning: persisting mam history for %s: %v\n", peerJID, err)
+				continue
+			}
+
+			author := name
+			if sent {
+				author = "me"
+			}
+			newMsgs = append(newMsgs, ui.Message{
+				ID:          am.ID,
+				Author:      author,
+				Content:     body,
+				SentAt:      am.SentAt,
+				IsMe:        sent,
+				Attachments: attachmentURLs(body),
+			})
+		}
+		if stop || complete || afterArchiveID == prevAfter {
+			break
+		}
+	}
+
+	if len(newMsgs) > 0 {
+		p.Send(ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
 	}
 }
 

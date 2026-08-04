@@ -225,6 +225,26 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, m.showNotification("account " + m.accounts[msg.Index].Name + " failed to connect: " + msg.Err.Error()), true
 
+	case HistorySyncedMsg:
+		if len(msg.Messages) == 0 {
+			return m, nil, true
+		}
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		if m.accounts[msg.AccountIdx].Messages == nil {
+			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
+		}
+		msgs := append(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Messages...)
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.selectedMsg = len(msgs) - 1
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+		}
+		return m, nil, true
+
 	case typingPauseMsg:
 		if m.sender != nil && m.typingActiveTo == msg.addr && m.typingGen == msg.gen {
 			if err := m.sender.SetTyping(m.currentAccount, msg.addr, false); err == nil {

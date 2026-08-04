@@ -59,6 +59,7 @@ INSERT INTO messages (
 	originID,
 	delay,
 	rosterJID,
+	archiveID,
 	replyToIdAttr
 )
 VALUES (
@@ -76,10 +77,11 @@ VALUES (
 		CAST(strftime('%s', 'now') AS INTEGER)
 	),
 	sqlc.arg(roster_jid),
+	sqlc.arg(archive_id),
 	sqlc.arg(reply_to_id_attr)
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
-SET accountJID = excluded.accountJID
+SET archiveID = excluded.archiveID
 RETURNING id;
 
 
@@ -442,3 +444,14 @@ INSERT INTO omemoRemoteIdentity (accountJID, peerJID, deviceID, identityKey)
 VALUES (sqlc.arg(account_jid), sqlc.arg(peer_jid), sqlc.arg(device_id), sqlc.arg(identity_key))
 ON CONFLICT (accountJID, peerJID, deviceID) DO UPDATE
 SET identityKey = excluded.identityKey;
+
+
+-- name: ListLatestArchiveIDs :many
+SELECT
+	m.rosterJID,
+	m.archiveID,
+	MAX(m.delay)
+FROM messages AS m
+WHERE m.accountJID = sqlc.arg(account_jid)
+	AND m.archiveID IS NOT NULL
+GROUP BY m.rosterJID;
