@@ -1,7 +1,6 @@
 - show current encryption configured for chat
 - chat list: toggle on bind/button
 - chat view: add attach file, emoji buttons
-- fix: panic on tiny window
 - ctrl+? for full help, remove help bar
 - message status? 'sent' / 'delivered' icons?
 - save last chat ID? open it on startup, if exists

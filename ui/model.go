@@ -571,7 +571,7 @@ func (m Model) inputFieldWidth() int {
 	if m.mouseEnabled {
 		w -= sendButtonWidth // room for the send button beside it
 	}
-	return w
+	return max(0, w)
 }
 
 const sidebarMinWidth = 20
