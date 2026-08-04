@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -451,6 +452,20 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				continue
 			}
 
+			// The same message can also already be stored via the live path
+			// (events.go), which has no archiveID to match against - check
+			// its dedup key too, or a MAM resync re-decrypts ciphertext whose
+			// ratchet key the live path already consumed (see comment above).
+			if am.ID != "" {
+				if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
+					AccountJid: s.account.JID,
+					RosterJid:  nullString(peerJID),
+					IDAttr:     nullString(am.ID),
+				}); err == nil && exists {
+					continue
+				}
+			}
+
 			body := am.Body
 			e2eEncrypted := am.Encrypted != nil || gpg.Looks(body)
 			e2eeMethod := ""
@@ -465,7 +480,12 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 					body = "[message could not be decrypted: omemo isn't ready]"
 				} else if enc, err := xmpp.DecodeOmemoMessage(am.Encrypted, bareJID(am.From)); err != nil {
 					body = "[message could not be decrypted: " + err.Error() + "]"
-				} else if pt, err := s.omemoMgr.DecryptMessage(ctx, enc); err != nil {
+				} else if pt, err := s.omemoMgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
+					// Not a real failure - see handleIncomingMessage's live-path
+					// comment. Quietly skip instead of storing a noise row.
+					debugf("mam: omemo message %s from %s has no key for this device, skipping", am.ArchiveID, am.From)
+					continue
+				} else if err != nil {
 					body = "[message could not be decrypted: " + err.Error() + "]"
 				} else if pt == nil {
 					continue // key-transport only: session established/refreshed, no content to show

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,6 +10,7 @@ import (
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
+	omemolib "github.com/jim-ww/omemo-go"
 )
 
 // handleIncomingMessage decrypts, persists, and forwards a single incoming
@@ -85,7 +87,14 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			return
 		}
 		pt, err := s.omemoMgr.DecryptMessage(ctx, enc)
-		if err != nil {
+		if errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
+			// Not a real failure - this stanza just wasn't encrypted for this
+			// device's current key (e.g. it also targets other/older devices
+			// on the same account). Nothing was lost, so stay quiet instead
+			// of cluttering the chat with a per-device non-error.
+			debugf("omemo message from %s has no key for this device, skipping", msgEv.From)
+			return
+		} else if err != nil {
 			// Surface the failure in the chat instead of dropping the message
 			// entirely - a silently vanished message looks indistinguishable
 			// from "nothing was sent", which makes this undiagnosable from the UI.
