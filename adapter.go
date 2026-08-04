@@ -244,8 +244,19 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		if s.omemoMgr != nil {
 			enc, deviceErrs, err := s.omemoMgr.EncryptMessage(ctx, to, []byte(plaintext))
 			if err != nil {
-				debugf("send: omemo encrypt failed for %s to %s: %v (device errors: %v)", s.account.JID, to, err, deviceErrs)
-				return "", fmt.Errorf("omemo-encrypting to %s: %w", to, err)
+				// The manager only auto-fetches a peer's device list when its
+				// cache is empty, so a peer that rotated/added devices since
+				// our last fetch looks unencryptable until we force a resync.
+				debugf("send: omemo encrypt failed for %s to %s: %v (device errors: %v); forcing device resync", s.account.JID, to, err, deviceErrs)
+				if syncErr := s.omemoMgr.SyncDevices(ctx, to); syncErr != nil {
+					debugf("send: omemo device resync for %s failed: %v", to, syncErr)
+					return "", fmt.Errorf("omemo-encrypting to %s: %w", to, err)
+				}
+				enc, deviceErrs, err = s.omemoMgr.EncryptMessage(ctx, to, []byte(plaintext))
+				if err != nil {
+					debugf("send: omemo encrypt failed for %s to %s after resync: %v (device errors: %v)", s.account.JID, to, err, deviceErrs)
+					return "", fmt.Errorf("omemo-encrypting to %s: %w (device errors: %v)", to, err, deviceErrs)
+				}
 			}
 			debugf("send: omemo encrypt succeeded for %s to %s, %d keys", s.account.JID, to, len(enc.Keys))
 			sendOpts.Encrypted = xmpp.EncodeOmemoMessage(enc)

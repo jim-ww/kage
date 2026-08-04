@@ -61,16 +61,18 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		}
 		pt, err := s.omemoMgr.DecryptMessage(ctx, enc)
 		if err != nil {
+			// Surface the failure in the chat instead of dropping the message
+			// entirely - a silently vanished message looks indistinguishable
+			// from "nothing was sent", which makes this undiagnosable from the UI.
 			debugf("decrypting omemo message from %s failed: %v", msgEv.From, err)
-			debugf("warning: decrypting omemo message from %s: %v\n", msgEv.From, err)
-			return
-		}
-		if pt == nil {
+			body = "[message could not be decrypted: " + err.Error() + "]"
+		} else if pt == nil {
 			debugf("omemo message from %s was key-transport only (no content)", msgEv.From)
 			return // key-transport message: session established/refreshed, no content to show
+		} else {
+			debugf("omemo message from %s decrypted successfully", msgEv.From)
+			body = string(pt)
 		}
-		debugf("omemo message from %s decrypted successfully", msgEv.From)
-		body = string(pt)
 	}
 	if gpg.Looks(body) {
 		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])

@@ -1,5 +1,8 @@
 fix: "send failed: omemo-encrypting to ADDRESS: omemo: no recipient device could be encrypted for"
-- ctrl z to undo last change in message draft. should store all changes in this session, until message is sent, then clear
+- ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
+- chat view: show [padlock] icon after date in messages, if its encrypted
+- show encryption information in message info
+- make margin above help line (below textinput ) slighly smaller
 - improve chat view text input. shift+enter should break to new line, and also show multiline properly
 - chat view: add attach file, emoji buttons
 - message status? 'sent' / 'delivered' icons?
