@@ -16,7 +16,9 @@ import (
 const mamNS = "urn:xmpp:mam:2"
 
 // ArchivedMessage is one XEP-0313 archive result: a single forwarded message
-// plus the server-assigned archive ID it can be paged/resumed from.
+// plus the server-assigned archive ID it can be paged/resumed from. Exactly
+// one of {Body/Encrypted, RetractID, ReactionTargetID, ReplaceID} is set per
+// message per XEP-0424/0444/0308 - see dispatchArchiveResult.
 type ArchivedMessage struct {
 	ArchiveID string // server-assigned MAM id, used as the RSM "after" cursor to resume
 	SentAt    time.Time
@@ -29,6 +31,24 @@ type ArchivedMessage struct {
 	// message; Body carries no meaningful content and the caller must
 	// decrypt this (crypto/omemo, via DecodeOmemoMessage) to get the text.
 	Encrypted *omemoEncryptedElem
+
+	// RetractID is non-empty if this archived item is a XEP-0424 retraction
+	// of an earlier message with this ID. Other fields besides
+	// ArchiveID/From/SentAt carry no meaningful content.
+	RetractID string
+
+	// ReactionTargetID is non-empty if this archived item is a XEP-0444
+	// reaction-set update: Reactions is the sender's complete, current
+	// reaction set on the message with this ID (may be empty, meaning they
+	// cleared it). Other fields besides ArchiveID/From/SentAt carry no
+	// meaningful content.
+	ReactionTargetID string
+	Reactions        []string
+
+	// ReplaceID is non-empty if this archived item is a XEP-0308 correction
+	// of an earlier message with this ID; Body (or Encrypted) carries the
+	// corrected content, same as a normal message.
+	ReplaceID string
 }
 
 // mamResultElem is the <result/> wrapper XEP-0313 attaches to a <message/>
@@ -61,31 +81,47 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 	}
 
 	msg := r.Forwarded.Message
-	// MAM archives every <message/> a server saw, including ones carrying no
-	// displayable content of their own - chat states, XEP-0424 retractions,
-	// XEP-0444 reactions, XEP-0308 corrections (all handled, if at all, via
-	// their own live-path events - see handleStanza) - and a message with
-	// neither body nor OMEMO payload. Forwarding those here as an
-	// ArchivedMessage produces a timestamped row with nothing in it, since
-	// ArchivedMessage only carries Body/Encrypted. Skip them at the source
-	// rather than growing every caller a duplicate set of guards.
-	if _, isChatState := msg.chatState(); isChatState || msg.Retract != nil || msg.Reactions != nil || msg.Replace != nil {
-		return
-	}
-	if msg.Body == "" && msg.Encrypted == nil {
+	// MAM archives every <message/> a server saw, including chat states -
+	// which carry nothing worth persisting even live (see handleStanza) -
+	// and, unlike the live path, XEP-0424 retractions/XEP-0444 reactions/
+	// XEP-0308 corrections need to survive being forwarded here so the
+	// caller can apply them to already-synced history, same as the live
+	// path does for ones that arrive while connected.
+	if _, isChatState := msg.chatState(); isChatState {
 		return
 	}
 
 	am := ArchivedMessage{
 		ArchiveID: r.ID,
-		From:      r.Forwarded.Message.From.String(),
-		To:        r.Forwarded.Message.To.String(),
-		Body:      r.Forwarded.Message.Body,
-		ID:        r.Forwarded.Message.ID,
-		Encrypted: r.Forwarded.Message.Encrypted,
+		From:      msg.From.String(),
+		To:        msg.To.String(),
+		ID:        msg.ID,
 	}
 	if stamp, err := time.Parse(time.RFC3339, r.Forwarded.Delay.Stamp); err == nil {
 		am.SentAt = stamp
+	}
+
+	switch {
+	case msg.Retract != nil:
+		am.RetractID = msg.Retract.ID
+	case msg.Reactions != nil:
+		reactions := msg.Reactions.Reactions
+		if reactions == nil {
+			reactions = []string{} // distinguish "cleared" from "field absent" for callers
+		}
+		am.ReactionTargetID = msg.Reactions.ID
+		am.Reactions = reactions
+	case msg.Replace != nil:
+		am.ReplaceID = msg.Replace.ID
+		am.Body = msg.Body
+		am.Encrypted = msg.Encrypted
+	case msg.Body != "" || msg.Encrypted != nil:
+		am.Body = msg.Body
+		am.Encrypted = msg.Encrypted
+	default:
+		// Nothing worth archiving/showing - see the belt-and-suspenders
+		// check on the caller side too (syncArchiveForContact).
+		return
 	}
 
 	select {

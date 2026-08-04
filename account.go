@@ -473,11 +473,42 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				}
 			}
 
+			// Retractions/reactions/corrections backfilled via MAM (i.e. they
+			// happened while offline, so the live path in handleIncomingMessage
+			// never saw them) apply to a message already persisted - by this
+			// same sync, an earlier one, or the live path - rather than
+			// inserting a row of their own. Applied inline, immediately, same
+			// as the live path, instead of batched into newMsgs/HistorySyncedMsg
+			// below - the target message may already be on screen.
+			if am.RetractID != "" {
+				if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
+					AccountJid: s.account.JID,
+					IDAttr:     nullString(am.RetractID),
+					RosterJid:  nullString(peerJID),
+				}); err != nil {
+					debugf("warning: persisting mam retraction for %s: %v", peerJID, err)
+				}
+				p.Send(ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peerJID, RetractID: am.RetractID})
+				continue
+			}
+			if am.ReactionTargetID != "" {
+				if err := replaceReactions(ctx, s, am.ReactionTargetID, bareJID(am.From), am.Reactions); err != nil {
+					debugf("warning: persisting mam reactions for %s: %v", peerJID, err)
+				}
+				p.Send(ui.MessageReactionsMsg{
+					AccountIdx: accountIdx,
+					From:       peerJID,
+					MessageID:  am.ReactionTargetID,
+					Reactions:  loadReactionsForMessage(ctx, s, am.ReactionTargetID),
+				})
+				continue
+			}
+
 			// Belt-and-suspenders alongside dispatchArchiveResult's own
 			// filtering (xmpp/mam.go) - a plain message with neither body nor
 			// an OMEMO payload has nothing to show, matching
 			// handleIncomingMessage's live-path guard (events.go).
-			if am.Body == "" && am.Encrypted == nil {
+			if am.Body == "" && am.Encrypted == nil && am.ReplaceID == "" {
 				continue
 			}
 
@@ -521,6 +552,25 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			body = stripReplyQuote(body)
 			sent := bareJID(am.From) == ownBare
 			sealedBody, encrypted := encryptForStorage(s, body)
+
+			if am.ReplaceID != "" {
+				if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
+					AccountJid: s.account.JID,
+					Body:       sealedBody,
+					Encrypted:  encrypted,
+					IDAttr:     nullString(am.ReplaceID),
+					RosterJid:  nullString(peerJID),
+				}); err != nil {
+					debugf("warning: persisting mam correction for %s: %v", peerJID, err)
+				}
+				p.Send(ui.MessageCorrectedMsg{
+					AccountIdx: accountIdx,
+					From:       peerJID,
+					ReplaceID:  am.ReplaceID,
+					NewContent: body,
+				})
+				continue
+			}
 
 			_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 				AccountJid:   s.account.JID,
