@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -458,7 +457,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 					stop = true
 					break
 				}
-				fmt.Fprintf(os.Stderr, "warning: persisting mam history for %s: %v\n", peerJID, err)
+				debugf("warning: persisting mam history for %s: %v", peerJID, err)
 				continue
 			}
 
