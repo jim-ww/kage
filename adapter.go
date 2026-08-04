@@ -130,7 +130,7 @@ func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 	s, ok := a.session(accountIdx)
 	if !ok {
-		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("unknown account %d", accountIdx)}
+		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("account is still connecting")}
 	}
 	if s.omemoMgr == nil {
 		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
@@ -157,7 +157,7 @@ func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []uint32) tea.Msg {
 	s, ok := a.session(accountIdx)
 	if !ok {
-		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("unknown account %d", accountIdx)}
+		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("account is still connecting")}
 	}
 	if s.omemoMgr == nil {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}

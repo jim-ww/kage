@@ -251,6 +251,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, textinput.Blink, true
 		}
 
+	case key.Matches(msg, m.keys.DeviceList):
+		if m.selectedView == viewAccounts {
+			model, cmd := m.openDeviceList()
+			return model, cmd, true
+		}
+
 	case key.Matches(msg, m.keys.RenameChat):
 		if m.selectedView == viewChats {
 			return m, m.actionRenameChat(), true
@@ -393,10 +399,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if m.selectedView == viewChat {
 			return m, m.actionReactMessage(), true
 		}
-
-	case key.Matches(msg, m.keys.DeviceList):
-		model, cmd := m.openDeviceList()
-		return model, cmd, true
 	}
 
 	return m, nil, false

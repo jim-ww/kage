@@ -58,6 +58,12 @@ func (m Model) openDeviceList() (Model, tea.Cmd) {
 		return m, m.showNotification("omemo device management unavailable")
 	}
 	accountIdx := m.currentAccount
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return m, nil
+	}
+	if m.accounts[accountIdx].Connecting {
+		return m, m.showNotification("account is still connecting, try again shortly")
+	}
 	m.deviceList = &deviceListState{accountIdx: accountIdx, busy: true, selected: map[uint32]bool{}}
 	return m, func() tea.Msg { return m.deviceManager.FetchOwnDeviceList(accountIdx) }
 }

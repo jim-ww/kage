@@ -154,6 +154,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.MsgDown, "next account"),
 			part(k.SelectSend, "select"),
 			part(k.AddAccount, "add"),
+			part(k.DeviceList, "omemo devices"),
 			part(k.Switch, "chats"),
 			part(k.Quit, "quit"),
 		}, " · ")
@@ -190,7 +191,6 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.OpenMsg, "open"),
 			part(k.SaveMsg, "save"),
 			part(k.AttachFile, "attach"),
-			part(k.DeviceList, "omemo devices"),
 			part(k.FocusChats, "chats"),
 			part(k.ToggleSidebar, "hide list"),
 			part(k.Back, "back"),

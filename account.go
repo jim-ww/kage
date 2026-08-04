@@ -102,14 +102,21 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 
 	p.Send(ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore})
 
+	// Start listening (and reconnecting on drop) right away, concurrently
+	// with syncArchive below - not after it. c.serve() has been reading the
+	// stream since Dial regardless (SendIQ needs it to unblock), so presence/
+	// messages arriving during the MAM backfill were already being queued up
+	// on Client.events; running listen sequentially after syncArchive just
+	// left them sitting there unprocessed (roster presence looked stuck
+	// offline) until the backfill finished, sometimes tens of seconds later.
+	go superviseAccount(ctx, p, idx, sess)
+
 	debugf("account %s: syncArchive starting", acct.JID)
 	start = time.Now()
 	p.Send(ui.HistorySyncStartedMsg{AccountIdx: idx})
 	syncArchive(ctx, p, idx, sess)
 	p.Send(ui.HistorySyncFinishedMsg{AccountIdx: idx})
 	debugf("account %s: syncArchive done in %s", acct.JID, time.Since(start))
-
-	superviseAccount(ctx, p, idx, sess)
 }
 
 // connectAccountLocal loads acct's cached roster + history from the shared
