@@ -114,6 +114,7 @@ type Model struct {
 	sender               MessageSender
 	fileSender           FileSender
 	accountAdder         AccountAdder
+	deviceManager        OmemoDeviceManager
 	renamer              ContactRenamer
 	defaultAccountSetter DefaultAccountSetter
 	sidebarWidthSetter   SidebarWidthSetter
@@ -157,6 +158,10 @@ type Model struct {
 	addAccountFocus  int
 	addAccountErr    string
 	addAccountBusy   bool
+
+	// deviceList is non-nil while the OMEMO device-list popup is open — see
+	// ui/omemo_devices.go.
+	deviceList *deviceListState
 }
 
 // DisplayOptions bundles the message-rendering config toggles.
@@ -222,6 +227,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	inputHeightSetter, _ := sender.(InputHeightSetter)
 	lastChatSetter, _ := sender.(LastChatSetter)
 	historyLoader, _ := sender.(HistoryLoader)
+	deviceManager, _ := sender.(OmemoDeviceManager)
 
 	return Model{
 		selectedView:           viewChat,
@@ -247,6 +253,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		sender:                 sender,
 		fileSender:             fileSender,
 		accountAdder:           accountAdder,
+		deviceManager:          deviceManager,
 		renamer:                renamer,
 		defaultAccountSetter:   defaultAccountSetter,
 		chatEncryptionSetter:   chatEncryptionSetter,

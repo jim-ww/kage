@@ -32,6 +32,7 @@ type KeyMap struct {
 	AttachFile    key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
 	RenameChat    key.Binding // r — open the rename-contact prompt for the selected chat
 	ToggleSidebar key.Binding // Ctrl+\ — show/hide the chat list sidebar
+	DeviceList    key.Binding // Ctrl+U — view/purge the current account's published OMEMO device list
 	ListKeys      list.KeyMap
 	TextInputKeys textinput.KeyMap
 	InputAreaKeys textarea.KeyMap
@@ -97,6 +98,7 @@ var DefaultKeyMap = KeyMap{
 	AttachFile:    NewBinding([]string{"ctrl+f"}, "attach file"),
 	RenameChat:    NewBinding([]string{"r"}, "rename chat"),
 	ToggleSidebar: NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
+	DeviceList:    NewBinding([]string{"ctrl+u"}, "omemo devices"),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -112,7 +114,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
 		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.ReactMsg},
-		{k.AddAccount, k.AttachFile, k.RenameChat, k.ToggleSidebar},
+		{k.AddAccount, k.AttachFile, k.RenameChat, k.ToggleSidebar, k.DeviceList},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -188,6 +190,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.OpenMsg, "open"),
 			part(k.SaveMsg, "save"),
 			part(k.AttachFile, "attach"),
+			part(k.DeviceList, "omemo devices"),
 			part(k.FocusChats, "chats"),
 			part(k.ToggleSidebar, "hide list"),
 			part(k.Back, "back"),

@@ -15,6 +15,7 @@ import (
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
+	omemolib "github.com/jim-ww/omemo-go"
 )
 
 // adapter implements ui.MessageSender and ui.AccountAdder, encrypting
@@ -121,6 +122,69 @@ func (a *adapter) SetInputHeight(height int) error {
 // opened so it can be reopened on startup when open_last_chat is set.
 func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
+}
+
+// FetchOwnDeviceList implements ui.OmemoDeviceManager: fetches the account's
+// currently-published OMEMO device list (XEP-0384 PEP) for the "view/purge
+// devices" popup, along with this instance's own device ID.
+func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("unknown account %d", accountIdx)}
+	}
+	if s.omemoMgr == nil {
+		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
+	}
+	list, err := s.client.Load().FetchOmemoDeviceList(context.Background(), s.account.JID)
+	if err != nil {
+		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: err}
+	}
+	devices := make([]uint32, len(list.Devices))
+	for i, d := range list.Devices {
+		devices[i] = uint32(d)
+	}
+	return ui.OmemoDeviceListMsg{
+		AccountIdx: accountIdx,
+		Local:      uint32(s.omemoMgr.LocalDevice().ID),
+		Devices:    devices,
+	}
+}
+
+// PurgeOwnDeviceList implements ui.OmemoDeviceManager: republishes the
+// account's OMEMO device list containing only the IDs in keep (this
+// instance's own device is always included regardless, so it can never
+// accidentally remove itself).
+func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []uint32) tea.Msg {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("unknown account %d", accountIdx)}
+	}
+	if s.omemoMgr == nil {
+		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
+	}
+	local := uint32(s.omemoMgr.LocalDevice().ID)
+	hasLocal := false
+	devices := make([]omemolib.DeviceID, 0, len(keep)+1)
+	for _, id := range keep {
+		devices = append(devices, omemolib.DeviceID(id))
+		if id == local {
+			hasLocal = true
+		}
+	}
+	if !hasLocal {
+		devices = append(devices, omemolib.DeviceID(local))
+	}
+
+	ctx := context.Background()
+	if err := s.client.Load().PublishOmemoDeviceList(ctx, omemolib.DeviceList{JID: s.account.JID, Devices: devices}); err != nil {
+		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: err}
+	}
+
+	out := make([]uint32, len(devices))
+	for i, d := range devices {
+		out[i] = uint32(d)
+	}
+	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: out}
 }
 
 // SetTyping implements ui.MessageSender: sends a XEP-0085 chat state

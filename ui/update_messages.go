@@ -218,6 +218,33 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.addAccountErr = msg.Err.Error()
 		return m, nil, true
 
+	case OmemoDeviceListMsg:
+		if m.deviceList == nil || m.deviceList.accountIdx != msg.AccountIdx {
+			return m, nil, true
+		}
+		m.deviceList.busy = false
+		if msg.Err != nil {
+			m.deviceList.err = msg.Err.Error()
+			return m, nil, true
+		}
+		m.deviceList.local = msg.Local
+		m.deviceList.devices = msg.Devices
+		return m, nil, true
+
+	case OmemoDevicePurgedMsg:
+		if m.deviceList == nil || m.deviceList.accountIdx != msg.AccountIdx {
+			return m, nil, true
+		}
+		m.deviceList.busy = false
+		if msg.Err != nil {
+			m.deviceList.err = msg.Err.Error()
+			return m, nil, true
+		}
+		m.deviceList.local = msg.Local
+		m.deviceList.devices = msg.Devices
+		m.deviceList.selected = map[uint32]bool{}
+		return m, m.showNotification("omemo device list updated"), true
+
 	case AccountConnectedMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {
 			return m, nil, true

@@ -113,6 +113,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
+	// ── OMEMO device-list popup intercepts all input until dismissed ───
+	if m.deviceList != nil {
+		return m.updateDeviceListKey(msg)
+	}
+
 	// ── Add-account form intercepts all input until submitted/canceled ──
 	if m.addingAccount {
 		model, cmd := m.updateAddAccountForm(msg)
@@ -388,6 +393,10 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if m.selectedView == viewChat {
 			return m, m.actionReactMessage(), true
 		}
+
+	case key.Matches(msg, m.keys.DeviceList):
+		model, cmd := m.openDeviceList()
+		return model, cmd, true
 	}
 
 	return m, nil, false
