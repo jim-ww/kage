@@ -3,6 +3,8 @@ package ui
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -91,14 +93,19 @@ func openWithXDGOpen(target string) tea.Cmd {
 		var err error
 
 		if strings.HasPrefix(target, "aesgcm://") {
-			// For aesgcm:// URLs, we need to download, decrypt, and save first
-			// Reuse the save logic, then open the saved file
+			// For aesgcm:// URLs, we need to download and decrypt before
+			// xdg-open can view it. Cache the decrypted file by a hash of
+			// the full target (URL+iv+key all factor into the plaintext),
+			// so re-opening the same attachment for viewing reuses the
+			// already-downloaded copy instead of writing a new one each
+			// time (unlike an explicit "Save As", which always wants a
+			// fresh, uniquely-named file in Downloads).
 			downloadURL, iv, key, parseErr := aesgcm.ParseAESGCMURL(target)
 			if parseErr != nil {
 				return openResultMsg{target: target, err: fmt.Errorf("parsing aesgcm URL: %w", parseErr)}
 			}
 
-			dir, dirErr := downloadsDir()
+			dir, dirErr := attachmentCacheDir()
 			if dirErr != nil {
 				return openResultMsg{target: target, err: dirErr}
 			}
@@ -109,7 +116,13 @@ func openWithXDGOpen(target string) tea.Cmd {
 			if base == "" || base == "." || base == "/" {
 				base = "download"
 			}
-			dest := uniqueDestPath(dir, base)
+			sum := sha256.Sum256([]byte(target))
+			dest := filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
+
+			if _, statErr := os.Stat(dest); statErr == nil {
+				err = exec.Command("xdg-open", dest).Start()
+				return openResultMsg{target: target, err: err}
+			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
@@ -137,6 +150,12 @@ func openWithXDGOpen(target string) tea.Cmd {
 			}
 
 			f, openErr := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+			if os.IsExist(openErr) {
+				// Lost a race with another concurrent open of the same
+				// attachment; the other one already wrote dest.
+				err = exec.Command("xdg-open", dest).Start()
+				return openResultMsg{target: target, err: err}
+			}
 			if openErr != nil {
 				return openResultMsg{target: target, err: openErr}
 			}
@@ -172,6 +191,21 @@ func downloadsDir() (string, error) {
 		}
 		dir = filepath.Join(home, "Downloads")
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating %s: %w", dir, err)
+	}
+	return dir, nil
+}
+
+// attachmentCacheDir returns where decrypted aesgcm:// attachments are
+// cached for viewing (as opposed to downloadsDir, which is for explicit
+// "Save As"), creating it if it doesn't exist yet.
+func attachmentCacheDir() (string, error) {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("finding cache directory: %w", err)
+	}
+	dir := filepath.Join(base, "kage", "attachments")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}

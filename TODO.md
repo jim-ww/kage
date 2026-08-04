@@ -1,4 +1,3 @@
-- do not write duplicate image files on image view
 - dont cycle through encryption
 - chat view: dont show names in 1:1 chats
 - show current encryption configured for chat
