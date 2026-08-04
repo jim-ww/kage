@@ -5,6 +5,7 @@ fix: "send failed: omemo-encrypting to ADDRESS: omemo: no recipient device could
 - message status? 'sent' / 'delivered' icons?
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager should look like button and show hover indication
+- save message drafts for each chat (encrypted), on exit/chat switch
 - account manager: remove 'accounts:' labewnloaded
 - add config ui toggle options (e.g. show/hide names in chat, show glyphs in chat, chat time/date layout + only show time (if its today)(only with default time layout))
 - code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
@@ -25,6 +26,7 @@ fix: "send failed: omemo-encrypting to ADDRESS: omemo: no recipient device could
 - manage(add/remove/see) contacts, also remove contacts permanently?
 - speed up cursor message selection in chat
 - optimisation: load messages history per chat, in batches as needed, instead of fetching full list for all at startup
+- chat view: vim motions for textinput (visual/insert mode emulation)
 
 
 # calls: Jingle (XEP-0166) https://xmpp.org/extensions/xep-0166.html

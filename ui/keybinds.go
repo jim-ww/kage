@@ -49,6 +49,12 @@ type KeyMap struct {
 func defaultInputAreaKeys() textarea.KeyMap {
 	km := textarea.DefaultKeyMap()
 	km.InsertNewline = key.NewBinding(key.WithKeys("shift+enter", "alt+enter"), key.WithHelp("shift+enter", "new line"))
+	// ctrl+left/right alongside the defaults (alt+left/right) — the more
+	// familiar word-jump binding in terminals/editors outside the readline
+	// tradition, and free to bind here (nothing else in the app claims
+	// ctrl+left/right).
+	km.WordBackward.SetKeys(append(km.WordBackward.Keys(), "ctrl+left")...)
+	km.WordForward.SetKeys(append(km.WordForward.Keys(), "ctrl+right")...)
 	return km
 }
 

@@ -16,6 +16,42 @@ func altEnterKey() tea.KeyMsg {
 	return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
 }
 
+func ctrlLeftKey() tea.KeyMsg  { return tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModCtrl} }
+func ctrlRightKey() tea.KeyMsg { return tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModCtrl} }
+
+// TestComposeCtrlLeftRightJumpsWords checks ctrl+left/right move the compose
+// cursor a word at a time, in addition to the textarea's default alt+left/
+// right (see defaultInputAreaKeys in keybinds.go).
+func TestComposeCtrlLeftRightJumpsWords(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.accounts = []Account{{Name: "me", Chats: nil, Messages: map[int][]Message{}}}
+
+	next, _ := m.Update(keyText("foo bar"))
+	m = next.(Model)
+	if got := m.input.Column(); got != len("foo bar") {
+		t.Fatalf("cursor column after typing = %d, want %d", got, len("foo bar"))
+	}
+
+	next, _ = m.Update(ctrlLeftKey())
+	m = next.(Model)
+	if got, want := m.input.Column(), len("foo "); got != want {
+		t.Fatalf("cursor column after ctrl+left = %d, want %d (start of \"bar\")", got, want)
+	}
+
+	next, _ = m.Update(ctrlLeftKey())
+	m = next.(Model)
+	if got := m.input.Column(); got != 0 {
+		t.Fatalf("cursor column after second ctrl+left = %d, want 0 (start of \"foo\")", got)
+	}
+
+	next, _ = m.Update(ctrlRightKey())
+	m = next.(Model)
+	if got, want := m.input.Column(), len("foo"); got != want {
+		t.Fatalf("cursor column after ctrl+right = %d, want %d (end of \"foo\")", got, want)
+	}
+}
+
 // TestComposeShiftEnterInsertsNewline checks that shift+enter breaks the
 // compose box to a new line instead of sending, while plain enter still
 // sends — the two must not race for the same keypress (see
