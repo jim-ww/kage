@@ -1,0 +1,149 @@
+package main
+
+import (
+	"context"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/jim-ww/kage/crypto/gpg"
+	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/ui"
+	"github.com/jim-ww/kage/xmpp"
+)
+
+// handleIncomingMessage decrypts, persists, and forwards a single incoming
+// chat message — routing XEP-0308 corrections to storage.UpdateMessageBodyByID
+// and a MessageCorrectedMsg instead of appending a new message, and XEP-0424
+// retractions to a flag (never an actual delete — see ui.Message.Retracted).
+func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
+	if msgEv.ReactionTargetID != "" {
+		from := bareJID(msgEv.From)
+		if err := replaceReactions(ctx, s, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
+			debugf("warning: persisting reactions from %s: %v\n", from, err)
+		}
+		p.Send(ui.MessageReactionsMsg{
+			AccountIdx: accountIdx,
+			From:       from,
+			MessageID:  msgEv.ReactionTargetID,
+			Reactions:  loadReactionsForMessage(ctx, s, msgEv.ReactionTargetID),
+		})
+		return
+	}
+
+	if msgEv.RetractID != "" {
+		from := bareJID(msgEv.From)
+		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
+			AccountJid: s.account.JID,
+			IDAttr:     nullString(msgEv.RetractID),
+			RosterJid:  nullString(from),
+		}); err != nil {
+			debugf("warning: persisting retraction flag: %v\n", err)
+		}
+		p.Send(ui.MessageRetractedMsg{
+			AccountIdx: accountIdx,
+			From:       from,
+			RetractID:  msgEv.RetractID,
+		})
+		return
+	}
+
+	body := msgEv.Body
+	if msgEv.Encrypted != nil {
+		debugf("received omemo message from %s for %s", msgEv.From, s.account.JID)
+		if s.omemoMgr == nil {
+			debugf("warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
+			return
+		}
+		enc, err := xmpp.DecodeOmemoMessage(msgEv.Encrypted, bareJID(msgEv.From))
+		if err != nil {
+			debugf("warning: decoding omemo message from %s: %v\n", msgEv.From, err)
+			return
+		}
+		pt, err := s.omemoMgr.DecryptMessage(ctx, enc)
+		if err != nil {
+			debugf("decrypting omemo message from %s failed: %v", msgEv.From, err)
+			debugf("warning: decrypting omemo message from %s: %v\n", msgEv.From, err)
+			return
+		}
+		if pt == nil {
+			debugf("omemo message from %s was key-transport only (no content)", msgEv.From)
+			return // key-transport message: session established/refreshed, no content to show
+		}
+		debugf("omemo message from %s decrypted successfully", msgEv.From)
+		body = string(pt)
+	}
+	if gpg.Looks(body) {
+		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])
+		if err != nil {
+			debugf("warning: decrypting message from %s: %v\n", msgEv.From, err)
+		} else {
+			body = pt
+		}
+	}
+
+	from := bareJID(msgEv.From) // chats are keyed by bare JID (roster entries); From with a resource never matches
+
+	if msgEv.ReplaceID != "" {
+		sealedBody, encrypted := encryptForStorage(s, body)
+		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
+			AccountJid: s.account.JID,
+			Body:       sealedBody,
+			Encrypted:  encrypted,
+			IDAttr:     nullString(msgEv.ReplaceID),
+			RosterJid:  nullString(from),
+		}); err != nil {
+			debugf("warning: persisting correction: %v\n", err)
+		}
+		p.Send(ui.MessageCorrectedMsg{
+			AccountIdx: accountIdx,
+			From:       from,
+			ReplaceID:  msgEv.ReplaceID,
+			NewContent: body,
+		})
+		return
+	}
+
+	sealedBody, encrypted := encryptForStorage(s, body)
+	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+		AccountJid:    s.account.JID,
+		Sent:          false,
+		FromAttr:      nullString(msgEv.From),
+		IDAttr:        nullString(msgEv.ID),
+		Body:          sealedBody,
+		Encrypted:     encrypted,
+		StanzaType:    "chat",
+		RosterJid:     nullString(from),
+		ReplyToIDAttr: nullString(msgEv.ReplyToID),
+	}); err != nil {
+		debugf("warning: persisting received message: %v\n", err)
+	}
+
+	p.Send(ui.IncomingMessageMsg{
+		AccountIdx: accountIdx,
+		From:       from,
+		ReplyToID:  msgEv.ReplyToID,
+		Message: ui.Message{
+			ID:          msgEv.ID,
+			Author:      s.rosterName(from),
+			Content:     body,
+			SentAt:      msgEv.SentAt,
+			IsMe:        false,
+			Attachments: attachmentURLs(body),
+		},
+	})
+}
+
+// attachmentURLs recognizes the URL-only message produced by SendFile. A
+// plain link body remains visible as fallback text for every XMPP client,
+// while Kage additionally exposes it as a downloadable attachment.
+// Also recognizes aesgcm:// URLs (XEP-0454 encrypted file sharing).
+func attachmentURLs(body string) []string {
+	body = strings.TrimSpace(body)
+	if strings.HasPrefix(body, "https://") || strings.HasPrefix(body, "http://") {
+		return []string{body}
+	}
+	if strings.HasPrefix(body, "aesgcm://") {
+		return []string{body}
+	}
+	return nil
+}

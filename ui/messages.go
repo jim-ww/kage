@@ -1,0 +1,215 @@
+package ui
+
+import (
+	"time"
+
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+)
+
+// MessageSender delivers an outgoing message for the given account to "to"
+// (a bare/full JID), returning the ID it was sent with. Implemented outside
+// ui — by an adapter that knows about the xmpp session and any per-peer
+// encryption — so ui stays decoupled from both.
+type MessageSender interface {
+	Send(accountIdx int, to, body string, opts SendOptions) (id string, err error)
+
+	// SetTyping sends a XEP-0085 chat state notification: composing=true
+	// while the user is actively typing to "to", false once they stop
+	// (cleared the input or sent) or navigate away.
+	SetTyping(accountIdx int, to string, composing bool) error
+}
+
+// FileSender uploads a local file and sends its download URL to a chat. It is
+// separate from MessageSender so text-only senders remain compatible.
+type FileSender interface {
+	SendFile(accountIdx int, to, path string) tea.Msg
+}
+
+// ContactRenamer sets a custom display name for a contact — a roster set
+// (RFC 6121), persisted server-side and mirrored to local storage — so ui
+// stays decoupled from the XMPP/storage layers. Called synchronously from
+// Update(), like MessageSender.Send/SetTyping: renaming isn't a bulk
+// operation and doesn't need its own async result message.
+type ContactRenamer interface {
+	RenameContact(accountIdx int, address, name string) error
+}
+
+// FileSendResultMsg reports completion of an asynchronous upload and send.
+type FileSendResultMsg struct {
+	AccountIdx int
+	To         string
+	Path       string
+	URL        string
+	ID         string
+	Err        error
+}
+
+// IncomingMessageMsg is sent into the Bubble Tea loop when a message arrives
+// from the network for one of the configured accounts.
+type IncomingMessageMsg struct {
+	AccountIdx int
+	From       string // bare/full JID the message came from
+	ReplyToID  string // non-empty if this message is a XEP-0461 reply
+	Message    Message
+}
+
+// MessageCorrectedMsg is sent into the Bubble Tea loop when a XEP-0308
+// correction arrives for a message already shown for one of the configured
+// accounts.
+type MessageCorrectedMsg struct {
+	AccountIdx int
+	From       string // bare JID (chat)
+	ReplaceID  string // ID of the message being corrected
+	NewContent string
+}
+
+// MessageRetractedMsg is sent into the Bubble Tea loop when the other party
+// attempts to retract (XEP-0424) a message already shown for one of the
+// configured accounts. The message is flagged, never removed — see
+// Message.Retracted.
+type MessageRetractedMsg struct {
+	AccountIdx int
+	From       string // bare JID (chat)
+	RetractID  string // ID of the message being retracted
+}
+
+// MessageReactionsMsg is sent into the Bubble Tea loop when a XEP-0444
+// reaction-set update arrives for a message already shown for one of the
+// configured accounts. Reactions is the full recomputed aggregate to
+// display, replacing whatever was there before.
+type MessageReactionsMsg struct {
+	AccountIdx int
+	From       string // bare JID (chat)
+	MessageID  string // ID of the message being reacted to
+	Reactions  []Reaction
+}
+
+// PresenceMsg is sent into the Bubble Tea loop when a contact's presence
+// changes for one of the configured accounts.
+type PresenceMsg struct {
+	AccountIdx int
+	From       string // bare JID
+	Presence   Presence
+}
+
+// TypingMsg is sent into the Bubble Tea loop when a contact's XEP-0085 chat
+// state changes for one of the configured accounts.
+type TypingMsg struct {
+	AccountIdx int
+	From       string // bare JID
+	Typing     bool
+}
+
+// typingPauseTimeout is how long the compose input can sit idle (no
+// keystrokes, but not cleared either) before we tell the peer we've stopped
+// composing — matching XEP-0085's convention that "composing" shouldn't
+// stick forever just because the draft is still in the box.
+const typingPauseTimeout = 5 * time.Second
+
+// typingPauseMsg fires typingPauseTimeout after a keystroke that left the
+// compose input non-empty. Gen must still match Model.typingGen when it
+// arrives — otherwise a later keystroke already rearmed the timer (or
+// stopped composing outright) and this one is stale and ignored.
+type typingPauseMsg struct {
+	addr string
+	gen  int
+}
+
+func typingPauseTimer(addr string, gen int) tea.Cmd {
+	return tea.Tick(typingPauseTimeout, func(time.Time) tea.Msg {
+		return typingPauseMsg{addr: addr, gen: gen}
+	})
+}
+
+// AccountAdder connects and persists a new XMPP account, implemented outside
+// ui (main.go's adapter) so ui stays decoupled from the network/config
+// layers. Runs on the Bubble Tea event loop's goroutine via a tea.Cmd, so it
+// may block on network I/O — ui always calls it that way, never inline.
+type AccountAdder interface {
+	AddAccount(jid, password, gpgKeyID string) tea.Msg
+}
+
+// AccountAddedMsg is sent into the Bubble Tea loop once AccountAdder.AddAccount
+// has connected the new account and it's ready to show in the sidebar.
+type AccountAddedMsg struct {
+	Account Account
+}
+
+// AccountAddErrorMsg is sent into the Bubble Tea loop when AccountAdder.AddAccount
+// fails; the add-account form stays open so the user can correct and retry.
+type AccountAddErrorMsg struct {
+	Err error
+}
+
+// AccountConnectedMsg is sent into the Bubble Tea loop once a configured
+// account's *local* storage has been opened and its cached roster/history
+// loaded from disk — no network involved, so this is fast and lets local
+// chats/messages appear instantly instead of waiting on a live connection.
+// Index addresses the placeholder Account passed to New() at the same
+// position — it never changes, unlike AddAccount's accounts which are always
+// appended. The account is still marked Connecting until AccountLiveMsg
+// arrives.
+type AccountConnectedMsg struct {
+	Index   int
+	Account Account
+}
+
+// AccountLiveMsg is sent into the Bubble Tea loop once a configured account
+// has finished dialing and fetching its live roster (in the background,
+// after AccountConnectedMsg already showed local data) — clearing
+// Connecting. NewChats/NewMessages carry only contacts the local snapshot
+// didn't already know about (freshly added on another device); existing
+// chats/history are left untouched rather than re-fetched, since they're
+// already showing.
+type AccountLiveMsg struct {
+	Index       int
+	NewChats    []list.Item
+	NewMessages map[int][]Message // indices are relative to Chats *after* NewChats is appended
+}
+
+// AccountConnectErrorMsg is sent into the Bubble Tea loop when a configured
+// account's background connect (local load or live dial — see
+// AccountConnectedMsg/AccountLiveMsg) fails. The account stays in the
+// sidebar, marked with the error, rather than disappearing — any local data
+// already shown is left in place.
+type AccountConnectErrorMsg struct {
+	Index int
+	Err   error
+}
+
+// DefaultAccountSetter persists which account should be selected on startup,
+// implemented outside ui (main.go's adapter) so ui stays decoupled from the
+// config layer. It's a local file write, not network I/O, so ui calls it
+// inline like Send/SetTyping rather than through a tea.Cmd.
+type DefaultAccountSetter interface {
+	SetDefaultAccount(jid string) error
+}
+
+// ChatEncryptionSetter persists per-chat outgoing message encryption choice
+// ("omemo", "gpg", or "none"), implemented outside ui (main.go's adapter) so
+// ui stays decoupled from the storage layer. A local database write, called
+// inline like Send/SetTyping rather than through a tea.Cmd.
+type ChatEncryptionSetter interface {
+	SetChatEncryption(accountIdx int, peerJID, mode string) error
+}
+
+// SidebarWidthSetter persists the sidebar width the user last dragged it to,
+// implemented outside ui (main.go's adapter) so ui stays decoupled from the
+// config layer. A local file write, called inline like Send/SetTyping
+// rather than through a tea.Cmd.
+type SidebarWidthSetter interface {
+	SetSidebarWidth(width int) error
+}
+
+// SidebarHiddenSetter persists whether the chat list sidebar is currently
+// hidden, implemented outside ui (main.go's adapter) so ui stays decoupled
+// from the config layer. A local file write, called inline like Send/
+// SetTyping rather than through a tea.Cmd.
+type SidebarHiddenSetter interface {
+	SetSidebarHidden(hidden bool) error
+}
+
+type noticeClearMsg struct {
+	id int
+}

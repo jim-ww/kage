@@ -1,0 +1,358 @@
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"github.com/jim-ww/kage/config"
+	"github.com/jim-ww/kage/crypto/gpg"
+	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/ui"
+	"github.com/jim-ww/kage/xmpp"
+	omemolib "github.com/jim-ww/omemo-go"
+)
+
+// accountSession bundles everything needed to send/receive/persist for one
+// configured account. client is swapped out on reconnect, so it's stored
+// behind an atomic pointer — Send (called from the Bubble Tea event loop)
+// and the reconnect supervisor (its own goroutine) touch it concurrently.
+type accountSession struct {
+	account   config.Account
+	client    atomic.Pointer[xmpp.Client]
+	tlsConfig *tls.Config      // reused on reconnect; nil means Dial's default verified config
+	db        *storage.Queries // shared across every account: one database, rows scoped by account.JID
+	gpg       gpg.Encrypter
+	omemoMgr  *omemolib.Manager // nil until connectAccountLive sets it up (needs a dialed client for its Transport)
+
+	// localKey is the AES-256 key message bodies are sealed under at rest
+	// (crypto/localstore), derived once in main from the local storage
+	// password and shared by every account.
+	localKey []byte
+
+	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
+}
+
+// rosterEntry is a contact's cached roster state, refreshed at connect time
+// and kept in sync locally by RenameContact.
+type rosterEntry struct {
+	Name string
+	Subs string
+}
+
+// rosterName returns bareJID's roster nickname, or bareJID itself if the
+// contact has none (or isn't in the roster at all).
+func (s *accountSession) rosterName(bareJID string) string {
+	entries := s.roster.Load()
+	if entries == nil {
+		return bareJID
+	}
+	if e, ok := (*entries)[bareJID]; ok && e.Name != "" {
+		return e.Name
+	}
+	return bareJID
+}
+
+// connectAndSuperviseAccount loads one configured account's local
+// roster/history from disk first — fast, no network — and reports it to the
+// UI immediately so local chats/messages appear on screen right away. Only
+// then does it dial and fetch the live roster in the background, and fall
+// into the normal event-listen/reconnect supervisor loop.
+func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter, idx int, acct config.Account, queries *storage.Queries, localKey []byte) {
+	debugf("account %s: connectAccountLocal starting", acct.JID)
+	start := time.Now()
+	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
+	if err != nil {
+		debugf("account %s: connectAccountLocal failed after %s: %v", acct.JID, time.Since(start), err)
+		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
+		return
+	}
+	debugf("account %s: connectAccountLocal done in %s (%d chats)", acct.JID, time.Since(start), len(uiAcct.Chats))
+	p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
+
+	debugf("account %s: connectAccountLive starting", acct.JID)
+	start = time.Now()
+	newChats, newMessages, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
+	if err != nil {
+		debugf("account %s: connectAccountLive failed after %s: %v", acct.JID, time.Since(start), err)
+		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
+		return
+	}
+	debugf("account %s: connectAccountLive done in %s (%d new chats)", acct.JID, time.Since(start), len(newChats))
+
+	a.mu.Lock()
+	a.sessions[idx] = sess
+	a.mu.Unlock()
+
+	p.Send(ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages})
+
+	superviseAccount(ctx, p, idx, sess)
+}
+
+// connectAccountLocal loads acct's cached roster + history from the shared
+// database — no network involved, so this is as fast as local SQLite reads
+// and AES decrypts allow, letting local chats/messages appear instantly
+// instead of waiting on connectAccountLive. The returned ui.Account has
+// Connecting set; the caller clears it once connectAccountLive finishes.
+func connectAccountLocal(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte) (*accountSession, ui.Account, error) {
+	sess := &accountSession{
+		account:  acct,
+		db:       queries,
+		gpg:      gpg.Encrypter{},
+		localKey: localKey,
+	}
+
+	rows, err := queries.ListRoster(ctx, acct.JID)
+	if err != nil {
+		return nil, ui.Account{}, fmt.Errorf("account %s: loading local roster: %w", acct.JID, err)
+	}
+	debugf("account %s: local roster has %d contacts", acct.JID, len(rows))
+
+	chats := make([]list.Item, 0, len(rows))
+	messages := make(map[int][]ui.Message, len(rows))
+	entries := make(map[string]rosterEntry, len(rows))
+	for i, r := range rows {
+		name := r.Name
+		if name == "" {
+			name = r.Jid
+		}
+		entries[r.Jid] = rosterEntry{Name: r.Name, Subs: r.Subs}
+		mode, err := queries.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{AccountJid: acct.JID, RosterJid: r.Jid})
+		if err != nil {
+			mode = "omemo"
+		}
+		chats = append(chats, ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode})
+		histStart := time.Now()
+		hist := loadHistory(ctx, sess, r.Jid, name)
+		debugf("account %s: loadHistory(%s) done in %s (%d messages)", acct.JID, r.Jid, time.Since(histStart), len(hist))
+		if len(hist) > 0 {
+			messages[i] = hist
+		}
+	}
+	sess.roster.Store(&entries)
+
+	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages, Connecting: true}, nil
+}
+
+// connectAccountLive dials sess's account, publishes our GPG key, and fetches
+// the live roster, merging it into sess's already-loaded (by
+// connectAccountLocal) roster cache. Existing contacts' chat/history entries
+// are left completely untouched — they're already showing — only contacts
+// the local snapshot didn't know about (added from another device) get a
+// fresh history load here. The returned chats/messages are new
+// entries only, with message indices relative to a Chats slice that starts
+// right after existingChatCount, so the caller can append rather than
+// replace what's already displayed.
+func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int) ([]list.Item, map[int][]ui.Message, error) {
+	debugf("account %s: resolving password", sess.account.JID)
+	start := time.Now()
+	password, err := sess.account.ResolvePassword()
+	if err != nil {
+		return nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
+	}
+	debugf("account %s: password resolved in %s", sess.account.JID, time.Since(start))
+
+	var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
+	debugf("account %s: dialing", sess.account.JID)
+	start = time.Now()
+	client, err := xmpp.Dial(ctx, sess.account.JID, password, tlsConfig)
+	if err != nil {
+		debugf("account %s: dial failed after %s: %v", sess.account.JID, time.Since(start), err)
+		return nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
+	}
+	debugf("account %s: dialed in %s", sess.account.JID, time.Since(start))
+	sess.tlsConfig = tlsConfig
+	client.Debugf = debugf
+	sess.client.Store(client)
+
+	if sess.account.GPGKeyID != "" {
+		debugf("account %s: publishOwnGPGKey starting", sess.account.JID)
+		start = time.Now()
+		publishOwnGPGKey(ctx, sess)
+		debugf("account %s: publishOwnGPGKey done in %s", sess.account.JID, time.Since(start))
+	}
+
+	debugf("account %s: setupOmemo starting", sess.account.JID)
+	start = time.Now()
+	setupOmemo(ctx, sess)
+	debugf("account %s: setupOmemo done in %s", sess.account.JID, time.Since(start))
+
+	debugf("account %s: fetching live roster", sess.account.JID)
+	start = time.Now()
+	contacts, err := client.Roster(ctx)
+	if err != nil {
+		debugf("account %s: roster fetch failed after %s: %v", sess.account.JID, time.Since(start), err)
+		client.Close()
+		return nil, nil, fmt.Errorf("account %s: fetching roster: %w", sess.account.JID, err)
+	}
+	debugf("account %s: live roster fetched in %s (%d contacts)", sess.account.JID, time.Since(start), len(contacts))
+
+	existing := sess.roster.Load()
+	merged := make(map[string]rosterEntry, len(contacts))
+	if existing != nil {
+		for k, v := range *existing {
+			merged[k] = v
+		}
+	}
+
+	var newChats []list.Item
+	newMessages := make(map[int][]ui.Message)
+	for _, c := range contacts {
+		name := c.Name
+		if name == "" {
+			name = c.JID
+		}
+		_, known := merged[c.JID]
+		merged[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription}
+		if err := sess.db.UpsertRoster(ctx, storage.UpsertRosterParams{
+			AccountJid: sess.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
+		}); err != nil {
+			debugf("warning: persisting roster entry %s: %v\n", c.JID, err)
+		}
+		if known {
+			continue
+		}
+		idx := existingChatCount + len(newChats)
+		newChats = append(newChats, ui.Chat{Name: name, Address: c.JID})
+		if hist := loadHistory(ctx, sess, c.JID, name); len(hist) > 0 {
+			newMessages[idx] = hist
+		}
+	}
+	sess.roster.Store(&merged)
+
+	return newChats, newMessages, nil
+}
+
+// connectAccount runs connectAccountLocal then connectAccountLive back to
+// back and merges the result into one ready-to-show ui.Account — used by
+// AddAccount, where the account is brand new (no local history to show
+// instantly) and the whole connect already runs off the Bubble Tea event
+// loop via a tea.Cmd, so there's nothing to gain from doing it in two steps.
+func connectAccount(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte) (*accountSession, ui.Account, error) {
+	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
+	if err != nil {
+		return nil, ui.Account{}, err
+	}
+
+	newChats, newMessages, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
+	if err != nil {
+		return nil, ui.Account{}, err
+	}
+
+	uiAcct.Chats = append(uiAcct.Chats, newChats...)
+	if uiAcct.Messages == nil {
+		uiAcct.Messages = make(map[int][]ui.Message)
+	}
+	for idx, msgs := range newMessages {
+		uiAcct.Messages[idx] = msgs
+	}
+	uiAcct.Connecting = false
+
+	return sess, uiAcct, nil
+}
+
+// superviseAccount runs listen for s, and on an unexpected disconnect (the
+// Events channel closing without Close having been called), reconnects with
+// exponential backoff and resumes. Returns once the client is intentionally
+// closed (app shutdown).
+func superviseAccount(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
+	for {
+		listen(ctx, p, accountIdx, s)
+
+		client := s.client.Load()
+		if client.Closed() || ctx.Err() != nil {
+			return
+		}
+		debugf("warning: account %s disconnected (%v); reconnecting...\n", s.account.JID, client.Err())
+		reconnectWithBackoff(ctx, s)
+	}
+}
+
+// reconnectWithBackoff retries Dial with exponential backoff (capped at 60s)
+// until it succeeds or ctx is done, then stores the new client on s.
+func reconnectWithBackoff(ctx context.Context, s *accountSession) {
+	const maxBackoff = 60 * time.Second
+	backoff := time.Second
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		password, err := s.account.ResolvePassword()
+		if err == nil {
+			var client *xmpp.Client
+			client, err = xmpp.Dial(ctx, s.account.JID, password, s.tlsConfig)
+			if err == nil {
+				s.client.Store(client)
+				debugf("account %s reconnected\n", s.account.JID)
+				return
+			}
+		}
+
+		debugf("warning: reconnecting %s failed: %v; retrying in %s\n", s.account.JID, err, backoff)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return
+		}
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+// listen bridges one account's xmpp events into the Bubble Tea program.
+// Returns when the current client's Events channel closes (client swapped
+// out from under it, e.g. by a reconnect, or the client was closed).
+func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
+	for ev := range s.client.Load().Events() {
+		switch ev := ev.(type) {
+		case xmpp.PresenceEvent:
+			p.Send(ui.PresenceMsg{
+				AccountIdx: accountIdx,
+				From:       bareJID(ev.From),
+				Presence:   mapPresence(ev),
+			})
+			continue
+		case xmpp.MessageEvent:
+			handleIncomingMessage(ctx, p, accountIdx, s, ev)
+		case xmpp.ChatStateEvent:
+			p.Send(ui.TypingMsg{
+				AccountIdx: accountIdx,
+				From:       bareJID(ev.From),
+				Typing:     ev.State == xmpp.ChatStateComposing,
+			})
+			continue
+		}
+	}
+}
+
+// mapPresence reduces an xmpp.PresenceEvent to the UI's coarse online/away/
+// offline distinction.
+func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
+	if !ev.Available {
+		return ui.PresenceOffline
+	}
+	switch ev.Show {
+	case "away", "xa", "dnd":
+		return ui.PresenceAway
+	default:
+		return ui.PresenceOnline
+	}
+}
+
+// bareJID strips the resource part (after "/") from a full JID, matching the
+// bare-JID form roster entries and stored messages are keyed by.
+func bareJID(addr string) string {
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		return addr[:i]
+	}
+	return addr
+}
