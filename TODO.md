@@ -1,8 +1,6 @@
 - make margin above help line (below textinput ) slighly smaller
 - chat view: add attach file, emoji buttons
 - only launch notification daemon if its enabled in config, enabled by default
-- add config ui toggle options (e.g. show/hide icons, names in chat, show glyphs in chat, chat time/date layout + only show time (if its today)(only with default time layout))
-- add 'enc' as padlock icon fallback
 - show encryption information in message info
 - message status? 'sent' / 'delivered' icons?
 - bind keybinds with key codes, not to latin

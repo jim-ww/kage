@@ -40,14 +40,25 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 	return sb.String(), offsets
 }
 
+// formatMessageTime formats a message timestamp per the user's config: a
+// custom Go time layout when set, otherwise "15:04" for today's messages
+// (if timeOnlyToday) or "2006-01-02 15:04" for anything older/when
+// timeOnlyToday is off.
+func (m Model) formatMessageTime(t time.Time) string {
+	if m.timeLayout != "" {
+		return t.Format(m.timeLayout)
+	}
+	if m.timeOnlyToday && sameDay(t, time.Now()) {
+		return t.Format("15:04")
+	}
+	return t.Format("2006-01-02 15:04")
+}
+
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
 	isSelected := msgIdx == m.selectedMsg
 	prefix := m.styles.renderMessagePrefix(isSelected, m.isHovered(zoneMessage(msgIdx)))
 
-	timeLabel := msg.SentAt.Format("15:04")
-	if !sameDay(msg.SentAt, time.Now()) {
-		timeLabel = msg.SentAt.Format("2006-01-02 15:04")
-	}
+	timeLabel := m.formatMessageTime(msg.SentAt)
 	if msg.Encrypted {
 		lockIcon := "enc"
 		if m.icons {
@@ -59,8 +70,12 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	if msg.IsMe {
 		dirGlyph = "»"
 	}
-	headerPlain := fmt.Sprintf("%s [%s ] ", dirGlyph, timeLabel)
-	header := m.styles.renderMessageHeader(timeLabel, msg.IsMe)
+	name := ""
+	if m.showNames {
+		name = msg.Author + " "
+	}
+	headerPlain := fmt.Sprintf("%s %s[%s ] ", dirGlyph, name, timeLabel)
+	header := m.styles.renderMessageHeader(name, timeLabel, msg.IsMe)
 	indent := strings.Repeat(" ", lipgloss.Width(headerPlain))
 	wrapWidth := totalWidth - lipgloss.Width(prefix) - lipgloss.Width(indent)
 	wrapWidth = max(wrapWidth, 8)

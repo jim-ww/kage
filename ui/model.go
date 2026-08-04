@@ -34,6 +34,20 @@ type Model struct {
 	// plain-text [tag] fallback — on only when the user's config opts in.
 	icons bool
 
+	// showNames shows the sender's name in the message header instead of
+	// just the «/» direction glyph.
+	showNames bool
+
+	// timeLayout is a custom Go time layout for message timestamps; empty
+	// means the default ("15:04", full date for older messages depending on
+	// timeOnlyToday).
+	timeLayout string
+
+	// timeOnlyToday: with the default time layout, show time-only for
+	// messages sent today instead of a full date. Ignored when timeLayout
+	// is set.
+	timeOnlyToday bool
+
 	// hover holds the zone ID currently under the pointer (empty if none),
 	// so the currently-hovered send button/chat item/account row/message/
 	// context-menu item can be highlighted. It's a pointer — shared with
@@ -139,7 +153,15 @@ type Model struct {
 	addAccountBusy   bool
 }
 
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, icons bool) Model {
+// DisplayOptions bundles the message-rendering config toggles.
+type DisplayOptions struct {
+	Icons         bool   // show icons for attachments/encryption instead of plain-text tags
+	ShowNames     bool   // show the sender's name in the message header instead of just a direction glyph
+	TimeLayout    string // custom Go time layout for message timestamps; empty means the default
+	TimeOnlyToday bool   // with the default time layout, show time-only for messages sent today instead of a full date
+}
+
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, display DisplayOptions) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
@@ -201,7 +223,10 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		styles:                 styles,
 		zone:                   zm,
 		mouseEnabled:           mouseEnabled,
-		icons:                  icons,
+		icons:                  display.Icons,
+		showNames:              display.ShowNames,
+		timeLayout:             display.TimeLayout,
+		timeOnlyToday:          display.TimeOnlyToday,
 		hover:                  hv,
 		accounts:               accounts,
 		currentAccount:         startAccount,

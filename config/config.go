@@ -18,7 +18,10 @@ type fileConfig struct {
 	SidebarWidth    int            `toml:"sidebar_width,omitempty"`     // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
 	InputHeight     int            `toml:"input_height,omitempty"`      // persisted from dragging the compose box border; 0 (unset) means the DynamicHeight-based default
 	SidebarHidden   bool           `toml:"sidebar_hidden,omitempty"`    // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
-	Icons           bool           `toml:"icons,omitempty"`             // show icons for attachments/encryption instead of plain-text tags; off by default
+	Icons           *bool          `toml:"icons"`                       // nil (unset) means the default: on; show icons for attachments/encryption instead of plain-text tags
+	ShowNames       bool           `toml:"show_names,omitempty"`        // show the sender's name in the message header instead of just a direction glyph; off by default
+	TimeLayout      string         `toml:"time_layout,omitempty"`       // custom Go time layout for message timestamps; unset means the default ("15:04"/"2006-01-02 15:04")
+	TimeOnlyToday   *bool          `toml:"time_only_today"`             // nil (unset) means the default: on; with the default time layout, show time-only for messages sent today instead of a full date
 	DefaultAccount  string         `toml:"default_account"`             // JID selected on startup; unset means the first configured account
 	OpenLastChat    *bool          `toml:"open_last_chat"`              // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
 	LastChatAccount string         `toml:"last_chat_account,omitempty"` // JID of the account owning the last opened chat
@@ -38,12 +41,15 @@ type StorageConfig struct {
 type UIConfig struct {
 	KeyMap        ui.KeyMap
 	Theme         ui.Theme
-	Mouse         bool // enables mouse click/scroll support; on by default
-	SidebarWidth  int  // 0 means "use the width/4-based default"
-	InputHeight   int  // 0 means "use the DynamicHeight-based default"
-	SidebarHidden bool // persisted chat list visibility; false (open) by default
-	OpenLastChat  bool // whether to reopen the last chat on startup; on by default
-	Icons bool // show icons for attachments/encryption instead of plain-text tags; off by default
+	Mouse         bool   // enables mouse click/scroll support; on by default
+	SidebarWidth  int    // 0 means "use the width/4-based default"
+	InputHeight   int    // 0 means "use the DynamicHeight-based default"
+	SidebarHidden bool   // persisted chat list visibility; false (open) by default
+	OpenLastChat  bool   // whether to reopen the last chat on startup; on by default
+	Icons         bool   // show icons for attachments/encryption instead of plain-text tags; on by default
+	ShowNames     bool   // show the sender's name in the message header instead of just a direction glyph; off by default
+	TimeLayout    string // custom Go time layout for message timestamps; empty means the default
+	TimeOnlyToday bool   // with the default time layout, show time-only for messages sent today instead of a full date; on by default
 }
 
 // Config is the fully resolved application configuration.
@@ -71,10 +77,12 @@ type Config struct {
 func Load(path string) (Config, error) {
 	cfgOut := Config{
 		UI: UIConfig{
-			KeyMap:       ui.DefaultKeyMap,
-			Theme:        ui.DefaultTheme(),
-			Mouse:        true,
-			OpenLastChat: true,
+			KeyMap:        ui.DefaultKeyMap,
+			Theme:         ui.DefaultTheme(),
+			Mouse:         true,
+			OpenLastChat:  true,
+			TimeOnlyToday: true,
+			Icons:         true,
 		},
 	}
 	paths := append([]string{path}, candidatePaths()...)
@@ -95,10 +103,17 @@ func Load(path string) (Config, error) {
 			}
 			cfgOut.UI.SidebarWidth = cfg.SidebarWidth
 			cfgOut.UI.SidebarHidden = cfg.SidebarHidden
-			cfgOut.UI.Icons = cfg.Icons
+			if cfg.Icons != nil {
+				cfgOut.UI.Icons = *cfg.Icons
+			}
+			cfgOut.UI.ShowNames = cfg.ShowNames
+			cfgOut.UI.TimeLayout = cfg.TimeLayout
 			cfgOut.UI.InputHeight = cfg.InputHeight
 			if cfg.OpenLastChat != nil {
 				cfgOut.UI.OpenLastChat = *cfg.OpenLastChat
+			}
+			if cfg.TimeOnlyToday != nil {
+				cfgOut.UI.TimeOnlyToday = *cfg.TimeOnlyToday
 			}
 			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts

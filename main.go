@@ -298,7 +298,13 @@ func main() {
 		openLastChatAddress = cfg.LastChatAddress
 		startAccountIdx = cfg.LastChatAccountIdx
 	}
-	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, cfg.UI.Icons)
+	display := ui.DisplayOptions{
+		Icons:         cfg.UI.Icons,
+		ShowNames:     cfg.UI.ShowNames,
+		TimeLayout:    cfg.UI.TimeLayout,
+		TimeOnlyToday: cfg.UI.TimeOnlyToday,
+	}
+	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display)
 	p := tea.NewProgram(model)
 	sender.program = p
 
