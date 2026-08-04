@@ -369,11 +369,13 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		// row in history.
 		sealedBody, encrypted := encryptForStorage(s, body)
 		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
-			AccountJid: s.account.JID,
-			Body:       sealedBody,
-			Encrypted:  encrypted,
-			IDAttr:     nullString(opts.ReplaceID),
-			RosterJid:  nullString(to),
+			AccountJid:   s.account.JID,
+			Body:         sealedBody,
+			Encrypted:    encrypted,
+			E2eEncrypted: e2eEncrypted,
+			E2eeMethod:   nullString(e2eeMethod),
+			IDAttr:       nullString(opts.ReplaceID),
+			RosterJid:    nullString(to),
 		}); err != nil {
 			debugf("warning: persisting correction: %v\n", err)
 		}

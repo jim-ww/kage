@@ -45,11 +45,13 @@ func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row
 		if s.localKey != nil {
 			sealedBody, encrypted := encryptForStorage(s, row.Body.String)
 			if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
-				AccountJid: s.account.JID,
-				Body:       sealedBody,
-				Encrypted:  encrypted,
-				IDAttr:     row.Idattr,
-				RosterJid:  nullString(chatAddr),
+				AccountJid:   s.account.JID,
+				Body:         sealedBody,
+				Encrypted:    encrypted,
+				E2eEncrypted: row.E2eencrypted,
+				E2eeMethod:   row.E2eemethod,
+				IDAttr:       row.Idattr,
+				RosterJid:    nullString(chatAddr),
 			}); err != nil {
 				debugf("warning: encrypting stored message: %v\n", err)
 			}

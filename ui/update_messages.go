@@ -170,6 +170,8 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		msgs[idx].Content = msg.NewContent
+		msgs[idx].Encrypted = msg.Encrypted
+		msgs[idx].EncMethod = msg.EncMethod
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.refreshViewport()
 		}

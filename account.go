@@ -555,11 +555,13 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 
 			if am.ReplaceID != "" {
 				if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
-					AccountJid: s.account.JID,
-					Body:       sealedBody,
-					Encrypted:  encrypted,
-					IDAttr:     nullString(am.ReplaceID),
-					RosterJid:  nullString(peerJID),
+					AccountJid:   s.account.JID,
+					Body:         sealedBody,
+					Encrypted:    encrypted,
+					E2eEncrypted: e2eEncrypted,
+					E2eeMethod:   nullString(e2eeMethod),
+					IDAttr:       nullString(am.ReplaceID),
+					RosterJid:    nullString(peerJID),
 				}); err != nil {
 					debugf("warning: persisting mam correction for %s: %v", peerJID, err)
 				}
@@ -568,6 +570,8 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 					From:       peerJID,
 					ReplaceID:  am.ReplaceID,
 					NewContent: body,
+					Encrypted:  e2eEncrypted,
+					EncMethod:  e2eeMethod,
 				})
 				continue
 			}

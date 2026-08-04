@@ -1368,18 +1368,22 @@ const updateMessageBodyByID = `-- name: UpdateMessageBodyByID :execrows
 UPDATE messages
 SET
 	body = ?1,
-	encrypted = ?2
-WHERE accountJID = ?3
-	AND idAttr = ?4
-	AND rosterJID = ?5
+	encrypted = ?2,
+	e2eEncrypted = ?3,
+	e2eeMethod = ?4
+WHERE accountJID = ?5
+	AND idAttr = ?6
+	AND rosterJID = ?7
 `
 
 type UpdateMessageBodyByIDParams struct {
-	Body       sql.NullString `db:"body"`
-	Encrypted  bool           `db:"encrypted"`
-	AccountJid string         `db:"account_jid"`
-	IDAttr     sql.NullString `db:"id_attr"`
-	RosterJid  sql.NullString `db:"roster_jid"`
+	Body         sql.NullString `db:"body"`
+	Encrypted    bool           `db:"encrypted"`
+	E2eEncrypted bool           `db:"e2e_encrypted"`
+	E2eeMethod   sql.NullString `db:"e2ee_method"`
+	AccountJid   string         `db:"account_jid"`
+	IDAttr       sql.NullString `db:"id_attr"`
+	RosterJid    sql.NullString `db:"roster_jid"`
 }
 
 // XEP-0308: apply a correction to a previously sent/received message,
@@ -1390,6 +1394,8 @@ func (q *Queries) UpdateMessageBodyByID(ctx context.Context, arg UpdateMessageBo
 	result, err := q.db.ExecContext(ctx, updateMessageBodyByID,
 		arg.Body,
 		arg.Encrypted,
+		arg.E2eEncrypted,
+		arg.E2eeMethod,
 		arg.AccountJid,
 		arg.IDAttr,
 		arg.RosterJid,

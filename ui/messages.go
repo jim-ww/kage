@@ -84,6 +84,8 @@ type MessageCorrectedMsg struct {
 	From       string // bare JID (chat)
 	ReplaceID  string // ID of the message being corrected
 	NewContent string
+	Encrypted  bool   // whether the correction itself was e2e encrypted on the wire
+	EncMethod  string // "omemo" or "gpg", matching Message.EncMethod; empty when Encrypted is false
 }
 
 // MessageRetractedMsg is sent into the Bubble Tea loop when the other party

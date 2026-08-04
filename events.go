@@ -135,11 +135,13 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	if msgEv.ReplaceID != "" {
 		sealedBody, encrypted := encryptForStorage(s, body)
 		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
-			AccountJid: s.account.JID,
-			Body:       sealedBody,
-			Encrypted:  encrypted,
-			IDAttr:     nullString(msgEv.ReplaceID),
-			RosterJid:  nullString(from),
+			AccountJid:   s.account.JID,
+			Body:         sealedBody,
+			Encrypted:    encrypted,
+			E2eEncrypted: e2eEncrypted,
+			E2eeMethod:   nullString(e2eeMethod),
+			IDAttr:       nullString(msgEv.ReplaceID),
+			RosterJid:    nullString(from),
 		}); err != nil {
 			debugf("warning: persisting correction: %v\n", err)
 		}
@@ -148,6 +150,8 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			From:       from,
 			ReplaceID:  msgEv.ReplaceID,
 			NewContent: body,
+			Encrypted:  e2eEncrypted,
+			EncMethod:  e2eeMethod,
 		})
 		return
 	}

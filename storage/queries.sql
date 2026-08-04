@@ -108,7 +108,9 @@ WHERE accountJID = sqlc.arg(account_jid)
 UPDATE messages
 SET
 	body = sqlc.arg(body),
-	encrypted = sqlc.arg(encrypted)
+	encrypted = sqlc.arg(encrypted),
+	e2eEncrypted = sqlc.arg(e2e_encrypted),
+	e2eeMethod = sqlc.arg(e2ee_method)
 WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
