@@ -241,8 +241,7 @@ func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 // more specific inside it.
 func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.zone.Get(zoneToggleSidebar).InBounds(msg) {
-		m.sidebarHidden = !m.sidebarHidden
-		return m, nil
+		return m.toggleSidebar()
 	}
 
 	for i := range m.emojiSuggestions {

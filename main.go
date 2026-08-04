@@ -287,7 +287,7 @@ func main() {
 		}
 	}()
 
-	model := ui.New(uiAccounts, cfg.DefaultAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth)
+	model := ui.New(uiAccounts, cfg.DefaultAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden)
 	p := tea.NewProgram(model)
 	sender.program = p
 
@@ -948,6 +948,12 @@ func (a *adapter) SetDefaultAccount(jid string) error {
 // user-dragged sidebar width so it's restored on the next launch.
 func (a *adapter) SetSidebarWidth(width int) error {
 	return config.SetSidebarWidth(a.cfgPath, width)
+}
+
+// SetSidebarHidden implements ui.SidebarHiddenSetter: persists the chat
+// list's visibility so it's restored on the next launch.
+func (a *adapter) SetSidebarHidden(hidden bool) error {
+	return config.SetSidebarHidden(a.cfgPath, hidden)
 }
 
 func (a *adapter) session(accountIdx int) (*accountSession, bool) {

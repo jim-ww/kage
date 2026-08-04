@@ -91,6 +91,18 @@ func SetSidebarWidth(path string, width int) error {
 	return writeFileConfig(path, cfg)
 }
 
+// SetSidebarHidden sets (or updates) the sidebar_hidden setting in the
+// config file at path, preserving everything else — called whenever the
+// user toggles the chat list (see ui.SidebarHiddenSetter).
+func SetSidebarHidden(path string, hidden bool) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	cfg.SidebarHidden = hidden
+	return writeFileConfig(path, cfg)
+}
+
 func loadOrEmpty(path string) (fileConfig, error) {
 	existing, err := loadFile(path)
 	if err != nil {

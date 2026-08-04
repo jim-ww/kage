@@ -443,8 +443,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, m.keys.ToggleSidebar):
-			m.sidebarHidden = !m.sidebarHidden
-			return m, nil
+			return m.toggleSidebar()
 
 		case key.Matches(msg, m.keys.ChatOpen):
 			if m.selectedView == viewChats {

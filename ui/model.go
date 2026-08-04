@@ -332,6 +332,14 @@ type SidebarWidthSetter interface {
 	SetSidebarWidth(width int) error
 }
 
+// SidebarHiddenSetter persists whether the chat list sidebar is currently
+// hidden, implemented outside ui (main.go's adapter) so ui stays decoupled
+// from the config layer. A local file write, called inline like Send/
+// SetTyping rather than through a tea.Cmd.
+type SidebarHiddenSetter interface {
+	SetSidebarHidden(hidden bool) error
+}
+
 type Model struct {
 	width, height int
 	termHeight    int // raw terminal rows from the last WindowSizeMsg; height is derived from this minus the footer's actual (view-dependent) row count
@@ -405,6 +413,7 @@ type Model struct {
 	renamer              ContactRenamer
 	defaultAccountSetter DefaultAccountSetter
 	sidebarWidthSetter   SidebarWidthSetter
+	sidebarHiddenSetter  SidebarHiddenSetter
 	chatEncryptionSetter ChatEncryptionSetter
 
 	// rename-chat prompt state, active while renamingChat is true. Opened by
@@ -436,7 +445,7 @@ type noticeClearMsg struct {
 	id int
 }
 
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int) Model {
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
@@ -479,6 +488,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	defaultAccountSetter, _ := sender.(DefaultAccountSetter)
 	chatEncryptionSetter, _ := sender.(ChatEncryptionSetter)
 	sidebarWidthSetter, _ := sender.(SidebarWidthSetter)
+	sidebarHiddenSetter, _ := sender.(SidebarHiddenSetter)
 
 	return Model{
 		selectedView:         viewChat,
@@ -504,7 +514,9 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		defaultAccountSetter: defaultAccountSetter,
 		chatEncryptionSetter: chatEncryptionSetter,
 		sidebarWidthSetter:   sidebarWidthSetter,
+		sidebarHiddenSetter:  sidebarHiddenSetter,
 		sidebarWidthOverride: initialSidebarWidth,
+		sidebarHidden:        initialSidebarHidden,
 		filePicker:           picker,
 	}
 }
@@ -619,6 +631,21 @@ func (m Model) sidebarWidth() int {
 	}
 	return min(w, m.width)
 }
+
+// toggleSidebar flips sidebarHidden and persists the new value (if a
+// SidebarHiddenSetter is wired up), so the chat list's visibility survives
+// across launches like its dragged width does — see SidebarHiddenSetter.
+func (m Model) toggleSidebar() (Model, tea.Cmd) {
+	m.sidebarHidden = !m.sidebarHidden
+	if m.sidebarHiddenSetter == nil {
+		return m, nil
+	}
+	if err := m.sidebarHiddenSetter.SetSidebarHidden(m.sidebarHidden); err != nil {
+		return m, m.showNotification("saving chat list visibility: " + err.Error())
+	}
+	return m, nil
+}
+
 func (m Model) chatAreaWidth() int {
 	if m.sidebarHidden {
 		return m.width

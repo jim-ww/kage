@@ -14,9 +14,10 @@ import (
 type fileConfig struct {
 	Keybinds       map[string]any `toml:"keybinds"`
 	Theme          ui.Theme       `toml:"theme"`
-	Mouse          *bool          `toml:"mouse"`                   // nil (unset) means the default: on
-	SidebarWidth   int            `toml:"sidebar_width,omitempty"` // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
-	DefaultAccount string         `toml:"default_account"`         // JID selected on startup; unset means the first configured account
+	Mouse          *bool          `toml:"mouse"`                    // nil (unset) means the default: on
+	SidebarWidth   int            `toml:"sidebar_width,omitempty"`  // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
+	SidebarHidden  bool           `toml:"sidebar_hidden,omitempty"` // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
+	DefaultAccount string         `toml:"default_account"`          // JID selected on startup; unset means the first configured account
 	Storage        StorageConfig  `toml:"storage"`
 	Accounts       []Account      `toml:"accounts"`
 }
@@ -30,10 +31,11 @@ type StorageConfig struct {
 }
 
 type UIConfig struct {
-	KeyMap       ui.KeyMap
-	Theme        ui.Theme
-	Mouse        bool // enables mouse click/scroll support; on by default
-	SidebarWidth int  // 0 means "use the width/4-based default"
+	KeyMap        ui.KeyMap
+	Theme         ui.Theme
+	Mouse         bool // enables mouse click/scroll support; on by default
+	SidebarWidth  int  // 0 means "use the width/4-based default"
+	SidebarHidden bool // persisted chat list visibility; false (open) by default
 }
 
 // Config is the fully resolved application configuration.
@@ -77,6 +79,7 @@ func Load(path string) (Config, error) {
 				cfgOut.UI.Mouse = *cfg.Mouse
 			}
 			cfgOut.UI.SidebarWidth = cfg.SidebarWidth
+			cfgOut.UI.SidebarHidden = cfg.SidebarHidden
 			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts
 			cfgOut.Path = path

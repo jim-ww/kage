@@ -4,7 +4,7 @@
 - save last chat ID? open it on startup, if exists
 - account manager should look like button and show hover indication
 - account manager: remove 'accounts:' labewnloaded
-- add config option to
+- add config ui toggle options (e.g. show/hide names in chat, show glyphs in chat, chat date layout)
 - code syntax highlight. if message has ``` code ``` or ```go some go code ``` or ```rust somecode```
 - preview files text contents
 - account manager: fix adding duplicate accounts
