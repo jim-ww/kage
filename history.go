@@ -73,13 +73,14 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 			author = "me"
 		}
 		msgs = append(msgs, ui.Message{
-			ID:        row.Idattr.String,
-			Author:    author,
-			Content:   pt,
-			SentAt:    time.Unix(row.Delay, 0),
-			IsMe:      row.Sent,
-			Retracted: row.Retracted,
-			Reactions: loadReactionsForMessage(ctx, s, row.Idattr.String),
+			ID:          row.Idattr.String,
+			Author:      author,
+			Content:     pt,
+			SentAt:      time.Unix(row.Delay, 0),
+			IsMe:        row.Sent,
+			Retracted:   row.Retracted,
+			Reactions:   loadReactionsForMessage(ctx, s, row.Idattr.String),
+			Attachments: attachmentURLs(pt),
 		})
 		replyTo = append(replyTo, row.Replytoidattr.String)
 	}

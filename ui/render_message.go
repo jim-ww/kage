@@ -68,7 +68,11 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 	}
 
-	bodyLines := strings.Split(ansi.Wrap(msg.Content, wrapWidth, " "), "\n")
+	bodyContent := msg.Content
+	if len(msg.Attachments) == 1 && strings.TrimSpace(msg.Content) == msg.Attachments[0] {
+		bodyContent = renderAttachmentLine(msg.Attachments[0], m.nerdFontIcons)
+	}
+	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	for i, line := range bodyLines {
 		if i == 0 {
 			lines = append(lines, prefix+header+line)

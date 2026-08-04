@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,6 +73,148 @@ func openableItems(msg Message) []string {
 // pickerMode distinguishes what digit-selecting an item in the open/save
 // popup actually does — both share the same numbered-list UI (m.openItems),
 // just with a different action and result phrasing.
+// attachmentDownloadURL returns the plain http(s) URL data is fetched from
+// for target, unwrapping aesgcm:// (XEP-0454) URLs. Returns "" if target
+// isn't a recognized attachment scheme.
+func attachmentDownloadURL(target string) string {
+	if strings.HasPrefix(target, "aesgcm://") {
+		downloadURL, _, _, err := aesgcm.ParseAESGCMURL(target)
+		if err != nil {
+			return ""
+		}
+		return downloadURL
+	}
+	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+		return target
+	}
+	return ""
+}
+
+// attachmentBaseName extracts the filename an attachment URL was uploaded
+// with, stripping any query/fragment — mirrors the naming used when actually
+// downloading (openWithXDGOpen, saveURLToDownloads).
+func attachmentBaseName(downloadURL string) string {
+	base := filepath.Base(downloadURL)
+	if idx := strings.IndexAny(base, "?#"); idx >= 0 {
+		base = base[:idx]
+	}
+	if base == "" || base == "." || base == "/" {
+		base = "download"
+	}
+	return base
+}
+
+// attachmentDisplayName returns a human-readable, percent-decoded filename
+// for an attachment URL, e.g. "aesgcm://host/photo%20booth.jpg" -> "photo booth.jpg".
+func attachmentDisplayName(target string) string {
+	downloadURL := attachmentDownloadURL(target)
+	if downloadURL == "" {
+		return target
+	}
+	base := attachmentBaseName(downloadURL)
+	if decoded, err := url.PathUnescape(base); err == nil {
+		base = decoded
+	}
+	return base
+}
+
+// nerdFontFileIcons maps file extensions to Nerd Font glyphs (Private Use
+// Area code points from the "seti"/"custom" icon sets bundled in Nerd Font
+// patched fonts, e.g. FiraCode Nerd Font, JetBrainsMono Nerd Font). Only
+// used when the user has opted in via nerd_font_icons — on a terminal
+// without a Nerd Font these render as tofu, so plainFileIcons is the default.
+var nerdFontFileIcons = map[string]string{
+	".jpg": "", ".jpeg": "", ".png": "", ".gif": "", ".webp": "", ".bmp": "", ".svg": "", ".heic": "",
+	".mp4": "", ".mkv": "", ".webm": "", ".mov": "", ".avi": "",
+	".mp3": "", ".wav": "", ".flac": "", ".ogg": "", ".m4a": "",
+	".pdf": "",
+	".zip": "", ".tar": "", ".gz": "", ".xz": "", ".7z": "", ".rar": "", ".bz2": "",
+	".doc": "", ".docx": "", ".odt": "", ".rtf": "",
+	".xls": "", ".xlsx": "", ".ods": "", ".csv": "",
+	".txt": "", ".md": "", ".log": "",
+}
+
+const nerdFontFileIconDefault = ""
+
+// plainFileIcons is the graceful fallback used when nerd_font_icons is off
+// (the default) — short bracketed tags that render correctly in any
+// terminal, matching the rest of the UI's plain-Unicode glyph style.
+var plainFileIcons = map[string]string{
+	".jpg": "[img]", ".jpeg": "[img]", ".png": "[img]", ".gif": "[img]", ".webp": "[img]", ".bmp": "[img]", ".svg": "[img]", ".heic": "[img]",
+	".mp4": "[vid]", ".mkv": "[vid]", ".webm": "[vid]", ".mov": "[vid]", ".avi": "[vid]",
+	".mp3": "[aud]", ".wav": "[aud]", ".flac": "[aud]", ".ogg": "[aud]", ".m4a": "[aud]",
+	".pdf": "[pdf]",
+	".zip": "[zip]", ".tar": "[zip]", ".gz": "[zip]", ".xz": "[zip]", ".7z": "[zip]", ".rar": "[zip]", ".bz2": "[zip]",
+	".doc": "[doc]", ".docx": "[doc]", ".odt": "[doc]", ".rtf": "[doc]",
+	".xls": "[sheet]", ".xlsx": "[sheet]", ".ods": "[sheet]", ".csv": "[sheet]",
+	".txt": "[txt]", ".md": "[txt]", ".log": "[txt]",
+}
+
+const plainFileIconDefault = "[file]"
+
+// attachmentIcon picks an icon for the attachment's file extension: a Nerd
+// Font glyph when nerdFont is true, otherwise a plain-text [tag] that's
+// guaranteed to render in any terminal.
+func attachmentIcon(name string, nerdFont bool) string {
+	ext := strings.ToLower(filepath.Ext(name))
+	if nerdFont {
+		if icon, ok := nerdFontFileIcons[ext]; ok {
+			return icon
+		}
+		return nerdFontFileIconDefault
+	}
+	if icon, ok := plainFileIcons[ext]; ok {
+		return icon
+	}
+	return plainFileIconDefault
+}
+
+// isAttachmentDownloaded reports whether target already has a local copy —
+// either in the aesgcm view cache (attachmentCacheDir) or in the downloads
+// directory, mirroring the exact destination paths openWithXDGOpen and
+// saveURLToDownloads would use. Doesn't create either directory: this runs
+// on every render, so it must stay a pure read.
+func isAttachmentDownloaded(target string) bool {
+	downloadURL := attachmentDownloadURL(target)
+	if downloadURL == "" {
+		return false
+	}
+	base := attachmentBaseName(downloadURL)
+
+	if strings.HasPrefix(target, "aesgcm://") {
+		cacheBase, err := os.UserCacheDir()
+		if err != nil {
+			return false
+		}
+		sum := sha256.Sum256([]byte(target))
+		dest := filepath.Join(cacheBase, "kage", "attachments", hex.EncodeToString(sum[:8])+"-"+base)
+		_, err = os.Stat(dest)
+		return err == nil
+	}
+
+	dir := strings.TrimSpace(os.Getenv("XDG_DOWNLOAD_DIR"))
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false
+		}
+		dir = filepath.Join(home, "Downloads")
+	}
+	_, err := os.Stat(filepath.Join(dir, base))
+	return err == nil
+}
+
+// renderAttachmentLine formats an attachment as "<icon> <name>", with a
+// trailing marker when a local copy already exists.
+func renderAttachmentLine(target string, nerdFont bool) string {
+	name := attachmentDisplayName(target)
+	line := attachmentIcon(name, nerdFont) + " " + name
+	if isAttachmentDownloaded(target) {
+		line += " (downloaded)"
+	}
+	return line
+}
+
 type pickerMode int
 
 const (
