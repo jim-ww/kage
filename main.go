@@ -16,6 +16,7 @@ import (
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/gpg"
 	"github.com/jim-ww/kage/crypto/localstore"
+	"github.com/jim-ww/kage/notifyd"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"golang.org/x/term"
@@ -202,7 +203,19 @@ func runSetupWizard() error {
 func main() {
 	cfgPath := flag.String("c", "", "path to config")
 	debug := flag.Bool("debug", false, "write debug logs to <config dir>/kage/debug.log")
+	runNotifyd := flag.Bool("notifyd", false, "internal: run as the background notification daemon (spawned automatically, not meant to be passed by hand)")
 	flag.Parse()
+
+	if *runNotifyd {
+		cfg, err := config.Load(*cfgPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := notifyd.Run(cfg); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	if *debug {
 		setupDebugLog()
@@ -227,6 +240,10 @@ func main() {
 			fmt.Fprintln(os.Stderr, "no accounts configured; add an [[accounts]] entry to config.toml")
 			os.Exit(1)
 		}
+	}
+
+	if err := notifyd.EnsureRunning(cfg.Path); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: starting notification daemon: %v\n", err)
 	}
 
 	ensureGPGKeys(&cfg)

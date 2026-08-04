@@ -23,7 +23,6 @@ fix: "send failed: omemo-encrypting to ADDRESS: omemo: no recipient device could
 - chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view
 - chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts
 - message deletion: shouldnt delete message locally, instead just show in deleted message state, with option to see its contents
-- implement background read-only daemon for desktop notifications on new messages. it should be started on app launch, unless such process already exists. check with flock lib? also, it shouldn't be closed on app exit
 - list chat participants, ability to see info about them, start chat with them
 - account manager: status ('● Online', '◐ Away', '○ Offline') and manage it (e.g. offline stops syncing that account)
 - refactor main.go, xmpp/client.go, others

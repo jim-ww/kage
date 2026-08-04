@@ -27,15 +27,26 @@
           pname = "kage";
           version = "0.0.2";
           src = pkgs.lib.cleanSource ./.;
-          vendorHash = "sha256-c45x+UMljnMmziiKWJ4SnedQILh+Qxfew2Ziphls468=";
+          vendorHash = "sha256-zPPta7z7u1Fo/r28cWP8kOrIhqvroZpV4QFfjRxSLu0=";
+
+          env.CGO_ENABLED = 0;
 
           nativeCheckInputs = [
             pkgs.gnupg
           ];
 
+          # notify-send (libnotify) is what notifyd shells out to for desktop
+          # notifications — wrap it onto PATH so it's found regardless of
+          # what's installed system-wide.
+          nativeBuildInputs = [pkgs.makeWrapper];
+
           postInstall = ''
             mkdir -p $out/share/applications
             cp ${desktopItem}/share/applications/*.desktop $out/share/applications/
+          '';
+
+          postFixup = ''
+            wrapProgram $out/bin/kage --prefix PATH : ${pkgs.lib.makeBinPath [pkgs.libnotify]}
           '';
         };
 
