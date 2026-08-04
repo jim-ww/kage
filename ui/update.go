@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
@@ -269,6 +270,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// ── Chat list filter input intercepts all input until dismissed ────
+		// Otherwise keys typed into the filter (e.g. "l") get matched against
+		// global bindings like ChatOpen first and never reach the list.
+		if m.selectedView == viewChats && m.chats.FilterState() == list.Filtering {
+			var cmd tea.Cmd
+			m.chats, cmd = m.chats.Update(msg)
+			return m, cmd
+		}
+
 		// ── Context menu intercepts all input until dismissed ───────────────
 		// It's mouse-only otherwise (every action it lists already has its
 		// own keybinding), so the keyboard's only job here is closing it.
