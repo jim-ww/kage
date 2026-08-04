@@ -418,7 +418,19 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			afterArchiveID = am.ArchiveID
 
 			body := am.Body
-			if gpg.Looks(body) {
+			if am.Encrypted != nil {
+				if s.omemoMgr == nil {
+					body = "[message could not be decrypted: omemo isn't ready]"
+				} else if enc, err := xmpp.DecodeOmemoMessage(am.Encrypted, bareJID(am.From)); err != nil {
+					body = "[message could not be decrypted: " + err.Error() + "]"
+				} else if pt, err := s.omemoMgr.DecryptMessage(ctx, enc); err != nil {
+					body = "[message could not be decrypted: " + err.Error() + "]"
+				} else if pt == nil {
+					continue // key-transport only: session established/refreshed, no content to show
+				} else {
+					body = string(pt)
+				}
+			} else if gpg.Looks(body) {
 				if pt, err := s.gpg.Decrypt(body, ""); err == nil {
 					body = pt
 				}

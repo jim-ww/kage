@@ -24,6 +24,11 @@ type ArchivedMessage struct {
 	To        string
 	Body      string
 	ID        string // stanza id of the original message, if any (for XEP-0461/0308/0424 correlation)
+
+	// Encrypted is non-nil if the archived message is a XEP-0384 OMEMO
+	// message; Body carries no meaningful content and the caller must
+	// decrypt this (crypto/omemo, via DecodeOmemoMessage) to get the text.
+	Encrypted *omemoEncryptedElem
 }
 
 // mamResultElem is the <result/> wrapper XEP-0313 attaches to a <message/>
@@ -61,6 +66,7 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		To:        r.Forwarded.Message.To.String(),
 		Body:      r.Forwarded.Message.Body,
 		ID:        r.Forwarded.Message.ID,
+		Encrypted: r.Forwarded.Message.Encrypted,
 	}
 	if stamp, err := time.Parse(time.RFC3339, r.Forwarded.Delay.Stamp); err == nil {
 		am.SentAt = stamp
