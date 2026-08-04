@@ -30,10 +30,9 @@ type Model struct {
 	// are not drawn.
 	mouseEnabled bool
 
-	// nerdFontIcons selects Nerd Font glyphs for attachment icons instead of
-	// the plain-text [tag] fallback — on only when the user's config opts in,
-	// since a non-Nerd-Font terminal would render the glyphs as tofu boxes.
-	nerdFontIcons bool
+	// icons selects icon glyphs for attachments/encryption instead of the
+	// plain-text [tag] fallback — on only when the user's config opts in.
+	icons bool
 
 	// hover holds the zone ID currently under the pointer (empty if none),
 	// so the currently-hovered send button/chat item/account row/message/
@@ -140,7 +139,7 @@ type Model struct {
 	addAccountBusy   bool
 }
 
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, nerdFontIcons bool) Model {
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, icons bool) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
@@ -202,7 +201,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		styles:                 styles,
 		zone:                   zm,
 		mouseEnabled:           mouseEnabled,
-		nerdFontIcons:          nerdFontIcons,
+		icons:                  icons,
 		hover:                  hv,
 		accounts:               accounts,
 		currentAccount:         startAccount,

@@ -49,9 +49,9 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		timeLabel = msg.SentAt.Format("2006-01-02 15:04")
 	}
 	if msg.Encrypted {
-		lockIcon := "🔒"
-		if m.nerdFontIcons {
-			lockIcon = "" // nf-fa-lock
+		lockIcon := "enc"
+		if m.icons {
+			lockIcon = "🔒"
 		}
 		timeLabel += " " + lockIcon
 	}
@@ -77,7 +77,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 
 	bodyContent := msg.Content
 	if len(msg.Attachments) == 1 && strings.TrimSpace(msg.Content) == msg.Attachments[0] {
-		bodyContent = renderAttachmentLine(msg.Attachments[0], m.nerdFontIcons)
+		bodyContent = renderAttachmentLine(msg.Attachments[0], m.icons)
 	}
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	for i, line := range bodyLines {

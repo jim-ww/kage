@@ -118,27 +118,23 @@ func attachmentDisplayName(target string) string {
 	return base
 }
 
-// nerdFontFileIcons maps file extensions to Nerd Font glyphs (Private Use
-// Area code points from the "seti"/"custom" icon sets bundled in Nerd Font
-// patched fonts, e.g. FiraCode Nerd Font, JetBrainsMono Nerd Font). Only
-// used when the user has opted in via nerd_font_icons — on a terminal
-// without a Nerd Font these render as tofu, so plainFileIcons is the default.
-var nerdFontFileIcons = map[string]string{
-	".jpg": "", ".jpeg": "", ".png": "", ".gif": "", ".webp": "", ".bmp": "", ".svg": "", ".heic": "",
-	".mp4": "", ".mkv": "", ".webm": "", ".mov": "", ".avi": "",
-	".mp3": "", ".wav": "", ".flac": "", ".ogg": "", ".m4a": "",
-	".pdf": "",
-	".zip": "", ".tar": "", ".gz": "", ".xz": "", ".7z": "", ".rar": "", ".bz2": "",
-	".doc": "", ".docx": "", ".odt": "", ".rtf": "",
-	".xls": "", ".xlsx": "", ".ods": "", ".csv": "",
-	".txt": "", ".md": "", ".log": "",
+// emojiFileIcons maps file extensions to emoji icons. Only used when the
+// user has opted in via the icons config setting.
+var emojiFileIcons = map[string]string{
+	".jpg": "🖼", ".jpeg": "🖼", ".png": "🖼", ".gif": "🖼", ".webp": "🖼", ".bmp": "🖼", ".svg": "🖼", ".heic": "🖼",
+	".mp4": "🎬", ".mkv": "🎬", ".webm": "🎬", ".mov": "🎬", ".avi": "🎬",
+	".mp3": "🎵", ".wav": "🎵", ".flac": "🎵", ".ogg": "🎵", ".m4a": "🎵",
+	".pdf": "📄",
+	".zip": "🗜", ".tar": "🗜", ".gz": "🗜", ".xz": "🗜", ".7z": "🗜", ".rar": "🗜", ".bz2": "🗜",
+	".doc": "📝", ".docx": "📝", ".odt": "📝", ".rtf": "📝",
+	".xls": "📊", ".xlsx": "📊", ".ods": "📊", ".csv": "📊",
+	".txt": "📄", ".md": "📄", ".log": "📄",
 }
 
-const nerdFontFileIconDefault = ""
+const emojiFileIconDefault = "📎"
 
-// plainFileIcons is the graceful fallback used when nerd_font_icons is off
-// (the default) — short bracketed tags that render correctly in any
-// terminal, matching the rest of the UI's plain-Unicode glyph style.
+// plainFileIcons is the fallback used when icons is off (the default) —
+// short bracketed tags that render correctly in any terminal.
 var plainFileIcons = map[string]string{
 	".jpg": "[img]", ".jpeg": "[img]", ".png": "[img]", ".gif": "[img]", ".webp": "[img]", ".bmp": "[img]", ".svg": "[img]", ".heic": "[img]",
 	".mp4": "[vid]", ".mkv": "[vid]", ".webm": "[vid]", ".mov": "[vid]", ".avi": "[vid]",
@@ -152,16 +148,16 @@ var plainFileIcons = map[string]string{
 
 const plainFileIconDefault = "[file]"
 
-// attachmentIcon picks an icon for the attachment's file extension: a Nerd
-// Font glyph when nerdFont is true, otherwise a plain-text [tag] that's
-// guaranteed to render in any terminal.
-func attachmentIcon(name string, nerdFont bool) string {
+// attachmentIcon picks an icon for the attachment's file extension: an emoji
+// when icons is true, otherwise a plain-text [tag] that's guaranteed to
+// render in any terminal.
+func attachmentIcon(name string, icons bool) string {
 	ext := strings.ToLower(filepath.Ext(name))
-	if nerdFont {
-		if icon, ok := nerdFontFileIcons[ext]; ok {
+	if icons {
+		if icon, ok := emojiFileIcons[ext]; ok {
 			return icon
 		}
-		return nerdFontFileIconDefault
+		return emojiFileIconDefault
 	}
 	if icon, ok := plainFileIcons[ext]; ok {
 		return icon
@@ -206,9 +202,9 @@ func isAttachmentDownloaded(target string) bool {
 
 // renderAttachmentLine formats an attachment as "<icon> <name>", with a
 // trailing marker when a local copy already exists.
-func renderAttachmentLine(target string, nerdFont bool) string {
+func renderAttachmentLine(target string, icons bool) string {
 	name := attachmentDisplayName(target)
-	line := attachmentIcon(name, nerdFont) + " " + name
+	line := attachmentIcon(name, icons) + " " + name
 	if isAttachmentDownloaded(target) {
 		line += " (downloaded)"
 	}

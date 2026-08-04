@@ -18,7 +18,7 @@ type fileConfig struct {
 	SidebarWidth    int            `toml:"sidebar_width,omitempty"`     // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
 	InputHeight     int            `toml:"input_height,omitempty"`      // persisted from dragging the compose box border; 0 (unset) means the DynamicHeight-based default
 	SidebarHidden   bool           `toml:"sidebar_hidden,omitempty"`    // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
-	NerdFontIcons   bool           `toml:"nerd_font_icons,omitempty"`   // use Nerd Font glyphs for attachment icons instead of plain-text tags; off by default
+	Icons           bool           `toml:"icons,omitempty"`             // show icons for attachments/encryption instead of plain-text tags; off by default
 	DefaultAccount  string         `toml:"default_account"`             // JID selected on startup; unset means the first configured account
 	OpenLastChat    *bool          `toml:"open_last_chat"`              // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
 	LastChatAccount string         `toml:"last_chat_account,omitempty"` // JID of the account owning the last opened chat
@@ -43,7 +43,7 @@ type UIConfig struct {
 	InputHeight   int  // 0 means "use the DynamicHeight-based default"
 	SidebarHidden bool // persisted chat list visibility; false (open) by default
 	OpenLastChat  bool // whether to reopen the last chat on startup; on by default
-	NerdFontIcons bool // use Nerd Font glyphs for attachment icons instead of plain-text tags; off by default
+	Icons bool // show icons for attachments/encryption instead of plain-text tags; off by default
 }
 
 // Config is the fully resolved application configuration.
@@ -95,7 +95,7 @@ func Load(path string) (Config, error) {
 			}
 			cfgOut.UI.SidebarWidth = cfg.SidebarWidth
 			cfgOut.UI.SidebarHidden = cfg.SidebarHidden
-			cfgOut.UI.NerdFontIcons = cfg.NerdFontIcons
+			cfgOut.UI.Icons = cfg.Icons
 			cfgOut.UI.InputHeight = cfg.InputHeight
 			if cfg.OpenLastChat != nil {
 				cfgOut.UI.OpenLastChat = *cfg.OpenLastChat
