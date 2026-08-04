@@ -242,8 +242,10 @@ func main() {
 		}
 	}
 
-	if err := notifyd.EnsureRunning(cfg.Path); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: starting notification daemon: %v\n", err)
+	if cfg.Notifications {
+		if err := notifyd.EnsureRunning(cfg.Path); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: starting notification daemon: %v\n", err)
+		}
 	}
 
 	ensureGPGKeys(&cfg)

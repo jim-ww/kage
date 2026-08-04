@@ -1,6 +1,5 @@
 - make margin above help line (below textinput ) slighly smaller
 - chat view: add attach file, emoji buttons
-- only launch notification daemon if its enabled in config, enabled by default
 - show encryption information in message info
 - message status? 'sent' / 'delivered' icons?
 - bind keybinds with key codes, not to latin
@@ -8,6 +7,8 @@
 - speed up chat view (messages render)
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - add OMEMO v1 support?
+- account manager: fix adding duplicate accounts
+- chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view
 
 - ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - chat view: cursor can get out of view (not scrolled to)
@@ -17,9 +18,6 @@
 - account manager: remove 'accounts:' labewnloaded
 
 - preview files text contents (in separate viewport?)
-- account manager: fix adding duplicate accounts
-- store all accounts data in single sqlite db?
-- chat view: keyboard navigation on messages doesnt scroll view pane, when cursor gets out of screen view
 - chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts
 - message deletion: shouldnt delete message locally, instead just show in deleted message state, with option to see its contents
 - list chat participants, ability to see info about them, start chat with them
