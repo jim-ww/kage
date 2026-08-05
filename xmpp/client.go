@@ -187,9 +187,20 @@ func (c *Client) AddContact(ctx context.Context, addr, name string) error {
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.SubscribePresence, To: j.Bare()}.Wrap(nil))
 }
 
-// RemoveContact removes addr from the roster and sends an unsubscribe so the
-// peer stops receiving our presence (and we stop receiving theirs) — a
-// roster delete alone leaves any existing subscription in place server-side.
+// ApproveSubscription responds to an inbound subscription request from addr,
+// granting it permission to see our presence.
+func (c *Client) ApproveSubscription(ctx context.Context, addr string) error {
+	j, err := jid.Parse(addr)
+	if err != nil {
+		return fmt.Errorf("parsing JID %q: %w", addr, err)
+	}
+	return c.session.Send(ctx, stanza.Presence{Type: stanza.SubscribedPresence, To: j.Bare()}.Wrap(nil))
+}
+
+// RemoveContact removes addr from the roster and cancels both halves of the
+// subscription: unsubscribe (we stop receiving addr's presence) and
+// unsubscribed (addr stops receiving ours) — a roster delete alone leaves
+// any existing subscription in place server-side.
 func (c *Client) RemoveContact(ctx context.Context, addr string) error {
 	j, err := jid.Parse(addr)
 	if err != nil {
@@ -197,6 +208,9 @@ func (c *Client) RemoveContact(ctx context.Context, addr string) error {
 	}
 	if err := c.session.Send(ctx, stanza.Presence{Type: stanza.UnsubscribePresence, To: j.Bare()}.Wrap(nil)); err != nil {
 		return fmt.Errorf("sending unsubscribe: %w", err)
+	}
+	if err := c.session.Send(ctx, stanza.Presence{Type: stanza.UnsubscribedPresence, To: j.Bare()}.Wrap(nil)); err != nil {
+		return fmt.Errorf("sending unsubscribed: %w", err)
 	}
 	return roster.Delete(ctx, c.session, j.Bare())
 }

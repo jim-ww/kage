@@ -370,6 +370,12 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 				Presence:   mapPresence(ev),
 			})
 			continue
+		case xmpp.SubscriptionRequestEvent:
+			from := bareJID(ev.From)
+			if err := s.client.Load().ApproveSubscription(ctx, from); err != nil {
+				debugf("warning: approving subscription request from %s for %s: %v\n", from, s.account.JID, err)
+			}
+			continue
 		case xmpp.MessageEvent:
 			handleIncomingMessage(ctx, p, accountIdx, s, ev)
 		case xmpp.ChatStateEvent:

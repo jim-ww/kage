@@ -1,3 +1,4 @@
+- notifications are not sent
 - make sure user can paste to all textinputs
 - chat view: add attach file, emoji buttons
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead

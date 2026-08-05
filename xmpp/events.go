@@ -71,6 +71,15 @@ type PresenceEvent struct {
 
 func (PresenceEvent) isEvent() {}
 
+// SubscriptionRequestEvent is an inbound XEP-0084/RFC 6121 request from From
+// asking to subscribe to our presence. The caller is expected to respond,
+// typically by auto-approving via Client.ApproveSubscription.
+type SubscriptionRequestEvent struct {
+	From string
+}
+
+func (SubscriptionRequestEvent) isEvent() {}
+
 // ChatStateEvent is an incoming XEP-0085 chat state notification, standalone
 // or attached to a regular message.
 type ChatStateEvent struct {
@@ -275,11 +284,20 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		var p presenceBody
 		d := xml.NewTokenDecoder(t)
 		_ = d.DecodeElement(&p, start)
-		events <- PresenceEvent{
-			From:      p.From.String(),
-			Available: p.Type == stanza.AvailablePresence,
-			Show:      p.Show,
-			Caps:      p.Caps,
+		switch p.Type {
+		case stanza.SubscribePresence:
+			events <- SubscriptionRequestEvent{From: p.From.String()}
+		case stanza.SubscribedPresence, stanza.UnsubscribePresence, stanza.UnsubscribedPresence, stanza.ErrorPresence, stanza.ProbePresence:
+			// Subscription-management and probe/error presence carry no
+			// availability information - reporting them as PresenceEvent
+			// would misrepresent the contact as offline.
+		default:
+			events <- PresenceEvent{
+				From:      p.From.String(),
+				Available: p.Type == stanza.AvailablePresence,
+				Show:      p.Show,
+				Caps:      p.Caps,
+			}
 		}
 	}
 }
