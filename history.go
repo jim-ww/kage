@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
@@ -54,7 +55,7 @@ func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row
 				IDAttr:       row.Idattr,
 				RosterJid:    nullString(chatAddr),
 			}); err != nil {
-				debugf("warning: encrypting stored message: %v\n", err)
+				slog.Warn("encrypting stored message", "err", err)
 			}
 		}
 		return row.Body.String, nil
@@ -78,7 +79,7 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 		}
 		pt, err := readStoredBody(ctx, s, chatAddr, row)
 		if err != nil {
-			debugf("warning: decrypting history for %s: %v\n", chatAddr, err)
+			slog.Warn("decrypting history", "chat", chatAddr, "err", err)
 			continue
 		}
 		// Rows persisted before the in-band reply quote was stripped at
@@ -131,7 +132,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		RosterJid:  nullString(chatAddr),
 	})
 	if err != nil {
-		debugf("warning: loading history for %s: %v\n", chatAddr, err)
+		slog.Warn("loading history", "chat", chatAddr, "err", err)
 		return nil
 	}
 
@@ -185,7 +186,7 @@ func loadHistoryPage(ctx context.Context, s *accountSession, chatAddr, chatName 
 		PageLimit:   int64(historyPageSize),
 	})
 	if err != nil {
-		debugf("warning: loading history page for %s: %v\n", chatAddr, err)
+		slog.Warn("loading history page", "chat", chatAddr, "err", err)
 		return nil, false
 	}
 
@@ -246,7 +247,7 @@ func loadReactionsForMessage(ctx context.Context, s *accountSession, chatAddr, m
 		AccountJid: s.account.JID, RosterJid: chatAddr, IDAttr: msgID,
 	})
 	if err != nil {
-		debugf("warning: loading reactions for %s: %v\n", msgID, err)
+		slog.Warn("loading reactions", "message_id", msgID, "err", err)
 		return nil
 	}
 

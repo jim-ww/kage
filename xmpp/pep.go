@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 
 	"mellium.im/xmlstream"
 	"mellium.im/xmpp/form"
@@ -70,14 +71,10 @@ func (c *Client) makeNodeOpen(ctx context.Context, node string) {
 		form.List("pubsub#access_model", form.Value("open")),
 	)
 	if err := pubsub.SetConfig(ctx, c.session, node, cfg); err != nil {
-		if c.Debugf != nil {
-			c.Debugf("makeNodeOpen: reconfiguring %s to open access failed: %v", node, err)
-		}
+		slog.Warn("makeNodeOpen: reconfiguring to open access failed", "node", node, "err", err)
 		return
 	}
-	if c.Debugf != nil {
-		c.Debugf("makeNodeOpen: reconfigured %s to open access", node)
-	}
+	slog.Debug("makeNodeOpen: reconfigured to open access", "node", node)
 }
 
 type pubkeyMetadataList struct {

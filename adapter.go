@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -53,7 +54,7 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 		}
 		if keyringErr != nil {
 			acct.Password = password
-			debugf("warning: storing password in keyring for %s: %v; falling back to plaintext in config\n", jid, keyringErr)
+			slog.Warn("storing password in keyring; falling back to plaintext in config", "jid", jid, "err", keyringErr)
 		}
 	}
 	if err := config.WriteAccount(a.cfgPath, acct); err != nil {
@@ -115,7 +116,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	// account's status changed - a missing/unreachable notifyd just means no
 	// notifications, never a reason to fail the status change itself.
 	if err := notifyd.SignalReload(); err != nil {
-		debugf("warning: signaling notifyd to reload after status change: %v\n", err)
+		slog.Warn("signaling notifyd to reload after status change", "err", err)
 	}
 
 	ctx := context.Background()
@@ -125,7 +126,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	if status == ui.PresenceOffline {
 		if online {
 			if err := client.Close(); err != nil {
-				debugf("warning: closing %s while going offline: %v\n", sess.account.JID, err)
+				slog.Warn("closing while going offline", "jid", sess.account.JID, "err", err)
 			}
 		}
 		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status}
@@ -365,7 +366,7 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 	if err := s.db.UpsertRoster(context.Background(), storage.UpsertRosterParams{
 		AccountJid: s.account.JID, Jid: address, Name: name, Subs: subs,
 	}); err != nil {
-		debugf("warning: persisting renamed roster entry %s: %v\n", address, err)
+		slog.Warn("persisting renamed roster entry", "address", address, "err", err)
 	}
 
 	updated := make(map[string]rosterEntry)
@@ -401,7 +402,7 @@ func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
 	if err := s.db.UpsertRoster(ctx, storage.UpsertRosterParams{
 		AccountJid: s.account.JID, Jid: address,
 	}); err != nil {
-		debugf("warning: persisting added roster entry %s: %v\n", address, err)
+		slog.Warn("persisting added roster entry", "address", address, "err", err)
 	}
 	updated := make(map[string]rosterEntry)
 	if entries := s.roster.Load(); entries != nil {
@@ -436,7 +437,7 @@ func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
 	if err := s.db.DeleteRosterByJID(ctx, storage.DeleteRosterByJIDParams{
 		AccountJid: s.account.JID, Jid: address,
 	}); err != nil {
-		debugf("warning: deleting roster entry %s: %v\n", address, err)
+		slog.Warn("deleting roster entry", "address", address, "err", err)
 	}
 	if entries := s.roster.Load(); entries != nil {
 		updated := make(map[string]rosterEntry, len(*entries))
@@ -492,7 +493,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			return "", err
 		}
 		if err := replaceReactions(ctx, s, to, opts.ReactionTargetID, meReactorJID, opts.Reactions); err != nil {
-			debugf("warning: persisting our own reactions: %v\n", err)
+			slog.Warn("persisting our own reactions", "err", err)
 		}
 		return id, nil
 	}
@@ -510,7 +511,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			IDAttr:     nullString(opts.RetractID),
 			RosterJid:  nullString(to),
 		}); err != nil {
-			debugf("warning: deleting retracted message from storage: %v\n", err)
+			slog.Warn("deleting retracted message from storage", "err", err)
 		}
 		return id, nil
 	}
@@ -541,25 +542,25 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	switch mode {
 	case "omemo-v1", "omemo-v2":
 		protocol, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
-		debugf("send: using omemo(%s) encryption for %s to %s", protocol, s.account.JID, to)
+		slog.Debug("send: using omemo encryption", "protocol", protocol, "jid", s.account.JID, "to", to)
 		if mgr != nil {
 			enc, deviceErrs, err := mgr.EncryptMessage(ctx, to, []byte(plaintext))
 			if err != nil {
 				// The manager only auto-fetches a peer's device list when its
 				// cache is empty, so a peer that rotated/added devices since
 				// our last fetch looks unencryptable until we force a resync.
-				debugf("send: omemo(%s) encrypt failed for %s to %s: %v (device errors: %v); forcing device resync", protocol, s.account.JID, to, err, deviceErrs)
+				slog.Debug("send: omemo encrypt failed; forcing device resync", "protocol", protocol, "jid", s.account.JID, "to", to, "err", err, "device_errs", deviceErrs)
 				if syncErr := mgr.SyncDevices(ctx, to); syncErr != nil {
-					debugf("send: omemo(%s) device resync for %s failed: %v", protocol, to, syncErr)
+					slog.Debug("send: omemo device resync failed", "protocol", protocol, "to", to, "err", syncErr)
 					return "", fmt.Errorf("omemo-encrypting to %s: device list resync failed: %w", to, syncErr)
 				}
 				enc, deviceErrs, err = mgr.EncryptMessage(ctx, to, []byte(plaintext))
 				if err != nil {
-					debugf("send: omemo(%s) encrypt failed for %s to %s after resync: %v (device errors: %v)", protocol, s.account.JID, to, err, deviceErrs)
+					slog.Debug("send: omemo encrypt failed after resync", "protocol", protocol, "jid", s.account.JID, "to", to, "err", err, "device_errs", deviceErrs)
 					return "", fmt.Errorf("omemo-encrypting to %s: %w (device errors: %v)", to, err, deviceErrs)
 				}
 			}
-			debugf("send: omemo(%s) encrypt succeeded for %s to %s, %d keys", protocol, s.account.JID, to, len(enc.Keys))
+			slog.Debug("send: omemo encrypt succeeded", "protocol", protocol, "jid", s.account.JID, "to", to, "keys", len(enc.Keys))
 			for _, de := range deviceErrs {
 				// EncryptMessage is best-effort and only returns a non-nil
 				// err when EVERY device failed - a partial failure (some
@@ -567,7 +568,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 				// invisible, which is exactly what makes "encrypted to the
 				// wrong/stale devices, skipped the one that would actually
 				// decrypt" undiagnosable without this.
-				debugf("send: omemo(%s) device %s/%d failed (message still sent to other devices): %v", protocol, de.Device.JID, de.Device.ID, de.Err)
+				slog.Debug("send: omemo device failed (message still sent to other devices)", "protocol", protocol, "device_jid", de.Device.JID, "device_id", de.Device.ID, "err", de.Err)
 			}
 			if protocol == omemolib.ProtocolV1 {
 				sendOpts.EncryptedV1 = xmpp.EncodeOmemoMessageV1(enc)
@@ -583,7 +584,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			// protocol never came up (see setupOmemoProtocol) - refuse to
 			// send rather than silently falling back to plaintext for a chat
 			// the user explicitly marked as encrypted.
-			debugf("send: omemo(%s) not ready for %s; refusing to send %s unencrypted\n", protocol, s.account.JID, to)
+			slog.Warn("send: omemo not ready; refusing to send unencrypted", "protocol", protocol, "jid", s.account.JID, "to", to)
 			return "", fmt.Errorf("omemo(%s) isn't ready for this account; message not sent", protocol)
 		}
 	case "gpg":
@@ -619,7 +620,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			IDAttr:       nullString(opts.ReplaceID),
 			RosterJid:    nullString(to),
 		}); err != nil {
-			debugf("warning: persisting correction: %v\n", err)
+			slog.Warn("persisting correction", "err", err)
 		}
 		return id, nil
 	}
@@ -638,7 +639,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		RosterJid:     nullString(to),
 		ReplyToIDAttr: nullString(opts.ReplyToID),
 	}); err != nil {
-		debugf("warning: persisting sent message: %v\n", err)
+		slog.Warn("persisting sent message", "err", err)
 	}
 	return id, nil
 }

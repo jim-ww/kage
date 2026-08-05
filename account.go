@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -96,17 +97,17 @@ func (s *accountSession) rosterName(bareJID string) string {
 // anything missed via XEP-0313 MAM, and fall into the normal
 // event-listen/reconnect supervisor loop.
 func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter, idx int, acct config.Account, queries *storage.Queries, localKey []byte) {
-	debugf("account %s: connectAccountLocal starting", acct.JID)
+	slog.Debug("connectAccountLocal starting", "jid", acct.JID)
 	start := time.Now()
 	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
 	if err != nil {
-		debugf("account %s: connectAccountLocal failed after %s: %v", acct.JID, time.Since(start), err)
+		slog.Debug("connectAccountLocal failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
 		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
 		return
 	}
 	sess.useGPG = a.useGPG
 	sess.useKeyring = a.useKeyring
-	debugf("account %s: connectAccountLocal done in %s (%d chats)", acct.JID, time.Since(start), len(uiAcct.Chats))
+	slog.Debug("connectAccountLocal done", "jid", acct.JID, "elapsed", time.Since(start), "chats", len(uiAcct.Chats))
 
 	if uiAcct.Status == ui.PresenceOffline {
 		// Configured offline: never dial at all - not even to fetch a live
@@ -121,15 +122,15 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 	}
 	p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
 
-	debugf("account %s: connectAccountLive starting", acct.JID)
+	slog.Debug("connectAccountLive starting", "jid", acct.JID)
 	start = time.Now()
 	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats), presenceShow(uiAcct.Status))
 	if err != nil {
-		debugf("account %s: connectAccountLive failed after %s: %v", acct.JID, time.Since(start), err)
+		slog.Debug("connectAccountLive failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
 		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
 		return
 	}
-	debugf("account %s: connectAccountLive done in %s (%d new chats)", acct.JID, time.Since(start), len(newChats))
+	slog.Debug("connectAccountLive done", "jid", acct.JID, "elapsed", time.Since(start), "new_chats", len(newChats))
 
 	a.mu.Lock()
 	a.sessions[idx] = sess
@@ -146,12 +147,12 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 	// offline) until the backfill finished, sometimes tens of seconds later.
 	go superviseAccount(ctx, p, idx, sess)
 
-	debugf("account %s: syncArchive starting", acct.JID)
+	slog.Debug("syncArchive starting", "jid", acct.JID)
 	start = time.Now()
 	p.Send(ui.HistorySyncStartedMsg{AccountIdx: idx})
 	syncArchive(ctx, p, idx, sess)
 	p.Send(ui.HistorySyncFinishedMsg{AccountIdx: idx})
-	debugf("account %s: syncArchive done in %s", acct.JID, time.Since(start))
+	slog.Debug("syncArchive done", "jid", acct.JID, "elapsed", time.Since(start))
 }
 
 // connectAccountLocal loads acct's cached roster + history from the shared
@@ -171,7 +172,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	if err != nil {
 		return nil, ui.Account{}, fmt.Errorf("account %s: loading local roster: %w", acct.JID, err)
 	}
-	debugf("account %s: local roster has %d contacts", acct.JID, len(rows))
+	slog.Debug("local roster loaded", "jid", acct.JID, "contacts", len(rows))
 
 	chats := make([]list.Item, 0, len(rows))
 	messages := make(map[int][]ui.Message, len(rows))
@@ -190,7 +191,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		chats = append(chats, ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode})
 		histStart := time.Now()
 		hist, hasMore := loadHistoryPage(ctx, sess, r.Jid, name)
-		debugf("account %s: loadHistoryPage(%s) done in %s (%d messages, more=%t)", acct.JID, r.Jid, time.Since(histStart), len(hist), hasMore)
+		slog.Debug("loadHistoryPage done", "jid", acct.JID, "peer", r.Jid, "elapsed", time.Since(histStart), "messages", len(hist), "more", hasMore)
 		if len(hist) > 0 {
 			messages[i] = hist
 		}
@@ -212,54 +213,53 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 // right after existingChatCount, so the caller can append rather than
 // replace what's already displayed.
 func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int, show string) ([]list.Item, map[int][]ui.Message, map[int]bool, error) {
-	debugf("account %s: resolving password", sess.account.JID)
+	slog.Debug("resolving password", "jid", sess.account.JID)
 	start := time.Now()
 	password, err := sess.account.ResolvePassword(sess.useKeyring)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
 	}
-	debugf("account %s: password resolved in %s", sess.account.JID, time.Since(start))
+	slog.Debug("password resolved", "jid", sess.account.JID, "elapsed", time.Since(start))
 
 	var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
-	debugf("account %s: dialing", sess.account.JID)
+	slog.Debug("dialing", "jid", sess.account.JID)
 	start = time.Now()
 	client, err := xmpp.Dial(ctx, sess.account.JID, password, tlsConfig)
 	if err != nil {
-		debugf("account %s: dial failed after %s: %v", sess.account.JID, time.Since(start), err)
+		slog.Debug("dial failed", "jid", sess.account.JID, "elapsed", time.Since(start), "err", err)
 		return nil, nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
 	}
-	debugf("account %s: dialed in %s", sess.account.JID, time.Since(start))
+	slog.Debug("dialed", "jid", sess.account.JID, "elapsed", time.Since(start))
 	sess.tlsConfig = tlsConfig
-	client.Debugf = debugf
 	sess.client.Store(client)
 
 	if show != "" {
 		if err := client.SetPresence(ctx, show); err != nil {
-			debugf("warning: setting initial presence (%s) for %s: %v\n", show, sess.account.JID, err)
+			slog.Warn("setting initial presence", "show", show, "jid", sess.account.JID, "err", err)
 		}
 	}
 
 	if sess.useGPG && sess.account.GPGKeyID != "" {
-		debugf("account %s: publishOwnGPGKey starting", sess.account.JID)
+		slog.Debug("publishOwnGPGKey starting", "jid", sess.account.JID)
 		start = time.Now()
 		publishOwnGPGKey(ctx, sess)
-		debugf("account %s: publishOwnGPGKey done in %s", sess.account.JID, time.Since(start))
+		slog.Debug("publishOwnGPGKey done", "jid", sess.account.JID, "elapsed", time.Since(start))
 	}
 
-	debugf("account %s: setupOmemo starting", sess.account.JID)
+	slog.Debug("setupOmemo starting", "jid", sess.account.JID)
 	start = time.Now()
 	setupOmemo(ctx, sess)
-	debugf("account %s: setupOmemo done in %s", sess.account.JID, time.Since(start))
+	slog.Debug("setupOmemo done", "jid", sess.account.JID, "elapsed", time.Since(start))
 
-	debugf("account %s: fetching live roster", sess.account.JID)
+	slog.Debug("fetching live roster", "jid", sess.account.JID)
 	start = time.Now()
 	contacts, err := client.Roster(ctx)
 	if err != nil {
-		debugf("account %s: roster fetch failed after %s: %v", sess.account.JID, time.Since(start), err)
+		slog.Debug("roster fetch failed", "jid", sess.account.JID, "elapsed", time.Since(start), "err", err)
 		client.Close()
 		return nil, nil, nil, fmt.Errorf("account %s: fetching roster: %w", sess.account.JID, err)
 	}
-	debugf("account %s: live roster fetched in %s (%d contacts)", sess.account.JID, time.Since(start), len(contacts))
+	slog.Debug("live roster fetched", "jid", sess.account.JID, "elapsed", time.Since(start), "contacts", len(contacts))
 
 	existing := sess.roster.Load()
 	merged := make(map[string]rosterEntry, len(contacts))
@@ -282,7 +282,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		if err := sess.db.UpsertRoster(ctx, storage.UpsertRosterParams{
 			AccountJid: sess.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
 		}); err != nil {
-			debugf("warning: persisting roster entry %s: %v\n", c.JID, err)
+			slog.Warn("persisting roster entry", "jid", c.JID, "err", err)
 		}
 		if known {
 			continue
@@ -349,7 +349,7 @@ func superviseAccount(ctx context.Context, p *tea.Program, accountIdx int, s *ac
 		if client.Closed() || ctx.Err() != nil {
 			return
 		}
-		debugf("warning: account %s disconnected (%v); reconnecting...\n", s.account.JID, client.Err())
+		slog.Warn("account disconnected; reconnecting", "jid", s.account.JID, "err", client.Err())
 		reconnectWithBackoff(ctx, s)
 	}
 }
@@ -372,16 +372,16 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 			if err == nil {
 				if show := presenceShow(accountStatus(s.account.Status)); show != "" {
 					if err := client.SetPresence(ctx, show); err != nil {
-						debugf("warning: restoring presence (%s) for %s after reconnect: %v\n", show, s.account.JID, err)
+						slog.Warn("restoring presence after reconnect", "show", show, "jid", s.account.JID, "err", err)
 					}
 				}
 				s.client.Store(client)
-				debugf("account %s reconnected\n", s.account.JID)
+				slog.Debug("account reconnected", "jid", s.account.JID)
 				return
 			}
 		}
 
-		debugf("warning: reconnecting %s failed: %v; retrying in %s\n", s.account.JID, err, backoff)
+		slog.Warn("reconnecting failed; retrying", "jid", s.account.JID, "err", err, "backoff", backoff)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -410,7 +410,7 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 		case xmpp.SubscriptionRequestEvent:
 			from := bareJID(ev.From)
 			if err := s.client.Load().ApproveSubscription(ctx, from); err != nil {
-				debugf("warning: approving subscription request from %s for %s: %v\n", from, s.account.JID, err)
+				slog.Warn("approving subscription request", "from", from, "jid", s.account.JID, "err", err)
 			}
 			continue
 		case xmpp.MessageEvent:
@@ -429,7 +429,7 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 				IDAttr:     nullString(ev.ID),
 				RosterJid:  nullString(from),
 			}); err != nil {
-				debugf("warning: persisting delivery receipt: %v\n", err)
+				slog.Warn("persisting delivery receipt", "err", err)
 			}
 			p.Send(ui.MessageDeliveredMsg{
 				AccountIdx: accountIdx,
@@ -461,7 +461,7 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 			// fetch here must never stall message delivery.
 			go func() {
 				if err := mgr.SyncDevices(ctx, from); err != nil {
-					debugf("warning: resyncing omemo(%s) device list for %s after PEP push: %v\n", ev.Protocol, from, err)
+					slog.Warn("resyncing omemo device list after PEP push", "protocol", ev.Protocol, "from", from, "err", err)
 				}
 			}()
 			continue
@@ -548,11 +548,11 @@ func syncArchive(ctx context.Context, p *tea.Program, accountIdx int, s *account
 	if entries == nil {
 		return
 	}
-	debugf("account %s: syncArchive: %d contacts to check", s.account.JID, len(*entries))
+	slog.Debug("syncArchive: contacts to check", "jid", s.account.JID, "contacts", len(*entries))
 	for peerJID := range *entries {
 		start := time.Now()
 		syncArchiveForContact(ctx, p, accountIdx, s, client, peerJID, lastArchiveID[peerJID])
-		debugf("account %s: syncArchiveForContact(%s) done in %s", s.account.JID, peerJID, time.Since(start))
+		slog.Debug("syncArchiveForContact done", "jid", s.account.JID, "peer", peerJID, "elapsed", time.Since(start))
 	}
 }
 
@@ -573,8 +573,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 		pageStart := time.Now()
 		items, complete, err := client.FetchArchive(pageCtx, peerJID, afterArchiveID, pageSize)
 		cancel()
-		debugf("mam %s/%s: page %d fetched in %s (after=%q items=%d complete=%v err=%v)",
-			s.account.JID, peerJID, page, time.Since(pageStart), prevAfter, len(items), complete, err)
+		slog.Debug("mam page fetched", "jid", s.account.JID, "peer", peerJID, "page", page, "elapsed", time.Since(pageStart), "after", prevAfter, "items", len(items), "complete", complete, "err", err)
 		if err != nil {
 			// MAM isn't universally supported (by the server or by the peer's
 			// own account) — not an error worth surfacing per contact.
@@ -628,14 +627,14 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 					IDAttr:     nullString(am.RetractID),
 					RosterJid:  nullString(peerJID),
 				}); err != nil {
-					debugf("warning: persisting mam retraction for %s: %v", peerJID, err)
+					slog.Warn("persisting mam retraction", "peer", peerJID, "err", err)
 				}
 				p.Send(ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peerJID, RetractID: am.RetractID})
 				continue
 			}
 			if am.ReactionTargetID != "" {
 				if err := replaceReactions(ctx, s, peerJID, am.ReactionTargetID, bareJID(am.From), am.Reactions); err != nil {
-					debugf("warning: persisting mam reactions for %s: %v", peerJID, err)
+					slog.Warn("persisting mam reactions", "peer", peerJID, "err", err)
 				}
 				p.Send(ui.MessageReactionsMsg{
 					AccountIdx: accountIdx,
@@ -683,7 +682,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
 					// Not a real failure - see handleIncomingMessage's live-path
 					// comment. Quietly skip instead of storing a noise row.
-					debugf("mam: omemo message %s from %s has no key for this device, skipping", am.ArchiveID, am.From)
+					slog.Debug("mam: omemo message has no key for this device, skipping", "archive_id", am.ArchiveID, "from", am.From)
 					continue
 				} else if err != nil {
 					body = "[message could not be decrypted: " + err.Error() + "]"
@@ -717,7 +716,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 					IDAttr:       nullString(am.ReplaceID),
 					RosterJid:    nullString(peerJID),
 				}); err != nil {
-					debugf("warning: persisting mam correction for %s: %v", peerJID, err)
+					slog.Warn("persisting mam correction", "peer", peerJID, "err", err)
 				}
 				p.Send(ui.MessageCorrectedMsg{
 					AccountIdx: accountIdx,
@@ -752,7 +751,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 					stop = true
 					break
 				}
-				debugf("warning: persisting mam history for %s: %v", peerJID, err)
+				slog.Warn("persisting mam history", "peer", peerJID, "err", err)
 				continue
 			}
 

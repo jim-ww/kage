@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -75,9 +76,7 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 		_, r := iter.Item()
 		var devices omemoDevicesElem
 		if err := xml.NewTokenDecoder(r).Decode(&devices); err != nil {
-			if c.Debugf != nil {
-				c.Debugf("FetchOmemoDeviceList: %s: failed to decode device-list item: %v", peerJID, err)
-			}
+			slog.Warn("FetchOmemoDeviceList: failed to decode device-list item", "peer", peerJID, "err", err)
 			continue
 		}
 		for _, d := range devices.Devices {
@@ -95,9 +94,7 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 		}
 		return omemolib.DeviceList{}, fmt.Errorf("fetching omemo device list for %s: %w", peerJID, err)
 	}
-	if c.Debugf != nil {
-		c.Debugf("FetchOmemoDeviceList: %s has %d device(s): %v", peerJID, len(ids), ids)
-	}
+	slog.Debug("FetchOmemoDeviceList: fetched", "peer", peerJID, "count", len(ids), "devices", ids)
 	return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
 }
 

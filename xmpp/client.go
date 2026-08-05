@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -41,9 +42,6 @@ type Client struct {
 	// discoMux answers incoming disco#info/disco#items queries (see disco.go)
 	// - without it, contacts can't learn we support OMEMO at all.
 	discoMux *mux.ServeMux
-
-	// Debugf is called for debug logging (nil/no-op by default)
-	Debugf func(format string, args ...any)
 
 	// mamMu guards mamWaiters, the set of in-flight FetchArchive calls keyed
 	// by their queryid — populated by handleStanza as MAM <result/> messages
@@ -98,8 +96,8 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	// running alongside the TUI) can go "connected" and never see a single
 	// message. Best-effort: an older server without carbons support just
 	// means no benefit, not a failed connection.
-	if err := c.enableCarbons(ctx); err != nil && c.Debugf != nil {
-		c.Debugf("enabling message carbons: %v", err)
+	if err := c.enableCarbons(ctx); err != nil {
+		slog.Warn("enabling message carbons", "err", err)
 	}
 	return c, nil
 }

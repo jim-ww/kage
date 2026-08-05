@@ -2,6 +2,7 @@ package xmpp
 
 import (
 	"encoding/xml"
+	"log/slog"
 	"time"
 
 	omemolib "github.com/jim-ww/omemo-go"
@@ -130,8 +131,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		// SendIQElement calls are matched and consumed by the session layer
 		// before ever reaching this handler, so this only ever sees IQs
 		// actually directed at us to answer.
-		if err := c.discoMux.HandleXMPP(t, start); err != nil && c.Debugf != nil {
-			c.Debugf("handling incoming iq: %v", err)
+		if err := c.discoMux.HandleXMPP(t, start); err != nil {
+			slog.Warn("handling incoming iq", "err", err)
 		}
 	case "message":
 		d := xml.NewTokenDecoder(t)
@@ -174,8 +175,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				Name: xml.Name{Space: "urn:xmpp:receipts", Local: "received"},
 				Attr: []xml.Attr{{Name: xml.Name{Local: "id"}, Value: msg.ID}},
 			})))
-			if err != nil && c.Debugf != nil {
-				c.Debugf("sending delivery receipt for %s: %v", msg.ID, err)
+			if err != nil {
+				slog.Warn("sending delivery receipt", "id", msg.ID, "err", err)
 			}
 		}
 

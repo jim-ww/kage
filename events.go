@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -21,7 +22,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	if msgEv.ReactionTargetID != "" {
 		from := bareJID(msgEv.From)
 		if err := replaceReactions(ctx, s, from, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
-			debugf("warning: persisting reactions from %s: %v\n", from, err)
+			slog.Warn("persisting reactions", "from", from, "err", err)
 		}
 		p.Send(ui.MessageReactionsMsg{
 			AccountIdx: accountIdx,
@@ -39,7 +40,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			IDAttr:     nullString(msgEv.RetractID),
 			RosterJid:  nullString(from),
 		}); err != nil {
-			debugf("warning: persisting retraction flag: %v\n", err)
+			slog.Warn("persisting retraction flag", "err", err)
 		}
 		p.Send(ui.MessageRetractedMsg{
 			AccountIdx: accountIdx,
@@ -73,12 +74,12 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 				RosterJid:  nullString(from),
 				IDAttr:     nullString(msgEv.ID),
 			}); err == nil && exists {
-				debugf("omemo message %s from %s already stored, skipping re-decrypt", msgEv.ID, msgEv.From)
+				slog.Debug("omemo message already stored, skipping re-decrypt", "id", msgEv.ID, "from", msgEv.From)
 				return
 			}
 		}
 
-		debugf("received omemo message from %s for %s", msgEv.From, s.account.JID)
+		slog.Debug("received omemo message", "from", msgEv.From, "jid", s.account.JID)
 
 		var mgr *omemolib.Manager
 		var enc *omemolib.EncryptedMessage
@@ -91,11 +92,11 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			enc, err = xmpp.DecodeOmemoMessageV1(msgEv.EncryptedV1, bareJID(msgEv.From))
 		}
 		if err != nil {
-			debugf("warning: decoding omemo message from %s: %v\n", msgEv.From, err)
+			slog.Warn("decoding omemo message", "from", msgEv.From, "err", err)
 			return
 		}
 		if mgr == nil {
-			debugf("warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
+			slog.Warn("received omemo message but omemo isn't ready", "from", msgEv.From, "jid", s.account.JID)
 			return
 		}
 		pt, err := mgr.DecryptMessage(ctx, enc)
@@ -104,26 +105,26 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			// device's current key (e.g. it also targets other/older devices
 			// on the same account). Nothing was lost, so stay quiet instead
 			// of cluttering the chat with a per-device non-error.
-			debugf("omemo message from %s has no key for this device, skipping", msgEv.From)
+			slog.Debug("omemo message has no key for this device, skipping", "from", msgEv.From)
 			return
 		} else if err != nil {
 			// Surface the failure in the chat instead of dropping the message
 			// entirely - a silently vanished message looks indistinguishable
 			// from "nothing was sent", which makes this undiagnosable from the UI.
-			debugf("decrypting omemo message from %s failed: %v", msgEv.From, err)
+			slog.Warn("decrypting omemo message failed", "from", msgEv.From, "err", err)
 			body = "[message could not be decrypted: " + err.Error() + "]"
 		} else if pt == nil {
-			debugf("omemo message from %s was key-transport only (no content)", msgEv.From)
+			slog.Debug("omemo message was key-transport only (no content)", "from", msgEv.From)
 			return // key-transport message: session established/refreshed, no content to show
 		} else {
-			debugf("omemo message from %s decrypted successfully", msgEv.From)
+			slog.Debug("omemo message decrypted successfully", "from", msgEv.From)
 			body = string(pt)
 		}
 	}
 	if s.useGPG && gpg.Looks(body) {
 		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])
 		if err != nil {
-			debugf("warning: decrypting message from %s: %v\n", msgEv.From, err)
+			slog.Warn("decrypting message", "from", msgEv.From, "err", err)
 		} else {
 			body = pt
 		}
@@ -155,7 +156,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			IDAttr:       nullString(msgEv.ReplaceID),
 			RosterJid:    nullString(from),
 		}); err != nil {
-			debugf("warning: persisting correction: %v\n", err)
+			slog.Warn("persisting correction", "err", err)
 		}
 		p.Send(ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,
@@ -180,7 +181,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			RosterJid:  nullString(from),
 			IDAttr:     nullString(msgEv.ID),
 		}); err == nil && exists {
-			debugf("message %s from %s already stored, skipping duplicate", msgEv.ID, msgEv.From)
+			slog.Debug("message already stored, skipping duplicate", "id", msgEv.ID, "from", msgEv.From)
 			return
 		}
 	}
@@ -203,7 +204,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		// duplicate idAttr that slipped past the check above in a race) -
 		// don't forward it to the UI, or a message with no corresponding
 		// stored row appears in chat and then vanishes on next reload.
-		debugf("warning: persisting received message: %v\n", err)
+		slog.Warn("persisting received message", "err", err)
 		return
 	}
 

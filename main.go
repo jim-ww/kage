@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,40 +28,34 @@ func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
 
-// debugLog is nil (all debugf calls are no-ops) unless -debug is passed.
-// Written to <config dir>/kage/debug.log so it survives the TUI owning the
-// terminal — stderr isn't visible while bubbletea's alt screen is active.
-var debugLog *log.Logger
-
-func debugf(format string, args ...any) {
-	if debugLog == nil {
-		return
+// setupLog wires slog's default logger to <config dir>/kage/debug.log —
+// always, regardless of -debug — so it survives the TUI owning the terminal
+// (stderr isn't visible while bubbletea's alt screen is active). -debug only
+// lowers the level from Warn to Debug; the log file itself is always written.
+func setupLog(debug bool) {
+	level := slog.LevelWarn
+	if debug {
+		level = slog.LevelDebug
 	}
-	debugLog.Printf(format, args...)
-}
 
-// setupDebugLog opens (or creates) the debug log file and wires it up, both
-// for this package's debugf and for crypto/gpg's Debugf hook.
-func setupDebugLog() {
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: -debug: determining config dir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: determining config dir for log file: %v\n", err)
 		return
 	}
 	dir = filepath.Join(dir, "kage")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: -debug: creating %s: %v\n", dir, err)
+		fmt.Fprintf(os.Stderr, "warning: creating %s: %v\n", dir, err)
 		return
 	}
 	path := filepath.Join(dir, "debug.log")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: -debug: opening %s: %v\n", path, err)
+		fmt.Fprintf(os.Stderr, "warning: opening %s: %v\n", path, err)
 		return
 	}
-	debugLog = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
-	gpg.Debugf = debugf
-	debugf("=== kage starting, debug logging to %s ===", path)
+	slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: level})))
+	slog.Info("kage starting", "log_file", path)
 }
 
 // ensureGPGKeys fills in GPGKeyID for any account that doesn't have one set,
@@ -104,18 +99,18 @@ func primeGPGAgent(ctx context.Context, queries *storage.Queries, accounts []con
 		if used, err := queries.HasGPGChat(ctx, acct.JID); err != nil || !used {
 			continue
 		}
-		debugf("primeGPGAgent: %s: encrypting probe to %s", acct.JID, acct.GPGKeyID)
+		slog.Debug("primeGPGAgent: encrypting probe", "jid", acct.JID, "key", acct.GPGKeyID)
 		start := time.Now()
 		ct, err := e.Encrypt("kage startup probe", acct.GPGKeyID)
 		if err != nil {
-			debugf("primeGPGAgent: %s: encrypt failed after %s: %v", acct.JID, time.Since(start), err)
+			slog.Warn("primeGPGAgent: encrypt failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
 			continue
 		}
 		if _, err := e.Decrypt(ct, ""); err != nil {
-			debugf("primeGPGAgent: %s: decrypt failed after %s: %v", acct.JID, time.Since(start), err)
+			slog.Warn("primeGPGAgent: decrypt failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
 			fmt.Fprintf(os.Stderr, "warning: unlocking gpg key for %s: %v\n", acct.JID, err)
 		} else {
-			debugf("primeGPGAgent: %s: unlocked in %s", acct.JID, time.Since(start))
+			slog.Debug("primeGPGAgent: unlocked", "jid", acct.JID, "elapsed", time.Since(start))
 		}
 	}
 }
@@ -231,7 +226,7 @@ func main() {
 	}
 
 	cfgPath := flag.String("c", "", "path to config")
-	debug := flag.Bool("debug", false, "write debug logs to <config dir>/kage/debug.log")
+	debug := flag.Bool("debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise)")
 	runNotifyd := flag.Bool("notifyd", false, "internal: run as the background notification daemon (spawned automatically, not meant to be passed by hand)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage:\n  %s [flags]\n  %s export [-c config] <output.json>\n  %s import [-c config] <input.json>\n\nFlags:\n", os.Args[0], os.Args[0], os.Args[0])
@@ -250,9 +245,7 @@ func main() {
 		return
 	}
 
-	if *debug {
-		setupDebugLog()
-	}
+	setupLog(*debug)
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {

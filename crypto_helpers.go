@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"time"
 
 	"github.com/jim-ww/kage/crypto/localstore"
@@ -31,7 +32,7 @@ func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString
 	}
 	ct, err := localstore.Seal(s.localKey, plaintext)
 	if err != nil {
-		debugf("warning: encrypting message for storage: %v\n", err)
+		slog.Warn("encrypting message for storage", "err", err)
 		return sql.NullString{String: plaintext, Valid: true}, false
 	}
 	return sql.NullString{String: ct, Valid: true}, true
@@ -46,11 +47,11 @@ func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString
 func publishOwnGPGKey(ctx context.Context, s *accountSession) {
 	keyData, err := s.gpg.Export(s.account.GPGKeyID)
 	if err != nil {
-		debugf("warning: exporting own gpg key: %v\n", err)
+		slog.Warn("exporting own gpg key", "err", err)
 		return
 	}
 	if err := s.client.Load().PublishOpenPGPKey(ctx, s.account.GPGKeyID, keyData); err != nil {
-		debugf("warning: publishing gpg key via PEP (XEP-0373): %v\n", err)
+		slog.Warn("publishing gpg key via PEP (XEP-0373)", "err", err)
 		return
 	}
 }
@@ -99,7 +100,7 @@ func setupOmemoProtocol(
 
 		var deviceID [4]byte
 		if _, err := rand.Read(deviceID[:]); err != nil {
-			debugf("warning: generating omemo(%s) device id for %s: %v\n", protocol, s.account.JID, err)
+			slog.Warn("generating omemo device id", "protocol", protocol, "jid", s.account.JID, "err", err)
 			return nil
 		}
 		id := omemolib.DeviceID(binary.BigEndian.Uint32(deviceID[:]))
@@ -115,21 +116,21 @@ func setupOmemoProtocol(
 	mgr, err := omemolib.NewManager(ctx, store, transport, protocol,
 		omemolib.WithTrustResolver(func(context.Context, omemolib.Device, []byte) error { return nil }))
 	if err != nil {
-		debugf("warning: setting up omemo(%s) manager for %s: %v\n", protocol, s.account.JID, err)
+		slog.Warn("setting up omemo manager", "protocol", protocol, "jid", s.account.JID, "err", err)
 		return nil
 	}
 
 	if err := mgr.PublishBundle(ctx); err != nil {
-		debugf("warning: publishing omemo(%s) bundle for %s: %v\n", protocol, s.account.JID, err)
+		slog.Warn("publishing omemo bundle", "protocol", protocol, "jid", s.account.JID, "err", err)
 	}
 
 	devices, err := fetchDeviceList(ctx, s.account.JID)
 	if err != nil {
-		debugf("warning: fetching own omemo(%s) device list for %s: %v\n", protocol, s.account.JID, err)
+		slog.Warn("fetching own omemo device list", "protocol", protocol, "jid", s.account.JID, "err", err)
 		return mgr
 	}
 	local := mgr.LocalDevice().ID
-	debugf("omemo(%s) setup: local device ID for %s: %d, current device list: %v", protocol, s.account.JID, local, devices.Devices)
+	slog.Debug("omemo setup: local device ID and current device list", "protocol", protocol, "jid", s.account.JID, "local_device", local, "devices", devices.Devices)
 	alreadyListed := false
 	for _, id := range devices.Devices {
 		if id == local {
@@ -148,9 +149,9 @@ func setupOmemoProtocol(
 	if !alreadyListed {
 		devices.Devices = append(devices.Devices, local)
 	}
-	debugf("omemo(%s) setup: publishing device list for %s with devices: %v", protocol, s.account.JID, devices.Devices)
+	slog.Debug("omemo setup: publishing device list", "protocol", protocol, "jid", s.account.JID, "devices", devices.Devices)
 	if err := publishDeviceList(ctx, devices); err != nil {
-		debugf("warning: publishing omemo(%s) device list for %s: %v\n", protocol, s.account.JID, err)
+		slog.Warn("publishing omemo device list", "protocol", protocol, "jid", s.account.JID, "err", err)
 	}
 	return mgr
 }
@@ -219,7 +220,7 @@ func resolveOmemoProtocol(ctx context.Context, s *accountSession, peerJID string
 		Protocol:   protocolString(protocol),
 		ProbedAt:   time.Now().Unix(),
 	}); err != nil {
-		debugf("warning: caching omemo protocol negotiation for %s: %v\n", peerJID, err)
+		slog.Warn("caching omemo protocol negotiation", "peer", peerJID, "err", err)
 	}
 	return protocol
 }
@@ -271,11 +272,11 @@ func resolvePeerKey(ctx context.Context, s *accountSession, peerJID string) stri
 
 	fpr, err := discoverPeerKey(ctx, s, peerJID)
 	if err != nil {
-		debugf("note: no gpg key found for %s (%v); sending unencrypted\n", peerJID, err)
+		slog.Info("no gpg key found; sending unencrypted", "peer", peerJID, "err", err)
 		return ""
 	}
 	if err := s.db.UpsertPGPPeerKey(ctx, storage.UpsertPGPPeerKeyParams{AccountJid: s.account.JID, Jid: peerJID, Fingerprint: fpr}); err != nil {
-		debugf("warning: caching discovered gpg key for %s: %v\n", peerJID, err)
+		slog.Warn("caching discovered gpg key", "peer", peerJID, "err", err)
 	}
 	return fpr
 }

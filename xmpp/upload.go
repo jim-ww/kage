@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"os"
@@ -206,18 +207,14 @@ func (c *Client) discoverUploadService(ctx context.Context) (jid.JID, error) {
 	for _, item := range services {
 		info, err := disco.GetInfo(ctx, item.Node, item.JID, c.session)
 		if err != nil {
-			if c.Debugf != nil {
-				c.Debugf("upload discovery: failed to get info for %s: %v", item.JID, err)
-			}
+			slog.Warn("upload discovery: failed to get info", "service", item.JID, "err", err)
 			continue
 		}
-		if c.Debugf != nil {
-			var features []string
-			for _, f := range info.Features {
-				features = append(features, f.Var)
-			}
-			c.Debugf("upload discovery: service %s has features: %v", item.JID, features)
+		var features []string
+		for _, f := range info.Features {
+			features = append(features, f.Var)
 		}
+		slog.Debug("upload discovery: service features", "service", item.JID, "features", features)
 		if supportsUpload(info) {
 			return item.JID, nil
 		}
