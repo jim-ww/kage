@@ -1,5 +1,4 @@
 - ctrl+space/ctrl+m to mark messages (e.g. for deletion)
-- show deleted messages other way
 - in-app notifications should stay for longer by default. make it configurable
 - add download % when loading file
 - add keyboard navigation to modals (and ways to open them)

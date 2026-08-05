@@ -11,7 +11,8 @@ type fakeSuccessSender struct{}
 func (f *fakeSuccessSender) Send(int, string, string, SendOptions) (string, error) {
 	return "msg-id", nil
 }
-func (f *fakeSuccessSender) SetTyping(int, string, bool) error { return nil }
+func (f *fakeSuccessSender) SetTyping(int, string, bool) error       { return nil }
+func (f *fakeSuccessSender) MarkRetracted(int, string, string) error { return nil }
 
 // TestSendCurrentInputMarksLocalEchoEncrypted guards against the local
 // optimistic echo of a just-sent message silently reporting itself as

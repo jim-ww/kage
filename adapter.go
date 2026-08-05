@@ -356,6 +356,23 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.
 	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: devices}
 }
 
+// MarkRetracted implements ui.MessageSender: flags a message as locally
+// deleted in storage without sending anything over the network. Used when
+// deleting someone else's message, since XEP-0424 retraction only applies to
+// messages we sent ourselves.
+func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	_, err := s.db.MarkMessageRetracted(context.Background(), storage.MarkMessageRetractedParams{
+		AccountJid: s.account.JID,
+		IDAttr:     nullString(id),
+		RosterJid:  nullString(to),
+	})
+	return err
+}
+
 // SetTyping implements ui.MessageSender: sends a XEP-0085 chat state
 // notification to "to" — no persistence, no encryption, it's ephemeral.
 func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
@@ -534,18 +551,18 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 
 	if opts.RetractID != "" {
 		// The retraction body is fixed fallback text, not user content —
-		// nothing to encrypt for the peer. Once the peer's been told to
-		// retract it, there's no reason to keep our own copy either.
+		// nothing to encrypt for the peer. We never delete our own copy: a
+		// retraction only flags the message, it doesn't erase local history.
 		id, err := client.Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID})
 		if err != nil {
 			return "", err
 		}
-		if _, err := s.db.DeleteMessageByID(ctx, storage.DeleteMessageByIDParams{
+		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
 			AccountJid: s.account.JID,
 			IDAttr:     nullString(opts.RetractID),
 			RosterJid:  nullString(to),
 		}); err != nil {
-			slog.Warn("deleting retracted message from storage", "err", err)
+			slog.Warn("marking retracted message in storage", "err", err)
 		}
 		return id, nil
 	}

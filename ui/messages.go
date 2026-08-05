@@ -14,6 +14,12 @@ import (
 type MessageSender interface {
 	Send(accountIdx int, to, body string, opts SendOptions) (id string, err error)
 
+	// MarkRetracted flags a message as locally deleted without sending
+	// anything over the network — used when deleting someone else's message
+	// (XEP-0424 retraction can only be attempted on our own messages). The
+	// message's content is never removed from storage, only flagged.
+	MarkRetracted(accountIdx int, to, id string) error
+
 	// SetTyping sends a XEP-0085 chat state notification: composing=true
 	// while the user is actively typing to "to", false once they stop
 	// (cleared the input or sent) or navigate away.

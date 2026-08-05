@@ -23,6 +23,7 @@ type fakeFileSender struct {
 
 func (f *fakeFileSender) Send(int, string, string, SendOptions) (string, error) { return "", nil }
 func (f *fakeFileSender) SetTyping(int, string, bool) error                     { return nil }
+func (f *fakeFileSender) MarkRetracted(int, string, string) error               { return nil }
 func (f *fakeFileSender) SendFile(_ int, to, path string, opts SendOptions) tea.Msg {
 	f.path = path
 	f.opts = opts

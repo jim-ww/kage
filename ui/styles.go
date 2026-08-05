@@ -26,6 +26,7 @@ type uiStyles struct {
 	colors                uiColors
 	messageTime           lipgloss.Style
 	messageReply          lipgloss.Style
+	messageDeleted        lipgloss.Style
 	messageSelectedPrefix lipgloss.Style
 	messageHoverPrefix    lipgloss.Style
 	messageNickMe         lipgloss.Style
@@ -61,6 +62,10 @@ func newUIStyles(theme Theme) uiStyles {
 			Foreground(colors.time),
 		messageReply: lipgloss.NewStyle().
 			Foreground(colors.replyFg).
+			Italic(true),
+		messageDeleted: lipgloss.NewStyle().
+			Foreground(colors.textMuted).
+			Faint(true).
 			Italic(true),
 		messageSelectedPrefix: lipgloss.NewStyle().
 			Foreground(colors.borderA),

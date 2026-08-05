@@ -70,8 +70,8 @@ func TestChatListPreviewUpdatesOnLocalSendAndDelete(t *testing.T) {
 	}
 
 	m.selectedMsg = len(m.currentMessages()) - 1
-	m.deleteSelectedMsg()
-	if got := m.chats.Items()[0].(Chat).LastMessage; got != "hello" {
-		t.Fatalf("after deleting last message: LastMessage = %q, want %q", got, "hello")
+	m.retractSelectedMsg()
+	if got := m.chats.Items()[0].(Chat).LastMessage; got != "message deleted" {
+		t.Fatalf("after deleting last message: LastMessage = %q, want %q", got, "message deleted")
 	}
 }

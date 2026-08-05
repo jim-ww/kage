@@ -429,8 +429,11 @@ func (m Model) canEdit(msgs []Message) bool {
 	return true
 }
 
-// deleteSelectedMsg removes the current message and fixes up ReplyTo indices.
-func (m *Model) deleteSelectedMsg() tea.Cmd {
+// retractSelectedMsg flags the current message as deleted rather than
+// removing it — content is kept (visible in the info popup, attachments
+// stay openable) but the chat view shows it as retracted. Mirrors the
+// MessageRetractedMsg handling for a remotely-received retraction.
+func (m *Model) retractSelectedMsg() tea.Cmd {
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
 		return nil
@@ -439,35 +442,10 @@ func (m *Model) deleteSelectedMsg() tea.Cmd {
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return nil
 	}
-	del := m.selectedMsg
-	newMsgs := make([]Message, 0, len(msgs)-1)
-	for i, msg := range msgs {
-		if i == del {
-			continue
-		}
-		if msg.ReplyTo != nil {
-			switch {
-			case *msg.ReplyTo == del:
-				// reply target is gone
-				msg.ReplyTo = nil
-			case *msg.ReplyTo > del:
-				adj := *msg.ReplyTo - 1
-				msg.ReplyTo = &adj
-			}
-		}
-		newMsgs = append(newMsgs, msg)
-	}
-	m.setCurrentMessages(newMsgs)
-	if m.selectedMsg >= len(newMsgs) && len(newMsgs) > 0 {
-		m.selectedMsg = len(newMsgs) - 1
-	}
+	msgs[m.selectedMsg].Retracted = true
 	var cmd tea.Cmd
-	if del == len(msgs)-1 {
-		newLast := ""
-		if len(newMsgs) > 0 {
-			newLast = newMsgs[len(newMsgs)-1].Content
-		}
-		cmd = m.setChatLastMessage(m.currentAccount, chatIdx, newLast)
+	if m.selectedMsg == len(msgs)-1 {
+		cmd = m.setChatLastMessage(m.currentAccount, chatIdx, "message deleted")
 	}
 	return cmd
 }

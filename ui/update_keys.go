@@ -79,20 +79,25 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			case confirmQuit:
 				return m, tea.Quit, true
 			case confirmDeleteMessage:
-				// Only our own messages can meaningfully be retracted on
-				// the network (XEP-0424); deleting someone else's
-				// message is always local-only, same as before.
+				// Messages are never actually deleted — only flagged as
+				// retracted. Own messages also get a XEP-0424 retraction
+				// sent over the network; someone else's message can only
+				// be flagged locally, since we can't retract their stanza.
 				if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
 					target := msgs[m.selectedMsg]
-					if target.IsMe && target.ID != "" {
+					if target.ID != "" {
 						if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
-							if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{RetractID: target.ID}); err != nil {
-								cmds = append(cmds, m.showNotification("retract not delivered: "+err.Error()))
+							if target.IsMe {
+								if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{RetractID: target.ID}); err != nil {
+									cmds = append(cmds, m.showNotification("retract not delivered: "+err.Error()))
+								}
+							} else if err := m.sender.MarkRetracted(m.currentAccount, chat.Address, target.ID); err != nil {
+								cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
 							}
 						}
 					}
 				}
-				cmds = append(cmds, m.deleteSelectedMsg())
+				cmds = append(cmds, m.retractSelectedMsg())
 			case confirmDeleteChat:
 				cmds = append(cmds, m.deleteSelectedChat())
 			}

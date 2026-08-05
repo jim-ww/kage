@@ -132,13 +132,6 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid);
 
 
--- name: DeleteMessageByID :execrows
-DELETE FROM messages
-WHERE accountJID = sqlc.arg(account_jid)
-	AND idAttr = sqlc.arg(id_attr)
-	AND rosterJID = sqlc.arg(roster_jid);
-
-
 -- name: ListMessagesByRoster :many
 SELECT
 	sent,

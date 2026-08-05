@@ -331,6 +331,14 @@ func (m Model) infoPrompt() string {
 	if msg.ReplyTo != nil {
 		rows = append(rows, fmt.Sprintf("Reply to: %s", m.replyPreview(*msg.ReplyTo, msgs)))
 	}
+	if msg.Retracted {
+		// The chat view hides deleted content, but we never actually erase
+		// it locally — the info popup is where the original stays visible.
+		rows = append(rows, "Deleted: yes (original content below)", fmt.Sprintf("Content: %s", msg.Content))
+		if len(msg.Attachments) > 0 {
+			rows = append(rows, fmt.Sprintf("Attachments: %d (still openable)", len(msg.Attachments)))
+		}
+	}
 
 	return m.styles.infoPopup("Message info", rows, closeKey)
 }

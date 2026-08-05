@@ -97,26 +97,29 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 	}
 
-	bodyContent := msg.Content
-	if len(msg.Attachments) == 1 && strings.TrimSpace(msg.Content) == msg.Attachments[0] {
+	var bodyContent string
+	if msg.Retracted {
+		// The chat view never shows retracted content — only that a delete
+		// happened. Original content/attachments remain available in the
+		// info popup (ctrl+i); we never actually erase local history.
+		bodyContent = "*deleted*"
+	} else if len(msg.Attachments) == 1 && strings.TrimSpace(msg.Content) == msg.Attachments[0] {
 		bodyContent = renderAttachmentLine(msg.Attachments[0], m.icons)
 	} else {
-		bodyContent = highlightCodeBlocks(bodyContent)
+		bodyContent = highlightCodeBlocks(msg.Content)
 	}
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	for i, line := range bodyLines {
-		line = m.styles.plainTextLine(line)
+		if msg.Retracted {
+			line = m.styles.messageDeleted.Render(line)
+		} else {
+			line = m.styles.plainTextLine(line)
+		}
 		if i == 0 {
 			lines = append(lines, prefix+header+line)
 			continue
 		}
 		lines = append(lines, "  "+indent+line)
-	}
-
-	if msg.Retracted {
-		// Content stays visible — we don't trust a remote retraction to
-		// erase what was said on our side — but the attempt is flagged.
-		lines = append(lines, "  "+indent+m.styles.messageReply.Render("(sender attempted to delete this message)"))
 	}
 
 	if len(msg.Reactions) > 0 {
