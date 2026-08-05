@@ -53,8 +53,10 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	e2eEncrypted := msgEv.Encrypted != nil || msgEv.EncryptedV1 != nil || gpg.Looks(body)
 	e2eeMethod := ""
 	switch {
-	case msgEv.Encrypted != nil, msgEv.EncryptedV1 != nil:
-		e2eeMethod = "omemo"
+	case msgEv.Encrypted != nil:
+		e2eeMethod = "omemo-v2"
+	case msgEv.EncryptedV1 != nil:
+		e2eeMethod = "omemo-v1"
 	case gpg.Looks(body):
 		e2eeMethod = "gpg"
 	}

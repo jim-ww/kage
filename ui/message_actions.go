@@ -102,7 +102,11 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 				switch mode := encryptionModeOrDefault(chat.EncryptionMode); {
 				case mode == "gpg":
 					newMsg.Encrypted, newMsg.EncMethod = true, "gpg"
+				case mode == "omemo-v1", mode == "omemo-v2":
+					newMsg.Encrypted, newMsg.EncMethod = true, mode
 				case mode != "none":
+					// Legacy stored mode (e.g. removed "omemo-auto") - actual
+					// protocol was resolved server-side; unknown here.
 					newMsg.Encrypted, newMsg.EncMethod = true, "omemo"
 				}
 			}

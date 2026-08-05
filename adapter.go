@@ -464,12 +464,13 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			}
 			if protocol == omemolib.ProtocolV1 {
 				sendOpts.EncryptedV1 = xmpp.EncodeOmemoMessageV1(enc)
+				e2eeMethod = "omemo-v1"
 			} else {
 				sendOpts.Encrypted = xmpp.EncodeOmemoMessage(enc)
+				e2eeMethod = "omemo-v2"
 			}
 			wireBody = ""
 			e2eEncrypted = true
-			e2eeMethod = "omemo"
 		} else {
 			// Chat is configured for OMEMO but the manager for the resolved
 			// protocol never came up (see setupOmemoProtocol) - refuse to

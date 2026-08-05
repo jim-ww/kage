@@ -156,7 +156,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		entries[r.Jid] = rosterEntry{Name: r.Name, Subs: r.Subs}
 		mode, err := queries.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{AccountJid: acct.JID, RosterJid: r.Jid})
 		if err != nil {
-			mode = "omemo"
+			mode = "omemo-v1"
 		}
 		chats = append(chats, ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode})
 		histStart := time.Now()
@@ -565,8 +565,10 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			e2eEncrypted := am.Encrypted != nil || am.EncryptedV1 != nil || gpg.Looks(body)
 			e2eeMethod := ""
 			switch {
-			case am.Encrypted != nil, am.EncryptedV1 != nil:
-				e2eeMethod = "omemo"
+			case am.Encrypted != nil:
+				e2eeMethod = "omemo-v2"
+			case am.EncryptedV1 != nil:
+				e2eeMethod = "omemo-v1"
 			case gpg.Looks(body):
 				e2eeMethod = "gpg"
 			}

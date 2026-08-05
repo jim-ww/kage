@@ -20,7 +20,8 @@ type Message struct {
 	Encrypted bool
 
 	// EncMethod names the mechanism that did the encrypting when Encrypted is
-	// set: "omemo" or "gpg". Empty when Encrypted is false.
+	// set: "omemo-v1", "omemo-v2", "omemo" (protocol version unknown - legacy
+	// stored message), or "gpg". Empty when Encrypted is false.
 	EncMethod string
 
 	// Retracted is set when the sender attempted a XEP-0424 retraction of

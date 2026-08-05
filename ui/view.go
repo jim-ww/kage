@@ -281,6 +281,10 @@ func encryptionLabel(msg Message) string {
 		return "None (plaintext)"
 	}
 	switch msg.EncMethod {
+	case "omemo-v1":
+		return "OMEMO (v1)"
+	case "omemo-v2":
+		return "OMEMO (v2)"
 	case "omemo":
 		return "OMEMO"
 	case "gpg":
