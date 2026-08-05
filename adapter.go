@@ -25,13 +25,14 @@ import (
 // existing indices stay stable and Send doesn't need to hold mu itself —
 // mu only guards the append plus the read of len(sessions) it races with.
 type adapter struct {
-	mu       sync.Mutex
-	sessions []*accountSession
-	cfgPath  string
-	program  *tea.Program
-	queries  *storage.Queries
-	localKey []byte
-	useGPG   bool
+	mu         sync.Mutex
+	sessions   []*accountSession
+	cfgPath    string
+	program    *tea.Program
+	queries    *storage.Queries
+	localKey   []byte
+	useGPG     bool
+	useKeyring bool
 }
 
 // AddAccount implements ui.AccountAdder: resolves and stores the password in
@@ -41,12 +42,17 @@ type adapter struct {
 func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	acct := config.Account{JID: jid, GPGKeyID: gpgKeyID}
 	if password != "" {
-		// Prefer the OS keyring; if that's unavailable (no Secret Service
-		// running, headless box, etc.) fall back to storing the password in
-		// plaintext in config.toml rather than failing the add outright.
-		if err := config.SetKeyringPassword(jid, password); err != nil {
+		// Prefer the OS keyring (unless use_keyring is off); if that's
+		// unavailable (no Secret Service running, headless box, etc.) fall
+		// back to storing the password in plaintext in config.toml rather
+		// than failing the add outright.
+		keyringErr := fmt.Errorf("use_keyring is disabled")
+		if a.useKeyring {
+			keyringErr = config.SetKeyringPassword(jid, password)
+		}
+		if keyringErr != nil {
 			acct.Password = password
-			debugf("warning: storing password in keyring for %s: %v; falling back to plaintext in config\n", jid, err)
+			debugf("warning: storing password in keyring for %s: %v; falling back to plaintext in config\n", jid, keyringErr)
 		}
 	}
 	if err := config.WriteAccount(a.cfgPath, acct); err != nil {
@@ -54,7 +60,7 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	}
 
 	ctx := context.Background()
-	sess, uiAcct, err := connectAccount(ctx, acct, a.queries, a.localKey, a.useGPG)
+	sess, uiAcct, err := connectAccount(ctx, acct, a.queries, a.localKey, a.useGPG, a.useKeyring)
 	if err != nil {
 		return ui.AccountAddErrorMsg{Err: err}
 	}

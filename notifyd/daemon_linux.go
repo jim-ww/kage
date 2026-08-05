@@ -62,7 +62,7 @@ func Run(cfg config.Config) error {
 			wg.Add(1)
 			go func(acct config.Account) {
 				defer wg.Done()
-				watchAccount(ctx, acct)
+				watchAccount(ctx, acct, cfg.UseKeyring)
 			}(acct)
 		}
 	}
@@ -81,7 +81,7 @@ func Run(cfg config.Config) error {
 // both to keep this process genuinely read-only and because running OMEMO
 // decryption concurrently with the main TUI process would corrupt the
 // double-ratchet state they'd otherwise share.
-func watchAccount(ctx context.Context, acct config.Account) {
+func watchAccount(ctx context.Context, acct config.Account, useKeyring bool) {
 	ownBare := bareJID(acct.JID)
 
 	for {
@@ -89,7 +89,7 @@ func watchAccount(ctx context.Context, acct config.Account) {
 			return
 		}
 
-		password, err := acct.ResolvePassword()
+		password, err := acct.ResolvePassword(useKeyring)
 		if err != nil {
 			log.Printf("notifyd: %s: resolving password: %v", acct.JID, err)
 			if !sleepOrDone(ctx, 30*time.Second) {

@@ -20,7 +20,7 @@ func TestLoadLocalKeyDeterministicAcrossOpens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	key1, err := loadLocalKey(storageCfg, q1)
+	key1, err := loadLocalKey(storageCfg, true, q1)
 	if err != nil {
 		t.Fatalf("loadLocalKey (mint): %v", err)
 	}
@@ -31,7 +31,7 @@ func TestLoadLocalKeyDeterministicAcrossOpens(t *testing.T) {
 		t.Fatalf("re-Open: %v", err)
 	}
 	defer db2.Close()
-	key2, err := loadLocalKey(storageCfg, q2)
+	key2, err := loadLocalKey(storageCfg, true, q2)
 	if err != nil {
 		t.Fatalf("loadLocalKey (reload): %v", err)
 	}
@@ -49,11 +49,11 @@ func TestLoadLocalKeyDifferentPasswordDifferentKey(t *testing.T) {
 	}
 	defer db.Close()
 
-	key1, err := loadLocalKey(config.StorageConfig{Password: "hunter2"}, q)
+	key1, err := loadLocalKey(config.StorageConfig{Password: "hunter2"}, true, q)
 	if err != nil {
 		t.Fatalf("loadLocalKey: %v", err)
 	}
-	key2, err := loadLocalKey(config.StorageConfig{Password: "different"}, q)
+	key2, err := loadLocalKey(config.StorageConfig{Password: "different"}, true, q)
 	if err != nil {
 		t.Fatalf("loadLocalKey: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestSharedDBAccountIsolation(t *testing.T) {
 	}
 	defer db.Close()
 
-	key, err := loadLocalKey(config.StorageConfig{Password: "hunter2"}, q)
+	key, err := loadLocalKey(config.StorageConfig{Password: "hunter2"}, true, q)
 	if err != nil {
 		t.Fatalf("loadLocalKey: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestEncryptForStorageUsesAESNotGPG(t *testing.T) {
 	}
 	defer db.Close()
 
-	key, err := loadLocalKey(config.StorageConfig{Password: "hunter2"}, q)
+	key, err := loadLocalKey(config.StorageConfig{Password: "hunter2"}, true, q)
 	if err != nil {
 		t.Fatalf("loadLocalKey: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestLoadLocalKeyNotConfiguredIsNotAnError(t *testing.T) {
 	}
 	defer db.Close()
 
-	key, err := loadLocalKey(config.StorageConfig{}, q)
+	key, err := loadLocalKey(config.StorageConfig{}, true, q)
 	if err != nil {
 		t.Fatalf("loadLocalKey with no password configured returned an error: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestLoadHistoryHandlesPlaintextAndEncryptedRows(t *testing.T) {
 	}
 	defer db.Close()
 
-	key, err := loadLocalKey(config.StorageConfig{Password: "hunter2"}, q)
+	key, err := loadLocalKey(config.StorageConfig{Password: "hunter2"}, true, q)
 	if err != nil {
 		t.Fatalf("loadLocalKey: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestReadStoredBodyErrorsWithoutKey(t *testing.T) {
 	defer db.Close()
 
 	keyed := &accountSession{account: config.Account{JID: "me@example.com"}, db: q, gpg: gpg.Encrypter{}}
-	keyed.localKey, err = loadLocalKey(config.StorageConfig{Password: "hunter2"}, q)
+	keyed.localKey, err = loadLocalKey(config.StorageConfig{Password: "hunter2"}, true, q)
 	if err != nil {
 		t.Fatalf("loadLocalKey: %v", err)
 	}

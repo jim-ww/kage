@@ -32,14 +32,16 @@ type Account struct {
 }
 
 // ResolvePassword returns the account's password, trying the OS keyring
-// first, then PasswordCmd, then the plaintext Password field. Any keyring
-// error (not found, no Secret Service running, etc.) just falls through to
-// the next method — the keyring is a best-effort first choice, not a hard
-// requirement, since plenty of environments (headless boxes, sandboxes)
-// don't have one available at all.
-func (a Account) ResolvePassword() (string, error) {
-	if pass, err := keyring.Get(keyringService, a.JID); err == nil {
-		return pass, nil
+// first (unless useKeyring is false), then PasswordCmd, then the plaintext
+// Password field. Any keyring error (not found, no Secret Service running,
+// etc.) just falls through to the next method — the keyring is a
+// best-effort first choice, not a hard requirement, since plenty of
+// environments (headless boxes, sandboxes) don't have one available at all.
+func (a Account) ResolvePassword(useKeyring bool) (string, error) {
+	if useKeyring {
+		if pass, err := keyring.Get(keyringService, a.JID); err == nil {
+			return pass, nil
+		}
 	}
 
 	if a.PasswordCmd != "" {
@@ -58,16 +60,18 @@ func (a Account) ResolvePassword() (string, error) {
 }
 
 // ResolveStoragePassword returns the password local message history is
-// encrypted under at rest, trying the OS keyring first, then
-// StorageConfig.PasswordCmd, then the plaintext StorageConfig.Password —
-// same precedence as Account.ResolvePassword. configured is false (password
-// always "", err always nil) when none of the three are set at all — that's
-// a valid choice (local storage falls back to plaintext), not an error.
-// configured true with a non-nil err means a password_cmd was set but
-// actually failed to run.
-func ResolveStoragePassword(cfg StorageConfig) (password string, configured bool, err error) {
-	if pass, err := keyring.Get(keyringService, storageKeyringAccount); err == nil {
-		return pass, true, nil
+// encrypted under at rest, trying the OS keyring first (unless useKeyring is
+// false), then StorageConfig.PasswordCmd, then the plaintext
+// StorageConfig.Password — same precedence as Account.ResolvePassword.
+// configured is false (password always "", err always nil) when none of the
+// three are set at all — that's a valid choice (local storage falls back to
+// plaintext), not an error. configured true with a non-nil err means a
+// password_cmd was set but actually failed to run.
+func ResolveStoragePassword(cfg StorageConfig, useKeyring bool) (password string, configured bool, err error) {
+	if useKeyring {
+		if pass, err := keyring.Get(keyringService, storageKeyringAccount); err == nil {
+			return pass, true, nil
+		}
 	}
 
 	if cfg.PasswordCmd != "" {

@@ -125,7 +125,7 @@ func primeGPGAgent(ctx context.Context, queries *storage.Queries, accounts []con
 // user doesn't have to hand-edit TOML. Tries the OS keyring first; if that
 // fails (no Secret Service, etc.) it asks whether to fall back to a
 // password_cmd or a plaintext password in the config file.
-func runSetupWizard() error {
+func runSetupWizard(useKeyring bool) error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return fmt.Errorf("no accounts configured and not running interactively; add an [[accounts]] entry to config.toml yourself")
 	}
@@ -161,10 +161,16 @@ func runSetupWizard() error {
 
 	acct := config.Account{JID: addr}
 
-	if err := config.SetKeyringPassword(addr, password); err == nil {
+	keyringErr := fmt.Errorf("use_keyring is disabled")
+	if useKeyring {
+		keyringErr = config.SetKeyringPassword(addr, password)
+	}
+	if keyringErr == nil {
 		fmt.Println("Password stored in the OS keyring.")
 	} else {
-		fmt.Printf("Couldn't store the password in the OS keyring (%v).\n", err)
+		if useKeyring {
+			fmt.Printf("Couldn't store the password in the OS keyring (%v).\n", keyringErr)
+		}
 		fmt.Println("Fall back to: (1) a command that prints the password (password_cmd), or (2) storing it in plaintext in config.toml?")
 		for {
 			fmt.Print("[1/2]: ")
@@ -254,7 +260,7 @@ func main() {
 		os.Exit(1)
 	}
 	if len(cfg.Accounts) == 0 {
-		if err := runSetupWizard(); err != nil {
+		if err := runSetupWizard(cfg.UseKeyring); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -298,7 +304,7 @@ func main() {
 		primeGPGAgent(context.Background(), queries, cfg.Accounts)
 	}
 
-	localKey, err := loadLocalKey(cfg.Storage, queries)
+	localKey, err := loadLocalKey(cfg.Storage, cfg.UseKeyring, queries)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -317,7 +323,7 @@ func main() {
 	for i, acct := range cfg.Accounts {
 		uiAccounts[i] = ui.Account{Name: acct.JID, Connecting: true}
 	}
-	sender := &adapter{sessions: make([]*accountSession, len(cfg.Accounts)), cfgPath: cfg.Path, queries: queries, localKey: localKey, useGPG: cfg.UseGPG}
+	sender := &adapter{sessions: make([]*accountSession, len(cfg.Accounts)), cfgPath: cfg.Path, queries: queries, localKey: localKey, useGPG: cfg.UseGPG, useKeyring: cfg.UseKeyring}
 	defer func() {
 		sender.mu.Lock()
 		defer sender.mu.Unlock()
@@ -365,8 +371,8 @@ func main() {
 // (not an error) when no password is configured at all — messages are then
 // stored in plain text; a configured-but-failing password_cmd is a real
 // error, since that's a broken setup rather than a deliberate choice.
-func loadLocalKey(cfg config.StorageConfig, queries *storage.Queries) ([]byte, error) {
-	password, configured, err := config.ResolveStoragePassword(cfg)
+func loadLocalKey(cfg config.StorageConfig, useKeyring bool, queries *storage.Queries) ([]byte, error) {
+	password, configured, err := config.ResolveStoragePassword(cfg, useKeyring)
 	if err != nil {
 		return nil, fmt.Errorf("resolving local storage password: %w", err)
 	}

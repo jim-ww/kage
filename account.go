@@ -25,12 +25,13 @@ import (
 // behind an atomic pointer — Send (called from the Bubble Tea event loop)
 // and the reconnect supervisor (its own goroutine) touch it concurrently.
 type accountSession struct {
-	account   config.Account
-	client    atomic.Pointer[xmpp.Client]
-	tlsConfig *tls.Config      // reused on reconnect; nil means Dial's default verified config
-	db        *storage.Queries // shared across every account: one database, rows scoped by account.JID
-	gpg       gpg.Encrypter
-	useGPG    bool // mirrors config.UseGPG; gates gpg encrypt/decrypt on incoming/outgoing messages
+	account    config.Account
+	client     atomic.Pointer[xmpp.Client]
+	tlsConfig  *tls.Config      // reused on reconnect; nil means Dial's default verified config
+	db         *storage.Queries // shared across every account: one database, rows scoped by account.JID
+	gpg        gpg.Encrypter
+	useGPG     bool // mirrors config.UseGPG; gates gpg encrypt/decrypt on incoming/outgoing messages
+	useKeyring bool // mirrors config.UseKeyring; gates whether ResolvePassword tries the OS keyring
 	// omemoMgrV2/omemoMgrV1 are nil until connectAccountLive sets them up
 	// (needs a dialed client for its Transport). Both run concurrently: this
 	// account maintains a separate identity/device pool per OMEMO protocol
@@ -91,6 +92,7 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 		return
 	}
 	sess.useGPG = a.useGPG
+	sess.useKeyring = a.useKeyring
 	debugf("account %s: connectAccountLocal done in %s (%d chats)", acct.JID, time.Since(start), len(uiAcct.Chats))
 	p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
 
@@ -187,7 +189,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int) ([]list.Item, map[int][]ui.Message, map[int]bool, error) {
 	debugf("account %s: resolving password", sess.account.JID)
 	start := time.Now()
-	password, err := sess.account.ResolvePassword()
+	password, err := sess.account.ResolvePassword(sess.useKeyring)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("account %s: %w", sess.account.JID, err)
 	}
@@ -272,12 +274,13 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 // AddAccount, where the account is brand new (no local history to show
 // instantly) and the whole connect already runs off the Bubble Tea event
 // loop via a tea.Cmd, so there's nothing to gain from doing it in two steps.
-func connectAccount(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte, useGPG bool) (*accountSession, ui.Account, error) {
+func connectAccount(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte, useGPG, useKeyring bool) (*accountSession, ui.Account, error) {
 	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
 	if err != nil {
 		return nil, ui.Account{}, err
 	}
 	sess.useGPG = useGPG
+	sess.useKeyring = useKeyring
 
 	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
 	if err != nil {
@@ -330,7 +333,7 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 			return
 		}
 
-		password, err := s.account.ResolvePassword()
+		password, err := s.account.ResolvePassword(s.useKeyring)
 		if err == nil {
 			var client *xmpp.Client
 			client, err = xmpp.Dial(ctx, s.account.JID, password, s.tlsConfig)
