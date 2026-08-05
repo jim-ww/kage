@@ -76,6 +76,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		switch {
 		case matchesKey(msg, m.keys.ConfirmYes):
 			switch m.confirmTarget {
+			case confirmQuit:
+				return m, tea.Quit, true
 			case confirmDeleteMessage:
 				// Only our own messages can meaningfully be retracted on
 				// the network (XEP-0424); deleting someone else's
@@ -205,8 +207,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	// ── Global ────────────────────────────────────────────────────────
 	case matchesKey(msg, m.keys.Quit):
-		if msg.String() == "ctrl+c" || m.selectedView != viewChat {
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit, true
+		}
+		if m.selectedView != viewChat {
+			m.confirmTarget = confirmQuit
+			return m, nil, true
 		}
 
 	case matchesKey(msg, m.keys.Back):

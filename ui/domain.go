@@ -126,6 +126,7 @@ const (
 	confirmNone confirmTarget = iota
 	confirmDeleteMessage
 	confirmDeleteChat
+	confirmQuit
 )
 
 // SendOptions carries optional wire metadata for MessageSender.Send — kept as

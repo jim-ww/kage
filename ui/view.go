@@ -244,6 +244,8 @@ func (m Model) renderDeletePopup() string {
 
 func (m Model) deletePrompt() string {
 	switch m.confirmTarget {
+	case confirmQuit:
+		return m.styles.deletePrompt("Quit kage?", "")
 	case confirmDeleteChat:
 		detail := ""
 		if chat, ok := m.currentChat(); ok {
