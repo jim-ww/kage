@@ -1,16 +1,19 @@
+- fix shift+a-z replacing every language characters to latin
+- replace all debugf calls with slog
+- in chat list, show last message content (truncated) instead of address.
+- ctrl+space/ctrl+m to mark messages (e.g. for deletion)
+- implement local-only "unread" messages. show total-count per-chat in chat list descriptions?
+- show deleted messages other way
 - in-app notifications should stay for longer by default. make it configurable
 - add download % when loading file
 - add keyboard navigation to modals (and ways to open them)
 - add option to remove account
-- notifications are not sent
 - make sure user can paste to all textinputs
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager: fix adding duplicate accounts
-- option to remove all chat history (on server)
+- option to remove specific chat history (on server)
 - implement backups, compatible with conversations
 - omit options from config, that have default values
-- read/unread message count on chat name?
-- replace all debugf calls with slog
 
 - ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - account manager should look like button and show hover indication

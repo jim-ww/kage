@@ -224,12 +224,20 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			// by the <fallback/> element's start/end offsets - the reply
 			// quote lives in-band inside the decrypted plaintext instead
 			// (see adapter.go's send()/stripReplyQuote). But the <reply/>
-			// element itself is sent unencrypted alongside Encrypted (see
-			// xmpp/send.go), so it's still available here and must be read,
-			// or an encrypted reply never gets linked to what it replied to.
-			var replyToID string
+			// and <replace/> elements themselves are sent unencrypted
+			// alongside Encrypted (see xmpp/send.go), so they're still
+			// available here and must be read - otherwise an encrypted
+			// reply never gets linked to what it replied to, and an
+			// encrypted XEP-0308 edit loses its ReplaceID and gets stored
+			// as a brand-new message instead of correcting the original
+			// (dispatchArchiveResult's MAM path already gets this right;
+			// this mirrors it for the live path).
+			var replyToID, replaceID string
 			if msg.Reply != nil {
 				replyToID = msg.Reply.ID
+			}
+			if msg.Replace != nil {
+				replaceID = msg.Replace.ID
 			}
 			events <- MessageEvent{
 				ID:        msg.ID,
@@ -237,14 +245,18 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				SentAt:    time.Now(),
 				Encrypted: msg.Encrypted,
 				ReplyToID: replyToID,
+				ReplaceID: replaceID,
 			}
 			return
 		}
 
 		if msg.EncryptedV1 != nil {
-			var replyToID string
+			var replyToID, replaceID string
 			if msg.Reply != nil {
 				replyToID = msg.Reply.ID
+			}
+			if msg.Replace != nil {
+				replaceID = msg.Replace.ID
 			}
 			events <- MessageEvent{
 				ID:          msg.ID,
@@ -252,6 +264,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				SentAt:      time.Now(),
 				EncryptedV1: msg.EncryptedV1,
 				ReplyToID:   replyToID,
+				ReplaceID:   replaceID,
 			}
 			return
 		}

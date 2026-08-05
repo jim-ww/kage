@@ -28,15 +28,22 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 	case opts.Encrypted != nil:
 		msg.Encrypted = opts.Encrypted
 		msg.Body = "This message is encrypted with OMEMO v2 (XEP-0384)" // fallback for non-OMEMO clients
-		// For encrypted replies, also send the <reply/> element (IDs only, unencrypted)
+		// For encrypted replies/corrections, also send the <reply/>/<replace/>
+		// element (IDs only, unencrypted) - the ciphertext can't carry them.
 		if opts.ReplyToID != "" {
 			msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
+		}
+		if opts.ReplaceID != "" {
+			msg.Replace = &replaceElem{ID: opts.ReplaceID}
 		}
 	case opts.EncryptedV1 != nil:
 		msg.EncryptedV1 = opts.EncryptedV1
 		msg.Body = "This message is encrypted with legacy OMEMO" // fallback for non-OMEMO clients
 		if opts.ReplyToID != "" {
 			msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
+		}
+		if opts.ReplaceID != "" {
+			msg.Replace = &replaceElem{ID: opts.ReplaceID}
 		}
 	case opts.ReactionTargetID != "":
 		msg.Reactions = &reactionsElem{ID: opts.ReactionTargetID, Reactions: opts.Reactions}
