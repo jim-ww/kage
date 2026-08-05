@@ -39,15 +39,21 @@ func (m *Model) updateSizes() {
 	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
 }
 
+// buttonGap is the blank column separating the attach and send buttons —
+// otherwise they render flush against each other, which reads as one
+// double-wide button rather than two separate targets.
+const buttonGap = 1
+
 // inputFieldWidth is the text field's own width — chatAreaWidth minus the
 // input box's Padding(0,1) border and, when the send button is drawn,
-// the room it needs beside the field. Used both to size the actual
-// textinput (here) and to lay out its rendered row in View() — kept in one
-// place so those two can't drift out of sync and misalign the cursor.
+// the room it (and the attach button, plus the gap between them) needs
+// beside the field. Used both to size the actual textinput (here) and to
+// lay out its rendered row in View() — kept in one place so those two can't
+// drift out of sync and misalign the cursor.
 func (m Model) inputFieldWidth() int {
 	w := m.chatAreaWidth() - 2 // -2 for Padding(0,1) on the input box
 	if m.mouseEnabled {
-		w -= sendButtonWidth // room for the send button beside it
+		w -= attachButtonWidth(m.icons) + buttonGap + sendButtonWidth
 	}
 	return max(0, w)
 }
@@ -202,6 +208,9 @@ func (m Model) inputAreaHeight() int {
 	h := 1 + m.input.Height() // top border + input rows
 	if m.replyToIdx >= 0 || m.reactingMsgIdx >= 0 {
 		h++ // hint line
+	}
+	if len(m.pendingAttachments) > 0 {
+		h++ // staged-attachments row
 	}
 	return h
 }

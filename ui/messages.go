@@ -26,6 +26,13 @@ type MessageSender interface {
 // ReplyToID/QuotedAuthor/QuotedBody are meaningful here.
 type FileSender interface {
 	SendFile(accountIdx int, to, path string, opts SendOptions) tea.Msg
+
+	// UploadFile uploads a local file (applying the same peer encryption
+	// policy as SendFile) without sending it as a message — used to stage a
+	// pending attachment above the compose box, so several files can be
+	// attached to a single outgoing message. to is the peer JID the
+	// eventual message will go to, needed to resolve the encryption policy.
+	UploadFile(accountIdx int, to, path string) tea.Msg
 }
 
 // HistoryLoader fetches the next older page of a chat's persisted history —
@@ -88,6 +95,33 @@ type FileSendResultMsg struct {
 	ID         string
 	ReplyToID  string // non-empty if this upload was sent in reply to a message
 	Err        error
+}
+
+// FileUploadResultMsg reports completion of FileSender.UploadFile — a file
+// staged as a pending attachment, not yet sent as a message. AttachID
+// correlates it back to the pendingAttachment it was started for, since the
+// same path can be staged more than once.
+type FileUploadResultMsg struct {
+	AttachID int
+	Path     string
+	URL      string
+	Err      error
+}
+
+// ComposedSendResultMsg reports completion of startAttachedSend: uploading
+// every staged attachment and sending the combined text+attachments message.
+// On success it's added to the chat exactly like a fresh outgoing message;
+// on failure nothing is added (the user's text and attachments are gone —
+// same tradeoff FileSendResultMsg already makes rather than trying to
+// restore compose state after an async round trip).
+type ComposedSendResultMsg struct {
+	AccountIdx  int
+	To          string
+	ID          string
+	Content     string
+	Attachments []string
+	ReplyToID   string // non-empty if this was sent in reply to a message
+	Err         error
 }
 
 // IncomingMessageMsg is sent into the Bubble Tea loop when a message arrives

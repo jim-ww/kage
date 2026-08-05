@@ -35,12 +35,42 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	}
 
 	text := strings.TrimSpace(m.input.Value())
-	if text == "" {
+	hasAttachments := len(m.pendingAttachments) > 0 && m.editingMsgIdx < 0
+	if text == "" && !hasAttachments {
 		return nil
 	}
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
 		return nil
+	}
+
+	if hasAttachments {
+		// Uploading (and the send it feeds into) runs async, same as
+		// SendFile — the compose box is cleared optimistically, but unlike
+		// a plain text send there's no message to echo into the chat until
+		// ComposedSendResultMsg reports the upload actually succeeded.
+		chat, ok := m.currentChat()
+		if !ok || chat.Address == "" {
+			return m.showNotification("no chat selected")
+		}
+		var sendOpts SendOptions
+		if m.replyToIdx >= 0 {
+			if msgs := m.currentMessages(); m.replyToIdx < len(msgs) && msgs[m.replyToIdx].ID != "" {
+				sendOpts = SendOptions{
+					ReplyToID:    msgs[m.replyToIdx].ID,
+					QuotedAuthor: msgs[m.replyToIdx].Author,
+					QuotedBody:   messagePreviewContent(msgs[m.replyToIdx]),
+				}
+			}
+			m.replyToIdx = -1
+		}
+		cmds = append(cmds, m.startAttachedSend(text, chat.Address, sendOpts))
+		m.pendingAttachments = nil
+		m.selectedAttachment = -1
+		m.notifyTypingStopped()
+		m.input.SetValue("")
+		m.updateSizes()
+		return tea.Batch(cmds...)
 	}
 
 	if m.editingMsgIdx >= 0 {

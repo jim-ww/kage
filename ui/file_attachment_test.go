@@ -14,6 +14,11 @@ import (
 type fakeFileSender struct {
 	path string
 	opts SendOptions
+
+	// uploadURL is returned by UploadFile for every call unless
+	// uploadErr is set, in which case it's returned as the error instead.
+	uploadURL string
+	uploadErr error
 }
 
 func (f *fakeFileSender) Send(int, string, string, SendOptions) (string, error) { return "", nil }
@@ -22,6 +27,17 @@ func (f *fakeFileSender) SendFile(_ int, to, path string, opts SendOptions) tea.
 	f.path = path
 	f.opts = opts
 	return FileSendResultMsg{To: to, Path: path, URL: "https://upload.example.test/report.pdf", ID: "file-id", ReplyToID: opts.ReplyToID}
+}
+func (f *fakeFileSender) UploadFile(_ int, to, path string) tea.Msg {
+	f.path = path
+	if f.uploadErr != nil {
+		return FileUploadResultMsg{Path: path, Err: f.uploadErr}
+	}
+	url := f.uploadURL
+	if url == "" {
+		url = "https://upload.example.test/" + filepath.Base(path)
+	}
+	return FileUploadResultMsg{Path: path, URL: url}
 }
 
 func TestFilePickerReceivesAsyncDirectoryRead(t *testing.T) {
@@ -47,7 +63,12 @@ func TestFilePickerReceivesAsyncDirectoryRead(t *testing.T) {
 	}
 }
 
-func TestFilePickerEnterStartsFileSend(t *testing.T) {
+// TestFilePickerEnterStagesAttachmentWithoutUploading verifies the ctrl+f
+// flow: selecting a file only stages it locally (no network call — nothing
+// uploads until send), the picker stays open so more files can be attached
+// before the message is sent, and re-selecting the same file just re-selects
+// its existing chip instead of adding a duplicate.
+func TestFilePickerEnterStagesAttachmentWithoutUploading(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.pdf")
 	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
@@ -66,30 +87,138 @@ func TestFilePickerEnterStartsFileSend(t *testing.T) {
 	next, _ := m.Update(m.filePicker.Init()())
 	m = next.(Model)
 
+	// Select the same file twice.
 	next, cmd := m.Update(keyCode(tea.KeyEnter))
 	m = next.(Model)
-	if m.pickingFile {
-		t.Fatal("picker stayed open after selecting a file")
+	if cmd != nil {
+		t.Fatal("staging a file must not start any command — nothing uploads until send")
 	}
-	if m.noticeText != "uploading report.pdf..." {
-		t.Fatalf("notice = %q, want upload progress", m.noticeText)
+	next, cmd = m.Update(keyCode(tea.KeyEnter))
+	m = next.(Model)
+	if cmd != nil {
+		t.Fatal("staging a file must not start any command — nothing uploads until send")
 	}
-	if cmd == nil {
-		t.Fatal("selecting a file did not start a send command")
+
+	if !m.pickingFile {
+		t.Fatal("picker closed after selecting a file, want it to stay open for attaching more")
 	}
-	_ = cmd()
-	if sender.path != path {
-		t.Fatalf("sent path = %q, want %q", sender.path, path)
+	if len(m.pendingAttachments) != 1 || m.pendingAttachments[0].name != "report.pdf" {
+		t.Fatalf("pendingAttachments = %#v, want report.pdf staged exactly once (deduped)", m.pendingAttachments)
+	}
+	if m.selectedAttachment != 0 {
+		t.Fatalf("selectedAttachment = %d, want 0", m.selectedAttachment)
+	}
+	if sender.path != "" {
+		t.Fatalf("UploadFile was called during staging (path=%q), want no upload before send", sender.path)
 	}
 }
 
-func TestFilePickerEnterSendsAsReplyWhenReplyToIdxSet(t *testing.T) {
+// TestFilePickerPopupShrinksWhenAttachmentsRowAppears guards against a
+// rendering bug: staging the first attachment adds a row to
+// inputAreaHeight() (the chip line above the compose box), but the file
+// picker popup's own height was fixed when it opened. Without reshrinking
+// it, the popup grows a row taller than before, pushing the input box — the
+// only feedback that a file was actually attached — down by that same row
+// (off screen in a terminal sized exactly to fit). This checks the popup's
+// rendered height doesn't change across the 0-to-1-attachment transition;
+// it deliberately doesn't assert an absolute "fits in m.height" bound,
+// since the popup layout already runs a row or two tight even with no
+// attachments staged — a separate, preexisting approximation this change
+// doesn't touch.
+func TestFilePickerPopupShrinksWhenAttachmentsRowAppears(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.pdf")
 	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sender := &fakeFileSender{}
+	m := newTestModelWithSender(&fakeFileSender{}, nil)
+	// newTestModel's m.height comes out of updateSizes() using termHeight,
+	// which the fixture leaves at 0 (see TestComposeInputHeightOverride) —
+	// give it real room to work with.
+	m.termHeight = 24
+	m.updateSizes()
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.filePicker.CurrentDirectory = dir
+	m.pickingFile = true
+	m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+	next, _ := m.Update(m.filePicker.Init()())
+	m = next.(Model)
+
+	before := m.renderChatArea(m.styles.colors)
+	beforeLines := strings.Count(before, "\n") + 1
+
+	next, _ = m.Update(keyCode(tea.KeyEnter))
+	m = next.(Model)
+
+	after := m.renderChatArea(m.styles.colors)
+	afterLines := strings.Count(after, "\n") + 1
+	if afterLines > beforeLines {
+		t.Fatalf("chat area grew from %d to %d lines after staging an attachment — the extra row pushes the compose box further down instead of the popup shrinking to make room", beforeLines, afterLines)
+	}
+	if !strings.Contains(after, "report.pdf") {
+		t.Fatal("attachment chip not visible while the file picker is still open")
+	}
+}
+
+// TestTabCyclesSelectedAttachmentAndBackspaceRemovesIt covers the requested
+// preview/selection UX: Tab moves the highlighted attachment forward,
+// wrapping at the end, and Backspace on an empty compose box removes
+// whichever one is currently highlighted (not just the last one staged).
+func TestTabCyclesSelectedAttachmentAndBackspaceRemovesIt(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModelWithSender(&fakeFileSender{}, nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.stageAttachment(filepath.Join(dir, "a.txt"))
+	m.stageAttachment(filepath.Join(dir, "b.txt"))
+	m.stageAttachment(filepath.Join(dir, "c.txt"))
+	if m.selectedAttachment != 2 {
+		t.Fatalf("selectedAttachment = %d, want 2 (most recently staged)", m.selectedAttachment)
+	}
+
+	next, _ := m.Update(keyCode(tea.KeyTab))
+	m = next.(Model)
+	if m.selectedAttachment != 0 {
+		t.Fatalf("selectedAttachment after tab = %d, want 0 (wrapped)", m.selectedAttachment)
+	}
+
+	next, _ = m.Update(keyCode(tea.KeyTab))
+	m = next.(Model)
+	if m.selectedAttachment != 1 {
+		t.Fatalf("selectedAttachment after second tab = %d, want 1", m.selectedAttachment)
+	}
+
+	next, _ = m.Update(keyCode(tea.KeyBackspace))
+	m = next.(Model)
+	if len(m.pendingAttachments) != 2 {
+		t.Fatalf("got %d pendingAttachments, want 2 after removing one", len(m.pendingAttachments))
+	}
+	for _, a := range m.pendingAttachments {
+		if a.name == "b.txt" {
+			t.Fatalf("b.txt (the highlighted one) was not removed: %#v", m.pendingAttachments)
+		}
+	}
+}
+
+// TestSendWithAttachmentAndReplyCombinesIntoOneMessage covers the requested
+// flow: stage files, type a reply, hit enter — nothing uploads until this
+// point, then one message goes out carrying both the text and every
+// attachment, wired as a reply exactly like a text-only send.
+func TestSendWithAttachmentAndReplyCombinesIntoOneMessage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeFileSender{uploadURL: "https://upload.example.test/report.pdf"}
 	m := newTestModelWithSender(sender, nil)
 	chat := Chat{Name: "Bob", Address: "bob@example.test"}
 	m.accounts = []Account{{
@@ -103,34 +232,88 @@ func TestFilePickerEnterSendsAsReplyWhenReplyToIdxSet(t *testing.T) {
 	}
 	m.selectedMsg = 0
 	m.replyToIdx = 0
+	m.stageAttachment(path)
 
-	m.filePicker.CurrentDirectory = dir
-	m.filePicker.SetHeight(8)
-	m.pickingFile = true
-	next, _ := m.Update(m.filePicker.Init()())
-	m = next.(Model)
-
-	next, cmd := m.Update(keyCode(tea.KeyEnter))
-	m = next.(Model)
+	m.input.SetValue("check this out")
+	sendCmd := m.sendCurrentInput()
+	if sendCmd == nil {
+		t.Fatal("sendCurrentInput returned nil, want the async upload+send command")
+	}
 	if m.replyToIdx != -1 {
-		t.Fatal("replyToIdx not cleared after starting an attachment reply")
+		t.Fatal("replyToIdx not cleared immediately on send")
 	}
-	if cmd == nil {
-		t.Fatal("selecting a file did not start a send command")
+	if len(m.pendingAttachments) != 0 {
+		t.Fatalf("pendingAttachments not cleared immediately on send: %#v", m.pendingAttachments)
 	}
-	result := cmd()
-	if sender.opts.ReplyToID != "orig-id" {
-		t.Fatalf("SendFile opts.ReplyToID = %q, want %q", sender.opts.ReplyToID, "orig-id")
+	if sender.path != "" {
+		t.Fatal("upload started before the send command actually ran")
 	}
 
-	next, _ = m.Update(result)
+	result := sendCmd()
+	if sender.path != path {
+		t.Fatalf("uploaded path = %q, want %q", sender.path, path)
+	}
+	next, _ := m.Update(result)
 	m = next.(Model)
+
 	msgs := m.accounts[0].Messages[0]
 	if len(msgs) != 2 {
 		t.Fatalf("got %d messages, want 2", len(msgs))
 	}
-	if msgs[1].ReplyTo == nil || *msgs[1].ReplyTo != 0 {
-		t.Fatalf("attachment message ReplyTo = %v, want pointer to 0", msgs[1].ReplyTo)
+	sent := msgs[1]
+	if sent.ReplyTo == nil || *sent.ReplyTo != 0 {
+		t.Fatalf("sent message ReplyTo = %v, want pointer to 0", sent.ReplyTo)
+	}
+	if len(sent.Attachments) != 1 || sent.Attachments[0] != "https://upload.example.test/report.pdf" {
+		t.Fatalf("sent message Attachments = %#v, want the uploaded URL", sent.Attachments)
+	}
+	if !strings.Contains(sent.Content, "check this out") || !strings.Contains(sent.Content, "https://upload.example.test/report.pdf") {
+		t.Fatalf("sent message Content = %q, want text and attachment URL both present", sent.Content)
+	}
+}
+
+// TestComposedSendFailureDoesNotAddMessage mirrors
+// TestFileSendFailureDoesNotAddMessage for the combined text+attachments
+// send path.
+func TestComposedSendFailureDoesNotAddMessage(t *testing.T) {
+	m := newTestModel(nil)
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+
+	next, _ := m.Update(ComposedSendResultMsg{AccountIdx: 0, To: chat.Address, Err: errors.New("upload unavailable")})
+	m = next.(Model)
+	if got := len(m.accounts[0].Messages[0]); got != 0 {
+		t.Fatalf("got %d messages after failed send, want 0", got)
+	}
+}
+
+// TestOpenMsgOpensSelectedPendingAttachment covers the requested preview
+// affordance: ctrl+o with an attachment staged opens that local file
+// (rather than falling through to actionOpenMessage's history lookup).
+func TestOpenMsgOpensSelectedPendingAttachment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModelWithSender(&fakeFileSender{}, nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.stageAttachment(path)
+
+	_, cmd, handled := m.updateKeyMsg(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	if !handled {
+		t.Fatal("ctrl+o was not handled while an attachment is staged")
+	}
+	if cmd == nil {
+		t.Fatal("ctrl+o did not return an open command")
 	}
 }
 

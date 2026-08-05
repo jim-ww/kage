@@ -98,15 +98,19 @@ func (m Model) renderChatArea(colors uiColors) string {
 	inputWidth := m.chatAreaWidth() - 2
 	inputLine := m.styles.inputInnerBox(m.inputFieldWidth(), m.input.View())
 	if m.mouseEnabled {
-		button := m.zone.Mark(zoneSendButton, m.styles.renderSendButton(m.isHovered(zoneSendButton)))
-		inputLine = lipgloss.JoinHorizontal(lipgloss.Top, inputLine, button)
+		attachBtn := m.zone.Mark(zoneAttachButton, m.styles.renderAttachButton(m.icons, m.isHovered(zoneAttachButton)))
+		sendBtn := m.zone.Mark(zoneSendButton, m.styles.renderSendButton(m.isHovered(zoneSendButton)))
+		inputLine = lipgloss.JoinHorizontal(lipgloss.Top, inputLine, attachBtn, strings.Repeat(" ", buttonGap), sendBtn)
 	}
-	var inputInner string
+	var inputRows []string
 	if hint := m.inputHint(); hint != "" {
-		inputInner = m.styles.inputInnerBox(inputWidth, hint) + "\n" + inputLine
-	} else {
-		inputInner = inputLine
+		inputRows = append(inputRows, m.styles.inputInnerBox(inputWidth, hint))
 	}
+	if row := m.renderPendingAttachments(inputWidth); row != "" {
+		inputRows = append(inputRows, m.styles.inputInnerBox(inputWidth, row))
+	}
+	inputRows = append(inputRows, inputLine)
+	inputInner := strings.Join(inputRows, "\n")
 
 	inputBox := m.zone.Mark(zonePaneInput, m.styles.inputContainer(inputBorder, inputInner))
 
@@ -457,6 +461,25 @@ func (m Model) inputHint() string {
 		}
 	}
 	return ""
+}
+
+// renderPendingAttachments renders the row of chips for files staged (via
+// the attach button/ctrl+f) to go out with the next sent message — each
+// chip is its own clickable zone (see zoneAttachmentRemove) that removes it;
+// empty if nothing is staged. The one Tab last landed on
+// (m.selectedAttachment — also what ctrl+o opens and Backspace removes) is
+// wrapped in brackets so it's always clear which one those keys act on.
+func (m Model) renderPendingAttachments(width int) string {
+	if len(m.pendingAttachments) == 0 {
+		return ""
+	}
+	chips := make([]string, len(m.pendingAttachments))
+	for i, a := range m.pendingAttachments {
+		icon := attachmentIcon(a.name, m.icons)
+		chip := m.styles.renderAttachmentChip(icon, a.name, i == m.selectedAttachment, m.isHovered(zoneAttachmentRemove(i)))
+		chips[i] = m.zone.Mark(zoneAttachmentRemove(i), chip)
+	}
+	return ansi.Truncate(strings.Join(chips, "  "), max(1, width), "…")
 }
 
 // renderReactHint renders the "react to ..." line plus the live

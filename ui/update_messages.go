@@ -116,6 +116,39 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, m.showNotification("saved " + msg.path), true
 
+	case ComposedSendResultMsg:
+		if msg.Err != nil {
+			return m, m.showNotification("send failed: " + msg.Err.Error()), true
+		}
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
+		if chatIdx < 0 {
+			return m, m.showNotification("message sent"), true
+		}
+		if m.accounts[msg.AccountIdx].Messages == nil {
+			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		newMsg := Message{
+			ID:          msg.ID,
+			Author:      "me",
+			Content:     msg.Content,
+			SentAt:      time.Now(),
+			IsMe:        true,
+			Attachments: msg.Attachments,
+		}
+		if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
+			newMsg.ReplyTo = &replyIdx
+		}
+		msgs = append(msgs, newMsg)
+		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.selectedMsg = len(msgs) - 1
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+		}
+		return m, nil, true
+
 	case FileSendResultMsg:
 		if msg.Err != nil {
 			return m, m.showNotification("file send failed: " + msg.Err.Error()), true

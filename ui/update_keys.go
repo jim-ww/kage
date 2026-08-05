@@ -145,10 +145,23 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		var pickerCmd tea.Cmd
 		m.filePicker, pickerCmd = m.filePicker.Update(msg)
 		if selected, path := m.filePicker.DidSelectFile(msg); selected {
-			m.pickingFile = false
-			chat, _ := m.currentChat()
-			model, cmd := m.startFileUpload(chat.Address, path)
-			return model, cmd, true
+			// Stage the file instead of uploading it immediately — nothing
+			// touches the network until the message is actually sent (see
+			// sendCurrentInput/startAttachedSend), and the picker stays open
+			// so it can be used again to attach more files first.
+			hadAttachments := len(m.pendingAttachments) > 0
+			m.stageAttachment(path)
+			if !hadAttachments {
+				// The staged-attachments row above the compose box just
+				// appeared for the first time, adding a row to
+				// inputAreaHeight() — the picker's own height was sized
+				// without it (see the AttachFile case below), so without
+				// this it now overflows the terminal by one row, pushing
+				// that new row (the only feedback that anything was
+				// attached) off screen until the picker closes.
+				m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+			}
+			return m, tea.Batch(cmds...), true
 		}
 		if disabled, _ := m.filePicker.DidSelectDisabledFile(msg); disabled {
 			cmds = append(cmds, m.showNotification("that file type cannot be selected"))
@@ -287,6 +300,24 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.pickingFile = true
 			m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
 			return m, m.filePicker.Init(), true
+		}
+
+	// Tab cycles which staged attachment is highlighted (shown "[in
+	// brackets]" above the compose box when more than one is staged) —
+	// checked ahead of Switch, which also binds tab but only acts on
+	// viewAccounts/viewChats.
+	case msg.String() == "tab" && m.selectedView == viewChat && len(m.pendingAttachments) > 0:
+		m.cycleSelectedAttachment()
+		return m, nil, true
+
+	// Backspacing an empty compose box drops the highlighted attachment —
+	// mirrors the chat apps this pattern is borrowed from, and gives
+	// keyboard-only users a way to remove one without the mouse.
+	case msg.String() == "backspace":
+		if m.selectedView == viewChat && m.input.Value() == "" && len(m.pendingAttachments) > 0 {
+			m.removeAttachment(m.selectedAttachment)
+			m.updateSizes()
+			return m, nil, true
 		}
 
 	case matchesKey(msg, m.keys.Switch):
@@ -431,6 +462,13 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	case matchesKey(msg, m.keys.OpenMsg):
 		if m.selectedView == viewChat {
+			// A staged-but-unsent attachment takes priority over whatever
+			// message is selected in the history above — it's what's
+			// actively being composed, and there's no other way to preview
+			// it before sending (it isn't a Message yet).
+			if m.selectedAttachment >= 0 && m.selectedAttachment < len(m.pendingAttachments) {
+				return m, openWithXDGOpen(m.pendingAttachments[m.selectedAttachment].path), true
+			}
 			return m, m.actionOpenMessage(), true
 		}
 

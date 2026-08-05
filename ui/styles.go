@@ -48,6 +48,7 @@ type uiStyles struct {
 	accountSelected       lipgloss.Style
 	accountHover          lipgloss.Style
 	sendButton            lipgloss.Style
+	attachButton          lipgloss.Style
 	contextMenuItem       lipgloss.Style
 	contextMenuItemHover  lipgloss.Style
 }
@@ -129,6 +130,13 @@ func newUIStyles(theme Theme) uiStyles {
 			Background(colors.accentCyan).
 			Bold(true).
 			Padding(0, 1),
+		// attachButton is deliberately calmer than sendButton (send is the
+		// primary action) and un-bold/less padded so it doesn't visually
+		// compete with it.
+		attachButton: lipgloss.NewStyle().
+			Foreground(colors.themFg).
+			Background(colors.borderD).
+			Padding(0, 1),
 		contextMenuItem: lipgloss.NewStyle().
 			Foreground(colors.themFg).
 			PaddingLeft(1),
@@ -196,6 +204,50 @@ func (s uiStyles) renderSendButton(hovered bool) string {
 		st = st.Reverse(true)
 	}
 	return st.Render(sendButtonLabel)
+}
+
+// attachButtonLabel is the attach-file button's rendered text: the same
+// paperclip emoji used for attachment icons elsewhere (see
+// emojiFileIconDefault) when icons are enabled, otherwise a plain-text
+// fallback that renders correctly in any terminal — mirrors how
+// attachmentIcon picks between the two. No manual padding here (unlike
+// sendButtonLabel) — attachButton's own Padding(0, 1) already supplies it,
+// and doubling it up is what made the button wider than it needed to be.
+func attachButtonLabel(icons bool) string {
+	if icons {
+		return emojiFileIconDefault
+	}
+	return "Attach"
+}
+
+// attachButtonWidth is lipgloss.Width(rendered attach button): the label
+// plus its Padding(0, 1).
+func attachButtonWidth(icons bool) int {
+	return lipgloss.Width(attachButtonLabel(icons)) + 2
+}
+
+func (s uiStyles) renderAttachButton(icons, hovered bool) string {
+	st := s.attachButton
+	if hovered {
+		st = st.Reverse(true)
+	}
+	return st.Render(attachButtonLabel(icons))
+}
+
+// renderAttachmentChip renders one staged attachment above the compose box:
+// its file-type icon, name, and a trailing "x" — the whole chip is a single
+// clickable zone (see zoneAttachmentRemove) that removes it. selected wraps
+// it in brackets, marking which one Tab/Backspace/ctrl+o currently act on.
+func (s uiStyles) renderAttachmentChip(icon, name string, selected, hovered bool) string {
+	label := icon + " " + name + " ×"
+	if selected {
+		label = "[" + label + "]"
+	}
+	st := s.messageReply
+	if hovered {
+		st = st.Reverse(true)
+	}
+	return st.Render(label)
 }
 
 // renderSidebarToggleButton renders the chat-status-bar icon button that

@@ -1,9 +1,13 @@
+- in-app notifications should stay for longer by default. make it configurable
+- add download % when loading file
+- add keyboard navigation to modals (and ways to open them)
+- add option to remove account
 - notifications are not sent
 - make sure user can paste to all textinputs
-- chat view: add attach file, emoji buttons
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager: fix adding duplicate accounts
 - option to remove all chat history (on server)
+- implement backups, compatible with conversations
 - omit options from config, that have default values
 - read/unread message count on chat name?
 - replace all debugf calls with slog

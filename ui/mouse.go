@@ -21,6 +21,7 @@ const (
 	zonePaneAccountBar = "pane-account-bar"
 	zoneChatStatusBar  = "chat-status-bar"
 	zoneSendButton     = "send-button"
+	zoneAttachButton   = "attach-button"
 	zoneToggleSidebar  = "toggle-sidebar-button"
 )
 
@@ -28,10 +29,11 @@ const (
 // compose box's cursor (and so its internal viewport) by.
 const inputWheelScrollLines = 2
 
-func zoneAccountRow(i int) string      { return fmt.Sprintf("account-row-%d", i) }
-func zoneChatItem(i int) string        { return fmt.Sprintf("chat-item-%d", i) }
-func zoneMessage(i int) string         { return fmt.Sprintf("msg-%d", i) }
-func zoneEmojiSuggestion(i int) string { return fmt.Sprintf("emoji-suggest-%d", i) }
+func zoneAccountRow(i int) string       { return fmt.Sprintf("account-row-%d", i) }
+func zoneChatItem(i int) string         { return fmt.Sprintf("chat-item-%d", i) }
+func zoneMessage(i int) string          { return fmt.Sprintf("msg-%d", i) }
+func zoneEmojiSuggestion(i int) string  { return fmt.Sprintf("emoji-suggest-%d", i) }
+func zoneAttachmentRemove(i int) string { return fmt.Sprintf("attachment-remove-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
 // (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
@@ -153,6 +155,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.zone.Get(zoneSendButton).InBounds(mouse) {
 		return zoneSendButton
 	}
+	if m.zone.Get(zoneAttachButton).InBounds(mouse) {
+		return zoneAttachButton
+	}
 	if m.zone.Get(zoneToggleSidebar).InBounds(mouse) {
 		return zoneToggleSidebar
 	}
@@ -162,6 +167,11 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	for i := range m.emojiSuggestions {
 		if m.zone.Get(zoneEmojiSuggestion(i)).InBounds(mouse) {
 			return zoneEmojiSuggestion(i)
+		}
+	}
+	for i := range m.pendingAttachments {
+		if m.zone.Get(zoneAttachmentRemove(i)).InBounds(mouse) {
+			return zoneAttachmentRemove(i)
 		}
 	}
 	for i := range m.accounts {
@@ -280,6 +290,14 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	for i := range m.pendingAttachments {
+		if m.zone.Get(zoneAttachmentRemove(i)).InBounds(msg) {
+			m.removeAttachment(i)
+			m.updateSizes()
+			return m, nil
+		}
+	}
+
 	if m.zone.Get(zonePaneAccountBar).InBounds(msg) {
 		m.notifyTypingStopped()
 		m.setSelectedView(viewAccounts)
@@ -339,6 +357,15 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.zone.Get(zoneSendButton).InBounds(msg) {
 		return m, m.sendCurrentInput()
+	}
+
+	if m.zone.Get(zoneAttachButton).InBounds(msg) {
+		if m.currentChatIndex() < 0 {
+			return m, m.showNotification("no chat selected")
+		}
+		m.pickingFile = true
+		m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+		return m, m.filePicker.Init()
 	}
 
 	if m.zone.Get(zonePaneInput).InBounds(msg) {

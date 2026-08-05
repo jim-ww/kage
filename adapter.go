@@ -643,6 +643,50 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	return id, nil
 }
 
+// uploadFile applies the same peer encryption policy as an outgoing message
+// (XEP-0454 AES-256-GCM when the resolved mode is encrypted, plain XEP-0363
+// otherwise) and uploads path, returning the URL to put in a message body.
+// Shared by SendFile (upload + immediate send) and UploadFile (upload only,
+// for staging a pending attachment).
+func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmpp.Client, to, path string) (string, error) {
+	encryptFile := false
+	switch mode := resolveEncryptionMode(ctx, s, to); mode {
+	case "omemo-v1", "omemo-v2":
+		_, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
+		encryptFile = mgr != nil
+	case "gpg":
+		encryptFile = a.useGPG && resolvePeerKey(ctx, s, to) != ""
+	}
+
+	if !encryptFile {
+		return client.UploadFile(ctx, path)
+	}
+
+	// Encrypt file with AES-256-GCM before upload (XEP-0454)
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("opening file: %w", err)
+	}
+	defer f.Close()
+
+	ciphertext, iv, key, err := aesgcm.EncryptReader(f)
+	if err != nil {
+		return "", fmt.Errorf("encrypting file: %w", err)
+	}
+
+	url, err := client.UploadFileWithReader(ctx, path, bytes.NewReader(ciphertext))
+	if err != nil {
+		return "", fmt.Errorf("uploading encrypted file: %w", err)
+	}
+
+	// Build aesgcm:// URL with IV+key in anchor
+	url, err = aesgcm.BuildAESGCMURL(url, iv, key)
+	if err != nil {
+		return "", fmt.Errorf("building aesgcm URL: %w", err)
+	}
+	return url, nil
+}
+
 // SendFile implements ui.FileSender. Uploading and the follow-up message send
 // run as a Bubble Tea command, so the terminal remains responsive while a
 // slot is discovered and the file is transferred.
@@ -661,54 +705,10 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// Determine if we should encrypt the file
-	encryptFile := false
-	switch mode := resolveEncryptionMode(ctx, s, to); mode {
-	case "omemo-v1", "omemo-v2":
-		_, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
-		encryptFile = mgr != nil
-	case "gpg":
-		encryptFile = a.useGPG && resolvePeerKey(ctx, s, to) != ""
-	}
-
-	var url string
-
-	if encryptFile {
-		// Encrypt file with AES-256-GCM before upload (XEP-0454)
-		f, err := os.Open(path)
-		if err != nil {
-			result.Err = fmt.Errorf("opening file: %w", err)
-			return result
-		}
-		defer f.Close()
-
-		ciphertext, iv, key, err := aesgcm.EncryptReader(f)
-		if err != nil {
-			result.Err = fmt.Errorf("encrypting file: %w", err)
-			return result
-		}
-
-		// Upload encrypted data
-		reader := bytes.NewReader(ciphertext)
-		url, err = client.UploadFileWithReader(ctx, path, reader)
-		if err != nil {
-			result.Err = fmt.Errorf("uploading encrypted file: %w", err)
-			return result
-		}
-
-		// Build aesgcm:// URL with IV+key in anchor
-		url, err = aesgcm.BuildAESGCMURL(url, iv, key)
-		if err != nil {
-			result.Err = fmt.Errorf("building aesgcm URL: %w", err)
-			return result
-		}
-	} else {
-		// Unencrypted upload
-		url, err = client.UploadFile(ctx, path)
-		if err != nil {
-			result.Err = err
-			return result
-		}
+	url, err := a.uploadFile(ctx, s, client, to, path)
+	if err != nil {
+		result.Err = err
+		return result
 	}
 
 	id, err := a.send(ctx, accountIdx, to, url, opts)
@@ -718,5 +718,33 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	}
 	result.URL = url
 	result.ID = id
+	return result
+}
+
+// UploadFile implements ui.FileSender. Unlike SendFile it only uploads —
+// used to stage a local file as a pending attachment (shown above the
+// compose box) before the user actually sends the message, so several
+// files can be attached to one outgoing message.
+func (a *adapter) UploadFile(accountIdx int, to, path string) tea.Msg {
+	result := ui.FileUploadResultMsg{Path: path}
+	s, ok := a.session(accountIdx)
+	if !ok {
+		result.Err = fmt.Errorf("unknown account %d", accountIdx)
+		return result
+	}
+	client, err := s.liveClient()
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	url, err := a.uploadFile(ctx, s, client, to, path)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	result.URL = url
 	return result
 }
