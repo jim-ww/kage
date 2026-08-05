@@ -263,10 +263,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs[idx].Content = msg.NewContent
 		msgs[idx].Encrypted = msg.Encrypted
 		msgs[idx].EncMethod = msg.EncMethod
+		var cmd tea.Cmd
+		if idx == len(msgs)-1 {
+			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, msg.NewContent)
+		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.refreshViewport()
 		}
-		return m, nil, true
+		return m, cmd, true
 
 	case MessageRetractedMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
@@ -279,10 +283,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		msgs[idx].Retracted = true
+		var cmd tea.Cmd
+		if idx == len(msgs)-1 {
+			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, "message deleted")
+		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.refreshViewport()
 		}
-		return m, nil, true
+		return m, cmd, true
 
 	case MessageDeliveredMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
@@ -311,10 +319,18 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		msgs[idx].Reactions = msg.Reactions
+		var cmd tea.Cmd
+		if idx == len(msgs)-1 {
+			preview := msgs[idx].Content
+			if len(msg.Reactions) > 0 {
+				preview = "reacted " + renderReactions(msg.Reactions)
+			}
+			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, preview)
+		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.refreshViewport()
 		}
-		return m, nil, true
+		return m, cmd, true
 
 	case AccountAddedMsg:
 		m.addingAccount = false
