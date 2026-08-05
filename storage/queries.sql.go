@@ -844,7 +844,8 @@ SELECT
 	rosterJID,
 	archiveID,
 	replyToIdAttr,
-	retracted
+	retracted,
+	delivered
 FROM messages
 ORDER BY delay ASC, id ASC
 `
@@ -867,6 +868,7 @@ type ListAllMessagesRow struct {
 	Archiveid     sql.NullString `db:"archiveid"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
+	Delivered     bool           `db:"delivered"`
 }
 
 // Every message row across every account, oldest first, used by the
@@ -899,6 +901,7 @@ func (q *Queries) ListAllMessages(ctx context.Context) ([]ListAllMessagesRow, er
 			&i.Archiveid,
 			&i.Replytoidattr,
 			&i.Retracted,
+			&i.Delivered,
 		); err != nil {
 			return nil, err
 		}
@@ -1010,7 +1013,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
-	retracted
+	retracted,
+	delivered
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1040,6 +1044,7 @@ type ListMessagesByRosterRow struct {
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
+	Delivered     bool           `db:"delivered"`
 }
 
 func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]ListMessagesByRosterRow, error) {
@@ -1064,6 +1069,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Delay,
 			&i.Replytoidattr,
 			&i.Retracted,
+			&i.Delivered,
 		); err != nil {
 			return nil, err
 		}
@@ -1092,7 +1098,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
-	retracted
+	retracted,
+	delivered
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1131,6 +1138,7 @@ type ListMessagesByRosterBeforeRow struct {
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
+	Delivered     bool           `db:"delivered"`
 }
 
 // ListMessagesByRosterBefore returns one page of a chat's history older
@@ -1173,6 +1181,7 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Delay,
 			&i.Replytoidattr,
 			&i.Retracted,
+			&i.Delivered,
 		); err != nil {
 			return nil, err
 		}
@@ -1340,6 +1349,28 @@ func (q *Queries) ListRoster(ctx context.Context, accountJid string) ([]ListRost
 		return nil, err
 	}
 	return items, nil
+}
+
+const markMessageDelivered = `-- name: MarkMessageDelivered :execrows
+UPDATE messages
+SET delivered = TRUE
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND rosterJID = ?3
+`
+
+type MarkMessageDeliveredParams struct {
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+func (q *Queries) MarkMessageDelivered(ctx context.Context, arg MarkMessageDeliveredParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markMessageDelivered, arg.AccountJid, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const markMessageRetracted = `-- name: MarkMessageRetracted :execrows

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	archiveID     TEXT, -- XEP-0313 (MAM) server-assigned archive id, used as the RSM "after" cursor to resume backfill
 	replyToIdAttr TEXT, -- XEP-0461: idAttr of the message this one replies to
 	retracted     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0424: sender attempted to retract this; content is kept, just flagged
+	delivered     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0184: peer acknowledged receipt of a message we sent
 
 	UNIQUE (accountJID, originID, fromAttr),
 	UNIQUE (accountJID, archiveID)

@@ -26,6 +26,12 @@ type messageBody struct {
 	MAMResult   *mamResultElem        `xml:"urn:xmpp:mam:2 result"`
 	PubsubEvent *pubsubEventElem      `xml:"http://jabber.org/protocol/pubsub#event event"`
 
+	// XEP-0184 message delivery receipts: Request marks an outgoing message
+	// as wanting a receipt; Received is the receipt itself, naming the id of
+	// the message it acknowledges.
+	Request  *struct{}    `xml:"urn:xmpp:receipts request"`
+	Received *receiptElem `xml:"urn:xmpp:receipts received"`
+
 	// XEP-0085 chat state notification: at most one of these is set, on
 	// send or receive. Modeled as five separate pointer fields (rather than
 	// a single element with a variant name) because encoding/xml matches
@@ -108,6 +114,11 @@ type reactionsElem struct {
 
 // retractElem is XEP-0424: this message retracts an earlier one with this ID.
 type retractElem struct {
+	ID string `xml:"id,attr"`
+}
+
+// receiptElem is XEP-0184: acknowledges receipt of the message with this ID.
+type receiptElem struct {
 	ID string `xml:"id,attr"`
 }
 

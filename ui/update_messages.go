@@ -248,6 +248,22 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case MessageDeliveredMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByID(msgs, msg.MessageID)
+		if idx < 0 {
+			return m, nil, true
+		}
+		msgs[idx].Delivered = true
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.refreshViewport()
+		}
+		return m, nil, true
+
 	case MessageReactionsMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {

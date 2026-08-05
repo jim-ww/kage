@@ -80,6 +80,15 @@ type ChatStateEvent struct {
 
 func (ChatStateEvent) isEvent() {}
 
+// MessageDeliveredEvent is a XEP-0184 delivery receipt: the peer acknowledged
+// receipt of the message we sent with this ID.
+type MessageDeliveredEvent struct {
+	ID   string
+	From string
+}
+
+func (MessageDeliveredEvent) isEvent() {}
+
 // DeviceListChangedEvent is a XEP-0163 PEP push notification that From's
 // OMEMO device list (of the given Protocol) changed. The caller should
 // re-fetch and update its cached copy of that peer's device list (e.g. via
@@ -128,6 +137,26 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		if msg.MAMResult != nil {
 			c.dispatchArchiveResult(msg.MAMResult)
 			return
+		}
+
+		if msg.Received != nil {
+			events <- MessageDeliveredEvent{ID: msg.Received.ID, From: msg.From.String()}
+			return
+		}
+
+		if msg.Request != nil && msg.ID != "" {
+			// Acknowledge receipt back to the sender. Written directly onto t
+			// (rather than via a separate Send call) since t is the same
+			// bidirectional stream handleStanza was handed - mirrors how
+			// mellium's own receipts.Handler responds.
+			reply := stanza.Message{To: msg.From, Type: msg.Type}
+			_, err := xmlstream.Copy(t, reply.Wrap(xmlstream.Wrap(nil, xml.StartElement{
+				Name: xml.Name{Space: "urn:xmpp:receipts", Local: "received"},
+				Attr: []xml.Attr{{Name: xml.Name{Local: "id"}, Value: msg.ID}},
+			})))
+			if err != nil && c.Debugf != nil {
+				c.Debugf("sending delivery receipt for %s: %v", msg.ID, err)
+			}
 		}
 
 		if msg.PubsubEvent != nil && msg.PubsubEvent.Items != nil {

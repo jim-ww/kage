@@ -29,6 +29,11 @@ type Message struct {
 	// the attempt is visible.
 	Retracted bool
 
+	// Delivered is set once the peer has acknowledged receipt of this message
+	// (XEP-0184). Only meaningful when IsMe is true — an outgoing message
+	// starts "sent" and flips to "delivered" when the receipt arrives.
+	Delivered bool
+
 	// Reactions is the aggregate (XEP-0444) reaction state on this message
 	// across everyone who's reacted, one entry per distinct emoji.
 	Reactions []Reaction

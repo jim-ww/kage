@@ -374,6 +374,21 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 				Typing:     ev.State == xmpp.ChatStateComposing,
 			})
 			continue
+		case xmpp.MessageDeliveredEvent:
+			from := bareJID(ev.From)
+			if _, err := s.db.MarkMessageDelivered(ctx, storage.MarkMessageDeliveredParams{
+				AccountJid: s.account.JID,
+				IDAttr:     nullString(ev.ID),
+				RosterJid:  nullString(from),
+			}); err != nil {
+				debugf("warning: persisting delivery receipt: %v\n", err)
+			}
+			p.Send(ui.MessageDeliveredMsg{
+				AccountIdx: accountIdx,
+				From:       from,
+				MessageID:  ev.ID,
+			})
+			continue
 		case xmpp.DeviceListChangedEvent:
 			from := bareJID(ev.From)
 			// A self-notification about our own just-published device list

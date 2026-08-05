@@ -121,6 +121,14 @@ type MessageRetractedMsg struct {
 	RetractID  string // ID of the message being retracted
 }
 
+// MessageDeliveredMsg is sent into the Bubble Tea loop when a XEP-0184
+// delivery receipt arrives for a message we sent.
+type MessageDeliveredMsg struct {
+	AccountIdx int
+	From       string // bare JID (chat)
+	MessageID  string // ID of the message the peer acknowledged
+}
+
 // MessageReactionsMsg is sent into the Bubble Tea loop when a XEP-0444
 // reaction-set update arrives for a message already shown for one of the
 // configured accounts. Reactions is the full recomputed aggregate to

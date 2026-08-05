@@ -124,6 +124,14 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid);
 
 
+-- name: MarkMessageDelivered :execrows
+UPDATE messages
+SET delivered = TRUE
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid);
+
+
 -- name: DeleteMessageByID :execrows
 DELETE FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
@@ -144,7 +152,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
-	retracted
+	retracted,
+	delivered
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -178,7 +187,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
-	retracted
+	retracted,
+	delivered
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -215,7 +225,8 @@ SELECT
 	rosterJID,
 	archiveID,
 	replyToIdAttr,
-	retracted
+	retracted,
+	delivered
 FROM messages
 ORDER BY delay ASC, id ASC;
 

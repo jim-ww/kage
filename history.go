@@ -33,6 +33,7 @@ type historyRow struct {
 	Delay         int64
 	Replytoidattr sql.NullString
 	Retracted     bool
+	Delivered     bool
 }
 
 // readStoredBody returns row's plaintext body, decrypting it if row.Encrypted
@@ -100,6 +101,7 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 			SentAt:      time.Unix(row.Delay, 0),
 			IsMe:        row.Sent,
 			Retracted:   row.Retracted,
+			Delivered:   row.Delivered,
 			Encrypted:   row.E2eencrypted,
 			EncMethod:   row.E2eemethod.String,
 			Reactions:   loadReactionsForMessage(ctx, s, chatAddr, row.Idattr.String),
@@ -138,6 +140,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		hrows[i] = historyRow{
 			Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+			Delivered: r.Delivered,
 		}
 	}
 	return buildMessages(ctx, s, chatAddr, chatName, hrows)
@@ -194,6 +197,7 @@ func loadHistoryPage(ctx context.Context, s *accountSession, chatAddr, chatName 
 		hrows[len(rows)-1-i] = historyRow{
 			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+			Delivered: r.Delivered,
 		}
 	}
 	if len(rows) > 0 {

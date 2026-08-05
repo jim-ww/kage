@@ -69,6 +69,13 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	dirGlyph := "«"
 	if msg.IsMe {
 		dirGlyph = "»"
+		if msg.ID != "" {
+			status := "✓"
+			if msg.Delivered {
+				status = "✓✓"
+			}
+			timeLabel += " " + status
+		}
 	}
 	name := ""
 	if m.showNames {

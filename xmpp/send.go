@@ -59,6 +59,12 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 			Body: &fallbackBodyElem{End: &end},
 		}
 	}
+	// Request a XEP-0184 delivery receipt on real content messages - not on
+	// retractions/reactions, which are metadata updates about another message
+	// rather than content whose own delivery is worth tracking.
+	if opts.RetractID == "" && opts.ReactionTargetID == "" {
+		msg.Request = &struct{}{}
+	}
 	if err := c.session.Encode(ctx, msg); err != nil {
 		return "", err
 	}
