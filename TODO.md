@@ -1,4 +1,3 @@
-- fix shift+a-z replacing every language characters to latin
 - replace all debugf calls with slog
 - in chat list, show last message content (truncated) instead of address.
 - ctrl+space/ctrl+m to mark messages (e.g. for deletion)

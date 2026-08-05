@@ -42,7 +42,8 @@ func (m Model) View() tea.View {
 	case len(m.chats.Items()) == 0 && m.currentAccountConnecting():
 		sidebarBody = m.styles.accountNormal.Render("connecting...")
 	}
-	sidebarInner := lipgloss.JoinVertical(lipgloss.Left,
+	sidebarInner := lipgloss.JoinVertical(
+		lipgloss.Left,
 		statusLine,
 		m.styles.sidebarInner(scw, max(0, m.height-sidebarStatusHeight), sidebarBody),
 	)
@@ -76,6 +77,13 @@ func (m Model) View() tea.View {
 	// the full CSI u encoding instead.
 	v.KeyboardEnhancements.ReportAlternateKeys = true
 	v.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
+	// ReportAssociatedText asks the terminal to send the literal typed text
+	// explicitly. Without it, the decoder falls back to ShiftedCode for
+	// Key.Text on shift-held keys — but on non-Latin layouts terminals often
+	// report ShiftedCode as the unshifted PC-101/Latin key, not the actual
+	// shifted character.
+	v.KeyboardEnhancements.ReportAssociatedText = true
+	// TODO: use double-click event instead of our own double click logic? v.KeyboardEnhancements.ReportEventTypes
 	if m.mouseEnabled {
 		// AllMotion (not just CellMotion) so hover highlighting works without
 		// a button held — see handleMouseMotion.
@@ -156,7 +164,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 	listHidden := m.sidebarHidden || m.narrow()
 	toggleBtn := m.zone.Mark(zoneToggleSidebar, m.styles.renderSidebarToggleButton(listHidden, m.isHovered(zoneToggleSidebar)))
 	statusWidth := max(0, m.chatAreaWidth()-lipgloss.Width(toggleBtn))
-	chatStatus := lipgloss.JoinHorizontal(lipgloss.Top,
+	chatStatus := lipgloss.JoinHorizontal(
+		lipgloss.Top,
 		toggleBtn,
 		m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))),
 	)
