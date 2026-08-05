@@ -366,6 +366,34 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			}
 		}
 
+	// HalfPageUp/HalfPageDown jump by half the currently visible message
+	// count (not raw viewport lines — see visibleMessageCount) so the leap
+	// feels consistent regardless of how many lines each message wraps to.
+	case matchesKey(msg, m.keys.HalfPageUp):
+		if m.selectedView == viewChat && m.currentChatIndex() >= 0 {
+			step := max(1, m.visibleMessageCount()/2)
+			if m.selectedMsg > 0 {
+				m.selectedMsg = max(0, m.selectedMsg-step)
+				m.lastClickedMsgIdx = -1
+				m.lastClickTime = time.Time{}
+				m.refreshViewportScrollTo(m.selectedMsg)
+				return m, nil, true
+			}
+			return m, m.maybeLoadOlderHistory(), true
+		}
+
+	case matchesKey(msg, m.keys.HalfPageDown):
+		if m.selectedView == viewChat && m.currentChatIndex() >= 0 {
+			step := max(1, m.visibleMessageCount()/2)
+			if last := len(m.currentMessages()) - 1; m.selectedMsg < last {
+				m.selectedMsg = min(last, m.selectedMsg+step)
+				m.lastClickedMsgIdx = -1
+				m.lastClickTime = time.Time{}
+				m.refreshViewportScrollTo(m.selectedMsg)
+				return m, nil, true
+			}
+		}
+
 	// ── Message actions ────────────────────────────────────────────────
 	case matchesKey(msg, m.keys.DeleteMsg):
 		switch m.selectedView {

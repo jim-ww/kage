@@ -1,16 +1,15 @@
+- on 'q' ask to confirm before quitting
 - make sure user can paste to all textinputs
 - chat view: add attach file, emoji buttons
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager: fix adding duplicate accounts
-- remove all chat history (on server)
+- option to remove all chat history (on server)
 - omit options from config, that have default values
 
 - ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - account manager should look like button and show hover indication
 - save message drafts for each chat (encrypted), on exit/chat switch
 - account manager: remove 'accounts:' labewnloaded
-- chat view: add ctrl+d/ctrl+u for half page messages traversal
-- optional: read receipts, typing notifications, last seen, share local time
 
 - preview files text contents (in separate viewport?)
 - chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts

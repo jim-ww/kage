@@ -19,7 +19,9 @@ type KeyMap struct {
 	SelectSend     key.Binding
 	MsgUp          key.Binding // k — navigate to previous message
 	MsgDown        key.Binding // j — navigate to next message
-	DeleteMsg      key.Binding // Ctrl+D — delete selected message (with popup)
+	HalfPageUp     key.Binding // Ctrl+U — jump up by half the visible messages
+	HalfPageDown   key.Binding // Ctrl+D — jump down by half the visible messages
+	DeleteMsg      key.Binding // Ctrl+Shift+D — delete selected message (with popup)
 	YankMsg        key.Binding // Ctrl+Y — yank selected message
 	EditMsg        key.Binding // Ctrl+E — edit (only last own message)
 	ReplyMsg       key.Binding // Ctrl+R — reply to selected message
@@ -33,7 +35,7 @@ type KeyMap struct {
 	AttachFile     key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
 	RenameChat     key.Binding // r — open the rename-contact prompt for the selected chat
 	ToggleSidebar  key.Binding // Ctrl+\ — show/hide the chat list sidebar
-	DeviceList     key.Binding // Ctrl+U — view/purge the current account's published OMEMO device list
+	DeviceList     key.Binding // Ctrl+Shift+U — view/purge the current account's published OMEMO device list
 	ContactManager key.Binding // c — add/remove roster contacts for the current account (accounts panel)
 	ListKeys       list.KeyMap
 	TextInputKeys  textinput.KeyMap
@@ -86,7 +88,9 @@ var DefaultKeyMap = KeyMap{
 	SelectSend:     NewBinding([]string{"enter"}, "select/send"),
 	MsgUp:          NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
 	MsgDown:        NewBinding([]string{"ctrl+j", "down"}, "next msg"),
-	DeleteMsg:      NewBinding([]string{"ctrl+d"}, "delete"),
+	HalfPageUp:     NewBinding([]string{"ctrl+u"}, "half page up"),
+	HalfPageDown:   NewBinding([]string{"ctrl+d"}, "half page down"),
+	DeleteMsg:      NewBinding([]string{"ctrl+shift+d"}, "delete"),
 	YankMsg:        NewBinding([]string{"ctrl+y"}, "yank"),
 	EditMsg:        NewBinding([]string{"ctrl+e"}, "edit (own last)"),
 	ReplyMsg:       NewBinding([]string{"ctrl+r"}, "reply"),
@@ -100,7 +104,7 @@ var DefaultKeyMap = KeyMap{
 	AttachFile:     NewBinding([]string{"ctrl+f"}, "attach file"),
 	RenameChat:     NewBinding([]string{"r"}, "rename chat"),
 	ToggleSidebar:  NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
-	DeviceList:     NewBinding([]string{"ctrl+u"}, "omemo devices"),
+	DeviceList:     NewBinding([]string{"ctrl+shift+u"}, "omemo devices"),
 	ContactManager: NewBinding([]string{"c"}, "manage contacts"),
 
 	ListKeys:      list.DefaultKeyMap(),

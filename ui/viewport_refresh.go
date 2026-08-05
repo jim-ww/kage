@@ -124,3 +124,20 @@ func (m Model) msgIndexAtOffset(yOffset int) int {
 	}
 	return idx
 }
+
+// visibleMessageCount returns how many messages currently have at least one
+// line on screen, given the viewport's current scroll position — used to
+// size a "half page" jump in message-count terms rather than raw line count.
+// Sizing by lines instead would jump by however many messages happen to fit
+// in half the pane's height, which balloons on chats with multi-line
+// messages (attachments, replies, reactions) until it feels like a full-page
+// jump instead of a half one.
+func (m Model) visibleMessageCount() int {
+	height := m.viewport.Height()
+	if len(m.msgOffsets) == 0 || height <= 0 {
+		return 0
+	}
+	top := m.viewport.YOffset()
+	bottom := top + height - 1
+	return m.msgIndexAtOffset(bottom) - m.msgIndexAtOffset(top) + 1
+}
