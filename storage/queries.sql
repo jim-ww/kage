@@ -410,6 +410,12 @@ VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(mode))
 ON CONFLICT (accountJID, rosterJID) DO UPDATE
 SET mode = excluded.mode;
 
+-- name: HasGPGChat :one
+SELECT EXISTS(
+	SELECT 1 FROM chatEncryption
+	WHERE accountJID = sqlc.arg(account_jid) AND mode = 'gpg'
+);
+
 
 -- name: GetOmemoIdentity :one
 SELECT privateKey, deviceID

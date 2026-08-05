@@ -92,10 +92,16 @@ func ensureGPGKeys(cfg *config.Config) {
 // secret key once, synchronously, before the TUI takes over the terminal —
 // a curses/tty pinentry prompt can't render once bubbletea owns the
 // terminal, so any unlock needed for wire message crypto must happen here.
-func primeGPGAgent(accounts []config.Account) {
+// Only accounts with at least one chat actually set to gpg mode are primed,
+// so accounts that never touch gpg (the default is omemo) never trigger a
+// keyring/pinentry prompt.
+func primeGPGAgent(ctx context.Context, queries *storage.Queries, accounts []config.Account) {
 	e := gpg.Encrypter{}
 	for _, acct := range accounts {
 		if acct.GPGKeyID == "" {
+			continue
+		}
+		if used, err := queries.HasGPGChat(ctx, acct.JID); err != nil || !used {
 			continue
 		}
 		debugf("primeGPGAgent: %s: encrypting probe to %s", acct.JID, acct.GPGKeyID)
@@ -270,7 +276,6 @@ func main() {
 	}
 
 	ensureGPGKeys(&cfg)
-	primeGPGAgent(cfg.Accounts)
 	if cfg.HistoryPageSize > 0 {
 		historyPageSize = cfg.HistoryPageSize
 	}
@@ -286,6 +291,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer dbConn.Close()
+
+	primeGPGAgent(context.Background(), queries, cfg.Accounts)
 
 	localKey, err := loadLocalKey(cfg.Storage, queries)
 	if err != nil {

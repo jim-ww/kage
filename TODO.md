@@ -1,9 +1,9 @@
-- check that in chat only messages related to selected account are shown
 - make sure user can paste to all textinputs
 - chat view: add attach file, emoji buttons
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager: fix adding duplicate accounts
 - remove all chat history (on server)
+- omit options from config, that have default values
 
 - ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - account manager should look like button and show hover indication

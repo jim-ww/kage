@@ -579,6 +579,20 @@ func (q *Queries) GetServicesByFeature(ctx context.Context, var_ string) ([]stri
 	return items, nil
 }
 
+const hasGPGChat = `-- name: HasGPGChat :one
+SELECT EXISTS(
+	SELECT 1 FROM chatEncryption
+	WHERE accountJID = ?1 AND mode = 'gpg'
+)
+`
+
+func (q *Queries) HasGPGChat(ctx context.Context, accountJid string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasGPGChat, accountJid)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertDiscoFeatureJID = `-- name: InsertDiscoFeatureJID :exec
 INSERT INTO discoFeatureJID (jid, feat)
 VALUES (?, ?)
