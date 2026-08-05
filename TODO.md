@@ -1,14 +1,9 @@
 - check that in chat only messages related to selected account are shown
 - make sure user can paste to all textinputs
-- fix: not all keybinds are bound to key-codes? e.g. account manager -> 'c'
 - chat view: add attach file, emoji buttons
-- show encryption information in message info
-- message status? 'sent' / 'delivered' icons?
-- speed up chat view (messages render)
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
-- add OMEMO v1 support?
 - account manager: fix adding duplicate accounts
-- remove all chat history
+- remove all chat history (on server)
 
 - ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - account manager should look like button and show hover indication

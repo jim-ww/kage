@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 )
 
 type KeyMap struct {
@@ -105,6 +106,36 @@ var DefaultKeyMap = KeyMap{
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
 	InputAreaKeys: defaultInputAreaKeys(),
+}
+
+// matchesKey reports whether msg matches any of b's bound keys. For a
+// single-letter binding it prefers the layout-independent PC-101 base key
+// (populated only under the Kitty keyboard protocol, e.g. kitty, wezterm,
+// ghostty, foot) over the literal typed character, so bindings like "c" for
+// ContactManager still fire when the active keyboard layout produces a
+// different character for that physical key (e.g. Cyrillic). Falls back to
+// key.Matches (which compares msg.String(), the typed character) when no
+// base code is available — the same behavior as before this existed.
+func matchesKey(msg tea.KeyMsg, b key.Binding) bool {
+	kk := msg.Key()
+	if kk.BaseCode != 0 && kk.Mod == 0 {
+		for _, want := range b.Keys() {
+			if len(want) == 1 && rune(want[0]) == kk.BaseCode {
+				return b.Enabled()
+			}
+		}
+	}
+	return key.Matches(msg, b)
+}
+
+// matchesLetter is matchesKey's counterpart for call sites that switch on a
+// raw msg.String() letter instead of a key.Binding.
+func matchesLetter(msg tea.KeyMsg, r rune) bool {
+	kk := msg.Key()
+	if kk.BaseCode != 0 && kk.Mod == 0 {
+		return kk.BaseCode == r
+	}
+	return msg.String() == string(r)
 }
 
 func (k KeyMap) ShortHelp() []key.Binding {

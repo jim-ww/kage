@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -144,7 +143,7 @@ func (m Model) updateContactManagerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			cs.adding = false
 			cs.err = ""
 			return m, nil, true
-		case key.Matches(msg, m.keys.SelectSend):
+		case matchesKey(msg, m.keys.SelectSend):
 			addr := strings.TrimSpace(cs.addInput.Value())
 			if addr == "" {
 				cs.err = "JID is required"
@@ -163,7 +162,7 @@ func (m Model) updateContactManagerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	if cs.err != "" {
-		if key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.ConfirmNo) || key.Matches(msg, m.keys.ContactManager) {
+		if matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) || matchesKey(msg, m.keys.ContactManager) {
 			m.contactManagerState = nil
 		}
 		return m, nil, true
@@ -171,14 +170,14 @@ func (m Model) updateContactManagerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	if cs.pendingRemove != "" {
 		switch {
-		case key.Matches(msg, m.keys.ConfirmYes):
+		case matchesKey(msg, m.keys.ConfirmYes):
 			accountIdx := cs.accountIdx
 			addr := cs.pendingRemove
 			manager := m.contactManager
 			cs.busy = true
 			cs.pendingRemove = ""
 			return m, func() tea.Msg { return manager.RemoveContact(accountIdx, addr) }, true
-		case key.Matches(msg, m.keys.ConfirmNo):
+		case matchesKey(msg, m.keys.ConfirmNo):
 			cs.pendingRemove = ""
 		}
 		return m, nil, true
@@ -191,23 +190,23 @@ func (m Model) updateContactManagerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
-	switch msg.String() {
-	case "left", "h":
+	switch {
+	case msg.String() == "left" || matchesLetter(msg, 'h'):
 		cs.page = max(0, cs.page-1)
 		return m, nil, true
-	case "right", "l":
+	case msg.String() == "right" || matchesLetter(msg, 'l'):
 		if cs.page < openPageCount(len(contacts))-1 {
 			cs.page++
 		}
 		return m, nil, true
-	case "a":
+	case matchesLetter(msg, 'a'):
 		cs.adding = true
 		cs.addInput = newAddContactInput(m)
 		return m, textinput.Blink, true
 	}
 
 	switch {
-	case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo), key.Matches(msg, m.keys.ContactManager):
+	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo), matchesKey(msg, m.keys.ContactManager):
 		m.contactManagerState = nil
 	}
 	return m, nil, true

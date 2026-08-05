@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -66,7 +65,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// own keybinding), so the keyboard's only job here is closing it.
 	if m.contextMenu != nil {
 		switch {
-		case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
+		case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
 			m.closeContextMenu()
 		}
 		return m, nil, true
@@ -75,7 +74,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// ── Delete confirmation popup intercepts all input ─────────────────
 	if m.confirmTarget != confirmNone {
 		switch {
-		case key.Matches(msg, m.keys.ConfirmYes):
+		case matchesKey(msg, m.keys.ConfirmYes):
 			switch m.confirmTarget {
 			case confirmDeleteMessage:
 				// Only our own messages can meaningfully be retracted on
@@ -98,7 +97,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.confirmTarget = confirmNone
 			m.refreshViewport()
 			return m, tea.Batch(cmds...), true
-		case key.Matches(msg, m.keys.ConfirmNo):
+		case matchesKey(msg, m.keys.ConfirmNo):
 			m.confirmTarget = confirmNone
 		}
 		return m, nil, true
@@ -107,7 +106,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// ── Message-info popup intercepts all input until dismissed ────────
 	if m.showMsgInfo {
 		switch {
-		case key.Matches(msg, m.keys.InfoMsg), key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
+		case matchesKey(msg, m.keys.InfoMsg), matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
 			m.showMsgInfo = false
 		}
 		return m, nil, true
@@ -137,7 +136,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	// ── File picker intercepts all input until selected or canceled ─────
 	if m.pickingFile {
-		if key.Matches(msg, m.keys.AttachFile) || key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.ConfirmNo) {
+		if matchesKey(msg, m.keys.AttachFile) || matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) {
 			m.pickingFile = false
 			return m, nil, true
 		}
@@ -176,7 +175,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			}
 		default:
 			switch {
-			case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo):
+			case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
 				m.openItems = nil
 				m.openPage = 0
 			}
@@ -197,7 +196,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
-	case (msg.String() == "tab" || key.Matches(msg, m.keys.SelectSend)) && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
+	case (msg.String() == "tab" || matchesKey(msg, m.keys.SelectSend)) && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
 		// While a suggestion is showing, enter accepts it (like tab)
 		// instead of falling through to SelectSend and sending the
 		// reaction early — matches the emoji picker, not a message send.
@@ -205,12 +204,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 
 	// ── Global ────────────────────────────────────────────────────────
-	case key.Matches(msg, m.keys.Quit):
+	case matchesKey(msg, m.keys.Quit):
 		if msg.String() == "ctrl+c" || m.selectedView != viewChat {
 			return m, tea.Quit, true
 		}
 
-	case key.Matches(msg, m.keys.Back):
+	case matchesKey(msg, m.keys.Back):
 		if m.selectedView != viewAccounts && m.selectedView != viewChats {
 			m.notifyTypingStopped()
 			m.cancelPending()
@@ -219,23 +218,23 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 
-	case key.Matches(msg, m.keys.FocusChats):
+	case matchesKey(msg, m.keys.FocusChats):
 		m.notifyTypingStopped()
 		m.setSelectedView(viewChats)
 		m.input.Blur()
 		return m, nil, true
 
-	case key.Matches(msg, m.keys.ToggleSidebar):
+	case matchesKey(msg, m.keys.ToggleSidebar):
 		model, cmd := m.toggleSidebar()
 		return model, cmd, true
 
-	case key.Matches(msg, m.keys.ChatOpen):
+	case matchesKey(msg, m.keys.ChatOpen):
 		if m.selectedView == viewChats {
 			model, cmd := m.openCurrentChat()
 			return model.(Model), cmd, true
 		}
 
-	case key.Matches(msg, m.keys.SelectSend):
+	case matchesKey(msg, m.keys.SelectSend):
 		switch m.selectedView {
 		case viewAccounts:
 			m.setSelectedView(viewChats)
@@ -247,7 +246,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.sendCurrentInput(), true
 		}
 
-	case key.Matches(msg, m.keys.AddAccount):
+	case matchesKey(msg, m.keys.AddAccount):
 		if m.selectedView == viewAccounts {
 			m.addingAccount = true
 			m.addAccountFocus = 0
@@ -256,24 +255,24 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, textinput.Blink, true
 		}
 
-	case key.Matches(msg, m.keys.DeviceList):
+	case matchesKey(msg, m.keys.DeviceList):
 		if m.selectedView == viewAccounts {
 			model, cmd := m.openDeviceList()
 			return model, cmd, true
 		}
 
-	case key.Matches(msg, m.keys.ContactManager):
+	case matchesKey(msg, m.keys.ContactManager):
 		if m.selectedView == viewAccounts {
 			model, cmd := m.openContactManager()
 			return model, cmd, true
 		}
 
-	case key.Matches(msg, m.keys.RenameChat):
+	case matchesKey(msg, m.keys.RenameChat):
 		if m.selectedView == viewChats {
 			return m, m.actionRenameChat(), true
 		}
 
-	case key.Matches(msg, m.keys.AttachFile):
+	case matchesKey(msg, m.keys.AttachFile):
 		if m.selectedView == viewChat {
 			if m.currentChatIndex() < 0 {
 				cmds = append(cmds, m.showNotification("no chat selected"))
@@ -284,7 +283,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.filePicker.Init(), true
 		}
 
-	case key.Matches(msg, m.keys.Switch):
+	case matchesKey(msg, m.keys.Switch):
 		switch m.selectedView {
 		case viewAccounts:
 			m.setSelectedView(viewChats)
@@ -326,7 +325,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// Update's normal routing reaches m.input.Update. ctrl+k/ctrl+j (MsgUp/
 	// MsgDown's other bound keys) always navigate messages regardless, since
 	// they're not keys the textarea itself binds to anything.
-	case key.Matches(msg, m.keys.MsgUp):
+	case matchesKey(msg, m.keys.MsgUp):
 		if msg.String() == "up" && m.composeMultiline() {
 			break
 		}
@@ -345,7 +344,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.maybeLoadOlderHistory(), true
 		}
 
-	case key.Matches(msg, m.keys.MsgDown):
+	case matchesKey(msg, m.keys.MsgDown):
 		if msg.String() == "down" && m.composeMultiline() {
 			break
 		}
@@ -368,7 +367,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	// ── Message actions ────────────────────────────────────────────────
-	case key.Matches(msg, m.keys.DeleteMsg):
+	case matchesKey(msg, m.keys.DeleteMsg):
 		switch m.selectedView {
 		case viewChat:
 			return m, m.actionDeleteMessage(), true
@@ -376,37 +375,37 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionLeaveChat(), true
 		}
 
-	case key.Matches(msg, m.keys.YankMsg):
+	case matchesKey(msg, m.keys.YankMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionYankMessage(), true
 		}
 
-	case key.Matches(msg, m.keys.EditMsg):
+	case matchesKey(msg, m.keys.EditMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionEditMessage(), true
 		}
 
-	case key.Matches(msg, m.keys.ReplyMsg):
+	case matchesKey(msg, m.keys.ReplyMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionReplyMessage(), true
 		}
 
-	case key.Matches(msg, m.keys.InfoMsg):
+	case matchesKey(msg, m.keys.InfoMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionInfoMessage(), true
 		}
 
-	case key.Matches(msg, m.keys.OpenMsg):
+	case matchesKey(msg, m.keys.OpenMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionOpenMessage(), true
 		}
 
-	case key.Matches(msg, m.keys.SaveMsg):
+	case matchesKey(msg, m.keys.SaveMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionSaveMessage(), true
 		}
 
-	case key.Matches(msg, m.keys.ReactMsg):
+	case matchesKey(msg, m.keys.ReactMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionReactMessage(), true
 		}
@@ -425,7 +424,7 @@ func (m Model) updateRenameChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.renamingChat = false
 		return m, nil
 
-	case key.Matches(msg, m.keys.SelectSend):
+	case matchesKey(msg, m.keys.SelectSend):
 		return m, m.submitRenameChat()
 
 	default:
@@ -462,7 +461,7 @@ func (m Model) updateAddAccountForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addAccountInputs[m.addAccountFocus].Focus()
 		return m, textinput.Blink
 
-	case key.Matches(msg, m.keys.SelectSend):
+	case matchesKey(msg, m.keys.SelectSend):
 		if m.addAccountBusy {
 			return m, nil
 		}

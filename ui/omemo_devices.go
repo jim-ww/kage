@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -186,7 +185,7 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	if dl.err != "" {
-		if key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.ConfirmNo) || key.Matches(msg, m.keys.DeviceList) {
+		if matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) || matchesKey(msg, m.keys.DeviceList) {
 			m.deviceList = nil
 		}
 		return m, nil, true
@@ -194,7 +193,7 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	if dl.confirming {
 		switch {
-		case key.Matches(msg, m.keys.ConfirmYes):
+		case matchesKey(msg, m.keys.ConfirmYes):
 			var keep []OmemoDevice
 			for _, d := range dl.devices {
 				if !dl.selected[d] {
@@ -205,7 +204,7 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			dl.busy = true
 			dl.confirming = false
 			return m, func() tea.Msg { return m.deviceManager.PurgeOwnDeviceList(accountIdx, keep) }, true
-		case key.Matches(msg, m.keys.ConfirmNo):
+		case matchesKey(msg, m.keys.ConfirmNo):
 			dl.confirming = false
 		}
 		return m, nil, true
@@ -219,11 +218,11 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
-	switch msg.String() {
-	case "left", "h":
+	switch {
+	case msg.String() == "left" || matchesLetter(msg, 'h'):
 		dl.page = max(0, dl.page-1)
 		return m, nil, true
-	case "right", "l":
+	case msg.String() == "right" || matchesLetter(msg, 'l'):
 		if dl.page < openPageCount(len(removable))-1 {
 			dl.page++
 		}
@@ -231,7 +230,7 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	switch {
-	case key.Matches(msg, m.keys.ConfirmYes):
+	case matchesKey(msg, m.keys.ConfirmYes):
 		anySelected := false
 		for _, v := range dl.selected {
 			if v {
@@ -242,7 +241,7 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if anySelected {
 			dl.confirming = true
 		}
-	case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.ConfirmNo), key.Matches(msg, m.keys.DeviceList):
+	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo), matchesKey(msg, m.keys.DeviceList):
 		m.deviceList = nil
 	}
 	return m, nil, true
