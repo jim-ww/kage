@@ -4,6 +4,8 @@
 - account manager: fix adding duplicate accounts
 - option to remove all chat history (on server)
 - omit options from config, that have default values
+- read/unread message count on chat name?
+- replace all debugf calls with slog
 
 - ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - account manager should look like button and show hover indication

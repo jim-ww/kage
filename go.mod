@@ -12,7 +12,7 @@ require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/enescakir/emoji v1.0.0
-	github.com/jim-ww/omemo-go v0.0.0-20260805124752-9c9884ebb89b
+	github.com/jim-ww/omemo-go v0.1.1
 	github.com/lrstanley/bubblezone/v2 v2.0.0
 	github.com/sahilm/fuzzy v0.1.1
 	github.com/zalando/go-keyring v0.2.8

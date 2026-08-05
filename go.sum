@@ -62,8 +62,8 @@ github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs
 github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
-github.com/jim-ww/omemo-go v0.0.0-20260805124752-9c9884ebb89b h1:YuYJxfKuJpxrO+XD2AvIrKyOoP0Q8P81MEv3oZDMdLQ=
-github.com/jim-ww/omemo-go v0.0.0-20260805124752-9c9884ebb89b/go.mod h1:AG1iKtAiknNrjJc3ZJ95ops7rO3sE6y/5pXZfwuyAl4=
+github.com/jim-ww/omemo-go v0.1.1 h1:KC+d/qdxSZw31+q3mQOpWwkiayDwtfYe9HVKLJRijcM=
+github.com/jim-ww/omemo-go v0.1.1/go.mod h1:AG1iKtAiknNrjJc3ZJ95ops7rO3sE6y/5pXZfwuyAl4=
 github.com/jim-ww/xochimilco v0.0.0-20260805123812-e10aed621610 h1:ZSdCBiS4BdBg8VKxol24BNhLp4C/DyT5s03ybye8KuA=
 github.com/jim-ww/xochimilco v0.0.0-20260805123812-e10aed621610/go.mod h1:Xs6/H60D4Q/fxJ78DnUz4pexjfFAWRVzzVCpW3ncIhw=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
