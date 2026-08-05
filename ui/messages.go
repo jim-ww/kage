@@ -265,7 +265,7 @@ type DefaultAccountSetter interface {
 }
 
 // ChatEncryptionSetter persists per-chat outgoing message encryption choice
-// ("omemo-auto", "omemo-v1", "omemo-v2", "gpg", or "none" - see
+// ("omemo-v1", "omemo-v2", "gpg", or "none" - see
 // encryptionModes), implemented outside ui (main.go's adapter) so ui stays
 // decoupled from the storage layer. A local database write, called inline
 // like Send/SetTyping rather than through a tea.Cmd.

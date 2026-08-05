@@ -24,10 +24,10 @@ type Account struct {
 	GPGKeyID    string            `toml:"gpg_key_id,omitempty"`   // own key, used to decrypt/sign
 	GPGPeers    map[string]string `toml:"gpg_peers,omitempty"`    // JID -> peer's key fingerprint
 
-	// OmemoPeers overrides the auto-detected OMEMO protocol version (the
-	// "omemo-auto" encryption mode) for specific peers: JID -> "v1" | "v2".
-	// Only consulted for chats using "omemo-auto" - a chat pinned directly
-	// to "omemo-v1"/"omemo-v2" ignores this.
+	// OmemoPeers pins a specific OMEMO protocol version for specific peers:
+	// JID -> "v1" | "v2". Only consulted when resolveOmemoProtocol's
+	// auto-detection runs (e.g. for legacy stored chat modes) - a chat
+	// pinned directly to "omemo-v1"/"omemo-v2" ignores this.
 	OmemoPeers map[string]string `toml:"omemo_peers,omitempty"`
 }
 

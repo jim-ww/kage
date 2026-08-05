@@ -23,11 +23,10 @@ func (f *fakeChatEncryptionSender) SetChatEncryption(accountIdx int, peerJID, mo
 }
 
 // TestEncryptionModesIncludesOmemoV1V2 guards the encryption picker's option
-// list: forcing a specific OMEMO protocol per chat (rather than only the
-// auto-detecting "omemo-auto") must stay selectable from the UI, not just
-// via config.toml's omemo_peers override.
+// list: forcing a specific OMEMO protocol per chat must stay selectable from
+// the UI, not just via config.toml's omemo_peers override.
 func TestEncryptionModesIncludesOmemoV1V2(t *testing.T) {
-	want := map[string]bool{"omemo-auto": true, "omemo-v1": true, "omemo-v2": true, "gpg": true, "none": true}
+	want := map[string]bool{"omemo-v1": true, "omemo-v2": true, "gpg": true, "none": true}
 	if len(encryptionModes) != len(want) {
 		t.Fatalf("encryptionModes = %v, want exactly %v", encryptionModes, want)
 	}

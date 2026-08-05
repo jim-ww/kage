@@ -33,9 +33,8 @@ type accountSession struct {
 	// omemoMgrV2/omemoMgrV1 are nil until connectAccountLive sets them up
 	// (needs a dialed client for its Transport). Both run concurrently: this
 	// account maintains a separate identity/device pool per OMEMO protocol
-	// version, and resolveOmemoProtocol picks which one to use per peer for
-	// chats on the default "omemo-auto" mode (ui.encryptionModes) - a chat
-	// can also be pinned directly to "omemo-v1"/"omemo-v2".
+	// version, since a chat can be pinned to either "omemo-v1" (the default,
+	// ui.encryptionModes) or "omemo-v2".
 	omemoMgrV2 *omemolib.Manager
 	omemoMgrV1 *omemolib.Manager
 

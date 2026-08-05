@@ -165,18 +165,16 @@ func (s *accountSession) omemoManagerFor(protocol omemolib.Protocol) *omemolib.M
 }
 
 // resolveEncryptionMode returns the outgoing message encryption mode for
-// peerJID: "omemo-auto" (the default - auto-detects the peer's protocol
-// version, see resolveOmemoProtocol), "omemo-v1"/"omemo-v2" (force that
-// protocol regardless of auto-detection), "gpg", or "none" if the user
-// explicitly disabled encryption for this chat — see
-// ui.ChatEncryptionSetter/ui.encryptionModes.
+// peerJID: "omemo-v1" (the default), "omemo-v2" (force that protocol),
+// "gpg", or "none" if the user explicitly disabled encryption for this
+// chat — see ui.ChatEncryptionSetter/ui.encryptionModes.
 func resolveEncryptionMode(ctx context.Context, s *accountSession, peerJID string) string {
 	mode, err := s.db.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{
 		AccountJid: s.account.JID,
 		RosterJid:  peerJID,
 	})
 	if err != nil || mode == "" {
-		return "omemo-auto"
+		return "omemo-v1"
 	}
 	return mode
 }
@@ -241,11 +239,9 @@ func protocolFromString(s string) omemolib.Protocol {
 }
 
 // resolveOmemoManagerForMode resolves which OMEMO protocol/Manager to use
-// for peerJID given mode ("omemo-auto", "omemo-v1", or "omemo-v2" — any
-// other mode is a caller error). "omemo-v1"/"omemo-v2" force that protocol
-// directly, bypassing resolveOmemoProtocol's auto-detection entirely - for
-// contacts whose client doesn't advertise correctly but is known to only
-// support one version.
+// for peerJID given mode ("omemo-v1" or "omemo-v2" — any other mode is a
+// caller error, and falls back to auto-detection via resolveOmemoProtocol
+// for legacy stored modes such as the removed "omemo-auto").
 func resolveOmemoManagerForMode(ctx context.Context, s *accountSession, mode, peerJID string) (omemolib.Protocol, *omemolib.Manager) {
 	var protocol omemolib.Protocol
 	switch mode {

@@ -190,9 +190,9 @@ CREATE TABLE IF NOT EXISTS omemoRemoteIdentity (
 	PRIMARY KEY (accountJID, protocol, peerJID, deviceID)
 );
 
--- Cached per-peer OMEMO protocol version negotiation result (for the
--- "omemo-auto" encryption mode): which protocol ("v1" | "v2") to use for a
--- given (account, peer), and when it was last (re-)probed via disco#info/PEP
+-- Cached per-peer OMEMO protocol version negotiation result (auto-detection
+-- fallback for legacy stored chat modes): which protocol ("v1" | "v2") to
+-- use for a given (account, peer), and when it was last (re-)probed via disco#info/PEP
 -- - so account.go's negotiation logic doesn't re-probe on every send. A
 -- manual config.toml omemo_peers override always takes precedence over this
 -- cache and is never stored here.

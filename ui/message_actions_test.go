@@ -26,7 +26,6 @@ func TestSendCurrentInputMarksLocalEchoEncrypted(t *testing.T) {
 		wantEncrypted bool
 		wantMethod    string
 	}{
-		{mode: "omemo-auto", wantEncrypted: true, wantMethod: "omemo"},
 		{mode: "omemo-v1", wantEncrypted: true, wantMethod: "omemo"},
 		{mode: "omemo-v2", wantEncrypted: true, wantMethod: "omemo"},
 		{mode: "gpg", wantEncrypted: true, wantMethod: "gpg"},

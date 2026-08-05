@@ -432,7 +432,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	e2eeMethod := ""
 	mode := resolveEncryptionMode(ctx, s, to)
 	switch mode {
-	case "omemo-auto", "omemo-v1", "omemo-v2":
+	case "omemo-v1", "omemo-v2":
 		protocol, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
 		debugf("send: using omemo(%s) encryption for %s to %s", protocol, s.account.JID, to)
 		if mgr != nil {
@@ -548,7 +548,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	// Determine if we should encrypt the file
 	encryptFile := false
 	switch mode := resolveEncryptionMode(ctx, s, to); mode {
-	case "omemo-auto", "omemo-v1", "omemo-v2":
+	case "omemo-v1", "omemo-v2":
 		_, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
 		encryptFile = mgr != nil
 	case "gpg":
