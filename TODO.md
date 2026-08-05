@@ -31,6 +31,7 @@
 - optimization: load messages history per chat, in batches as needed, instead of fetching full list for all at startup
 - chat view: vim motions for textinput (visual/insert mode emulation)
 - implement go-to specific date in chat history
+- add OTR as encryption method
 
 
 # calls: Jingle (XEP-0166) https://xmpp.org/extensions/xep-0166.html

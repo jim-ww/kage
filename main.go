@@ -201,9 +201,30 @@ func runSetupWizard() error {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "export":
+			if err := runExport(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		case "import":
+			if err := runImport(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
 	cfgPath := flag.String("c", "", "path to config")
 	debug := flag.Bool("debug", false, "write debug logs to <config dir>/kage/debug.log")
 	runNotifyd := flag.Bool("notifyd", false, "internal: run as the background notification daemon (spawned automatically, not meant to be passed by hand)")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage:\n  %s [flags]\n  %s export [-c config] <output.json>\n  %s import [-c config] <input.json>\n\nFlags:\n", os.Args[0], os.Args[0], os.Args[0])
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 
 	if *runNotifyd {

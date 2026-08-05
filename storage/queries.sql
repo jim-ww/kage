@@ -194,6 +194,37 @@ ORDER BY delay DESC, id DESC
 LIMIT sqlc.arg(page_limit);
 
 
+-- name: ListAllMessages :many
+-- Every message row across every account, oldest first, used by the
+-- "export" CLI command. Bodies come back exactly as stored (plaintext or
+-- localstore-sealed); the caller decrypts.
+SELECT
+	accountJID,
+	sent,
+	toAttr,
+	fromAttr,
+	idAttr,
+	body,
+	encrypted,
+	e2eEncrypted,
+	e2eeMethod,
+	originID,
+	stanzaType,
+	received,
+	delay,
+	rosterJID,
+	archiveID,
+	replyToIdAttr,
+	retracted
+FROM messages
+ORDER BY delay ASC, id ASC;
+
+-- name: ListAllReactions :many
+-- Every reaction row across every account, used by the "export" CLI
+-- command alongside ListAllMessages.
+SELECT accountJID, rosterJID, idAttr, fromJID, emoji
+FROM messageReactions;
+
 -- name: DeleteReactionsByReactor :exec
 DELETE FROM messageReactions
 WHERE accountJID = sqlc.arg(account_jid)

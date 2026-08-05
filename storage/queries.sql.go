@@ -826,6 +826,137 @@ func (q *Queries) InsertRosterGroup(ctx context.Context, arg InsertRosterGroupPa
 	return err
 }
 
+const listAllMessages = `-- name: ListAllMessages :many
+SELECT
+	accountJID,
+	sent,
+	toAttr,
+	fromAttr,
+	idAttr,
+	body,
+	encrypted,
+	e2eEncrypted,
+	e2eeMethod,
+	originID,
+	stanzaType,
+	received,
+	delay,
+	rosterJID,
+	archiveID,
+	replyToIdAttr,
+	retracted
+FROM messages
+ORDER BY delay ASC, id ASC
+`
+
+type ListAllMessagesRow struct {
+	Accountjid    string         `db:"accountjid"`
+	Sent          bool           `db:"sent"`
+	Toattr        sql.NullString `db:"toattr"`
+	Fromattr      sql.NullString `db:"fromattr"`
+	Idattr        sql.NullString `db:"idattr"`
+	Body          sql.NullString `db:"body"`
+	Encrypted     bool           `db:"encrypted"`
+	E2eencrypted  bool           `db:"e2eencrypted"`
+	E2eemethod    sql.NullString `db:"e2eemethod"`
+	Originid      sql.NullString `db:"originid"`
+	Stanzatype    string         `db:"stanzatype"`
+	Received      bool           `db:"received"`
+	Delay         int64          `db:"delay"`
+	Rosterjid     sql.NullString `db:"rosterjid"`
+	Archiveid     sql.NullString `db:"archiveid"`
+	Replytoidattr sql.NullString `db:"replytoidattr"`
+	Retracted     bool           `db:"retracted"`
+}
+
+// Every message row across every account, oldest first, used by the
+// "export" CLI command. Bodies come back exactly as stored (plaintext or
+// localstore-sealed); the caller decrypts.
+func (q *Queries) ListAllMessages(ctx context.Context) ([]ListAllMessagesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllMessages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllMessagesRow
+	for rows.Next() {
+		var i ListAllMessagesRow
+		if err := rows.Scan(
+			&i.Accountjid,
+			&i.Sent,
+			&i.Toattr,
+			&i.Fromattr,
+			&i.Idattr,
+			&i.Body,
+			&i.Encrypted,
+			&i.E2eencrypted,
+			&i.E2eemethod,
+			&i.Originid,
+			&i.Stanzatype,
+			&i.Received,
+			&i.Delay,
+			&i.Rosterjid,
+			&i.Archiveid,
+			&i.Replytoidattr,
+			&i.Retracted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllReactions = `-- name: ListAllReactions :many
+SELECT accountJID, rosterJID, idAttr, fromJID, emoji
+FROM messageReactions
+`
+
+type ListAllReactionsRow struct {
+	Accountjid string `db:"accountjid"`
+	Rosterjid  string `db:"rosterjid"`
+	Idattr     string `db:"idattr"`
+	Fromjid    string `db:"fromjid"`
+	Emoji      string `db:"emoji"`
+}
+
+// Every reaction row across every account, used by the "export" CLI
+// command alongside ListAllMessages.
+func (q *Queries) ListAllReactions(ctx context.Context) ([]ListAllReactionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllReactions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllReactionsRow
+	for rows.Next() {
+		var i ListAllReactionsRow
+		if err := rows.Scan(
+			&i.Accountjid,
+			&i.Rosterjid,
+			&i.Idattr,
+			&i.Fromjid,
+			&i.Emoji,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestArchiveIDs = `-- name: ListLatestArchiveIDs :many
 SELECT
 	m.rosterJID,
