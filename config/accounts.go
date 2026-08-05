@@ -29,6 +29,14 @@ type Account struct {
 	// auto-detection runs (e.g. for legacy stored chat modes) - a chat
 	// pinned directly to "omemo-v1"/"omemo-v2" ignores this.
 	OmemoPeers map[string]string `toml:"omemo_peers,omitempty"`
+
+	// Status is the account's configured presence: "" (default, online),
+	// "chat", "away", "xa" (extended away), "dnd", or "offline". Read once
+	// at startup to decide whether to dial this account at all (offline
+	// never touches the network) and what initial <show/> to send;
+	// persisted immediately whenever changed from the UI, so a restart
+	// always comes back up in the same status.
+	Status string `toml:"status,omitempty"`
 }
 
 // ResolvePassword returns the account's password, trying the OS keyring

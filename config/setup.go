@@ -68,6 +68,28 @@ func SetAccountGPGKeyID(path, jid, keyID string) error {
 	return writeFileConfig(path, cfg)
 }
 
+// SetAccountStatus sets (or updates) the status field ("", "chat", "away",
+// "xa", "dnd", or "offline") for the account matching jid in the config file at path,
+// preserving everything else. A no-op if the account isn't found there.
+func SetAccountStatus(path, jid, status string) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	found := false
+	for i, acct := range cfg.Accounts {
+		if acct.JID == jid {
+			cfg.Accounts[i].Status = status
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("account %s not found in %s", jid, path)
+	}
+	return writeFileConfig(path, cfg)
+}
+
 // SetDefaultAccount sets (or updates) the default_account setting in the
 // config file at path, preserving everything else.
 func SetDefaultAccount(path, jid string) error {

@@ -63,6 +63,19 @@ type rosterEntry struct {
 	Subs string
 }
 
+// liveClient returns the account's client, or an error if the account is
+// currently offline (never dialed, or explicitly disconnected via
+// PresenceOffline) — every adapter entrypoint that talks to the network
+// calls this instead of s.client.Load() directly, since that would panic
+// dereferencing a nil client.
+func (s *accountSession) liveClient() (*xmpp.Client, error) {
+	client := s.client.Load()
+	if client == nil || client.Closed() {
+		return nil, fmt.Errorf("account %s is offline", s.account.JID)
+	}
+	return client, nil
+}
+
 // rosterName returns bareJID's roster nickname, or bareJID itself if the
 // contact has none (or isn't in the roster at all).
 func (s *accountSession) rosterName(bareJID string) string {
@@ -94,11 +107,23 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 	sess.useGPG = a.useGPG
 	sess.useKeyring = a.useKeyring
 	debugf("account %s: connectAccountLocal done in %s (%d chats)", acct.JID, time.Since(start), len(uiAcct.Chats))
+
+	if uiAcct.Status == ui.PresenceOffline {
+		// Configured offline: never dial at all - not even to fetch a live
+		// roster - so nothing about this account touches the network until
+		// AccountStatusSetter switches it back on.
+		uiAcct.Connecting = false
+		a.mu.Lock()
+		a.sessions[idx] = sess
+		a.mu.Unlock()
+		p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
+		return
+	}
 	p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
 
 	debugf("account %s: connectAccountLive starting", acct.JID)
 	start = time.Now()
-	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
+	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats), presenceShow(uiAcct.Status))
 	if err != nil {
 		debugf("account %s: connectAccountLive failed after %s: %v", acct.JID, time.Since(start), err)
 		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
@@ -173,7 +198,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	}
 	sess.roster.Store(&entries)
 
-	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages, HistoryMore: historyMore, Connecting: true}, nil
+	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages, HistoryMore: historyMore, Connecting: true, Status: accountStatus(acct.Status)}, nil
 }
 
 // connectAccountLive dials sess's account, publishes our GPG key, and fetches
@@ -186,7 +211,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 // entries only, with message indices relative to a Chats slice that starts
 // right after existingChatCount, so the caller can append rather than
 // replace what's already displayed.
-func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int) ([]list.Item, map[int][]ui.Message, map[int]bool, error) {
+func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int, show string) ([]list.Item, map[int][]ui.Message, map[int]bool, error) {
 	debugf("account %s: resolving password", sess.account.JID)
 	start := time.Now()
 	password, err := sess.account.ResolvePassword(sess.useKeyring)
@@ -207,6 +232,12 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	sess.tlsConfig = tlsConfig
 	client.Debugf = debugf
 	sess.client.Store(client)
+
+	if show != "" {
+		if err := client.SetPresence(ctx, show); err != nil {
+			debugf("warning: setting initial presence (%s) for %s: %v\n", show, sess.account.JID, err)
+		}
+	}
 
 	if sess.useGPG && sess.account.GPGKeyID != "" {
 		debugf("account %s: publishOwnGPGKey starting", sess.account.JID)
@@ -282,10 +313,11 @@ func connectAccount(ctx context.Context, acct config.Account, queries *storage.Q
 	sess.useGPG = useGPG
 	sess.useKeyring = useKeyring
 
-	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
+	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats), "")
 	if err != nil {
 		return nil, ui.Account{}, err
 	}
+	uiAcct.Status = ui.PresenceOnline
 
 	uiAcct.Chats = append(uiAcct.Chats, newChats...)
 	if uiAcct.Messages == nil {
@@ -338,6 +370,11 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 			var client *xmpp.Client
 			client, err = xmpp.Dial(ctx, s.account.JID, password, s.tlsConfig)
 			if err == nil {
+				if show := presenceShow(accountStatus(s.account.Status)); show != "" {
+					if err := client.SetPresence(ctx, show); err != nil {
+						debugf("warning: restoring presence (%s) for %s after reconnect: %v\n", show, s.account.JID, err)
+					}
+				}
 				s.client.Store(client)
 				debugf("account %s reconnected\n", s.account.JID)
 				return
@@ -432,15 +469,59 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 	}
 }
 
-// mapPresence reduces an xmpp.PresenceEvent to the UI's coarse online/away/
-// offline distinction.
+// accountStatus maps a config.Account's Status field ("", "chat", "away",
+// "xa", "dnd", or "offline") to the UI's Presence enum; "" defaults to
+// online.
+func accountStatus(status string) ui.Presence {
+	switch status {
+	case "chat":
+		return ui.PresenceChat
+	case "away":
+		return ui.PresenceAway
+	case "xa":
+		return ui.PresenceXA
+	case "dnd":
+		return ui.PresenceDND
+	case "offline":
+		return ui.PresenceOffline
+	default:
+		return ui.PresenceOnline
+	}
+}
+
+// presenceShow maps a ui.Presence to the <show/> value SetPresence should
+// send: "" for online (no <show/> at all), the RFC 6121 §4.7.2.1 value name
+// otherwise (offline is handled separately, by not connecting/by
+// disconnecting rather than by any presence stanza).
+func presenceShow(status ui.Presence) string {
+	switch status {
+	case ui.PresenceChat:
+		return "chat"
+	case ui.PresenceAway:
+		return "away"
+	case ui.PresenceXA:
+		return "xa"
+	case ui.PresenceDND:
+		return "dnd"
+	default:
+		return ""
+	}
+}
+
+// mapPresence reduces an xmpp.PresenceEvent to the UI's Presence enum.
 func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 	if !ev.Available {
 		return ui.PresenceOffline
 	}
 	switch ev.Show {
-	case "away", "xa", "dnd":
+	case "chat":
+		return ui.PresenceChat
+	case "away":
 		return ui.PresenceAway
+	case "xa":
+		return ui.PresenceXA
+	case "dnd":
+		return ui.PresenceDND
 	default:
 		return ui.PresenceOnline
 	}

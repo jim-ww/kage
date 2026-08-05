@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"log"
+	"os"
 	"os/exec"
+	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -40,10 +43,34 @@ func Run(cfg config.Config) error {
 		lockFile.Close()
 	}()
 
+	// Record our PID in the (still-held) lock file so kage's SignalReload
+	// can find us later - the flock above is what actually enforces
+	// single-instance, this is just a lookup aid piggybacking on the same
+	// file.
+	if err := lockFile.Truncate(0); err == nil {
+		lockFile.WriteAt([]byte(strconv.Itoa(os.Getpid())), 0)
+	}
+
 	log.Printf("notifyd: starting for %d account(s)", len(cfg.Accounts))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	d := &daemon{ctx: ctx, cfgPath: cfg.Path, watchers: make(map[string]context.CancelFunc)}
+
+	sighup := make(chan os.Signal, 1)
+	signal.Notify(sighup, syscall.SIGHUP)
+	defer signal.Stop(sighup)
+	go func() {
+		for {
+			select {
+			case <-sighup:
+				d.reload()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	onReady := func() {
 		systray.SetIcon(iconPNG)
@@ -57,14 +84,7 @@ func Run(cfg config.Config) error {
 			systray.Quit()
 		}()
 
-		var wg sync.WaitGroup
-		for _, acct := range cfg.Accounts {
-			wg.Add(1)
-			go func(acct config.Account) {
-				defer wg.Done()
-				watchAccount(ctx, acct, cfg.UseKeyring)
-			}(acct)
-		}
+		d.start(cfg)
 	}
 	onExit := func() {
 		log.Println("notifyd: exiting")
@@ -72,6 +92,75 @@ func Run(cfg config.Config) error {
 
 	systray.Run(onReady, onExit)
 	return nil
+}
+
+// daemon tracks which accounts are currently being watched, so a SIGHUP
+// (sent by kage's adapter whenever an account's status changes - see
+// SignalReload) can start/stop individual accounts without restarting the
+// whole process or disturbing accounts nothing changed for.
+type daemon struct {
+	ctx     context.Context
+	cfgPath string
+
+	mu       sync.Mutex
+	watchers map[string]context.CancelFunc // JID -> cancel for its watchAccount goroutine
+}
+
+// start begins watching every non-offline account in cfg that isn't already
+// being watched.
+func (d *daemon) start(cfg config.Config) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, acct := range cfg.Accounts {
+		d.startLocked(acct, cfg.UseKeyring)
+	}
+}
+
+// startLocked is start's non-locking core - callers must hold d.mu.
+func (d *daemon) startLocked(acct config.Account, useKeyring bool) {
+	if acct.Status == "offline" {
+		return
+	}
+	if _, ok := d.watchers[acct.JID]; ok {
+		return
+	}
+	acctCtx, cancel := context.WithCancel(d.ctx)
+	d.watchers[acct.JID] = cancel
+	go watchAccount(acctCtx, acct, useKeyring)
+}
+
+// reload re-reads config.toml and reconciles the running watchers against
+// it: accounts that became offline (or were removed) are stopped, accounts
+// that became online (or were added) are started. Accounts whose status
+// didn't change are left running untouched - no reconnect glitch just from
+// an unrelated account's status flipping.
+func (d *daemon) reload() {
+	cfg, err := config.Load(d.cfgPath)
+	if err != nil {
+		log.Printf("notifyd: reload: loading config: %v", err)
+		return
+	}
+	log.Printf("notifyd: reload: re-read config (%d accounts)", len(cfg.Accounts))
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	wanted := make(map[string]bool, len(cfg.Accounts))
+	for _, acct := range cfg.Accounts {
+		if acct.Status != "offline" {
+			wanted[acct.JID] = true
+		}
+	}
+	for jid, cancel := range d.watchers {
+		if !wanted[jid] {
+			log.Printf("notifyd: reload: stopping %s (now offline or removed)", jid)
+			cancel()
+			delete(d.watchers, jid)
+		}
+	}
+	for _, acct := range cfg.Accounts {
+		d.startLocked(acct, cfg.UseKeyring)
+	}
 }
 
 // watchAccount dials acct and forwards every live incoming message to

@@ -92,6 +92,21 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	return c, nil
 }
 
+// SetPresence updates our advertised availability: show is "" for plain
+// online, or "away"/"xa"/"dnd" per RFC 6121 §4.7.2.1. Re-sends our XEP-0115
+// caps too, same as Dial's initial presence, so a status change never drops
+// the capabilities advertisement contacts rely on to discover OMEMO support.
+func (c *Client) SetPresence(ctx context.Context, show string) error {
+	children := []xml.TokenReader{discoCaps().TokenReader()}
+	if show != "" {
+		children = append(children, xmlstream.Wrap(
+			xmlstream.Token(xml.CharData(show)),
+			xml.StartElement{Name: xml.Name{Local: "show"}},
+		))
+	}
+	return c.session.Send(ctx, stanza.Presence{Type: stanza.AvailablePresence}.Wrap(xmlstream.MultiReader(children...)))
+}
+
 // serve reads the session's stream until it closes, dispatching incoming
 // stanzas to c.events. It must run for the entire lifetime of the session —
 // SendIQ (used by Roster, and internally by presence/message delivery

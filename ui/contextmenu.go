@@ -96,5 +96,43 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 	return []contextMenuItem{
 		{label: "Switch to", run: func(m *Model) tea.Cmd { return m.switchAccount(idx) }},
 		{label: "Make default", run: func(m *Model) tea.Cmd { return m.actionMakeDefaultAccount(idx) }},
+		{label: "Status", run: func(m *Model) tea.Cmd { return m.actionOpenAccountStatusMenu(idx) }},
 	}
+}
+
+// accountStatuses lists every selectable account status, in the order
+// offered by actionOpenAccountStatusMenu.
+var accountStatuses = []Presence{PresenceOnline, PresenceChat, PresenceAway, PresenceXA, PresenceDND, PresenceOffline}
+
+// actionOpenAccountStatusMenu opens a picker submenu (account row context
+// menu's "Status") listing every status with the current one marked, so
+// picking one sets it directly — mirrors actionOpenEncryptionMenu.
+func (m *Model) actionOpenAccountStatusMenu(idx int) tea.Cmd {
+	if idx < 0 || idx >= len(m.accounts) || m.accountStatusSetter == nil {
+		return nil
+	}
+	current := m.accounts[idx].Status
+	items := make([]contextMenuItem, 0, len(accountStatuses))
+	for _, status := range accountStatuses {
+		label := presenceLabel(status)
+		if status == current {
+			label = "✓ " + label
+		}
+		items = append(items, contextMenuItem{
+			label: label,
+			run:   func(m *Model) tea.Cmd { return m.actionSetAccountStatus(idx, status) },
+		})
+	}
+	m.openContextMenu(items)
+	return nil
+}
+
+// actionSetAccountStatus sets account idx's status directly (the status
+// picker's per-status entries) — runs as a tea.Cmd since it may dial or
+// disconnect the account over the network.
+func (m *Model) actionSetAccountStatus(idx int, status Presence) tea.Cmd {
+	if idx < 0 || idx >= len(m.accounts) || m.accountStatusSetter == nil {
+		return nil
+	}
+	return func() tea.Msg { return m.accountStatusSetter.SetAccountStatus(idx, status) }
 }

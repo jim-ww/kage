@@ -19,6 +19,7 @@ const (
 	zonePaneViewport   = "pane-viewport"
 	zonePaneInput      = "pane-input"
 	zonePaneAccountBar = "pane-account-bar"
+	zoneChatStatusBar  = "chat-status-bar"
 	zoneSendButton     = "send-button"
 	zoneToggleSidebar  = "toggle-sidebar-button"
 )
@@ -286,6 +287,10 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.lastClickTime = time.Time{}
 		m.input.Blur()
 		return m, nil
+	}
+
+	if m.zone.Get(zoneChatStatusBar).InBounds(msg) {
+		return m, m.actionOpenAccountStatusMenu(m.currentAccount)
 	}
 
 	for i := range m.accounts {

@@ -256,6 +256,30 @@ type HistorySyncFinishedMsg struct {
 	AccountIdx int
 }
 
+// AccountStatusSetter changes and persists a configured account's own
+// presence status (online/away/offline), implemented outside ui (main.go's
+// adapter) so ui stays decoupled from the network/config layers. Setting
+// PresenceOffline disconnects the account entirely (no further traffic to
+// its server until switched back); setting Online/Away on a currently
+// offline account dials it. Runs on the Bubble Tea event loop's goroutine via
+// a tea.Cmd, like AccountAdder.AddAccount, since it may block on network I/O.
+type AccountStatusSetter interface {
+	SetAccountStatus(accountIdx int, status Presence) tea.Msg
+}
+
+// AccountStatusSetMsg reports the result of AccountStatusSetter.SetAccountStatus.
+// NewChats/NewMessages/NewHistoryMore carry any contacts discovered while
+// bringing a previously-offline account online, indexed the same way as
+// AccountLiveMsg's — empty when no (re)connect was needed.
+type AccountStatusSetMsg struct {
+	Index          int
+	Status         Presence
+	NewChats       []list.Item
+	NewMessages    map[int][]Message
+	NewHistoryMore map[int]bool
+	Err            error
+}
+
 // DefaultAccountSetter persists which account should be selected on startup,
 // implemented outside ui (main.go's adapter) so ui stays decoupled from the
 // config layer. It's a local file write, not network I/O, so ui calls it

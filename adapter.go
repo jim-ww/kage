@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/aesgcm"
+	"github.com/jim-ww/kage/notifyd"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
@@ -73,6 +74,85 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	go superviseAccount(ctx, a.program, accountIdx, sess)
 
 	return ui.AccountAddedMsg{Account: uiAcct}
+}
+
+// statusConfigValue is the inverse of accountStatus: the config.toml value to
+// persist for a ui.Presence account status ("" for online).
+func statusConfigValue(status ui.Presence) string {
+	switch status {
+	case ui.PresenceChat:
+		return "chat"
+	case ui.PresenceAway:
+		return "away"
+	case ui.PresenceXA:
+		return "xa"
+	case ui.PresenceDND:
+		return "dnd"
+	case ui.PresenceOffline:
+		return "offline"
+	default:
+		return ""
+	}
+}
+
+// SetAccountStatus implements ui.AccountStatusSetter: persists the chosen
+// status to config.toml (so a restart comes back up the same way), then
+// applies it live - closing the connection outright for PresenceOffline (no
+// further traffic to that account's server at all), dialing a currently
+// offline account back up for PresenceOnline/PresenceAway, or just updating
+// the advertised <show/> in place when already connected.
+func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return ui.AccountStatusSetMsg{Index: accountIdx, Err: fmt.Errorf("unknown account %d", accountIdx)}
+	}
+	if err := config.SetAccountStatus(a.cfgPath, sess.account.JID, statusConfigValue(status)); err != nil {
+		return ui.AccountStatusSetMsg{Index: accountIdx, Err: fmt.Errorf("persisting status: %w", err)}
+	}
+	sess.account.Status = statusConfigValue(status)
+	// Best-effort: notifyd is a separate detached process that only reads
+	// config.toml at its own startup, so it needs telling explicitly that an
+	// account's status changed - a missing/unreachable notifyd just means no
+	// notifications, never a reason to fail the status change itself.
+	if err := notifyd.SignalReload(); err != nil {
+		debugf("warning: signaling notifyd to reload after status change: %v\n", err)
+	}
+
+	ctx := context.Background()
+	client, offlineErr := sess.liveClient()
+	online := offlineErr == nil
+
+	if status == ui.PresenceOffline {
+		if online {
+			if err := client.Close(); err != nil {
+				debugf("warning: closing %s while going offline: %v\n", sess.account.JID, err)
+			}
+		}
+		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status}
+	}
+
+	show := presenceShow(status)
+	if online {
+		if err := client.SetPresence(ctx, show); err != nil {
+			return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: fmt.Errorf("updating presence: %w", err)}
+		}
+		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status}
+	}
+
+	// Was offline (never dialed, or previously disconnected) - dial it now.
+	existing := 0
+	if roster := sess.roster.Load(); roster != nil {
+		existing = len(*roster)
+	}
+	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, existing, show)
+	if err != nil {
+		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
+	}
+	go superviseAccount(ctx, a.program, accountIdx, sess)
+	return ui.AccountStatusSetMsg{
+		Index: accountIdx, Status: status,
+		NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore,
+	}
 }
 
 // session returns the accountSession at accountIdx, guarded by mu since
@@ -248,11 +328,15 @@ func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
 	if !ok {
 		return fmt.Errorf("unknown account %d", accountIdx)
 	}
+	client, err := s.liveClient()
+	if err != nil {
+		return err
+	}
 	state := xmpp.ChatStateActive
 	if composing {
 		state = xmpp.ChatStateComposing
 	}
-	return s.client.Load().SendChatState(context.Background(), to, state)
+	return client.SendChatState(context.Background(), to, state)
 }
 
 // RenameContact implements ui.ContactRenamer: pushes name as a roster set
@@ -266,7 +350,11 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 		return fmt.Errorf("unknown account %d", accountIdx)
 	}
 
-	if err := s.client.Load().SetRosterName(context.Background(), address, name); err != nil {
+	client, err := s.liveClient()
+	if err != nil {
+		return err
+	}
+	if err := client.SetRosterName(context.Background(), address, name); err != nil {
 		return err
 	}
 
@@ -302,7 +390,11 @@ func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
 	}
 
 	ctx := context.Background()
-	if err := s.client.Load().AddContact(ctx, address, ""); err != nil {
+	client, err := s.liveClient()
+	if err != nil {
+		return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+	}
+	if err := client.AddContact(ctx, address, ""); err != nil {
 		return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: err}
 	}
 
@@ -333,7 +425,11 @@ func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
 	}
 
 	ctx := context.Background()
-	if err := s.client.Load().RemoveContact(ctx, address); err != nil {
+	client, err := s.liveClient()
+	if err != nil {
+		return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+	}
+	if err := client.RemoveContact(ctx, address); err != nil {
 		return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: err}
 	}
 
@@ -382,9 +478,13 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	if !valid {
 		return "", fmt.Errorf("unknown account %d", accountIdx)
 	}
+	client, err := s.liveClient()
+	if err != nil {
+		return "", err
+	}
 
 	if opts.ReactionTargetID != "" {
-		id, err := s.client.Load().Send(ctx, to, "", xmpp.SendOptions{
+		id, err := client.Send(ctx, to, "", xmpp.SendOptions{
 			ReactionTargetID: opts.ReactionTargetID,
 			Reactions:        opts.Reactions,
 		})
@@ -401,7 +501,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		// The retraction body is fixed fallback text, not user content —
 		// nothing to encrypt for the peer. Once the peer's been told to
 		// retract it, there's no reason to keep our own copy either.
-		id, err := s.client.Load().Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID})
+		id, err := client.Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID})
 		if err != nil {
 			return "", err
 		}
@@ -501,7 +601,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}
 	}
 
-	id, err := s.client.Load().Send(ctx, to, wireBody, sendOpts)
+	id, err := client.Send(ctx, to, wireBody, sendOpts)
 	if err != nil {
 		return "", err
 	}
@@ -553,6 +653,11 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 		result.Err = fmt.Errorf("unknown account %d", accountIdx)
 		return result
 	}
+	client, err := s.liveClient()
+	if err != nil {
+		result.Err = err
+		return result
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -567,7 +672,6 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	}
 
 	var url string
-	var err error
 
 	if encryptFile {
 		// Encrypt file with AES-256-GCM before upload (XEP-0454)
@@ -586,7 +690,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 
 		// Upload encrypted data
 		reader := bytes.NewReader(ciphertext)
-		url, err = s.client.Load().UploadFileWithReader(ctx, path, reader)
+		url, err = client.UploadFileWithReader(ctx, path, reader)
 		if err != nil {
 			result.Err = fmt.Errorf("uploading encrypted file: %w", err)
 			return result
@@ -600,7 +704,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 		}
 	} else {
 		// Unencrypted upload
-		url, err = s.client.Load().UploadFile(ctx, path)
+		url, err = client.UploadFile(ctx, path)
 		if err != nil {
 			result.Err = err
 			return result

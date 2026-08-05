@@ -16,3 +16,8 @@ func EnsureRunning(cfgPath string) error {
 func Run(cfg config.Config) error {
 	return nil
 }
+
+// SignalReload is a no-op outside Linux; see EnsureRunning.
+func SignalReload() error {
+	return nil
+}

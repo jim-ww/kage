@@ -135,6 +135,7 @@ type Model struct {
 	chatEncryptionSetter ChatEncryptionSetter
 	lastChatSetter       LastChatSetter
 	historyLoader        HistoryLoader
+	accountStatusSetter  AccountStatusSetter
 
 	// loadingOlderHistory marks chat indices with a LoadOlderHistory fetch
 	// currently in flight, so scrolling/MsgUp near the top of a long history
@@ -247,6 +248,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	historyLoader, _ := sender.(HistoryLoader)
 	deviceManager, _ := sender.(OmemoDeviceManager)
 	contactManager, _ := sender.(ContactManager)
+	accountStatusSetter, _ := sender.(AccountStatusSetter)
 
 	return Model{
 		selectedView:           viewChat,
@@ -284,6 +286,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		inputHeightSetter:      inputHeightSetter,
 		lastChatSetter:         lastChatSetter,
 		historyLoader:          historyLoader,
+		accountStatusSetter:    accountStatusSetter,
 		loadingOlderHistory:    make(map[int]bool),
 		pendingOpenChatAddress: openLastChatAddress,
 		sidebarWidthOverride:   initialSidebarWidth,

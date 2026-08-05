@@ -73,15 +73,27 @@ type Account struct {
 	// Purely informational — chats and messages already stream in as pages
 	// arrive, this just tells the user why more keep showing up.
 	SyncingHistory bool
+
+	// Status is this account's own configured presence: any Presence value
+	// (PresenceOnline by default). Distinct from Connecting - an offline
+	// account is never dialed at all, so it's never "connecting". Set by
+	// AccountStatusSetter and persisted to config so it's restored on the
+	// next startup.
+	Status Presence
 }
 
-// Presence is a contact's coarse online status.
+// Presence is a contact's (or, for Account.Status, our own) online status —
+// the full RFC 6121 §4.7.2.1 <show/> vocabulary, plus Offline for
+// type="unavailable" (a plain presence, absent <show/>, is PresenceOnline).
 type Presence int
 
 const (
 	PresenceOffline Presence = iota // default: never seen online, or explicitly unavailable
-	PresenceAway
-	PresenceOnline
+	PresenceDND                     // <show>dnd</show>: do not disturb
+	PresenceXA                      // <show>xa</show>: extended away
+	PresenceAway                    // <show>away</show>
+	PresenceOnline                  // no <show/>: plain available
+	PresenceChat                    // <show>chat</show>: actively free to chat
 )
 
 type Chat struct {

@@ -321,7 +321,7 @@ func main() {
 	// first.
 	uiAccounts := make([]ui.Account, len(cfg.Accounts))
 	for i, acct := range cfg.Accounts {
-		uiAccounts[i] = ui.Account{Name: acct.JID, Connecting: true}
+		uiAccounts[i] = ui.Account{Name: acct.JID, Connecting: true, Status: accountStatus(acct.Status)}
 	}
 	sender := &adapter{sessions: make([]*accountSession, len(cfg.Accounts)), cfgPath: cfg.Path, queries: queries, localKey: localKey, useGPG: cfg.UseGPG, useKeyring: cfg.UseKeyring}
 	defer func() {

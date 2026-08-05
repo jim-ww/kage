@@ -154,7 +154,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 	statusWidth := max(0, m.chatAreaWidth()-lipgloss.Width(toggleBtn))
 	chatStatus := lipgloss.JoinHorizontal(lipgloss.Top,
 		toggleBtn,
-		m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth)),
+		m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 }
@@ -426,8 +426,15 @@ func (m Model) renderAccountsList(width int) string {
 		case account.SyncingHistory:
 			label = account.Name + " (syncing history…)"
 		}
-		name := ansi.Truncate(label, max(1, width-3), "…") // -3 for border + padding
-		rows[i] = m.zone.Mark(zoneAccountRow(i), m.styles.renderAccountRow(name, i == m.currentAccount, m.isHovered(zoneAccountRow(i))))
+		// The glyph is rendered separately and prepended after styling the
+		// rest of the row, never passed through renderAccountRow's own
+		// style.Render - that call ends in a full ANSI reset, and wrapping
+		// it in another style (hover's Underline) produces broken/nested
+		// escape sequences that some terminals show as raw text instead of
+		// rendering (see the same reasoning in renderChatStatusBar).
+		name := ansi.Truncate(label, max(1, width-5), "…") // -5 for border + padding + glyph + space
+		row := m.styles.renderAccountRow(name, i == m.currentAccount, m.isHovered(zoneAccountRow(i)))
+		rows[i] = m.zone.Mark(zoneAccountRow(i), presenceGlyph(account.Status)+" "+row)
 	}
 	return strings.Join(rows, "\n")
 }

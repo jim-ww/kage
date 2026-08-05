@@ -17,6 +17,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -68,6 +70,36 @@ func acquireLock(path string) (f *os.File, ok bool, err error) {
 		return nil, false, nil
 	}
 	return f, true, nil
+}
+
+// SignalReload sends SIGHUP to the currently running notifyd (identified by
+// the PID Run recorded in its lock file when it started), asking it to
+// re-read config.toml and adjust which accounts it's watching accordingly -
+// see daemon_linux.go's sighup handling. A no-op (nil error) if no notifyd
+// is running, or its recorded PID is stale.
+func SignalReload() error {
+	lockPath, err := lockFilePath()
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return nil
+	}
+	if err := syscall.Kill(pid, syscall.SIGHUP); err != nil {
+		if err == syscall.ESRCH {
+			return nil // stale pid, process is gone
+		}
+		return err
+	}
+	return nil
 }
 
 // EnsureRunning starts a detached notifyd for cfgPath's config unless one is
