@@ -32,6 +32,15 @@ type messageBody struct {
 	Request  *struct{}    `xml:"urn:xmpp:receipts request"`
 	Received *receiptElem `xml:"urn:xmpp:receipts received"`
 
+	// XEP-0280 message carbons: the server wraps a copy of a message another
+	// of our resources sent/received in one of these, forwarding it to us.
+	// At most one is set. The inner message is decoded raw (not as a nested
+	// messageBody) because encoding/xml can't recurse into an unbounded
+	// wrapper depth declaratively - handleStanza re-decodes CarbonMessage
+	// itself once it knows which of the two fired.
+	CarbonReceived *carbonElem `xml:"urn:xmpp:carbons:2 received"`
+	CarbonSent     *carbonElem `xml:"urn:xmpp:carbons:2 sent"`
+
 	// XEP-0085 chat state notification: at most one of these is set, on
 	// send or receive. Modeled as five separate pointer fields (rather than
 	// a single element with a variant name) because encoding/xml matches
@@ -87,6 +96,15 @@ func (msg *messageBody) setChatState(state ChatState) {
 	default:
 		msg.Active = &struct{}{}
 	}
+}
+
+// carbonElem is XEP-0280's <received/>/<sent/> wrapper: a <forwarded/>
+// (XEP-0297) holding the original <message/> another of our resources
+// sent or received.
+type carbonElem struct {
+	Forwarded struct {
+		Message messageBody `xml:"jabber:client message"`
+	} `xml:"urn:xmpp:forward:0 forwarded"`
 }
 
 // pubsubEventElem is a XEP-0060 PEP push notification, delivered as a

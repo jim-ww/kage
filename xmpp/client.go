@@ -89,7 +89,30 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 		c.Close()
 		return nil, fmt.Errorf("sending initial presence: %w", err)
 	}
+
+	// XEP-0280: ask the server to carbon-copy messages sent/received by our
+	// other resources to us too. Without this, a message addressed to our
+	// bare JID is delivered to only one connected resource (server's choice,
+	// commonly whichever is most recently active) - fine for a single
+	// client, but it means a second resource on the same account (notifyd,
+	// running alongside the TUI) can go "connected" and never see a single
+	// message. Best-effort: an older server without carbons support just
+	// means no benefit, not a failed connection.
+	if err := c.enableCarbons(ctx); err != nil && c.Debugf != nil {
+		c.Debugf("enabling message carbons: %v", err)
+	}
 	return c, nil
+}
+
+const carbonsNS = "urn:xmpp:carbons:2"
+
+func (c *Client) enableCarbons(ctx context.Context) error {
+	iq := stanza.IQ{Type: stanza.SetIQ, ID: randomID()}
+	rc, err := c.session.SendIQElement(ctx, xmlstream.Wrap(nil, xml.StartElement{Name: xml.Name{Space: carbonsNS, Local: "enable"}}), iq)
+	if err != nil {
+		return err
+	}
+	return rc.Close()
 }
 
 // SetPresence updates our advertised availability: show is "" for plain
