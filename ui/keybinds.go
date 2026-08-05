@@ -22,7 +22,7 @@ type KeyMap struct {
 	YankMsg        key.Binding // Ctrl+Y — yank selected message
 	EditMsg        key.Binding // Ctrl+E — edit (only last own message)
 	ReplyMsg       key.Binding // Ctrl+R — reply to selected message
-	InfoMsg        key.Binding // Ctrl+G — show message info popup
+	InfoMsg        key.Binding // Ctrl+I — show message info popup
 	OpenMsg        key.Binding // Ctrl+O — open links/attachments in selected message
 	SaveMsg        key.Binding // Ctrl+W — save links/attachments in selected message to disk
 	ReactMsg       key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
@@ -89,7 +89,7 @@ var DefaultKeyMap = KeyMap{
 	YankMsg:        NewBinding([]string{"ctrl+y"}, "yank"),
 	EditMsg:        NewBinding([]string{"ctrl+e"}, "edit (own last)"),
 	ReplyMsg:       NewBinding([]string{"ctrl+r"}, "reply"),
-	InfoMsg:        NewBinding([]string{"ctrl+g"}, "message info"),
+	InfoMsg:        NewBinding([]string{"ctrl+i"}, "message info"),
 	OpenMsg:        NewBinding([]string{"ctrl+o"}, "open links/attachments"),
 	SaveMsg:        NewBinding([]string{"ctrl+w"}, "save links/attachments"),
 	ReactMsg:       NewBinding([]string{"ctrl+t"}, "react"),

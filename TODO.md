@@ -3,7 +3,6 @@
 - fix: not all keybinds are bound to key-codes? e.g. account manager -> 'c'
 - chat view: add attach file, emoji buttons
 - show encryption information in message info
-- set ctrl+i bind for info
 - message status? 'sent' / 'delivered' icons?
 - speed up chat view (messages render)
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
