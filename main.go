@@ -275,7 +275,9 @@ func main() {
 		}
 	}
 
-	ensureGPGKeys(&cfg)
+	if cfg.UseGPG {
+		ensureGPGKeys(&cfg)
+	}
 	if cfg.HistoryPageSize > 0 {
 		historyPageSize = cfg.HistoryPageSize
 	}
@@ -292,7 +294,9 @@ func main() {
 	}
 	defer dbConn.Close()
 
-	primeGPGAgent(context.Background(), queries, cfg.Accounts)
+	if cfg.UseGPG {
+		primeGPGAgent(context.Background(), queries, cfg.Accounts)
+	}
 
 	localKey, err := loadLocalKey(cfg.Storage, queries)
 	if err != nil {
@@ -313,7 +317,7 @@ func main() {
 	for i, acct := range cfg.Accounts {
 		uiAccounts[i] = ui.Account{Name: acct.JID, Connecting: true}
 	}
-	sender := &adapter{sessions: make([]*accountSession, len(cfg.Accounts)), cfgPath: cfg.Path, queries: queries, localKey: localKey}
+	sender := &adapter{sessions: make([]*accountSession, len(cfg.Accounts)), cfgPath: cfg.Path, queries: queries, localKey: localKey, useGPG: cfg.UseGPG}
 	defer func() {
 		sender.mu.Lock()
 		defer sender.mu.Unlock()
@@ -333,6 +337,7 @@ func main() {
 	}
 	display := ui.DisplayOptions{
 		Icons:              cfg.UI.Icons,
+		UseGPG:             cfg.UseGPG,
 		ShowNames:          cfg.UI.ShowNames,
 		TimeLayout:         cfg.UI.TimeLayout,
 		TimeOnlyToday:      cfg.UI.TimeOnlyToday,

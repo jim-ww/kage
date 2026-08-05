@@ -27,6 +27,7 @@ type fileConfig struct {
 	LastChatAccount    string         `toml:"last_chat_account,omitempty"`     // JID of the account owning the last opened chat
 	LastChatAddress    string         `toml:"last_chat_address,omitempty"`     // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
 	Notifications      *bool          `toml:"notifications"`                   // nil (unset) means the default: on; whether to spawn the desktop notification daemon
+	UseGPG             *bool          `toml:"use_gpg"`                         // nil (unset) means the default: on; whether gpg encryption is available at all
 	HistoryPageSize    int            `toml:"history_page_size,omitempty"`     // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
 	MaxMessagesPerChat int            `toml:"max_messages_per_chat,omitempty"` // cap on messages kept in memory/view per chat; 0 (unset) means the default
 	Storage            StorageConfig  `toml:"storage"`
@@ -63,6 +64,10 @@ type Config struct {
 	// Notifications controls whether the desktop notification daemon is
 	// spawned on startup. On by default.
 	Notifications bool
+	// UseGPG controls whether gpg encryption is available at all: when off,
+	// kage never shells out to gpg (no gpg-agent/keyring prompts) and "gpg"
+	// is hidden from the per-chat encryption picker. On by default.
+	UseGPG bool
 	// DefaultAccountIdx is the index into Accounts selected on startup,
 	// resolved from the default_account JID setting. 0 (the first account)
 	// when unset or when the configured JID doesn't match any account.
@@ -111,6 +116,7 @@ func Load(path string) (Config, error) {
 			Icons:         true,
 		},
 		Notifications:      true,
+		UseGPG:             true,
 		HistoryPageSize:    DefaultHistoryPageSize,
 		MaxMessagesPerChat: DefaultMaxMessagesPerChat,
 	}
@@ -146,6 +152,9 @@ func Load(path string) (Config, error) {
 			}
 			if cfg.Notifications != nil {
 				cfgOut.Notifications = *cfg.Notifications
+			}
+			if cfg.UseGPG != nil {
+				cfgOut.UseGPG = *cfg.UseGPG
 			}
 			if cfg.HistoryPageSize > 0 {
 				cfgOut.HistoryPageSize = cfg.HistoryPageSize

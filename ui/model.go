@@ -41,6 +41,10 @@ type Model struct {
 	// plain-text [tag] fallback — on only when the user's config opts in.
 	icons bool
 
+	// useGPG mirrors config's use_gpg: whether gpg encryption is available
+	// at all. When off, "gpg" is hidden from the per-chat encryption picker.
+	useGPG bool
+
 	// showNames shows the sender's name in the message header instead of
 	// just the «/» direction glyph.
 	showNames bool
@@ -183,6 +187,7 @@ type DisplayOptions struct {
 	TimeLayout         string // custom Go time layout for message timestamps; empty means the default
 	TimeOnlyToday      bool   // with the default time layout, show time-only for messages sent today instead of a full date
 	MaxMessagesPerChat int    // cap on messages kept per chat in memory/view; <= 0 means no cap
+	UseGPG             bool   // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
 }
 
 func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, display DisplayOptions) Model {
@@ -252,6 +257,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		mouseEnabled:           mouseEnabled,
 		maxMessagesPerChat:     display.MaxMessagesPerChat,
 		icons:                  display.Icons,
+		useGPG:                 display.UseGPG,
 		showNames:              display.ShowNames,
 		timeLayout:             display.TimeLayout,
 		timeOnlyToday:          display.TimeOnlyToday,

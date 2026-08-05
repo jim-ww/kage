@@ -120,7 +120,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			body = string(pt)
 		}
 	}
-	if gpg.Looks(body) {
+	if s.useGPG && gpg.Looks(body) {
 		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])
 		if err != nil {
 			debugf("warning: decrypting message from %s: %v\n", msgEv.From, err)

@@ -66,16 +66,19 @@ func (m *Model) actionOpenEncryptionMenu() tea.Cmd {
 	}
 
 	current := encryptionModeOrDefault(chat.EncryptionMode)
-	menuItems := make([]contextMenuItem, len(encryptionModes))
-	for i, mode := range encryptionModes {
+	menuItems := make([]contextMenuItem, 0, len(encryptionModes))
+	for _, mode := range encryptionModes {
+		if mode == "gpg" && !m.useGPG {
+			continue
+		}
 		label := mode
 		if mode == current {
 			label = "✓ " + mode
 		}
-		menuItems[i] = contextMenuItem{
+		menuItems = append(menuItems, contextMenuItem{
 			label: label,
 			run:   func(m *Model) tea.Cmd { return m.actionSetChatEncryption(mode) },
-		}
+		})
 	}
 	m.openContextMenu(menuItems)
 	return nil

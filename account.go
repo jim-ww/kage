@@ -30,6 +30,7 @@ type accountSession struct {
 	tlsConfig *tls.Config      // reused on reconnect; nil means Dial's default verified config
 	db        *storage.Queries // shared across every account: one database, rows scoped by account.JID
 	gpg       gpg.Encrypter
+	useGPG    bool // mirrors config.UseGPG; gates gpg encrypt/decrypt on incoming/outgoing messages
 	// omemoMgrV2/omemoMgrV1 are nil until connectAccountLive sets them up
 	// (needs a dialed client for its Transport). Both run concurrently: this
 	// account maintains a separate identity/device pool per OMEMO protocol
@@ -89,6 +90,7 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
 		return
 	}
+	sess.useGPG = a.useGPG
 	debugf("account %s: connectAccountLocal done in %s (%d chats)", acct.JID, time.Since(start), len(uiAcct.Chats))
 	p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
 
@@ -204,7 +206,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	client.Debugf = debugf
 	sess.client.Store(client)
 
-	if sess.account.GPGKeyID != "" {
+	if sess.useGPG && sess.account.GPGKeyID != "" {
 		debugf("account %s: publishOwnGPGKey starting", sess.account.JID)
 		start = time.Now()
 		publishOwnGPGKey(ctx, sess)
@@ -270,11 +272,12 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 // AddAccount, where the account is brand new (no local history to show
 // instantly) and the whole connect already runs off the Bubble Tea event
 // loop via a tea.Cmd, so there's nothing to gain from doing it in two steps.
-func connectAccount(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte) (*accountSession, ui.Account, error) {
+func connectAccount(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte, useGPG bool) (*accountSession, ui.Account, error) {
 	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
 	if err != nil {
 		return nil, ui.Account{}, err
 	}
+	sess.useGPG = useGPG
 
 	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats))
 	if err != nil {
@@ -599,7 +602,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				} else {
 					body = string(pt)
 				}
-			} else if gpg.Looks(body) {
+			} else if s.useGPG && gpg.Looks(body) {
 				if pt, err := s.gpg.Decrypt(body, ""); err == nil {
 					body = pt
 				}

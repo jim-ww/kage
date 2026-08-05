@@ -31,6 +31,7 @@ type adapter struct {
 	program  *tea.Program
 	queries  *storage.Queries
 	localKey []byte
+	useGPG   bool
 }
 
 // AddAccount implements ui.AccountAdder: resolves and stores the password in
@@ -53,7 +54,7 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	}
 
 	ctx := context.Background()
-	sess, uiAcct, err := connectAccount(ctx, acct, a.queries, a.localKey)
+	sess, uiAcct, err := connectAccount(ctx, acct, a.queries, a.localKey, a.useGPG)
 	if err != nil {
 		return ui.AccountAddErrorMsg{Err: err}
 	}
@@ -480,6 +481,9 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			return "", fmt.Errorf("omemo(%s) isn't ready for this account; message not sent", protocol)
 		}
 	case "gpg":
+		if !a.useGPG {
+			return "", fmt.Errorf("gpg encryption is disabled (use_gpg is off); message not sent")
+		}
 		if peerKey := resolvePeerKey(ctx, s, to); peerKey != "" {
 			ct, err := s.gpg.Encrypt(plaintext, peerKey)
 			if err != nil {
@@ -553,7 +557,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 		_, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
 		encryptFile = mgr != nil
 	case "gpg":
-		encryptFile = resolvePeerKey(ctx, s, to) != ""
+		encryptFile = a.useGPG && resolvePeerKey(ctx, s, to) != ""
 	}
 
 	var url string
