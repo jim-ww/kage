@@ -83,6 +83,11 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		if m.editingMsgIdx < len(msgs) {
 			msgs[m.editingMsgIdx].Content = text
 			m.setCurrentMessages(msgs)
+			if m.editingMsgIdx == len(msgs)-1 {
+				if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+					cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, text))
+				}
+			}
 
 			if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil && msgs[m.editingMsgIdx].ID != "" {
 				_, err := m.sender.Send(m.currentAccount, chat.Address, text, SendOptions{
@@ -144,6 +149,9 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 
 		msgs := append(m.currentMessages(), newMsg)
 		m.setCurrentMessages(msgs)
+		if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+			cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, newMsg.Content))
+		}
 	}
 
 	m.notifyTypingStopped()
@@ -421,13 +429,14 @@ func (m Model) canEdit(msgs []Message) bool {
 }
 
 // deleteSelectedMsg removes the current message and fixes up ReplyTo indices.
-func (m *Model) deleteSelectedMsg() {
-	if m.currentChatIndex() < 0 {
-		return
+func (m *Model) deleteSelectedMsg() tea.Cmd {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return nil
 	}
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
-		return
+		return nil
 	}
 	del := m.selectedMsg
 	newMsgs := make([]Message, 0, len(msgs)-1)
@@ -451,6 +460,15 @@ func (m *Model) deleteSelectedMsg() {
 	if m.selectedMsg >= len(newMsgs) && len(newMsgs) > 0 {
 		m.selectedMsg = len(newMsgs) - 1
 	}
+	var cmd tea.Cmd
+	if del == len(msgs)-1 {
+		newLast := ""
+		if len(newMsgs) > 0 {
+			newLast = newMsgs[len(newMsgs)-1].Content
+		}
+		cmd = m.setChatLastMessage(m.currentAccount, chatIdx, newLast)
+	}
+	return cmd
 }
 
 func (m Model) yankSelectedMsg() error {
@@ -530,11 +548,21 @@ func (m *Model) sendReaction(idx int, newMine []string) tea.Cmd {
 	}
 
 	msgs[idx].Reactions = setMyReactions(msgs[idx].Reactions, newMine)
+	var cmd tea.Cmd
+	if idx == len(msgs)-1 {
+		if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+			preview := msgs[idx].Content
+			if len(msgs[idx].Reactions) > 0 {
+				preview = "reacted " + renderReactions(msgs[idx].Reactions)
+			}
+			cmd = m.setChatLastMessage(m.currentAccount, chatIdx, preview)
+		}
+	}
 	if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{
 		ReactionTargetID: msgs[idx].ID,
 		Reactions:        newMine,
 	}); err != nil {
-		return m.showNotification("reaction not delivered: " + err.Error())
+		return tea.Batch(cmd, m.showNotification("reaction not delivered: "+err.Error()))
 	}
-	return nil
+	return cmd
 }

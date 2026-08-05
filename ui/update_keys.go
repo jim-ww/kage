@@ -92,7 +92,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 						}
 					}
 				}
-				m.deleteSelectedMsg()
+				cmds = append(cmds, m.deleteSelectedMsg())
 			case confirmDeleteChat:
 				cmds = append(cmds, m.deleteSelectedChat())
 			}
