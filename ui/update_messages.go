@@ -142,12 +142,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs = append(msgs, newMsg)
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, newMsg.Content)
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
-		return m, nil, true
+		return m, cmd, true
 
 	case FileSendResultMsg:
 		if msg.Err != nil {
@@ -175,12 +176,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs = append(msgs, newMsg)
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, newMsg.Content)
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
-		return m, m.showNotification("file sent: " + filepath.Base(msg.Path)), true
+		return m, tea.Batch(lastMsgCmd, m.showNotification("file sent: "+filepath.Base(msg.Path))), true
 
 	case IncomingMessageMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
@@ -198,12 +200,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs = append(msgs, newMsg)
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, newMsg.Content)
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
-		return m, nil, true
+		return m, cmd, true
 
 	case OlderHistoryMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
@@ -499,12 +502,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs := append(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Messages...)
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, msg.Messages[len(msg.Messages)-1].Content)
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
-		return m, nil, true
+		return m, lastMsgCmd, true
 
 	case typingPauseMsg:
 		if m.sender != nil && m.typingActiveTo == msg.addr && m.typingGen == msg.gen {

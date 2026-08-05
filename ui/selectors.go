@@ -87,6 +87,25 @@ func (m *Model) maybeLoadOlderHistory() tea.Cmd {
 	return m.historyLoader.LoadOlderHistory(m.currentAccount, chat.Address)
 }
 
+// setChatLastMessage updates the chat list preview text for the chat at
+// chatIdx and, if that chat's account is currently displayed, refreshes the
+// visible list item.
+func (m *Model) setChatLastMessage(accountIdx, chatIdx int, content string) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return nil
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok {
+		return nil
+	}
+	chat.LastMessage = content
+	m.accounts[accountIdx].Chats[chatIdx] = chat
+	if accountIdx == m.currentAccount {
+		return m.chats.SetItem(chatIdx, chat)
+	}
+	return nil
+}
+
 // messageIndexByID returns the index of the message with the given stanza ID
 // within msgs, or -1 if none matches (or id is empty).
 func messageIndexByID(msgs []Message, id string) int {
