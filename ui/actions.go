@@ -36,17 +36,23 @@ func (m *Model) actionMakeDefaultAccount(index int) tea.Cmd {
 	return m.showNotification("Default account set")
 }
 
-// encryptionModeOrDefault returns mode, or "omemo" (kage's default) if unset.
+// encryptionModeOrDefault returns mode, or "omemo-auto" (kage's default) if
+// unset.
 func encryptionModeOrDefault(mode string) string {
 	if mode == "" {
-		return "omemo"
+		return "omemo-auto"
 	}
 	return mode
 }
 
 // encryptionModes lists every selectable outgoing-encryption mode, in the
-// order they're offered in the encryption picker.
-var encryptionModes = []string{"omemo", "gpg", "none"}
+// order they're offered in the encryption picker. "omemo-auto" auto-detects
+// the peer's protocol version (disco#info/PEP probing, see
+// resolveOmemoProtocol); "omemo-v1"/"omemo-v2" force a specific protocol for
+// this chat regardless of what auto-detection would otherwise pick - useful
+// when a contact's client doesn't advertise correctly but is known to only
+// support one version.
+var encryptionModes = []string{"omemo-auto", "omemo-v1", "omemo-v2", "gpg", "none"}
 
 // actionOpenEncryptionMenu opens a picker submenu (chat-item context menu's
 // "Encryption") listing every mode with the current one marked, so picking

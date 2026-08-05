@@ -15,6 +15,7 @@ import (
 	"mellium.im/xmlstream"
 	"mellium.im/xmpp"
 	"mellium.im/xmpp/jid"
+	"mellium.im/xmpp/mux"
 	"mellium.im/xmpp/roster"
 	"mellium.im/xmpp/stanza"
 )
@@ -36,6 +37,10 @@ type Client struct {
 	uploadSvc    jid.JID // cached result of uploadService's disco walk, once found
 	uploadSvcSet bool    // true once uploadSvc has been resolved (even if disco found none — see uploadSvcErr)
 	uploadSvcErr error   // cached failure, so a server with no upload service doesn't get re-walked on every send
+
+	// discoMux answers incoming disco#info/disco#items queries (see disco.go)
+	// - without it, contacts can't learn we support OMEMO at all.
+	discoMux *mux.ServeMux
 
 	// Debugf is called for debug logging (nil/no-op by default)
 	Debugf func(format string, args ...any)
@@ -72,10 +77,15 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 		return nil, fmt.Errorf("dialing %s: %w", j, err)
 	}
 
-	c := &Client{JID: j, session: session, events: make(chan Event, 32)}
+	c := &Client{JID: j, session: session, events: make(chan Event, 32), discoMux: newDiscoMux()}
 	go c.serve()
 
-	if err := session.Send(ctx, stanza.Presence{Type: stanza.AvailablePresence}.Wrap(nil)); err != nil {
+	// Advertise our features via XEP-0115 entity capabilities on the initial
+	// presence - without this, contacts have no signal that we support
+	// anything (OMEMO included): disco#info to our bare JID is answered by
+	// the server itself, not forwarded to us, so caps carried in presence are
+	// what tells a contact's client which resource of ours to actually query.
+	if err := session.Send(ctx, stanza.Presence{Type: stanza.AvailablePresence}.Wrap(discoCaps().TokenReader())); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("sending initial presence: %w", err)
 	}
@@ -161,4 +171,32 @@ func (c *Client) SetRosterName(ctx context.Context, addr, name string) error {
 		return fmt.Errorf("parsing JID %q: %w", addr, err)
 	}
 	return roster.Set(ctx, c.session, roster.Item{JID: j.Bare(), Name: name})
+}
+
+// AddContact adds addr to the roster and sends a subscription request, per
+// the usual RFC 6121 add-a-contact flow: a roster set followed by
+// presence type="subscribe" so the peer's server prompts them to approve.
+func (c *Client) AddContact(ctx context.Context, addr, name string) error {
+	j, err := jid.Parse(addr)
+	if err != nil {
+		return fmt.Errorf("parsing JID %q: %w", addr, err)
+	}
+	if err := roster.Set(ctx, c.session, roster.Item{JID: j.Bare(), Name: name}); err != nil {
+		return fmt.Errorf("adding roster item: %w", err)
+	}
+	return c.session.Send(ctx, stanza.Presence{Type: stanza.SubscribePresence, To: j.Bare()}.Wrap(nil))
+}
+
+// RemoveContact removes addr from the roster and sends an unsubscribe so the
+// peer stops receiving our presence (and we stop receiving theirs) — a
+// roster delete alone leaves any existing subscription in place server-side.
+func (c *Client) RemoveContact(ctx context.Context, addr string) error {
+	j, err := jid.Parse(addr)
+	if err != nil {
+		return fmt.Errorf("parsing JID %q: %w", addr, err)
+	}
+	if err := c.session.Send(ctx, stanza.Presence{Type: stanza.UnsubscribePresence, To: j.Bare()}.Wrap(nil)); err != nil {
+		return fmt.Errorf("sending unsubscribe: %w", err)
+	}
+	return roster.Delete(ctx, c.session, j.Bare())
 }

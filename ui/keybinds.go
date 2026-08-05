@@ -10,32 +10,33 @@ import (
 )
 
 type KeyMap struct {
-	Quit          key.Binding
-	Back          key.Binding
-	Switch        key.Binding
-	FocusChats    key.Binding
-	ChatOpen      key.Binding
-	SelectSend    key.Binding
-	MsgUp         key.Binding // k — navigate to previous message
-	MsgDown       key.Binding // j — navigate to next message
-	DeleteMsg     key.Binding // Ctrl+D — delete selected message (with popup)
-	YankMsg       key.Binding // Ctrl+Y — yank selected message
-	EditMsg       key.Binding // Ctrl+E — edit (only last own message)
-	ReplyMsg      key.Binding // Ctrl+R — reply to selected message
-	InfoMsg       key.Binding // Ctrl+G — show message info popup
-	OpenMsg       key.Binding // Ctrl+O — open links/attachments in selected message
-	SaveMsg       key.Binding // Ctrl+W — save links/attachments in selected message to disk
-	ReactMsg      key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
-	ConfirmYes    key.Binding // y — confirm popup
-	ConfirmNo     key.Binding // n / esc — cancel popup
-	AddAccount    key.Binding // a — open the add-account form (only while accounts panel is focused)
-	AttachFile    key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
-	RenameChat    key.Binding // r — open the rename-contact prompt for the selected chat
-	ToggleSidebar key.Binding // Ctrl+\ — show/hide the chat list sidebar
-	DeviceList    key.Binding // Ctrl+U — view/purge the current account's published OMEMO device list
-	ListKeys      list.KeyMap
-	TextInputKeys textinput.KeyMap
-	InputAreaKeys textarea.KeyMap
+	Quit           key.Binding
+	Back           key.Binding
+	Switch         key.Binding
+	FocusChats     key.Binding
+	ChatOpen       key.Binding
+	SelectSend     key.Binding
+	MsgUp          key.Binding // k — navigate to previous message
+	MsgDown        key.Binding // j — navigate to next message
+	DeleteMsg      key.Binding // Ctrl+D — delete selected message (with popup)
+	YankMsg        key.Binding // Ctrl+Y — yank selected message
+	EditMsg        key.Binding // Ctrl+E — edit (only last own message)
+	ReplyMsg       key.Binding // Ctrl+R — reply to selected message
+	InfoMsg        key.Binding // Ctrl+G — show message info popup
+	OpenMsg        key.Binding // Ctrl+O — open links/attachments in selected message
+	SaveMsg        key.Binding // Ctrl+W — save links/attachments in selected message to disk
+	ReactMsg       key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
+	ConfirmYes     key.Binding // y — confirm popup
+	ConfirmNo      key.Binding // n / esc — cancel popup
+	AddAccount     key.Binding // a — open the add-account form (only while accounts panel is focused)
+	AttachFile     key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
+	RenameChat     key.Binding // r — open the rename-contact prompt for the selected chat
+	ToggleSidebar  key.Binding // Ctrl+\ — show/hide the chat list sidebar
+	DeviceList     key.Binding // Ctrl+U — view/purge the current account's published OMEMO device list
+	ContactManager key.Binding // c — add/remove roster contacts for the current account (accounts panel)
+	ListKeys       list.KeyMap
+	TextInputKeys  textinput.KeyMap
+	InputAreaKeys  textarea.KeyMap
 }
 
 // defaultInputAreaKeys is textarea.DefaultKeyMap with InsertNewline moved off
@@ -76,29 +77,30 @@ func NewBinding(keys []string, desc string) key.Binding {
 }
 
 var DefaultKeyMap = KeyMap{
-	Quit:          NewBinding([]string{"q", "ctrl+c"}, "quit"),
-	Back:          NewBinding([]string{"esc"}, "back to chats"),
-	Switch:        NewBinding([]string{"tab"}, "switch focus"),
-	FocusChats:    NewBinding([]string{"\\"}, "focus chats"),
-	ChatOpen:      NewBinding([]string{"l", "right"}, "open chat"),
-	SelectSend:    NewBinding([]string{"enter"}, "select/send"),
-	MsgUp:         NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
-	MsgDown:       NewBinding([]string{"ctrl+j", "down"}, "next msg"),
-	DeleteMsg:     NewBinding([]string{"ctrl+d"}, "delete"),
-	YankMsg:       NewBinding([]string{"ctrl+y"}, "yank"),
-	EditMsg:       NewBinding([]string{"ctrl+e"}, "edit (own last)"),
-	ReplyMsg:      NewBinding([]string{"ctrl+r"}, "reply"),
-	InfoMsg:       NewBinding([]string{"ctrl+g"}, "message info"),
-	OpenMsg:       NewBinding([]string{"ctrl+o"}, "open links/attachments"),
-	SaveMsg:       NewBinding([]string{"ctrl+w"}, "save links/attachments"),
-	ReactMsg:      NewBinding([]string{"ctrl+t"}, "react"),
-	ConfirmYes:    NewBinding([]string{"y"}, "yes"),
-	ConfirmNo:     NewBinding([]string{"n", "esc"}, "no"),
-	AddAccount:    NewBinding([]string{"a"}, "add account"),
-	AttachFile:    NewBinding([]string{"ctrl+f"}, "attach file"),
-	RenameChat:    NewBinding([]string{"r"}, "rename chat"),
-	ToggleSidebar: NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
-	DeviceList:    NewBinding([]string{"ctrl+u"}, "omemo devices"),
+	Quit:           NewBinding([]string{"q", "ctrl+c"}, "quit"),
+	Back:           NewBinding([]string{"esc"}, "back to chats"),
+	Switch:         NewBinding([]string{"tab"}, "switch focus"),
+	FocusChats:     NewBinding([]string{"\\"}, "focus chats"),
+	ChatOpen:       NewBinding([]string{"l", "right"}, "open chat"),
+	SelectSend:     NewBinding([]string{"enter"}, "select/send"),
+	MsgUp:          NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
+	MsgDown:        NewBinding([]string{"ctrl+j", "down"}, "next msg"),
+	DeleteMsg:      NewBinding([]string{"ctrl+d"}, "delete"),
+	YankMsg:        NewBinding([]string{"ctrl+y"}, "yank"),
+	EditMsg:        NewBinding([]string{"ctrl+e"}, "edit (own last)"),
+	ReplyMsg:       NewBinding([]string{"ctrl+r"}, "reply"),
+	InfoMsg:        NewBinding([]string{"ctrl+g"}, "message info"),
+	OpenMsg:        NewBinding([]string{"ctrl+o"}, "open links/attachments"),
+	SaveMsg:        NewBinding([]string{"ctrl+w"}, "save links/attachments"),
+	ReactMsg:       NewBinding([]string{"ctrl+t"}, "react"),
+	ConfirmYes:     NewBinding([]string{"y"}, "yes"),
+	ConfirmNo:      NewBinding([]string{"n", "esc"}, "no"),
+	AddAccount:     NewBinding([]string{"a"}, "add account"),
+	AttachFile:     NewBinding([]string{"ctrl+f"}, "attach file"),
+	RenameChat:     NewBinding([]string{"r"}, "rename chat"),
+	ToggleSidebar:  NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
+	DeviceList:     NewBinding([]string{"ctrl+u"}, "omemo devices"),
+	ContactManager: NewBinding([]string{"c"}, "manage contacts"),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -114,7 +116,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
 		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.ReactMsg},
-		{k.AddAccount, k.AttachFile, k.RenameChat, k.ToggleSidebar, k.DeviceList},
+		{k.AddAccount, k.AttachFile, k.RenameChat, k.ToggleSidebar, k.DeviceList, k.ContactManager},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -155,6 +157,7 @@ func (k KeyMap) helpHint(view selectedView) string {
 			part(k.SelectSend, "select"),
 			part(k.AddAccount, "add"),
 			part(k.DeviceList, "omemo devices"),
+			part(k.ContactManager, "contacts"),
 			part(k.Switch, "chats"),
 			part(k.Quit, "quit"),
 		}, " · ")

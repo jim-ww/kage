@@ -32,6 +32,11 @@ type ArchivedMessage struct {
 	// decrypt this (crypto/omemo, via DecodeOmemoMessage) to get the text.
 	Encrypted *omemoEncryptedElem
 
+	// EncryptedV1 is non-nil if the archived message is a legacy
+	// (eu.siacs.conversations.axolotl) OMEMO message; same shape as
+	// Encrypted otherwise.
+	EncryptedV1 *omemoEncryptedElemV1
+
 	// RetractID is non-empty if this archived item is a XEP-0424 retraction
 	// of an earlier message with this ID. Other fields besides
 	// ArchiveID/From/SentAt carry no meaningful content.
@@ -115,9 +120,11 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		am.ReplaceID = msg.Replace.ID
 		am.Body = msg.Body
 		am.Encrypted = msg.Encrypted
-	case msg.Body != "" || msg.Encrypted != nil:
+		am.EncryptedV1 = msg.EncryptedV1
+	case msg.Body != "" || msg.Encrypted != nil || msg.EncryptedV1 != nil:
 		am.Body = msg.Body
 		am.Encrypted = msg.Encrypted
+		am.EncryptedV1 = msg.EncryptedV1
 	default:
 		// Nothing worth archiving/showing - see the belt-and-suspenders
 		// check on the caller side too (syncArchiveForContact).

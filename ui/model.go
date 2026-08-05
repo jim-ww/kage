@@ -122,6 +122,7 @@ type Model struct {
 	fileSender           FileSender
 	accountAdder         AccountAdder
 	deviceManager        OmemoDeviceManager
+	contactManager       ContactManager
 	renamer              ContactRenamer
 	defaultAccountSetter DefaultAccountSetter
 	sidebarWidthSetter   SidebarWidthSetter
@@ -169,6 +170,10 @@ type Model struct {
 	// deviceList is non-nil while the OMEMO device-list popup is open — see
 	// ui/omemo_devices.go.
 	deviceList *deviceListState
+
+	// contactManagerState is non-nil while the "manage contacts" popup is
+	// open — see ui/contacts.go.
+	contactManagerState *contactManagerState
 }
 
 // DisplayOptions bundles the message-rendering config toggles.
@@ -236,6 +241,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	lastChatSetter, _ := sender.(LastChatSetter)
 	historyLoader, _ := sender.(HistoryLoader)
 	deviceManager, _ := sender.(OmemoDeviceManager)
+	contactManager, _ := sender.(ContactManager)
 
 	return Model{
 		selectedView:           viewChat,
@@ -263,6 +269,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		fileSender:             fileSender,
 		accountAdder:           accountAdder,
 		deviceManager:          deviceManager,
+		contactManager:         contactManager,
 		renamer:                renamer,
 		defaultAccountSetter:   defaultAccountSetter,
 		chatEncryptionSetter:   chatEncryptionSetter,

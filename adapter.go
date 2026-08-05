@@ -124,67 +124,114 @@ func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
 }
 
-// FetchOwnDeviceList implements ui.OmemoDeviceManager: fetches the account's
-// currently-published OMEMO device list (XEP-0384 PEP) for the "view/purge
-// devices" popup, along with this instance's own device ID.
+// omemoProtocolLabel matches ui.OmemoDevice.Protocol's "v1"/"v2" convention.
+func omemoProtocolLabel(p omemolib.Protocol) string {
+	if p == omemolib.ProtocolV1 {
+		return "v1"
+	}
+	return "v2"
+}
+
+// FetchOwnDeviceList implements ui.OmemoDeviceManager: fetches the
+// account's currently-published device list for both OMEMO protocols (each
+// runs its own separate device pool - see account.go), tagging every entry
+// with which protocol it belongs to.
 func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 	s, ok := a.session(accountIdx)
 	if !ok {
 		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("account is still connecting")}
 	}
-	if s.omemoMgr == nil {
+	if s.omemoMgrV2 == nil && s.omemoMgrV1 == nil {
 		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
 	}
-	list, err := s.client.Load().FetchOmemoDeviceList(context.Background(), s.account.JID)
-	if err != nil {
-		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: err}
+
+	ctx := context.Background()
+	client := s.client.Load()
+	var local, devices []ui.OmemoDevice
+
+	if s.omemoMgrV2 != nil {
+		local = append(local, ui.OmemoDevice{Protocol: "v2", ID: uint32(s.omemoMgrV2.LocalDevice().ID)})
+		list, err := client.FetchOmemoDeviceList(ctx, s.account.JID)
+		if err != nil {
+			return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("fetching omemo-v2 device list: %w", err)}
+		}
+		for _, d := range list.Devices {
+			devices = append(devices, ui.OmemoDevice{Protocol: "v2", ID: uint32(d)})
+		}
 	}
-	devices := make([]uint32, len(list.Devices))
-	for i, d := range list.Devices {
-		devices[i] = uint32(d)
+	if s.omemoMgrV1 != nil {
+		local = append(local, ui.OmemoDevice{Protocol: "v1", ID: uint32(s.omemoMgrV1.LocalDevice().ID)})
+		list, err := client.FetchOmemoDeviceListV1(ctx, s.account.JID)
+		if err != nil {
+			return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("fetching omemo-v1 device list: %w", err)}
+		}
+		for _, d := range list.Devices {
+			devices = append(devices, ui.OmemoDevice{Protocol: "v1", ID: uint32(d)})
+		}
 	}
-	return ui.OmemoDeviceListMsg{
-		AccountIdx: accountIdx,
-		Local:      uint32(s.omemoMgr.LocalDevice().ID),
-		Devices:    devices,
-	}
+
+	return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Local: local, Devices: devices}
 }
 
-// PurgeOwnDeviceList implements ui.OmemoDeviceManager: republishes the
-// account's OMEMO device list containing only the IDs in keep (this
-// instance's own device is always included regardless, so it can never
-// accidentally remove itself).
-func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []uint32) tea.Msg {
+// PurgeOwnDeviceList implements ui.OmemoDeviceManager: republishes each
+// affected protocol's device list containing only the entries in keep for
+// that protocol (this instance's own devices are always included
+// regardless, so it can never accidentally remove itself). A protocol whose
+// device list is unchanged (no entries in keep or removed for it) isn't
+// republished.
+func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.Msg {
 	s, ok := a.session(accountIdx)
 	if !ok {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("account is still connecting")}
 	}
-	if s.omemoMgr == nil {
+	if s.omemoMgrV2 == nil && s.omemoMgrV1 == nil {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
-	}
-	local := uint32(s.omemoMgr.LocalDevice().ID)
-	hasLocal := false
-	devices := make([]omemolib.DeviceID, 0, len(keep)+1)
-	for _, id := range keep {
-		devices = append(devices, omemolib.DeviceID(id))
-		if id == local {
-			hasLocal = true
-		}
-	}
-	if !hasLocal {
-		devices = append(devices, omemolib.DeviceID(local))
 	}
 
 	ctx := context.Background()
-	if err := s.client.Load().PublishOmemoDeviceList(ctx, omemolib.DeviceList{JID: s.account.JID, Devices: devices}); err != nil {
+	client := s.client.Load()
+	var local, devices []ui.OmemoDevice
+
+	purge := func(protocol omemolib.Protocol, mgr *omemolib.Manager, publish func(context.Context, omemolib.DeviceList) error) error {
+		if mgr == nil {
+			return nil
+		}
+		label := omemoProtocolLabel(protocol)
+		local = append(local, ui.OmemoDevice{Protocol: label, ID: uint32(mgr.LocalDevice().ID)})
+
+		localID := mgr.LocalDevice().ID
+		hasLocal := false
+		var ids []omemolib.DeviceID
+		for _, d := range keep {
+			if d.Protocol != label {
+				continue
+			}
+			ids = append(ids, omemolib.DeviceID(d.ID))
+			if omemolib.DeviceID(d.ID) == localID {
+				hasLocal = true
+			}
+		}
+		if !hasLocal {
+			ids = append(ids, localID)
+		}
+
+		if err := publish(ctx, omemolib.DeviceList{JID: s.account.JID, Devices: ids}); err != nil {
+			return fmt.Errorf("publishing omemo-%s device list: %w", label, err)
+		}
+		for _, id := range ids {
+			devices = append(devices, ui.OmemoDevice{Protocol: label, ID: uint32(id)})
+		}
+		return nil
+	}
+
+	if err := purge(omemolib.ProtocolV2, s.omemoMgrV2, client.PublishOmemoDeviceList); err != nil {
+		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: err}
+	}
+	if err := purge(omemolib.ProtocolV1, s.omemoMgrV1, client.PublishOmemoDeviceListV1); err != nil {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: err}
 	}
 
-	out := make([]uint32, len(devices))
-	for i, d := range devices {
-		out[i] = uint32(d)
-	}
-	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: out}
+	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: devices}
 }
 
 // SetTyping implements ui.MessageSender: sends a XEP-0085 chat state
@@ -238,8 +285,72 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 	return nil
 }
 
+// AddContact implements ui.ContactManager: adds address to the roster and
+// sends a subscription request, then mirrors it into local storage and the
+// in-memory roster cache used by rosterName.
+func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: fmt.Errorf("unknown account %d", accountIdx)}
+	}
+
+	ctx := context.Background()
+	if err := s.client.Load().AddContact(ctx, address, ""); err != nil {
+		return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+	}
+
+	if err := s.db.UpsertRoster(ctx, storage.UpsertRosterParams{
+		AccountJid: s.account.JID, Jid: address,
+	}); err != nil {
+		debugf("warning: persisting added roster entry %s: %v\n", address, err)
+	}
+	updated := make(map[string]rosterEntry)
+	if entries := s.roster.Load(); entries != nil {
+		for k, v := range *entries {
+			updated[k] = v
+		}
+	}
+	updated[address] = rosterEntry{}
+	s.roster.Store(&updated)
+
+	return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address}
+}
+
+// RemoveContact implements ui.ContactManager: removes address from the
+// roster and unsubscribes, then mirrors the removal into local storage and
+// the in-memory roster cache.
+func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: fmt.Errorf("unknown account %d", accountIdx)}
+	}
+
+	ctx := context.Background()
+	if err := s.client.Load().RemoveContact(ctx, address); err != nil {
+		return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+	}
+
+	if err := s.db.DeleteRosterByJID(ctx, storage.DeleteRosterByJIDParams{
+		AccountJid: s.account.JID, Jid: address,
+	}); err != nil {
+		debugf("warning: deleting roster entry %s: %v\n", address, err)
+	}
+	if entries := s.roster.Load(); entries != nil {
+		updated := make(map[string]rosterEntry, len(*entries))
+		for k, v := range *entries {
+			if k != address {
+				updated[k] = v
+			}
+		}
+		s.roster.Store(&updated)
+	}
+
+	return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address}
+}
+
 // SetChatEncryption implements ui.ChatEncryptionSetter: persists the chosen
-// outgoing message encryption ("omemo", "gpg", or "none") for one chat.
+// outgoing message encryption ("omemo-v1", "omemo-v2", "gpg", or "none") for
+// one chat.
 func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error {
 	s, ok := a.session(accountIdx)
 	if !ok {
@@ -319,33 +430,53 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 
 	e2eEncrypted := false
 	e2eeMethod := ""
-	switch resolveEncryptionMode(ctx, s, to) {
-	case "omemo":
-		debugf("send: using omemo encryption for %s to %s", s.account.JID, to)
-		if s.omemoMgr != nil {
-			enc, deviceErrs, err := s.omemoMgr.EncryptMessage(ctx, to, []byte(plaintext))
+	mode := resolveEncryptionMode(ctx, s, to)
+	switch mode {
+	case "omemo-auto", "omemo-v1", "omemo-v2":
+		protocol, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
+		debugf("send: using omemo(%s) encryption for %s to %s", protocol, s.account.JID, to)
+		if mgr != nil {
+			enc, deviceErrs, err := mgr.EncryptMessage(ctx, to, []byte(plaintext))
 			if err != nil {
 				// The manager only auto-fetches a peer's device list when its
 				// cache is empty, so a peer that rotated/added devices since
 				// our last fetch looks unencryptable until we force a resync.
-				debugf("send: omemo encrypt failed for %s to %s: %v (device errors: %v); forcing device resync", s.account.JID, to, err, deviceErrs)
-				if syncErr := s.omemoMgr.SyncDevices(ctx, to); syncErr != nil {
-					debugf("send: omemo device resync for %s failed: %v", to, syncErr)
+				debugf("send: omemo(%s) encrypt failed for %s to %s: %v (device errors: %v); forcing device resync", protocol, s.account.JID, to, err, deviceErrs)
+				if syncErr := mgr.SyncDevices(ctx, to); syncErr != nil {
+					debugf("send: omemo(%s) device resync for %s failed: %v", protocol, to, syncErr)
 					return "", fmt.Errorf("omemo-encrypting to %s: device list resync failed: %w", to, syncErr)
 				}
-				enc, deviceErrs, err = s.omemoMgr.EncryptMessage(ctx, to, []byte(plaintext))
+				enc, deviceErrs, err = mgr.EncryptMessage(ctx, to, []byte(plaintext))
 				if err != nil {
-					debugf("send: omemo encrypt failed for %s to %s after resync: %v (device errors: %v)", s.account.JID, to, err, deviceErrs)
+					debugf("send: omemo(%s) encrypt failed for %s to %s after resync: %v (device errors: %v)", protocol, s.account.JID, to, err, deviceErrs)
 					return "", fmt.Errorf("omemo-encrypting to %s: %w (device errors: %v)", to, err, deviceErrs)
 				}
 			}
-			debugf("send: omemo encrypt succeeded for %s to %s, %d keys", s.account.JID, to, len(enc.Keys))
-			sendOpts.Encrypted = xmpp.EncodeOmemoMessage(enc)
+			debugf("send: omemo(%s) encrypt succeeded for %s to %s, %d keys", protocol, s.account.JID, to, len(enc.Keys))
+			for _, de := range deviceErrs {
+				// EncryptMessage is best-effort and only returns a non-nil
+				// err when EVERY device failed - a partial failure (some
+				// devices got a key, one silently didn't) is otherwise
+				// invisible, which is exactly what makes "encrypted to the
+				// wrong/stale devices, skipped the one that would actually
+				// decrypt" undiagnosable without this.
+				debugf("send: omemo(%s) device %s/%d failed (message still sent to other devices): %v", protocol, de.Device.JID, de.Device.ID, de.Err)
+			}
+			if protocol == omemolib.ProtocolV1 {
+				sendOpts.EncryptedV1 = xmpp.EncodeOmemoMessageV1(enc)
+			} else {
+				sendOpts.Encrypted = xmpp.EncodeOmemoMessage(enc)
+			}
 			wireBody = ""
 			e2eEncrypted = true
 			e2eeMethod = "omemo"
 		} else {
-			debugf("note: omemo not ready for %s; sending unencrypted\n", s.account.JID)
+			// Chat is configured for OMEMO but the manager for the resolved
+			// protocol never came up (see setupOmemoProtocol) - refuse to
+			// send rather than silently falling back to plaintext for a chat
+			// the user explicitly marked as encrypted.
+			debugf("send: omemo(%s) not ready for %s; refusing to send %s unencrypted\n", protocol, s.account.JID, to)
+			return "", fmt.Errorf("omemo(%s) isn't ready for this account; message not sent", protocol)
 		}
 	case "gpg":
 		if peerKey := resolvePeerKey(ctx, s, to); peerKey != "" {
@@ -416,9 +547,10 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 
 	// Determine if we should encrypt the file
 	encryptFile := false
-	switch resolveEncryptionMode(ctx, s, to) {
-	case "omemo":
-		encryptFile = s.omemoMgr != nil
+	switch mode := resolveEncryptionMode(ctx, s, to); mode {
+	case "omemo-auto", "omemo-v1", "omemo-v2":
+		_, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
+		encryptFile = mgr != nil
 	case "gpg":
 		encryptFile = resolvePeerKey(ctx, s, to) != ""
 	}

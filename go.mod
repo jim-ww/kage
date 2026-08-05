@@ -8,10 +8,11 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	fyne.io/systray v1.12.2
 	github.com/BurntSushi/toml v1.4.0
+	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/enescakir/emoji v1.0.0
-	github.com/jim-ww/omemo-go v0.0.0-20260803165642-8bb37fdfe420
+	github.com/jim-ww/omemo-go v0.0.0-20260805124752-9c9884ebb89b
 	github.com/lrstanley/bubblezone/v2 v2.0.0
 	github.com/sahilm/fuzzy v0.1.1
 	github.com/zalando/go-keyring v0.2.8
@@ -24,7 +25,7 @@ require (
 )
 
 require (
-	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
+	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260416155717-489999b90468 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
@@ -37,7 +38,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/jim-ww/xochimilco v0.0.0-20260803155350-8ba75d822d33 // indirect
+	github.com/jim-ww/xochimilco v0.0.0-20260805123812-e10aed621610 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect

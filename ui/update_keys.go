@@ -118,6 +118,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m.updateDeviceListKey(msg)
 	}
 
+	// ── Contact-manager popup intercepts all input until dismissed ─────
+	if m.contactManagerState != nil {
+		return m.updateContactManagerKey(msg)
+	}
+
 	// ── Add-account form intercepts all input until submitted/canceled ──
 	if m.addingAccount {
 		model, cmd := m.updateAddAccountForm(msg)
@@ -254,6 +259,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	case key.Matches(msg, m.keys.DeviceList):
 		if m.selectedView == viewAccounts {
 			model, cmd := m.openDeviceList()
+			return model, cmd, true
+		}
+
+	case key.Matches(msg, m.keys.ContactManager):
+		if m.selectedView == viewAccounts {
+			model, cmd := m.openContactManager()
 			return model, cmd, true
 		}
 

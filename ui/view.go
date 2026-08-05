@@ -121,6 +121,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderInfoPopup()
 	case m.deviceList != nil:
 		viewportArea = m.renderDeviceListPopup()
+	case m.contactManagerState != nil:
+		viewportArea = m.renderContactManagerPopup()
 	case m.addingAccount:
 		viewportArea = m.renderAddAccountPopup()
 	case m.renamingChat:

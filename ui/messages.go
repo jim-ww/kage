@@ -56,6 +56,29 @@ type ContactRenamer interface {
 	RenameContact(accountIdx int, address, name string) error
 }
 
+// ContactManager adds/removes roster contacts (RFC 6121 roster set/delete
+// plus the matching presence subscribe/unsubscribe), implemented outside ui
+// (main.go's adapter) so ui stays decoupled from the XMPP layer. Both run as
+// a tea.Cmd like AccountAdder.AddAccount since they're network I/O.
+type ContactManager interface {
+	AddContact(accountIdx int, address string) tea.Msg
+	RemoveContact(accountIdx int, address string) tea.Msg
+}
+
+// ContactAddedMsg reports the result of ContactManager.AddContact.
+type ContactAddedMsg struct {
+	AccountIdx int
+	Address    string
+	Err        error
+}
+
+// ContactRemovedMsg reports the result of ContactManager.RemoveContact.
+type ContactRemovedMsg struct {
+	AccountIdx int
+	Address    string
+	Err        error
+}
+
 // FileSendResultMsg reports completion of an asynchronous upload and send.
 type FileSendResultMsg struct {
 	AccountIdx int
@@ -234,9 +257,10 @@ type DefaultAccountSetter interface {
 }
 
 // ChatEncryptionSetter persists per-chat outgoing message encryption choice
-// ("omemo", "gpg", or "none"), implemented outside ui (main.go's adapter) so
-// ui stays decoupled from the storage layer. A local database write, called
-// inline like Send/SetTyping rather than through a tea.Cmd.
+// ("omemo-auto", "omemo-v1", "omemo-v2", "gpg", or "none" - see
+// encryptionModes), implemented outside ui (main.go's adapter) so ui stays
+// decoupled from the storage layer. A local database write, called inline
+// like Send/SetTyping rather than through a tea.Cmd.
 type ChatEncryptionSetter interface {
 	SetChatEncryption(accountIdx int, peerJID, mode string) error
 }

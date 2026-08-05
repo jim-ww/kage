@@ -30,7 +30,14 @@ type accountSession struct {
 	tlsConfig *tls.Config      // reused on reconnect; nil means Dial's default verified config
 	db        *storage.Queries // shared across every account: one database, rows scoped by account.JID
 	gpg       gpg.Encrypter
-	omemoMgr  *omemolib.Manager // nil until connectAccountLive sets it up (needs a dialed client for its Transport)
+	// omemoMgrV2/omemoMgrV1 are nil until connectAccountLive sets them up
+	// (needs a dialed client for its Transport). Both run concurrently: this
+	// account maintains a separate identity/device pool per OMEMO protocol
+	// version, and resolveOmemoProtocol picks which one to use per peer for
+	// chats on the default "omemo-auto" mode (ui.encryptionModes) - a chat
+	// can also be pinned directly to "omemo-v1"/"omemo-v2".
+	omemoMgrV2 *omemolib.Manager
+	omemoMgrV1 *omemolib.Manager
 
 	// localKey is the AES-256 key message bodies are sealed under at rest
 	// (crypto/localstore), derived once in main from the local storage
@@ -367,6 +374,34 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 				Typing:     ev.State == xmpp.ChatStateComposing,
 			})
 			continue
+		case xmpp.DeviceListChangedEvent:
+			from := bareJID(ev.From)
+			// A self-notification about our own just-published device list
+			// (some servers omit the from attribute entirely on these,
+			// others set it to our own bare JID) needs no action - we
+			// already know our own device list, having just written it -
+			// and an empty from can't be resolved to a peer JID at all.
+			if from == "" || from == s.account.JID {
+				continue
+			}
+			mgr := s.omemoMgrV2
+			if ev.Protocol == omemolib.ProtocolV1 {
+				mgr = s.omemoMgrV1
+			}
+			if mgr == nil {
+				continue
+			}
+			// SyncDevices does a network round-trip (an IQ fetch) - run it
+			// off to the side rather than blocking this loop, which is the
+			// same serial dispatch path every other event for this account
+			// (chat messages included) goes through. A slow or hanging
+			// fetch here must never stall message delivery.
+			go func() {
+				if err := mgr.SyncDevices(ctx, from); err != nil {
+					debugf("warning: resyncing omemo(%s) device list for %s after PEP push: %v\n", ev.Protocol, from, err)
+				}
+			}()
+			continue
 		}
 	}
 }
@@ -508,25 +543,35 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			// filtering (xmpp/mam.go) - a plain message with neither body nor
 			// an OMEMO payload has nothing to show, matching
 			// handleIncomingMessage's live-path guard (events.go).
-			if am.Body == "" && am.Encrypted == nil && am.ReplaceID == "" {
+			if am.Body == "" && am.Encrypted == nil && am.EncryptedV1 == nil && am.ReplaceID == "" {
 				continue
 			}
 
 			body := am.Body
-			e2eEncrypted := am.Encrypted != nil || gpg.Looks(body)
+			e2eEncrypted := am.Encrypted != nil || am.EncryptedV1 != nil || gpg.Looks(body)
 			e2eeMethod := ""
 			switch {
-			case am.Encrypted != nil:
+			case am.Encrypted != nil, am.EncryptedV1 != nil:
 				e2eeMethod = "omemo"
 			case gpg.Looks(body):
 				e2eeMethod = "gpg"
 			}
-			if am.Encrypted != nil {
-				if s.omemoMgr == nil {
+			if am.Encrypted != nil || am.EncryptedV1 != nil {
+				var mgr *omemolib.Manager
+				var enc *omemolib.EncryptedMessage
+				var decodeErr error
+				if am.Encrypted != nil {
+					mgr = s.omemoMgrV2
+					enc, decodeErr = xmpp.DecodeOmemoMessage(am.Encrypted, bareJID(am.From))
+				} else {
+					mgr = s.omemoMgrV1
+					enc, decodeErr = xmpp.DecodeOmemoMessageV1(am.EncryptedV1, bareJID(am.From))
+				}
+				if mgr == nil {
 					body = "[message could not be decrypted: omemo isn't ready]"
-				} else if enc, err := xmpp.DecodeOmemoMessage(am.Encrypted, bareJID(am.From)); err != nil {
-					body = "[message could not be decrypted: " + err.Error() + "]"
-				} else if pt, err := s.omemoMgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
+				} else if decodeErr != nil {
+					body = "[message could not be decrypted: " + decodeErr.Error() + "]"
+				} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
 					// Not a real failure - see handleIncomingMessage's live-path
 					// comment. Quietly skip instead of storing a noise row.
 					debugf("mam: omemo message %s from %s has no key for this device, skipping", am.ArchiveID, am.From)

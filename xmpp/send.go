@@ -32,6 +32,12 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 		if opts.ReplyToID != "" {
 			msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
 		}
+	case opts.EncryptedV1 != nil:
+		msg.EncryptedV1 = opts.EncryptedV1
+		msg.Body = "This message is encrypted with legacy OMEMO" // fallback for non-OMEMO clients
+		if opts.ReplyToID != "" {
+			msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
+		}
 	case opts.ReactionTargetID != "":
 		msg.Reactions = &reactionsElem{ID: opts.ReactionTargetID, Reactions: opts.Reactions}
 	case opts.RetractID != "":

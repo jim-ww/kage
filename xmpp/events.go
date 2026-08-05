@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"time"
 
+	omemolib "github.com/jim-ww/omemo-go"
 	"mellium.im/xmlstream"
 	"mellium.im/xmpp/stanza"
 )
@@ -43,6 +44,11 @@ type MessageEvent struct {
 	// fields carry no meaningful content and the caller must decrypt this
 	// (crypto/omemo) to get the actual message.
 	Encrypted *omemoEncryptedElem
+
+	// EncryptedV1 is non-nil if this is a legacy
+	// (eu.siacs.conversations.axolotl) OMEMO message; same shape as
+	// Encrypted otherwise.
+	EncryptedV1 *omemoEncryptedElemV1
 }
 
 func (MessageEvent) isEvent() {}
@@ -57,6 +63,10 @@ type PresenceEvent struct {
 	// Show is the optional <show/> value when Available is true: "" (plain
 	// online), "chat", "away", "xa", or "dnd".
 	Show string
+
+	// Caps is the XEP-0115 entity capabilities element carried on this
+	// presence, if any - nil if the sender didn't include one.
+	Caps *capsElem
 }
 
 func (PresenceEvent) isEvent() {}
@@ -70,6 +80,21 @@ type ChatStateEvent struct {
 
 func (ChatStateEvent) isEvent() {}
 
+// DeviceListChangedEvent is a XEP-0163 PEP push notification that From's
+// OMEMO device list (of the given Protocol) changed. The caller should
+// re-fetch and update its cached copy of that peer's device list (e.g. via
+// omemo-go's Manager.SyncDevices) - without this, a cached device list is
+// only ever refreshed when it's completely empty (a brand new peer) or as
+// a last-resort retry when every currently-known device fails, so a peer
+// adding a new device (or dropping an old one after a wipe) is otherwise
+// invisible until one of those rare conditions happens to occur.
+type DeviceListChangedEvent struct {
+	From     string
+	Protocol omemolib.Protocol
+}
+
+func (DeviceListChangedEvent) isEvent() {}
+
 // Events returns the channel of incoming events, populated for the lifetime
 // of the connection (from Dial until Close). The channel closes once the
 // session ends.
@@ -80,6 +105,16 @@ func (c *Client) Events() <-chan Event {
 func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElement) {
 	events := c.events
 	switch start.Name.Local {
+	case "iq":
+		// Incoming IQ requests - most importantly disco#info/disco#items
+		// (see disco.go), without which contacts have no way to learn we
+		// support OMEMO at all. Responses to our own outstanding SendIQ/
+		// SendIQElement calls are matched and consumed by the session layer
+		// before ever reaching this handler, so this only ever sees IQs
+		// actually directed at us to answer.
+		if err := c.discoMux.HandleXMPP(t, start); err != nil && c.Debugf != nil {
+			c.Debugf("handling incoming iq: %v", err)
+		}
 	case "message":
 		d := xml.NewTokenDecoder(t)
 		var msg messageBody
@@ -93,6 +128,17 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		if msg.MAMResult != nil {
 			c.dispatchArchiveResult(msg.MAMResult)
 			return
+		}
+
+		if msg.PubsubEvent != nil && msg.PubsubEvent.Items != nil {
+			switch msg.PubsubEvent.Items.Node {
+			case omemoDevicesNode:
+				events <- DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV2}
+				return
+			case omemoV1DevicesNode:
+				events <- DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV1}
+				return
+			}
 		}
 
 		if state, ok := msg.chatState(); ok {
@@ -146,6 +192,21 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			return
 		}
 
+		if msg.EncryptedV1 != nil {
+			var replyToID string
+			if msg.Reply != nil {
+				replyToID = msg.Reply.ID
+			}
+			events <- MessageEvent{
+				ID:          msg.ID,
+				From:        msg.From.String(),
+				SentAt:      time.Now(),
+				EncryptedV1: msg.EncryptedV1,
+				ReplyToID:   replyToID,
+			}
+			return
+		}
+
 		if msg.Body == "" {
 			return
 		}
@@ -189,6 +250,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			From:      p.From.String(),
 			Available: p.Type == stanza.AvailablePresence,
 			Show:      p.Show,
+			Caps:      p.Caps,
 		}
 	}
 }

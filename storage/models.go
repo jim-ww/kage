@@ -89,23 +89,34 @@ type Messagereaction struct {
 
 type Omemodevice struct {
 	Accountjid string `db:"accountjid"`
+	Protocol   string `db:"protocol"`
 	Peerjid    string `db:"peerjid"`
 	Deviceid   int64  `db:"deviceid"`
 }
 
 type Omemoidentity struct {
 	Accountjid string `db:"accountjid"`
+	Protocol   string `db:"protocol"`
 	Privatekey []byte `db:"privatekey"`
 	Deviceid   int64  `db:"deviceid"`
 }
 
 type Omemonextprekeyid struct {
 	Accountjid string `db:"accountjid"`
+	Protocol   string `db:"protocol"`
 	Nextid     int64  `db:"nextid"`
+}
+
+type Omemopeerprotocol struct {
+	Accountjid string `db:"accountjid"`
+	Peerjid    string `db:"peerjid"`
+	Protocol   string `db:"protocol"`
+	Probedat   int64  `db:"probedat"`
 }
 
 type Omemoprekey struct {
 	Accountjid string `db:"accountjid"`
+	Protocol   string `db:"protocol"`
 	ID         int64  `db:"id"`
 	Public     []byte `db:"public"`
 	Private    []byte `db:"private"`
@@ -113,6 +124,7 @@ type Omemoprekey struct {
 
 type Omemoremoteidentity struct {
 	Accountjid  string `db:"accountjid"`
+	Protocol    string `db:"protocol"`
 	Peerjid     string `db:"peerjid"`
 	Deviceid    int64  `db:"deviceid"`
 	Identitykey []byte `db:"identitykey"`
@@ -120,6 +132,7 @@ type Omemoremoteidentity struct {
 
 type Omemosession struct {
 	Accountjid string `db:"accountjid"`
+	Protocol   string `db:"protocol"`
 	Peerjid    string `db:"peerjid"`
 	Deviceid   int64  `db:"deviceid"`
 	Data       []byte `db:"data"`
@@ -127,6 +140,7 @@ type Omemosession struct {
 
 type Omemosignedprekey struct {
 	Accountjid string `db:"accountjid"`
+	Protocol   string `db:"protocol"`
 	ID         int64  `db:"id"`
 	Public     []byte `db:"public"`
 	Private    []byte `db:"private"`
@@ -136,6 +150,7 @@ type Omemosignedprekey struct {
 
 type Omemotrust struct {
 	Accountjid  string `db:"accountjid"`
+	Protocol    string `db:"protocol"`
 	Identitykey []byte `db:"identitykey"`
 	State       int64  `db:"state"`
 }

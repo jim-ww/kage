@@ -94,12 +94,20 @@ CREATE TABLE IF NOT EXISTS chatEncryption (
 	PRIMARY KEY (accountJID, rosterJID)
 ) WITHOUT ROWID;
 
--- OMEMO (XEP-0384) storage, backing crypto/omemo's omemo.Store. One row per
--- account for our own identity keypair + device id.
+-- OMEMO storage, backing crypto/omemo's omemo.Store. Every table below is
+-- keyed additionally by protocol ("v1" | "v2") since an account runs a
+-- separate identity/device pool per OMEMO protocol version - ProtocolV1
+-- (legacy eu.siacs.conversations.axolotl) and ProtocolV2 (XEP-0384) never
+-- share state, even though their remote peer device IDs could otherwise
+-- collide by chance. One row per (account, protocol) for our own identity
+-- keypair + device id.
 CREATE TABLE IF NOT EXISTS omemoIdentity (
-	accountJID TEXT   NOT NULL PRIMARY KEY,
-	privateKey BLOB   NOT NULL, -- ed25519 private key
-	deviceID   INTEGER NOT NULL
+	accountJID TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL, -- "v1" | "v2"
+	privateKey BLOB    NOT NULL, -- ed25519 (v2) or curve25519 (v1) private key
+	deviceID   INTEGER NOT NULL,
+
+	PRIMARY KEY (accountJID, protocol)
 ) WITHOUT ROWID;
 
 -- Our own signed prekey(s): the current one, and (while rotating) the
@@ -107,70 +115,94 @@ CREATE TABLE IF NOT EXISTS omemoIdentity (
 -- decrypt.
 CREATE TABLE IF NOT EXISTS omemoSignedPreKey (
 	accountJID TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL,
 	id         INTEGER NOT NULL,
 	public     BLOB    NOT NULL,
 	private    BLOB    NOT NULL,
 	signature  BLOB    NOT NULL,
 	stale      BOOLEAN NOT NULL DEFAULT FALSE,
 
-	PRIMARY KEY (accountJID, id)
+	PRIMARY KEY (accountJID, protocol, id)
 );
 
 -- Our own one-time prekey pool.
 CREATE TABLE IF NOT EXISTS omemoPreKey (
 	accountJID TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL,
 	id         INTEGER NOT NULL,
 	public     BLOB    NOT NULL,
 	private    BLOB    NOT NULL,
 
-	PRIMARY KEY (accountJID, id)
+	PRIMARY KEY (accountJID, protocol, id)
 );
 
--- Monotonic prekey id counter per account — ids must never repeat, even
--- once consumed.
+-- Monotonic prekey id counter per (account, protocol) — ids must never
+-- repeat, even once consumed.
 CREATE TABLE IF NOT EXISTS omemoNextPreKeyID (
-	accountJID TEXT    NOT NULL PRIMARY KEY,
-	nextID     INTEGER NOT NULL
+	accountJID TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL,
+	nextID     INTEGER NOT NULL,
+
+	PRIMARY KEY (accountJID, protocol)
 ) WITHOUT ROWID;
 
--- Double Ratchet session state per (account, peer device).
+-- Double Ratchet session state per (account, protocol, peer device).
 CREATE TABLE IF NOT EXISTS omemoSession (
 	accountJID TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL,
 	peerJID    TEXT    NOT NULL,
 	deviceID   INTEGER NOT NULL,
 	data       BLOB    NOT NULL,
 
-	PRIMARY KEY (accountJID, peerJID, deviceID)
+	PRIMARY KEY (accountJID, protocol, peerJID, deviceID)
 );
 
--- Trust decision per (account, peer identity key).
+-- Trust decision per (account, protocol, peer identity key).
 CREATE TABLE IF NOT EXISTS omemoTrust (
 	accountJID  TEXT    NOT NULL,
+	protocol    TEXT    NOT NULL,
 	identityKey BLOB    NOT NULL,
 	state       INTEGER NOT NULL,
 
-	PRIMARY KEY (accountJID, identityKey)
+	PRIMARY KEY (accountJID, protocol, identityKey)
 );
 
--- Cached device list per (account, peer jid).
+-- Cached device list per (account, protocol, peer jid).
 CREATE TABLE IF NOT EXISTS omemoDevice (
 	accountJID TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL,
 	peerJID    TEXT    NOT NULL,
 	deviceID   INTEGER NOT NULL,
 
-	PRIMARY KEY (accountJID, peerJID, deviceID)
+	PRIMARY KEY (accountJID, protocol, peerJID, deviceID)
 );
 
--- Cached remote identity key per (account, peer device) — the key that
--- device's bundle was last seen publishing.
+-- Cached remote identity key per (account, protocol, peer device) — the key
+-- that device's bundle was last seen publishing.
 CREATE TABLE IF NOT EXISTS omemoRemoteIdentity (
 	accountJID  TEXT    NOT NULL,
+	protocol    TEXT    NOT NULL,
 	peerJID     TEXT    NOT NULL,
 	deviceID    INTEGER NOT NULL,
 	identityKey BLOB    NOT NULL,
 
-	PRIMARY KEY (accountJID, peerJID, deviceID)
+	PRIMARY KEY (accountJID, protocol, peerJID, deviceID)
 );
+
+-- Cached per-peer OMEMO protocol version negotiation result (for the
+-- "omemo-auto" encryption mode): which protocol ("v1" | "v2") to use for a
+-- given (account, peer), and when it was last (re-)probed via disco#info/PEP
+-- - so account.go's negotiation logic doesn't re-probe on every send. A
+-- manual config.toml omemo_peers override always takes precedence over this
+-- cache and is never stored here.
+CREATE TABLE IF NOT EXISTS omemoPeerProtocol (
+	accountJID TEXT    NOT NULL,
+	peerJID    TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL, -- "v1" | "v2"
+	probedAt   INTEGER NOT NULL, -- unix seconds
+
+	PRIMARY KEY (accountJID, peerJID)
+) WITHOUT ROWID;
 
 
 -- Roster storage

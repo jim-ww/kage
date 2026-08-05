@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -298,8 +299,54 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		m.deviceList.local = msg.Local
 		m.deviceList.devices = msg.Devices
-		m.deviceList.selected = map[uint32]bool{}
+		m.deviceList.selected = map[OmemoDevice]bool{}
 		return m, m.showNotification("omemo device list updated"), true
+
+	case ContactAddedMsg:
+		cs := m.contactManagerState
+		if cs == nil || cs.accountIdx != msg.AccountIdx {
+			return m, nil, true
+		}
+		cs.busy = false
+		if msg.Err != nil {
+			cs.err = msg.Err.Error()
+			return m, nil, true
+		}
+		cs.adding = false
+		if m.chatIndexByAddress(msg.AccountIdx, msg.Address) < 0 {
+			chat := Chat{Name: msg.Address, Address: msg.Address}
+			m.accounts[msg.AccountIdx].Chats = append(m.accounts[msg.AccountIdx].Chats, chat)
+			var cmd tea.Cmd
+			if msg.AccountIdx == m.currentAccount {
+				cmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
+			}
+			return m, tea.Batch(cmd, m.showNotification("contact added: "+msg.Address)), true
+		}
+		return m, m.showNotification("contact added: " + msg.Address), true
+
+	case ContactRemovedMsg:
+		cs := m.contactManagerState
+		if cs == nil || cs.accountIdx != msg.AccountIdx {
+			return m, nil, true
+		}
+		cs.busy = false
+		if msg.Err != nil {
+			cs.err = msg.Err.Error()
+			return m, nil, true
+		}
+		if idx := m.chatIndexByAddress(msg.AccountIdx, msg.Address); idx >= 0 {
+			items := m.accounts[msg.AccountIdx].Chats
+			newItems := make([]list.Item, 0, len(items)-1)
+			newItems = append(newItems, items[:idx]...)
+			newItems = append(newItems, items[idx+1:]...)
+			m.accounts[msg.AccountIdx].Chats = newItems
+			var cmd tea.Cmd
+			if msg.AccountIdx == m.currentAccount {
+				cmd = m.chats.SetItems(newItems)
+			}
+			return m, tea.Batch(cmd, m.showNotification("contact removed: "+msg.Address)), true
+		}
+		return m, m.showNotification("contact removed: " + msg.Address), true
 
 	case AccountConnectedMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {

@@ -15,14 +15,16 @@ import (
 // and for decoding incoming stanzas.
 type messageBody struct {
 	stanza.Message
-	Body      string              `xml:"body,omitempty"`
-	Replace   *replaceElem        `xml:"urn:xmpp:message-correct:0 replace"`
-	Reply     *replyElem          `xml:"urn:xmpp:reply:0 reply"`
-	Retract   *retractElem        `xml:"urn:xmpp:message-retract:1 retract"`
-	Reactions *reactionsElem      `xml:"urn:xmpp:reactions:0 reactions"`
-	Fallback  *fallbackElem       `xml:"urn:xmpp:fallback:0 fallback"`
-	Encrypted *omemoEncryptedElem `xml:"urn:xmpp:omemo:2 encrypted"`
-	MAMResult *mamResultElem      `xml:"urn:xmpp:mam:2 result"`
+	Body        string                `xml:"body,omitempty"`
+	Replace     *replaceElem          `xml:"urn:xmpp:message-correct:0 replace"`
+	Reply       *replyElem            `xml:"urn:xmpp:reply:0 reply"`
+	Retract     *retractElem          `xml:"urn:xmpp:message-retract:1 retract"`
+	Reactions   *reactionsElem        `xml:"urn:xmpp:reactions:0 reactions"`
+	Fallback    *fallbackElem         `xml:"urn:xmpp:fallback:0 fallback"`
+	Encrypted   *omemoEncryptedElem   `xml:"urn:xmpp:omemo:2 encrypted"`
+	EncryptedV1 *omemoEncryptedElemV1 `xml:"eu.siacs.conversations.axolotl encrypted"`
+	MAMResult   *mamResultElem        `xml:"urn:xmpp:mam:2 result"`
+	PubsubEvent *pubsubEventElem      `xml:"http://jabber.org/protocol/pubsub#event event"`
 
 	// XEP-0085 chat state notification: at most one of these is set, on
 	// send or receive. Modeled as five separate pointer fields (rather than
@@ -81,6 +83,20 @@ func (msg *messageBody) setChatState(state ChatState) {
 	}
 }
 
+// pubsubEventElem is a XEP-0060 PEP push notification, delivered as a
+// <message/> when a subscribed-to node's items change (e.g. via the
+// <feature var="NODE+notify"/> auto-subscribe mechanism our own caps
+// advertise - see disco.go). Only the node name is decoded: callers that
+// care about a specific node (device-list changes, see events.go) treat
+// this purely as a "go re-fetch" trigger rather than trying to parse the
+// pushed item payload itself, which keeps this one shape usable for any
+// node without per-node payload structs.
+type pubsubEventElem struct {
+	Items *struct {
+		Node string `xml:"node,attr"`
+	} `xml:"http://jabber.org/protocol/pubsub#event items"`
+}
+
 // reactionsElem is XEP-0444: the complete, current set of reaction emoji
 // this sender has applied to the message with this ID. A new <reactions/>
 // stanza always fully replaces the sender's previous set — it is never a
@@ -125,10 +141,19 @@ type fallbackBodyElem struct {
 	End   *int `xml:"end,attr,omitempty"`
 }
 
-// presenceBody is a <presence/> stanza carrying an optional <show/>.
+// presenceBody is a <presence/> stanza carrying an optional <show/> and
+// XEP-0115 entity capabilities.
 type presenceBody struct {
 	stanza.Presence
-	Show string `xml:"show"`
+	Show string    `xml:"show"`
+	Caps *capsElem `xml:"http://jabber.org/protocol/caps c"`
+}
+
+// capsElem is XEP-0115's <c/> entity capabilities element.
+type capsElem struct {
+	Hash string `xml:"hash,attr"`
+	Node string `xml:"node,attr"`
+	Ver  string `xml:"ver,attr"`
 }
 
 // SendOptions carries optional XEP-0308/XEP-0461 wire metadata for Send.
@@ -157,8 +182,14 @@ type SendOptions struct {
 	Reactions        []string
 
 	// Encrypted, if set, sends a XEP-0384 <encrypted/> element instead of a
-	// plaintext body. Mutually exclusive with the other options above.
+	// plaintext body. Mutually exclusive with the other options above and
+	// with EncryptedV1.
 	Encrypted *omemoEncryptedElem
+
+	// EncryptedV1, if set, sends a legacy (eu.siacs.conversations.axolotl)
+	// <encrypted/> element instead of a plaintext body. Mutually exclusive
+	// with the other options above and with Encrypted.
+	EncryptedV1 *omemoEncryptedElemV1
 }
 
 const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."

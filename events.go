@@ -50,15 +50,15 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	}
 
 	body := msgEv.Body
-	e2eEncrypted := msgEv.Encrypted != nil || gpg.Looks(body)
+	e2eEncrypted := msgEv.Encrypted != nil || msgEv.EncryptedV1 != nil || gpg.Looks(body)
 	e2eeMethod := ""
 	switch {
-	case msgEv.Encrypted != nil:
+	case msgEv.Encrypted != nil, msgEv.EncryptedV1 != nil:
 		e2eeMethod = "omemo"
 	case gpg.Looks(body):
 		e2eeMethod = "gpg"
 	}
-	if msgEv.Encrypted != nil {
+	if msgEv.Encrypted != nil || msgEv.EncryptedV1 != nil {
 		// A message already backfilled via MAM (or otherwise already stored -
 		// e.g. redelivered after a reconnect) would otherwise get OMEMO
 		// decrypt re-run on it here: wasteful at best, and for a message key
@@ -77,16 +77,26 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		}
 
 		debugf("received omemo message from %s for %s", msgEv.From, s.account.JID)
-		if s.omemoMgr == nil {
-			debugf("warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
-			return
+
+		var mgr *omemolib.Manager
+		var enc *omemolib.EncryptedMessage
+		var err error
+		if msgEv.Encrypted != nil {
+			mgr = s.omemoMgrV2
+			enc, err = xmpp.DecodeOmemoMessage(msgEv.Encrypted, bareJID(msgEv.From))
+		} else {
+			mgr = s.omemoMgrV1
+			enc, err = xmpp.DecodeOmemoMessageV1(msgEv.EncryptedV1, bareJID(msgEv.From))
 		}
-		enc, err := xmpp.DecodeOmemoMessage(msgEv.Encrypted, bareJID(msgEv.From))
 		if err != nil {
 			debugf("warning: decoding omemo message from %s: %v\n", msgEv.From, err)
 			return
 		}
-		pt, err := s.omemoMgr.DecryptMessage(ctx, enc)
+		if mgr == nil {
+			debugf("warning: received omemo message from %s but omemo isn't ready for %s\n", msgEv.From, s.account.JID)
+			return
+		}
+		pt, err := mgr.DecryptMessage(ctx, enc)
 		if errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
 			// Not a real failure - this stanza just wasn't encrypted for this
 			// device's current key (e.g. it also targets other/older devices

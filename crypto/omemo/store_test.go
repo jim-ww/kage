@@ -2,7 +2,6 @@ package omemo
 
 import (
 	"context"
-	"crypto/ed25519"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -63,31 +62,37 @@ func openTestDB(t *testing.T) *storage.Queries {
 }
 
 // TestStoreEndToEndConversation exercises Store (backed by a real sqlite
-// database, via the same schema kage ships) through a full OMEMO exchange:
-// alice sends bob a first message (X3DH + key-exchange), bob decrypts and
-// replies on the now-established session.
+// database, via the same schema kage ships) through a full OMEMO exchange,
+// for both protocols: alice sends bob a first message (X3DH + key-exchange),
+// bob decrypts and replies on the now-established session.
 func TestStoreEndToEndConversation(t *testing.T) {
+	for _, protocol := range []omemolib.Protocol{omemolib.ProtocolV2, omemolib.ProtocolV1} {
+		t.Run(protocol.String(), func(t *testing.T) { testStoreEndToEndConversation(t, protocol) })
+	}
+}
+
+func testStoreEndToEndConversation(t *testing.T, protocol omemolib.Protocol) {
 	ctx := context.Background()
 	db := openTestDB(t)
 	transport := newFakeTransport()
 
 	aliceJID, bobJID := "alice@example.com", "bob@example.com"
-	aliceStore := NewStore(db, aliceJID)
-	bobStore := NewStore(db, bobJID)
+	aliceStore := NewStore(db, aliceJID, protocol)
+	bobStore := NewStore(db, bobJID, protocol)
 
-	if err := omemolib.InitIdentity(ctx, aliceStore, aliceJID, 1); err != nil {
+	if err := omemolib.InitIdentity(ctx, aliceStore, aliceJID, 1, protocol); err != nil {
 		t.Fatalf("InitIdentity(alice): %v", err)
 	}
-	if err := omemolib.InitIdentity(ctx, bobStore, bobJID, 1); err != nil {
+	if err := omemolib.InitIdentity(ctx, bobStore, bobJID, 1, protocol); err != nil {
 		t.Fatalf("InitIdentity(bob): %v", err)
 	}
 
-	trustAll := omemolib.WithTrustResolver(func(ctx context.Context, dev omemolib.Device, identityKey ed25519.PublicKey) error { return nil })
-	aliceMgr, err := omemolib.NewManager(ctx, aliceStore, transport, trustAll)
+	trustAll := omemolib.WithTrustResolver(func(ctx context.Context, dev omemolib.Device, identityKey []byte) error { return nil })
+	aliceMgr, err := omemolib.NewManager(ctx, aliceStore, transport, protocol, trustAll)
 	if err != nil {
 		t.Fatalf("NewManager(alice): %v", err)
 	}
-	bobMgr, err := omemolib.NewManager(ctx, bobStore, transport, trustAll)
+	bobMgr, err := omemolib.NewManager(ctx, bobStore, transport, protocol, trustAll)
 	if err != nil {
 		t.Fatalf("NewManager(bob): %v", err)
 	}

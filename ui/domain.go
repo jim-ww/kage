@@ -85,8 +85,10 @@ type Chat struct {
 	Presence    Presence
 	Typing      bool // true while the peer has an active XEP-0085 "composing" state
 
-	// EncryptionMode is this chat's outgoing message encryption: "omemo"
-	// (default), "gpg", or "none". Set by ChatEncryptionSetter.
+	// EncryptionMode is this chat's outgoing message encryption:
+	// "omemo-auto" (default, auto-detects the peer's protocol version),
+	// "omemo-v1"/"omemo-v2" (force that protocol), "gpg", or "none". Set by
+	// ChatEncryptionSetter.
 	EncryptionMode string
 }
 

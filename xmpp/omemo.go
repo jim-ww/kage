@@ -56,7 +56,7 @@ func (c *Client) PublishOmemoDeviceList(ctx context.Context, list omemolib.Devic
 	if _, err := pubsub.Publish(ctx, c.session, omemoDevicesNode, omemoItemID, elem); err != nil {
 		return fmt.Errorf("publishing omemo device list: %w", err)
 	}
-	makeNodeOpen(ctx, c.session, omemoDevicesNode)
+	c.makeNodeOpen(ctx, omemoDevicesNode)
 	return nil
 }
 
@@ -160,7 +160,7 @@ func (c *Client) PublishOmemoBundle(ctx context.Context, bundle omemolib.Bundle)
 	if _, err := pubsub.Publish(ctx, c.session, node, omemoItemID, elem); err != nil {
 		return fmt.Errorf("publishing omemo bundle: %w", err)
 	}
-	makeNodeOpen(ctx, c.session, node)
+	c.makeNodeOpen(ctx, node)
 	return nil
 }
 

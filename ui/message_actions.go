@@ -94,6 +94,17 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 				cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
 			} else {
 				newMsg.ID = id
+				// Send only succeeds without falling back to plaintext, so a
+				// configured encryption mode here means the message really
+				// went out encrypted - mirrors what adapter.go's send()
+				// computes and persists to storage, which this local optimistic
+				// echo has no way to read back before the next reload.
+				switch mode := encryptionModeOrDefault(chat.EncryptionMode); {
+				case mode == "gpg":
+					newMsg.Encrypted, newMsg.EncMethod = true, "gpg"
+				case mode != "none":
+					newMsg.Encrypted, newMsg.EncMethod = true, "omemo"
+				}
 			}
 		}
 

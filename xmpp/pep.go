@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"mellium.im/xmlstream"
-	"mellium.im/xmpp"
 	"mellium.im/xmpp/form"
 	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/pubsub"
@@ -39,7 +38,7 @@ func (c *Client) PublishOpenPGPKey(ctx context.Context, fingerprint string, keyD
 	if _, err := pubsub.Publish(ctx, c.session, keyNode, pepPublishItemID, keyElem); err != nil {
 		return fmt.Errorf("publishing key node: %w", err)
 	}
-	makeNodeOpen(ctx, c.session, keyNode)
+	c.makeNodeOpen(ctx, keyNode)
 
 	metaElem := xmlstream.Wrap(
 		xmlstream.Wrap(nil, xml.StartElement{
@@ -51,22 +50,34 @@ func (c *Client) PublishOpenPGPKey(ctx context.Context, fingerprint string, keyD
 	if _, err := pubsub.Publish(ctx, c.session, pepMetadataNode, pepPublishItemID, metaElem); err != nil {
 		return fmt.Errorf("publishing metadata node: %w", err)
 	}
-	makeNodeOpen(ctx, c.session, pepMetadataNode)
+	c.makeNodeOpen(ctx, pepMetadataNode)
 	return nil
 }
 
 // makeNodeOpen reconfigures a PEP node's access model to "open" — the whole
-// point of publishing an OpenPGP key here is for anyone to discover it, so
-// the access-controlled default most PEP node types use (e.g. "presence",
-// visible only to subscribed contacts) defeats the purpose. Best-effort:
-// some servers may not honor node reconfiguration, in which case the node
-// keeps whatever default access model it was auto-created with.
-func makeNodeOpen(ctx context.Context, s *xmpp.Session, node string) {
+// point of publishing an OpenPGP/OMEMO key or bundle here is for anyone
+// (mutual contact or not) to discover it, so the access-controlled default
+// most PEP node types auto-create with (e.g. "presence", visible only to
+// subscribed contacts, or worse "whitelist", visible only to us) defeats the
+// purpose. Best-effort: some servers may not honor node reconfiguration, in
+// which case the node keeps whatever default access model it was
+// auto-created with — logged rather than silently swallowed, since a server
+// that rejects this leaves the node invisible to contacts with no other
+// symptom on our end (the publish itself still succeeds).
+func (c *Client) makeNodeOpen(ctx context.Context, node string) {
 	cfg := form.New(
 		form.Hidden("FORM_TYPE", form.Value("http://jabber.org/protocol/pubsub#node_config")),
 		form.List("pubsub#access_model", form.Value("open")),
 	)
-	_ = pubsub.SetConfig(ctx, s, node, cfg)
+	if err := pubsub.SetConfig(ctx, c.session, node, cfg); err != nil {
+		if c.Debugf != nil {
+			c.Debugf("makeNodeOpen: reconfiguring %s to open access failed: %v", node, err)
+		}
+		return
+	}
+	if c.Debugf != nil {
+		c.Debugf("makeNodeOpen: reconfigured %s to open access", node)
+	}
 }
 
 type pubkeyMetadataList struct {
