@@ -300,7 +300,11 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.zone.Get(zonePaneAccountBar).InBounds(msg) {
 		m.notifyTypingStopped()
-		m.setSelectedView(viewAccounts)
+		if m.selectedView == viewAccounts {
+			m.setSelectedView(viewChats)
+		} else {
+			m.setSelectedView(viewAccounts)
+		}
 		m.lastClickedMsgIdx = -1
 		m.lastClickTime = time.Time{}
 		m.input.Blur()

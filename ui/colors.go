@@ -72,7 +72,7 @@ func presenceGlyphOn(p Presence, bg color.Color) string {
 }
 
 type uiColors struct {
-	// appBg       color.Color
+	appBg color.Color
 	// panelBg     color.Color
 	// panelAltBg  color.Color
 	panelEdge color.Color
@@ -96,7 +96,7 @@ type uiColors struct {
 
 func newUIColors(theme Theme) uiColors {
 	return uiColors{
-		// appBg:      lipgloss.Color(theme.AppBg),
+		appBg: lipgloss.Color(theme.AppBg),
 		// panelBg:    lipgloss.Color(theme.PanelBg),
 		// panelAltBg: lipgloss.Color(theme.PanelAltBg),
 		panelEdge: lipgloss.Color(theme.PanelEdge),

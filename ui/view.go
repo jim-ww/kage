@@ -25,16 +25,19 @@ func (m Model) View() tea.View {
 	if m.selectedView == viewChats || m.selectedView == viewAccounts {
 		sidebarBorder = colors.borderA
 	}
+	accountOpen := m.selectedView == viewAccounts
 	accountBg := colors.panelEdge
 	accountFg := colors.statusFg
-	if m.selectedView == viewAccounts {
+	if accountOpen {
 		accountBg = colors.borderA
-		// accountFg = colors.appBg
+		accountFg = colors.appBg
 	}
-	if m.isHovered(zonePaneAccountBar) {
-		accountBg = colors.accentCyan
+	accountHovered := m.isHovered(zonePaneAccountBar)
+	if accountHovered && !accountOpen {
+		accountFg = colors.accentCyan
 	}
-	statusLine := m.zone.Mark(zonePaneAccountBar, m.styles.sidebarStatusLine(scw, accountBg, accountFg, m.renderAccountBar(scw)))
+	accountName, accountStatus := m.renderAccountBar(scw, accountHovered, accountOpen)
+	statusLine := m.zone.Mark(zonePaneAccountBar, m.styles.accountBarLine(scw, accountBg, accountFg, accountName, accountStatus))
 	sidebarBody := m.chats.View()
 	switch {
 	case m.selectedView == viewAccounts:
@@ -419,15 +422,33 @@ func (m Model) renderRenameChatPopup() string {
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
-func (m Model) renderAccountBar(width int) string {
+// renderAccountBar returns the account bar's name and status text
+// separately, each already truncated to fit width (see
+// uiStyles.accountBarLine, which stacks and styles them).
+func (m Model) renderAccountBar(width int, hovered, open bool) (name, status string) {
 	if len(m.accounts) == 0 {
-		return "accounts: none"
+		return ansi.Truncate("no accounts", max(1, width-2), "…"), ""
 	}
-	label := "accounts"
+	name, status = "accounts", ""
 	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
-		label = fmt.Sprintf("accounts: %s", m.accounts[m.currentAccount].Name)
+		account := m.accounts[m.currentAccount]
+		name = account.DisplayName()
+		status = account.StatusText() + " " + presenceGlyph(account.Status)
 	}
-	return ansi.Truncate(label, max(1, width-2), "…")
+	w := max(1, width-2)
+	if hovered || open {
+		arrow := "[▼]"
+		if open {
+			arrow = "[▲]"
+		}
+		nameW := max(1, w-len(arrow)-1)
+		name = ansi.Truncate(name, nameW, "…")
+		pad := max(1, w-len(name)-len(arrow))
+		name += strings.Repeat(" ", pad) + arrow
+	} else {
+		name = ansi.Truncate(name, w, "…")
+	}
+	return name, ansi.Truncate(status, w, "…")
 }
 
 // renderAccountsList renders one row per account, current one highlighted,
@@ -438,15 +459,7 @@ func (m Model) renderAccountsList(width int) string {
 	}
 	rows := make([]string, len(m.accounts))
 	for i, account := range m.accounts {
-		label := account.Name
-		switch {
-		case account.Connecting:
-			label = account.Name + " (connecting…)"
-		case account.ConnectError != "":
-			label = account.Name + " (offline)"
-		case account.SyncingHistory:
-			label = account.Name + " (syncing history…)"
-		}
+		label := fmt.Sprintf("%s (%s)", account.DisplayName(), account.StatusText())
 		// The glyph is rendered separately and prepended after styling the
 		// rest of the row, never passed through renderAccountRow's own
 		// style.Render - that call ends in a full ANSI reset, and wrapping

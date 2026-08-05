@@ -61,6 +61,10 @@ type Account struct {
 	Chats    []list.Item
 	Messages map[int][]Message
 
+	// Alias is an optional display name from config, shown in place of Name
+	// (the bare JID) in the account bar/list; empty means fall back to Name.
+	Alias string
+
 	// HistoryMore marks, per chat index, whether older messages exist in
 	// storage beyond what's currently loaded in Messages — set from the
 	// initial paginated load and updated after each "load older" fetch.
@@ -89,6 +93,31 @@ type Account struct {
 	// AccountStatusSetter and persisted to config so it's restored on the
 	// next startup.
 	Status Presence
+}
+
+// DisplayName is the account's Alias if configured, else its bare JID.
+func (a Account) DisplayName() string {
+	if a.Alias != "" {
+		return a.Alias
+	}
+	return a.Name
+}
+
+// StatusText is a plain-text description of the account's connection state,
+// for the account bar/list — connecting/offline/syncing take priority over
+// the configured presence since they describe why the account can't be used
+// right now, not what presence it will show once it can.
+func (a Account) StatusText() string {
+	switch {
+	case a.Connecting:
+		return "connecting…"
+	case a.ConnectError != "":
+		return "offline"
+	case a.SyncingHistory:
+		return "syncing history…"
+	default:
+		return presenceLabel(a.Status)
+	}
 }
 
 // Presence is a contact's (or, for Account.Status, our own) online status —

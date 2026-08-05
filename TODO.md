@@ -1,4 +1,4 @@
-- ctrl+space/ctrl+m to mark messages (e.g. for deletion)
+- cant open/send files? images (omemo?)
 - in-app notifications should stay for longer by default. make it configurable
 - add download % when loading file
 - add keyboard navigation to modals (and ways to open them)

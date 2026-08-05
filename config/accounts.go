@@ -19,6 +19,7 @@ const storageKeyringAccount = "local-storage"
 // Account is one configured XMPP account.
 type Account struct {
 	JID         string            `toml:"jid"`
+	Alias       string            `toml:"alias,omitempty"` // display name shown in place of the JID in the UI
 	Password    string            `toml:"password,omitempty"`     // plaintext fallback
 	PasswordCmd string            `toml:"password_cmd,omitempty"` // shell command printing the password on stdout
 	GPGKeyID    string            `toml:"gpg_key_id,omitempty"`   // own key, used to decrypt/sign

@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	sidebarStatusHeight = 1
+	sidebarStatusHeight = 2
 	chatStatusHeight    = 1
 	// footerMaxLines caps how tall the key-hint footer can grow when word-
 	// wrapping a view's full hint list — even a wide terminal can't fit
@@ -153,12 +153,23 @@ func newUIStyles(theme Theme) uiStyles {
 	}
 }
 
-func (s uiStyles) sidebarStatusLine(width int, bg, fg color.Color, content string) string {
-	return s.sidebarStatus.
+// accountBarLine renders the account bar's name row (colored to reflect
+// hover/active state) stacked above its status row (plain background,
+// right-aligned) — two visually distinct rows rather than one block sharing
+// a single background, since the name row's accent color would otherwise
+// bleed into (and clash with) the status text below it.
+func (s uiStyles) accountBarLine(width int, bg, fg color.Color, name, status string) string {
+	nameRow := s.sidebarStatus.
 		Width(width).
-		// Background(bg).
+		Background(bg).
 		Foreground(fg).
-		Render(content)
+		Render(name)
+	statusRow := s.sidebarStatus.
+		Width(width).
+		Align(lipgloss.Right).
+		Foreground(s.colors.textMuted).
+		Render(status)
+	return nameRow + "\n" + statusRow
 }
 
 // chatStatusLine renders the chat pane's status bar (peer name/presence,

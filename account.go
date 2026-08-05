@@ -210,7 +210,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	}
 	sess.roster.Store(&entries)
 
-	return sess, ui.Account{Name: acct.JID, Chats: chats, Messages: messages, HistoryMore: historyMore, Connecting: true, Status: accountStatus(acct.Status)}, nil
+	return sess, ui.Account{Name: acct.JID, Alias: acct.Alias, Chats: chats, Messages: messages, HistoryMore: historyMore, Connecting: true, Status: accountStatus(acct.Status)}, nil
 }
 
 // connectAccountLive dials sess's account, publishes our GPG key, and fetches
