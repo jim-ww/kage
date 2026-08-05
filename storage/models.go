@@ -14,6 +14,12 @@ type Chatencryption struct {
 	Mode       string `db:"mode"`
 }
 
+type Chatunread struct {
+	Accountjid string `db:"accountjid"`
+	Rosterjid  string `db:"rosterjid"`
+	Count      int64  `db:"count"`
+}
+
 type Discofeature struct {
 	ID  int64  `db:"id"`
 	Var string `db:"var"`

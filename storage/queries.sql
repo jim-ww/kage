@@ -416,6 +416,23 @@ SELECT EXISTS(
 	WHERE accountJID = sqlc.arg(account_jid) AND mode = 'gpg'
 );
 
+-- name: IncrementChatUnread :exec
+INSERT INTO chatUnread (accountJID, rosterJID, count)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(delta))
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET count = count + excluded.count;
+
+-- name: ResetChatUnread :exec
+INSERT INTO chatUnread (accountJID, rosterJID, count)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), 0)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET count = 0;
+
+-- name: ListChatUnread :many
+SELECT rosterJID, count
+FROM chatUnread
+WHERE accountJID = sqlc.arg(account_jid) AND count > 0;
+
 
 -- name: GetOmemoIdentity :one
 SELECT privateKey, deviceID

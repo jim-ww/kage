@@ -212,6 +212,40 @@ func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
 }
 
+// IncrementChatUnread implements ui.ChatReadTracker: bumps the persisted
+// local-only unread counter for a chat by delta.
+func (a *adapter) IncrementChatUnread(accountJID, chatAddress string, delta int) error {
+	return a.queries.IncrementChatUnread(context.Background(), storage.IncrementChatUnreadParams{
+		AccountJid: accountJID,
+		RosterJid:  chatAddress,
+		Delta:      int64(delta),
+	})
+}
+
+// ResetChatUnread implements ui.ChatReadTracker: zeroes the persisted
+// unread counter for a chat, called when it's opened in the UI.
+func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
+	return a.queries.ResetChatUnread(context.Background(), storage.ResetChatUnreadParams{
+		AccountJid: accountJID,
+		RosterJid:  chatAddress,
+	})
+}
+
+// ChatUnreadCounts implements ui.ChatReadTracker: loads every chat with a
+// nonzero persisted unread count for an account, keyed by chat address, so
+// the UI can seed Chat.Unread when (re)connecting.
+func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
+	rows, err := a.queries.ListChatUnread(context.Background(), accountJID)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int, len(rows))
+	for _, r := range rows {
+		counts[r.Rosterjid] = int(r.Count)
+	}
+	return counts, nil
+}
+
 // omemoProtocolLabel matches ui.OmemoDevice.Protocol's "v1"/"v2" convention.
 func omemoProtocolLabel(p omemolib.Protocol) string {
 	if p == omemolib.ProtocolV1 {

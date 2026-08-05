@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/list"
@@ -38,6 +40,13 @@ type Message struct {
 	// Reactions is the aggregate (XEP-0444) reaction state on this message
 	// across everyone who's reacted, one entry per distinct emoji.
 	Reactions []Reaction
+
+	// DecryptFailed is set when this message's Content is the
+	// "[message could not be decrypted: ...]" placeholder (lost/rotated
+	// OMEMO session, etc.) rather than the sender's actual content. Used to
+	// exclude it from unread counting: opening the chat will never reveal
+	// anything more, so it shouldn't inflate the badge.
+	DecryptFailed bool
 }
 
 // Reaction is one distinct emoji's aggregate state on a message.
@@ -107,18 +116,27 @@ type Chat struct {
 	// "omemo-v1" (default), "omemo-v2", "gpg", or "none". Set by
 	// ChatEncryptionSetter.
 	EncryptionMode string
+
+	// Unread is a local-only count of messages received while this chat
+	// wasn't the actively-focused one, persisted via ChatReadTracker. Reset
+	// to zero when the chat is opened.
+	Unread int
 }
 
 func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }
 func (c Chat) Description() string {
-	switch {
-	case c.LastMessage != "":
-		return c.LastMessage
-	case c.Address != "" && c.Address != c.Name:
-		return c.Address
-	default:
-		return ""
+	text := c.LastMessage
+	if text == "" && c.Address != "" && c.Address != c.Name {
+		text = c.Address
 	}
+	if c.Unread <= 0 {
+		return text
+	}
+	prefix := fmt.Sprintf("(%d) ", c.Unread)
+	if text == "" {
+		return strings.TrimSpace(prefix)
+	}
+	return prefix + text
 }
 func (c Chat) FilterValue() string { return c.Name }
 

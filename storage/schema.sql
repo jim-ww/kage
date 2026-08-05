@@ -95,6 +95,17 @@ CREATE TABLE IF NOT EXISTS chatEncryption (
 	PRIMARY KEY (accountJID, rosterJID)
 ) WITHOUT ROWID;
 
+-- Local-only unread message count per chat. Never synced to the network —
+-- purely a client-side "have I looked at this chat" cursor, reset to zero
+-- when the chat is opened in the UI. Absent row means zero unread.
+CREATE TABLE IF NOT EXISTS chatUnread (
+	accountJID TEXT NOT NULL,
+	rosterJID  TEXT NOT NULL,
+	count      INTEGER NOT NULL DEFAULT 0,
+
+	PRIMARY KEY (accountJID, rosterJID)
+) WITHOUT ROWID;
+
 -- OMEMO storage, backing crypto/omemo's omemo.Store. Every table below is
 -- keyed additionally by protocol ("v1" | "v2") since an account runs a
 -- separate identity/device pool per OMEMO protocol version - ProtocolV1

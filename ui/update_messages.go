@@ -201,10 +201,12 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, newMsg.Content)
-		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+		if m.isChatFocused(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
+		} else if !newMsg.IsMe && !newMsg.DecryptFailed {
+			cmd = tea.Batch(cmd, m.incrementChatUnread(msg.AccountIdx, chatIdx, 1))
 		}
 		return m, cmd, true
 
@@ -519,10 +521,22 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, msg.Messages[len(msg.Messages)-1].Content)
-		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+		if m.isChatFocused(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
+		} else {
+			// MAM catch-up delivers messages that arrived while offline (see
+			// syncArchive), not just historical replay of what was already
+			// seen elsewhere — those genuinely-new, non-"me" messages count
+			// toward unread the same as a live IncomingMessageMsg would.
+			unread := 0
+			for _, nm := range msg.Messages {
+				if !nm.IsMe && !nm.DecryptFailed {
+					unread++
+				}
+			}
+			lastMsgCmd = tea.Batch(lastMsgCmd, m.incrementChatUnread(msg.AccountIdx, chatIdx, unread))
 		}
 		return m, lastMsgCmd, true
 

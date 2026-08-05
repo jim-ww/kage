@@ -593,6 +593,24 @@ func (q *Queries) HasGPGChat(ctx context.Context, accountJid string) (bool, erro
 	return exists, err
 }
 
+const incrementChatUnread = `-- name: IncrementChatUnread :exec
+INSERT INTO chatUnread (accountJID, rosterJID, count)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET count = count + excluded.count
+`
+
+type IncrementChatUnreadParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+	Delta      int64  `db:"delta"`
+}
+
+func (q *Queries) IncrementChatUnread(ctx context.Context, arg IncrementChatUnreadParams) error {
+	_, err := q.db.ExecContext(ctx, incrementChatUnread, arg.AccountJid, arg.RosterJid, arg.Delta)
+	return err
+}
+
 const insertDiscoFeatureJID = `-- name: InsertDiscoFeatureJID :exec
 INSERT INTO discoFeatureJID (jid, feat)
 VALUES (?, ?)
@@ -961,6 +979,40 @@ func (q *Queries) ListAllReactions(ctx context.Context) ([]ListAllReactionsRow, 
 			&i.Fromjid,
 			&i.Emoji,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChatUnread = `-- name: ListChatUnread :many
+SELECT rosterJID, count
+FROM chatUnread
+WHERE accountJID = ?1 AND count > 0
+`
+
+type ListChatUnreadRow struct {
+	Rosterjid string `db:"rosterjid"`
+	Count     int64  `db:"count"`
+}
+
+func (q *Queries) ListChatUnread(ctx context.Context, accountJid string) ([]ListChatUnreadRow, error) {
+	rows, err := q.db.QueryContext(ctx, listChatUnread, accountJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChatUnreadRow
+	for rows.Next() {
+		var i ListChatUnreadRow
+		if err := rows.Scan(&i.Rosterjid, &i.Count); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1543,6 +1595,23 @@ func (q *Queries) PutOmemoSession(ctx context.Context, arg PutOmemoSessionParams
 		arg.DeviceID,
 		arg.Data,
 	)
+	return err
+}
+
+const resetChatUnread = `-- name: ResetChatUnread :exec
+INSERT INTO chatUnread (accountJID, rosterJID, count)
+VALUES (?1, ?2, 0)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET count = 0
+`
+
+type ResetChatUnreadParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+}
+
+func (q *Queries) ResetChatUnread(ctx context.Context, arg ResetChatUnreadParams) error {
+	_, err := q.db.ExecContext(ctx, resetChatUnread, arg.AccountJid, arg.RosterJid)
 	return err
 }
 

@@ -363,6 +363,17 @@ type LastChatSetter interface {
 	SetLastChat(accountJID, chatAddress string) error
 }
 
+// ChatReadTracker persists local-only unread message counts per chat,
+// implemented outside ui (main.go's adapter, backed by storage) so ui stays
+// decoupled from the storage layer. Called inline like Send/SetTyping
+// rather than through a tea.Cmd; a failure just means the in-memory count
+// (still updated regardless) won't survive a restart.
+type ChatReadTracker interface {
+	IncrementChatUnread(accountJID, chatAddress string, delta int) error
+	ResetChatUnread(accountJID, chatAddress string) error
+	ChatUnreadCounts(accountJID string) (map[string]int, error)
+}
+
 type noticeClearMsg struct {
 	id int
 }

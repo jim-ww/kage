@@ -174,6 +174,15 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	}
 	slog.Debug("local roster loaded", "jid", acct.JID, "contacts", len(rows))
 
+	unreadRows, err := queries.ListChatUnread(ctx, acct.JID)
+	if err != nil {
+		slog.Warn("loading chat unread counts", "jid", acct.JID, "err", err)
+	}
+	unread := make(map[string]int, len(unreadRows))
+	for _, r := range unreadRows {
+		unread[r.Rosterjid] = int(r.Count)
+	}
+
 	chats := make([]list.Item, 0, len(rows))
 	messages := make(map[int][]ui.Message, len(rows))
 	historyMore := make(map[int]bool, len(rows))
@@ -191,7 +200,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		histStart := time.Now()
 		hist, hasMore := loadHistoryPage(ctx, sess, r.Jid, name)
 		slog.Debug("loadHistoryPage done", "jid", acct.JID, "peer", r.Jid, "elapsed", time.Since(histStart), "messages", len(hist), "more", hasMore)
-		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode}
+		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid]}
 		if len(hist) > 0 {
 			messages[i] = hist
 			chat.LastMessage = hist[len(hist)-1].Content
@@ -668,6 +677,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			case gpg.Looks(body):
 				e2eeMethod = "gpg"
 			}
+			decryptFailed := false
 			if am.Encrypted != nil || am.EncryptedV1 != nil {
 				var mgr *omemolib.Manager
 				var enc *omemolib.EncryptedMessage
@@ -681,8 +691,10 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				}
 				if mgr == nil {
 					body = "[message could not be decrypted: omemo isn't ready]"
+					decryptFailed = true
 				} else if decodeErr != nil {
 					body = "[message could not be decrypted: " + decodeErr.Error() + "]"
+					decryptFailed = true
 				} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
 					// Not a real failure - see handleIncomingMessage's live-path
 					// comment. Quietly skip instead of storing a noise row.
@@ -690,6 +702,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 					continue
 				} else if err != nil {
 					body = "[message could not be decrypted: " + err.Error() + "]"
+					decryptFailed = true
 				} else if pt == nil {
 					continue // key-transport only: session established/refreshed, no content to show
 				} else {
@@ -764,14 +777,15 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				author = "me"
 			}
 			newMsgs = append(newMsgs, ui.Message{
-				ID:          am.ID,
-				Author:      author,
-				Content:     body,
-				SentAt:      am.SentAt,
-				IsMe:        sent,
-				Encrypted:   e2eEncrypted,
-				EncMethod:   e2eeMethod,
-				Attachments: attachmentURLs(body),
+				ID:            am.ID,
+				Author:        author,
+				Content:       body,
+				SentAt:        am.SentAt,
+				IsMe:          sent,
+				Encrypted:     e2eEncrypted,
+				EncMethod:     e2eeMethod,
+				Attachments:   attachmentURLs(body),
+				DecryptFailed: decryptFailed,
 			})
 		}
 		if len(newMsgs) > 0 {

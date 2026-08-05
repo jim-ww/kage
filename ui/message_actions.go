@@ -409,7 +409,8 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 			_ = m.lastChatSetter.SetLastChat(m.accounts[m.currentAccount].Name, chat.Address)
 		}
 	}
-	return m, m.input.Focus()
+	unreadCmd := m.resetChatUnread(m.currentAccount, m.currentChatIndex())
+	return m, tea.Batch(unreadCmd, m.input.Focus())
 }
 
 // canEdit returns true only when selectedMsg is the last "IsMe" message.

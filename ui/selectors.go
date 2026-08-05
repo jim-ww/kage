@@ -106,6 +106,78 @@ func (m *Model) setChatLastMessage(accountIdx, chatIdx int, content string) tea.
 	return nil
 }
 
+// setChatUnread updates the chat list's unread count for the chat at
+// chatIdx and, if that chat's account is currently displayed, refreshes the
+// visible list item.
+func (m *Model) setChatUnread(accountIdx, chatIdx, count int) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return nil
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok {
+		return nil
+	}
+	chat.Unread = count
+	m.accounts[accountIdx].Chats[chatIdx] = chat
+	if accountIdx == m.currentAccount {
+		return m.chats.SetItem(chatIdx, chat)
+	}
+	return nil
+}
+
+// isChatFocused reports whether chatIdx within accountIdx is the chat
+// currently being actively viewed — the condition under which an incoming
+// message counts as already read rather than unread.
+func (m Model) isChatFocused(accountIdx, chatIdx int) bool {
+	return accountIdx == m.currentAccount && chatIdx == m.currentChatIndex() && m.selectedView == viewChat
+}
+
+// incrementChatUnread bumps the in-memory unread count for chatIdx by delta
+// and, if a ChatReadTracker is wired in, persists the bump so it survives a
+// restart. Best-effort: a persistence failure doesn't roll back the
+// in-memory count.
+func (m *Model) incrementChatUnread(accountIdx, chatIdx, delta int) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) || delta == 0 {
+		return nil
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok {
+		return nil
+	}
+	cmd := m.setChatUnread(accountIdx, chatIdx, chat.Unread+delta)
+	if m.chatReadTracker == nil {
+		return cmd
+	}
+	accountJID, address := m.accounts[accountIdx].Name, chat.Address
+	tracker := m.chatReadTracker
+	return tea.Batch(cmd, func() tea.Msg {
+		_ = tracker.IncrementChatUnread(accountJID, address, delta)
+		return nil
+	})
+}
+
+// resetChatUnread zeroes chatIdx's unread count, in memory and (if wired)
+// persisted, called when the chat becomes the actively-focused one.
+func (m *Model) resetChatUnread(accountIdx, chatIdx int) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return nil
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok || chat.Unread == 0 {
+		return nil
+	}
+	cmd := m.setChatUnread(accountIdx, chatIdx, 0)
+	if m.chatReadTracker == nil {
+		return cmd
+	}
+	accountJID, address := m.accounts[accountIdx].Name, chat.Address
+	tracker := m.chatReadTracker
+	return tea.Batch(cmd, func() tea.Msg {
+		_ = tracker.ResetChatUnread(accountJID, address)
+		return nil
+	})
+}
+
 // messageIndexByID returns the index of the message with the given stanza ID
 // within msgs, or -1 if none matches (or id is empty).
 func messageIndexByID(msgs []Message, id string) int {

@@ -1,5 +1,4 @@
 - ctrl+space/ctrl+m to mark messages (e.g. for deletion)
-- implement local-only "unread" messages. show total-count per-chat in chat list descriptions?
 - show deleted messages other way
 - in-app notifications should stay for longer by default. make it configurable
 - add download % when loading file

@@ -61,6 +61,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	case gpg.Looks(body):
 		e2eeMethod = "gpg"
 	}
+	decryptFailed := false
 	if msgEv.Encrypted != nil || msgEv.EncryptedV1 != nil {
 		// A message already backfilled via MAM (or otherwise already stored -
 		// e.g. redelivered after a reconnect) would otherwise get OMEMO
@@ -113,6 +114,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			// from "nothing was sent", which makes this undiagnosable from the UI.
 			slog.Warn("decrypting omemo message failed", "from", msgEv.From, "err", err)
 			body = "[message could not be decrypted: " + err.Error() + "]"
+			decryptFailed = true
 		} else if pt == nil {
 			slog.Debug("omemo message was key-transport only (no content)", "from", msgEv.From)
 			return // key-transport message: session established/refreshed, no content to show
@@ -218,9 +220,10 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			Content:     body,
 			SentAt:      msgEv.SentAt,
 			IsMe:        false,
-			Encrypted:   e2eEncrypted,
-			EncMethod:   e2eeMethod,
-			Attachments: attachmentURLs(body),
+			Encrypted:     e2eEncrypted,
+			EncMethod:     e2eeMethod,
+			Attachments:   attachmentURLs(body),
+			DecryptFailed: decryptFailed,
 		},
 	})
 }
