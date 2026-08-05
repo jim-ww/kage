@@ -188,13 +188,15 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		if err != nil {
 			mode = "omemo-v1"
 		}
-		chats = append(chats, ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode})
 		histStart := time.Now()
 		hist, hasMore := loadHistoryPage(ctx, sess, r.Jid, name)
 		slog.Debug("loadHistoryPage done", "jid", acct.JID, "peer", r.Jid, "elapsed", time.Since(histStart), "messages", len(hist), "more", hasMore)
+		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode}
 		if len(hist) > 0 {
 			messages[i] = hist
+			chat.LastMessage = hist[len(hist)-1].Content
 		}
+		chats = append(chats, chat)
 		historyMore[i] = hasMore
 	}
 	sess.roster.Store(&entries)
@@ -288,11 +290,13 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 			continue
 		}
 		idx := existingChatCount + len(newChats)
-		newChats = append(newChats, ui.Chat{Name: name, Address: c.JID})
 		hist, hasMore := loadHistoryPage(ctx, sess, c.JID, name)
+		chat := ui.Chat{Name: name, Address: c.JID}
 		if len(hist) > 0 {
 			newMessages[idx] = hist
+			chat.LastMessage = hist[len(hist)-1].Content
 		}
+		newChats = append(newChats, chat)
 		newHistoryMore[idx] = hasMore
 	}
 	sess.roster.Store(&merged)
