@@ -539,8 +539,10 @@ func (m Model) renderChatStatusBar(width int) string {
 
 	label := chat.Name
 	switch {
-	case chat.Address != "":
+	case chat.Address != "" && chat.Address != chat.Name:
 		label = fmt.Sprintf("%s <%s>", chat.Name, chat.Address)
+	case chat.Address != "":
+		label = chat.Address
 	case strings.HasPrefix(chat.Name, "#"):
 		label = chat.Name
 	}
@@ -555,9 +557,6 @@ func (m Model) renderChatStatusBar(width int) string {
 	// ends in a full ANSI reset, which would otherwise cut the outer color
 	// off right after the dot, leaving the rest of the label uncolored.
 	label = m.styles.messageNickMe.Render(label)
-	if chat.Address != "" {
-		label = presenceGlyph(chat.Presence) + " " + label
-	}
 
 	return ansi.Truncate(label, max(1, width-2), "…")
 }

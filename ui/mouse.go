@@ -311,10 +311,6 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.zone.Get(zoneChatStatusBar).InBounds(msg) {
-		return m, m.actionOpenAccountStatusMenu(m.currentAccount)
-	}
-
 	for i := range m.accounts {
 		if m.zone.Get(zoneAccountRow(i)).InBounds(msg) {
 			m.setSelectedView(viewAccounts)
