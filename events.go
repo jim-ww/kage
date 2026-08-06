@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -244,22 +245,25 @@ func stripReplyQuote(body string) string {
 	return strings.Join(lines[i:], "\n")
 }
 
-// attachmentURLs recognizes the URL-only message produced by SendFile. A
-// plain link body remains visible as fallback text for every XMPP client,
-// while Kage additionally exposes it as a downloadable attachment.
+// attachmentURLs recognizes the URL(s) produced by SendFile, one per line,
+// trailing the message body (optionally preceded by other text). A plain
+// link body remains visible as fallback text for every XMPP client, while
+// Kage additionally exposes it as a downloadable attachment.
 // Also recognizes aesgcm:// URLs (XEP-0454 encrypted file sharing).
 func attachmentURLs(body string) []string {
+	lines := strings.Split(body, "\n")
 	var urls []string
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue
 		}
 		isURL := strings.HasPrefix(line, "https://") || strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "aesgcm://")
 		if !isURL {
-			return nil
+			break
 		}
 		urls = append(urls, line)
 	}
+	slices.Reverse(urls)
 	return urls
 }

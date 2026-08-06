@@ -27,13 +27,14 @@ func TestAttachmentURLsAfterStrippingReplyQuote(t *testing.T) {
 	}
 }
 
-func TestAttachmentURLsStillFailsWithoutStripping(t *testing.T) {
-	// Documents why stripReplyQuote must run before attachmentURLs: the raw
-	// quoted body doesn't start with a recognized scheme, so without
-	// stripping the file would silently stop being identified as an
-	// attachment.
-	body := "> Bob\n> photo.jpg\naesgcm://host/photo.jpg#key"
-	if got := attachmentURLs(body); got != nil {
-		t.Fatalf("attachmentURLs(%q) = %v, want nil (unstripped quote hides the URL)", body, got)
+func TestAttachmentURLsTrailingLinesWithTextPrefix(t *testing.T) {
+	// A message body may carry free text before one or more trailing URL
+	// lines (e.g. "here you go\n<url1>\n<url2>"); attachmentURLs picks up
+	// only the trailing URL run.
+	body := "here you go\nhttps://host/a.jpg\nhttps://host/b.png"
+	got := attachmentURLs(body)
+	want := []string{"https://host/a.jpg", "https://host/b.png"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("attachmentURLs(%q) = %v, want %v", body, got, want)
 	}
 }
