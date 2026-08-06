@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/atotto/clipboard"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -15,27 +16,28 @@ import (
 // row must be handled before the enclosing sidebar pane's "switch focus"
 // fallback.
 const (
-	zonePaneSidebar    = "pane-sidebar"
-	zonePaneViewport   = "pane-viewport"
-	zonePaneInput      = "pane-input"
+	zonePaneSidebar      = "pane-sidebar"
+	zonePaneViewport     = "pane-viewport"
+	zonePaneInput        = "pane-input"
 	zoneAccountBarName   = "account-bar-name"
 	zoneAccountBarStatus = "account-bar-status"
-	zoneChatStatusBar  = "chat-status-bar"
-	zoneSendButton     = "send-button"
-	zoneAttachButton   = "attach-button"
-	zoneToggleSidebar  = "toggle-sidebar-button"
-	zoneMsgInfoPopup   = "msg-info-popup"
+	zoneChatStatusBar    = "chat-status-bar"
+	zoneSendButton       = "send-button"
+	zoneAttachButton     = "attach-button"
+	zoneToggleSidebar    = "toggle-sidebar-button"
+	zoneMsgInfoPopup     = "msg-info-popup"
 )
 
 // inputWheelScrollLines is how many lines a single wheel notch moves the
 // compose box's cursor (and so its internal viewport) by.
 const inputWheelScrollLines = 2
 
-func zoneAccountRow(i int) string       { return fmt.Sprintf("account-row-%d", i) }
-func zoneChatItem(i int) string         { return fmt.Sprintf("chat-item-%d", i) }
-func zoneMessage(i int) string          { return fmt.Sprintf("msg-%d", i) }
-func zoneEmojiSuggestion(i int) string  { return fmt.Sprintf("emoji-suggest-%d", i) }
-func zoneAttachmentRemove(i int) string { return fmt.Sprintf("attachment-remove-%d", i) }
+func zoneAccountRow(i int) string        { return fmt.Sprintf("account-row-%d", i) }
+func zoneChatItem(i int) string          { return fmt.Sprintf("chat-item-%d", i) }
+func zoneMessage(i int) string           { return fmt.Sprintf("msg-%d", i) }
+func zoneEmojiSuggestion(i int) string   { return fmt.Sprintf("emoji-suggest-%d", i) }
+func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove-%d", i) }
+func zoneMsgInfoAttachment(i int) string { return fmt.Sprintf("msg-info-attachment-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
 // (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
@@ -154,6 +156,17 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		return ""
 	}
 
+	if m.showMsgInfo {
+		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
+			for i := range msgs[m.selectedMsg].Attachments {
+				if m.zone.Get(zoneMsgInfoAttachment(i)).InBounds(mouse) {
+					return zoneMsgInfoAttachment(i)
+				}
+			}
+		}
+		return ""
+	}
+
 	if m.zone.Get(zoneSendButton).InBounds(mouse) {
 		return zoneSendButton
 	}
@@ -211,6 +224,15 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.showMsgInfo {
 		if !m.zone.Get(zoneMsgInfoPopup).InBounds(msg) {
 			m.showMsgInfo = false
+			return m, nil
+		}
+		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
+			for i, a := range msgs[m.selectedMsg].Attachments {
+				if m.zone.Get(zoneMsgInfoAttachment(i)).InBounds(msg) {
+					_ = clipboard.WriteAll(a)
+					break
+				}
+			}
 		}
 		return m, nil
 	}

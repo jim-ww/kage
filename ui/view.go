@@ -335,7 +335,8 @@ func (m Model) renderInfoPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.infoPrompt())
+	// popup padding (4 each side) + border (1 each side).
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.infoPrompt(cw-10))
 	popup = m.zone.Mark(zoneMsgInfoPopup, popup)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
@@ -362,7 +363,7 @@ func encryptionLabel(msg Message) string {
 	}
 }
 
-func (m Model) infoPrompt() string {
+func (m Model) infoPrompt(width int) string {
 	closeKey := m.keys.InfoMsg.Help().Key
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
@@ -389,7 +390,14 @@ func (m Model) infoPrompt() string {
 		if len(msg.Attachments) > 1 {
 			label = fmt.Sprintf("Attachment %d:", i+1)
 		}
-		rows = append(rows, fmt.Sprintf("%s %s", label, a))
+		fg := m.styles.colors.themFg
+		if m.isHovered(zoneMsgInfoAttachment(i)) {
+			fg = m.styles.colors.accentCyan
+		}
+		url := lipgloss.NewStyle().Foreground(fg).Render(a)
+		row := fmt.Sprintf("%s %s", label, url)
+		row = ansi.Truncate(row, width, "…")
+		rows = append(rows, m.zone.Mark(zoneMsgInfoAttachment(i), row))
 	}
 	if msg.Retracted {
 		// The chat view hides deleted content, but we never actually erase
