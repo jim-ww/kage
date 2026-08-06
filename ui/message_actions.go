@@ -364,6 +364,71 @@ func (m *Model) actionSaveMessage() tea.Cmd {
 	}
 }
 
+// actionSaveMessageAs is actionSaveMessage's counterpart for Ctrl+Shift+S:
+// instead of downloading straight to the default downloads directory, it
+// prompts for a destination path first (openSaveAsPrompt). With multiple
+// links/attachments on the message, the item picker opens first (in
+// pickerModeSaveAs) so the user chooses which one before being prompted for
+// where to put it.
+func (m *Model) actionSaveMessageAs() tea.Cmd {
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return m.showNotification("no message selected")
+	}
+	items := openableItems(msgs[m.selectedMsg])
+	switch len(items) {
+	case 0:
+		return m.showNotification("nothing to save")
+	case 1:
+		return m.openSaveAsPrompt(items[0])
+	default:
+		m.openItems = items
+		m.openItemsAttachCount = len(msgs[m.selectedMsg].Attachments)
+		m.openPage = 0
+		m.openMode = pickerModeSaveAs
+		return nil
+	}
+}
+
+// openSaveAsPrompt opens the single-field "save as" popup for target,
+// prefilled with the default downloads-directory destination so submitting
+// unchanged behaves the same as a plain save.
+func (m *Model) openSaveAsPrompt(target string) tea.Cmd {
+	dest := target
+	if dir, err := downloadsDir(); err == nil {
+		dest = uniqueDestPath(dir, attachmentDisplayName(target))
+	}
+
+	ti := textinput.New()
+	ti.Prompt = "Path: "
+	ti.KeyMap = m.keys.TextInputKeys
+	ti.SetWidth(addAccountFieldWidth)
+	applyTextInputStyles(&ti, m.styles.colors)
+	ti.SetValue(dest)
+	ti.CursorEnd()
+	ti.Focus()
+
+	m.saveAsTarget = target
+	m.saveAsInput = ti
+	m.savingAs = true
+	return textinput.Blink
+}
+
+// submitSaveAs applies the save-as prompt's current value as the download
+// destination and starts the download. An empty path cancels instead of
+// saving nowhere.
+func (m *Model) submitSaveAs() tea.Cmd {
+	m.savingAs = false
+
+	dest := strings.TrimSpace(m.saveAsInput.Value())
+	if dest == "" {
+		return nil
+	}
+	target := m.saveAsTarget
+	m.saveAsTarget = ""
+	return m.startSaveAs(target, dest)
+}
+
 func (m *Model) actionReactMessage() tea.Cmd {
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {

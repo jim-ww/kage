@@ -27,7 +27,8 @@ type KeyMap struct {
 	ReplyMsg         key.Binding // Ctrl+R — reply to selected message
 	InfoMsg          key.Binding // Ctrl+I — show message info popup
 	OpenMsg          key.Binding // Ctrl+O — open links/attachments in selected message
-	SaveMsg          key.Binding // Ctrl+W — save links/attachments in selected message to disk
+	SaveMsg          key.Binding // Ctrl+S — save links/attachments in selected message to disk
+	SaveMsgAs        key.Binding // Ctrl+Shift+S — save links/attachments, prompting for a destination path first
 	ReactMsg         key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
 	ConfirmYes       key.Binding // y — confirm popup
 	ConfirmNo        key.Binding // n / esc — cancel popup
@@ -97,7 +98,8 @@ var DefaultKeyMap = KeyMap{
 	ReplyMsg:         NewBinding([]string{"ctrl+r"}, "reply"),
 	InfoMsg:          NewBinding([]string{"ctrl+i"}, "message info"),
 	OpenMsg:          NewBinding([]string{"ctrl+o"}, "open links/attachments"),
-	SaveMsg:          NewBinding([]string{"ctrl+w"}, "save links/attachments"),
+	SaveMsg:          NewBinding([]string{"ctrl+s"}, "save links/attachments"),
+	SaveMsgAs:        NewBinding([]string{"ctrl+shift+s"}, "save links/attachments as"),
 	ReactMsg:         NewBinding([]string{"ctrl+t"}, "react"),
 	ConfirmYes:       NewBinding([]string{"y"}, "yes"),
 	ConfirmNo:        NewBinding([]string{"n", "esc"}, "no"),
@@ -152,7 +154,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
-		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.ReactMsg},
+		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.SaveMsgAs, k.ReactMsg},
 		{k.AddAccount, k.AttachFile, k.RemoveAttachment, k.RenameChat, k.ToggleSidebar, k.DeviceList, k.ContactManager},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
@@ -230,6 +232,7 @@ func (k KeyMap) helpHint(view selectedView, hasPendingAttachments bool) string {
 			part(k.InfoMsg, "info"),
 			part(k.OpenMsg, "open"),
 			part(k.SaveMsg, "save"),
+			part(k.SaveMsgAs, "save as"),
 			part(k.AttachFile, "attach"),
 		}
 		if hasPendingAttachments {

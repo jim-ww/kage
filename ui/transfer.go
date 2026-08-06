@@ -110,6 +110,20 @@ func (m *Model) startSave(target string) tea.Cmd {
 	return saveURLToDownloads(target)
 }
 
+// startSaveAs begins downloading target to the user-chosen dest path (from
+// the "save as" prompt) unless a download of the same URL is already in
+// flight - see startOpen.
+func (m *Model) startSaveAs(target, dest string) tea.Cmd {
+	if m.downloadsInFlight[target] {
+		return nil
+	}
+	if m.downloadsInFlight == nil {
+		m.downloadsInFlight = make(map[string]bool)
+	}
+	m.downloadsInFlight[target] = true
+	return saveURLToPath(target, dest)
+}
+
 // setTransferProgress upserts a transfer's progress, tracking insertion
 // order (transferOrder) separately so renderTransferLines has a stable,
 // start-order rendering instead of Go's randomized map iteration.

@@ -10,6 +10,7 @@
                    │                  rows in result set]
 - doesnt encrypt for other own devices?
 - ctrl+w replace with ctrl+s, and ctrl+shift+s as save as (selecting path)
+- message info modal should be closable on click outside of modal
 - in devices show proper OMEMO fingerprint
 - ^shift+U bind doesnt work (omemo devices)
 - add backspace binding in help line

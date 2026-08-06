@@ -152,6 +152,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderAddAccountPopup()
 	case m.renamingChat:
 		viewportArea = m.renderRenameChatPopup()
+	case m.savingAs:
+		viewportArea = m.renderSaveAsPopup()
 	case len(m.openItems) > 0:
 		viewportArea = m.renderOpenPopup()
 	case m.pickingFile:
@@ -418,9 +420,13 @@ func (m Model) renderOpenPopup() string {
 
 	verb := "open"
 	title := "Open — pick one"
-	if m.openMode == pickerModeSave {
+	switch m.openMode {
+	case pickerModeSave:
 		verb = "save"
 		title = "Save — pick one"
+	case pickerModeSaveAs:
+		verb = "save as"
+		title = "Save as — pick one"
 	}
 	footer := "[1-9] " + verb + "  ·  [esc] cancel"
 	if pages := openPageCount(len(m.openItems)); pages > 1 {
@@ -473,6 +479,18 @@ func (m Model) renderRenameChatPopup() string {
 
 	footer := "[enter] save  ·  [esc] cancel"
 	body := m.styles.listPopup("Rename chat", []string{m.renameInput.View()}, footer)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+
+	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+// renderSaveAsPopup shows the single-field save-as destination-path prompt.
+func (m Model) renderSaveAsPopup() string {
+	cw := m.chatAreaWidth()
+	vh := m.height - m.inputAreaHeight()
+
+	footer := "[enter] save  ·  [esc] cancel"
+	body := m.styles.listPopup("Save as", []string{m.saveAsInput.View()}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)

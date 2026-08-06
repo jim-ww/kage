@@ -77,7 +77,7 @@ func (m Model) narrow() bool { return m.width < narrowWidth }
 // into even while the chat list is the logically selected view.
 func (m Model) popupActive() bool {
 	return m.contextMenu != nil || m.confirmTarget != confirmNone || m.showMsgInfo ||
-		m.addingAccount || m.renamingChat || len(m.openItems) > 0 || m.pickingFile || m.deviceList != nil
+		m.addingAccount || m.renamingChat || m.savingAs || len(m.openItems) > 0 || m.pickingFile || m.deviceList != nil
 }
 
 // narrowShowChat reports, in narrow mode, whether the single visible pane

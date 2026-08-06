@@ -165,6 +165,14 @@ type Model struct {
 	renameChatIdx int
 	renameInput   textinput.Model
 
+	// save-as prompt state, active while savingAs is true. Opened by
+	// SaveMsgAs (Ctrl+Shift+S) or picking an item from the open/save popup
+	// while openMode == pickerModeSaveAs; saveAsTarget is the URL to
+	// download once a destination path is submitted.
+	savingAs     bool
+	saveAsTarget string
+	saveAsInput  textinput.Model
+
 	// typingActiveTo is the address of the chat we're currently marked as
 	// "composing" to (empty if not composing to anyone). typingGen
 	// increments on every keystroke while composing, so a pending

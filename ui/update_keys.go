@@ -143,6 +143,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return model.(Model), cmd, true
 	}
 
+	// ── Save-as prompt intercepts all input until submitted/canceled ──
+	if m.savingAs {
+		model, cmd := m.updateSaveAsForm(msg)
+		return model.(Model), cmd, true
+	}
+
 	// ── File picker intercepts all input until selected or canceled ─────
 	if m.pickingFile {
 		if matchesKey(msg, m.keys.AttachFile) || matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) {
@@ -186,8 +192,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.openItems = nil
 			m.openItemsAttachCount = 0
 			m.openPage = 0
-			if m.openMode == pickerModeSave {
+			switch m.openMode {
+			case pickerModeSave:
 				return m, m.startSave(target), true
+			case pickerModeSaveAs:
+				return m, m.openSaveAsPrompt(target), true
 			}
 			return m, m.startOpen(target, isAttachment), true
 		}
@@ -487,6 +496,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionSaveMessage(), true
 		}
 
+	case matchesKey(msg, m.keys.SaveMsgAs):
+		if m.selectedView == viewChat {
+			return m, m.actionSaveMessageAs(), true
+		}
+
 	case matchesKey(msg, m.keys.ReactMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionReactMessage(), true
@@ -512,6 +526,25 @@ func (m Model) updateRenameChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.renameInput, cmd = m.renameInput.Update(msg)
+		return m, cmd
+	}
+}
+
+// updateSaveAsForm handles all key input while the save-as popup is open:
+// enter submits the typed path and starts the download, esc cancels.
+func (m Model) updateSaveAsForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.String() == "esc":
+		m.savingAs = false
+		m.saveAsTarget = ""
+		return m, nil
+
+	case matchesKey(msg, m.keys.SelectSend):
+		return m, m.submitSaveAs()
+
+	default:
+		var cmd tea.Cmd
+		m.saveAsInput, cmd = m.saveAsInput.Update(msg)
 		return m, cmd
 	}
 }

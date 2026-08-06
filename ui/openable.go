@@ -216,6 +216,7 @@ type pickerMode int
 const (
 	pickerModeOpen pickerMode = iota
 	pickerModeSave
+	pickerModeSaveAs
 )
 
 type openResultMsg struct {
@@ -412,16 +413,29 @@ func uniqueDestPath(dir, base string) string {
 func saveURLToDownloads(target string) tea.Cmd {
 	ch := make(chan tea.Msg, 8)
 	go func() {
-		ch <- downloadToDest(target, ch)
+		ch <- downloadToDest(target, "", ch)
+	}()
+	return listenForTransferChan(ch)
+}
+
+// saveURLToPath downloads target to the explicit destination path dest
+// (from the "save as" prompt) instead of the default downloads directory,
+// overwriting any existing file there — the user chose that exact path.
+func saveURLToPath(target, dest string) tea.Cmd {
+	ch := make(chan tea.Msg, 8)
+	go func() {
+		ch <- downloadToDest(target, dest, ch)
 	}()
 	return listenForTransferChan(ch)
 }
 
 // downloadToDest does the actual download+decrypt+write work for
-// saveURLToDownloads, reporting progress on ch as it goes. Split out so
-// saveURLToDownloads's Cmd construction (which must return immediately)
-// stays simple.
-func downloadToDest(target string, ch chan tea.Msg) tea.Msg {
+// saveURLToDownloads/saveURLToPath, reporting progress on ch as it goes.
+// dest is the explicit destination path to write to; if empty, one is
+// computed from downloadsDir() + the URL's basename (deduped against
+// existing files via uniqueDestPath). Split out so the Cmd constructors
+// (which must return immediately) stay simple.
+func downloadToDest(target, dest string, ch chan tea.Msg) tea.Msg {
 	var downloadURL string
 	var iv, key []byte
 	var err error
@@ -438,18 +452,23 @@ func downloadToDest(target string, ch chan tea.Msg) tea.Msg {
 		return saveResultMsg{target: target, err: fmt.Errorf("not a downloadable URL: %s", target)}
 	}
 
-	dir, err := downloadsDir()
-	if err != nil {
-		return saveResultMsg{target: target, err: err}
+	explicitDest := dest != ""
+	if !explicitDest {
+		dir, err := downloadsDir()
+		if err != nil {
+			return saveResultMsg{target: target, err: err}
+		}
+		base := filepath.Base(downloadURL)
+		if idx := strings.IndexAny(base, "?#"); idx >= 0 {
+			base = base[:idx]
+		}
+		if base == "" || base == "." || base == "/" {
+			base = "download"
+		}
+		dest = uniqueDestPath(dir, base)
+	} else if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return saveResultMsg{target: target, err: fmt.Errorf("creating %s: %w", filepath.Dir(dest), err)}
 	}
-	base := filepath.Base(downloadURL)
-	if idx := strings.IndexAny(base, "?#"); idx >= 0 {
-		base = base[:idx]
-	}
-	if base == "" || base == "." || base == "/" {
-		base = "download"
-	}
-	dest := uniqueDestPath(dir, base)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -484,7 +503,13 @@ func downloadToDest(target string, ch chan tea.Msg) tea.Msg {
 		}
 	}
 
-	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	writeFlags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if explicitDest {
+		// The user typed this exact path in the "save as" prompt — overwrite
+		// it rather than erroring, matching what a save-as dialog does.
+		writeFlags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+	f, err := os.OpenFile(dest, writeFlags, 0o644)
 	if err != nil {
 		return saveResultMsg{target: target, err: err}
 	}
