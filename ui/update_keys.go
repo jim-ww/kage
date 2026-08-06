@@ -31,7 +31,7 @@ func (m Model) startFileUpload(to, path string) (Model, tea.Cmd) {
 			opts = SendOptions{
 				ReplyToID:    msgs[m.replyToIdx].ID,
 				QuotedAuthor: msgs[m.replyToIdx].Author,
-				QuotedBody:   messagePreviewContent(msgs[m.replyToIdx]),
+				QuotedBody:   MessagePreviewContent(msgs[m.replyToIdx]),
 			}
 		}
 		m.replyToIdx = -1

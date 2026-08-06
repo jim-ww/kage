@@ -164,22 +164,37 @@ func (m Model) replyPreview(idx int, allMsgs []Message) string {
 		return ""
 	}
 	orig := allMsgs[idx]
-	return fmt.Sprintf("↪ %s: %s", orig.Author, previewText(messagePreviewContent(orig), previewLen))
+	return fmt.Sprintf("↪ %s: %s", orig.Author, previewText(MessagePreviewContent(orig), previewLen))
 }
 
 // previewLen is the shared truncation budget for single-line message
 // previews shown in reply hints and delete-confirmation popups.
 const previewLen = 40
 
-// messagePreviewContent returns the text to preview for msg in a reply quote
-// or hint: for a lone-attachment message, Content is the raw upload URL
-// (aesgcm:// or https://), which isn't meaningful to a human — show the
-// decoded filename instead, same as the attachment's own rendered body line.
-func messagePreviewContent(msg Message) string {
-	if len(msg.Attachments) == 1 && strings.TrimSpace(msg.Content) == msg.Attachments[0] {
-		return attachmentDisplayName(msg.Attachments[0])
+// MessagePreviewContent returns the text to preview for msg anywhere it's
+// shown as a single line (reply quotes/hints, delete-confirmation popups,
+// the chat list's last-message preview): for an attachment message, Content
+// is (or ends with) the raw upload URL(s) (aesgcm:// or https://), which
+// aren't meaningful to a human and can leak sensitive material (an aesgcm://
+// URL's fragment is the file's decryption key) — show the decoded
+// filename(s) instead, same as the attachment's own rendered body line.
+func MessagePreviewContent(msg Message) string {
+	if len(msg.Attachments) == 0 {
+		return msg.Content
 	}
-	return msg.Content
+	text := strings.TrimSpace(msg.Content)
+	if joined := strings.Join(msg.Attachments, "\n"); strings.HasSuffix(text, joined) {
+		text = strings.TrimSpace(strings.TrimSuffix(text, joined))
+	}
+	names := make([]string, len(msg.Attachments))
+	for i, a := range msg.Attachments {
+		names[i] = attachmentDisplayName(a)
+	}
+	label := strings.Join(names, ", ")
+	if text != "" {
+		return text + " [" + label + "]"
+	}
+	return label
 }
 
 // previewText collapses newlines and truncates s to at most n runes,

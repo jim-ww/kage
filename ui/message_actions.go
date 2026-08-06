@@ -59,7 +59,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 				sendOpts = SendOptions{
 					ReplyToID:    msgs[m.replyToIdx].ID,
 					QuotedAuthor: msgs[m.replyToIdx].Author,
-					QuotedBody:   messagePreviewContent(msgs[m.replyToIdx]),
+					QuotedBody:   MessagePreviewContent(msgs[m.replyToIdx]),
 				}
 			}
 			m.replyToIdx = -1
@@ -117,7 +117,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 				sendOpts = SendOptions{
 					ReplyToID:    msgs[rt].ID,
 					QuotedAuthor: msgs[rt].Author,
-					QuotedBody:   messagePreviewContent(msgs[rt]),
+					QuotedBody:   MessagePreviewContent(msgs[rt]),
 				}
 			}
 			m.replyToIdx = -1

@@ -110,10 +110,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 
 	case openResultMsg:
 		m.clearTransfer(msg.target)
-		if msg.err != nil {
-			return m, m.showNotification("failed to open " + msg.target), true
+		label := msg.target
+		if msg.isAttachment {
+			label = attachmentDisplayName(msg.target)
 		}
-		return m, m.showNotification("opened " + msg.target), true
+		if msg.err != nil {
+			return m, m.showNotification("failed to open " + label), true
+		}
+		return m, m.showNotification("opened " + label), true
 
 	case saveResultMsg:
 		m.clearTransfer(msg.target)
@@ -158,7 +162,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				newMsg.ReplyTo = &replyIdx
 			}
 			msgs = append(msgs, newMsg)
-			lastContent = newMsg.Content
+			lastContent = MessagePreviewContent(newMsg)
 		}
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
@@ -201,7 +205,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs = append(msgs, newMsg)
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
-		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, newMsg.Content)
+		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
@@ -225,7 +229,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs = append(msgs, newMsg)
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
-		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, newMsg.Content)
+		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		if m.isChatFocused(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
@@ -348,7 +352,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs[idx].Reactions = msg.Reactions
 		var cmd tea.Cmd
 		if idx == len(msgs)-1 {
-			preview := msgs[idx].Content
+			preview := MessagePreviewContent(msgs[idx])
 			if len(msg.Reactions) > 0 {
 				preview = "reacted " + renderReactions(msg.Reactions)
 			}
@@ -564,7 +568,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs := append(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Messages...)
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
-		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, msg.Messages[len(msg.Messages)-1].Content)
+		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msg.Messages[len(msg.Messages)-1]))
 		if m.isChatFocused(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()

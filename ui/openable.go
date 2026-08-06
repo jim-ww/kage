@@ -219,8 +219,9 @@ const (
 )
 
 type openResultMsg struct {
-	target string
-	err    error
+	target       string
+	isAttachment bool // true when target is a real attachment (downloaded via downloadAndOpen), not a plain link handed straight to xdg-open - lets the UI show the decoded filename instead of the raw URL
+	err          error
 }
 
 // openWithXDGOpen shells out to xdg-open in the background; the result is
@@ -271,13 +272,13 @@ func downloadAndOpen(target string, ch chan tea.Msg) tea.Msg {
 		var parseErr error
 		downloadURL, iv, key, parseErr = aesgcm.ParseAESGCMURL(target)
 		if parseErr != nil {
-			return openResultMsg{target: target, err: fmt.Errorf("parsing aesgcm URL: %w", parseErr)}
+			return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("parsing aesgcm URL: %w", parseErr)}
 		}
 	}
 
 	dir, dirErr := attachmentCacheDir()
 	if dirErr != nil {
-		return openResultMsg{target: target, err: dirErr}
+		return openResultMsg{target: target, isAttachment: true, err: dirErr}
 	}
 	base := filepath.Base(downloadURL)
 	if idx := strings.IndexAny(base, "?#"); idx >= 0 {
@@ -291,22 +292,22 @@ func downloadAndOpen(target string, ch chan tea.Msg) tea.Msg {
 
 	if _, statErr := os.Stat(dest); statErr == nil {
 		err := exec.Command("xdg-open", dest).Start()
-		return openResultMsg{target: target, err: err}
+		return openResultMsg{target: target, isAttachment: true, err: err}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if reqErr != nil {
-		return openResultMsg{target: target, err: reqErr}
+		return openResultMsg{target: target, isAttachment: true, err: reqErr}
 	}
 	resp, httpErr := http.DefaultClient.Do(req)
 	if httpErr != nil {
-		return openResultMsg{target: target, err: httpErr}
+		return openResultMsg{target: target, isAttachment: true, err: httpErr}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return openResultMsg{target: target, err: fmt.Errorf("download failed: HTTP %d", resp.StatusCode)}
+		return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("download failed: HTTP %d", resp.StatusCode)}
 	}
 
 	label := "downloading " + attachmentDisplayName(target)
@@ -316,14 +317,14 @@ func downloadAndOpen(target string, ch chan tea.Msg) tea.Msg {
 	}
 	data, readErr := io.ReadAll(body)
 	if readErr != nil {
-		return openResultMsg{target: target, err: fmt.Errorf("reading download: %w", readErr)}
+		return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("reading download: %w", readErr)}
 	}
 
 	if iv != nil && key != nil {
 		var decryptErr error
 		data, decryptErr = aesgcm.Decrypt(data, iv, key)
 		if decryptErr != nil {
-			return openResultMsg{target: target, err: fmt.Errorf("decrypting file: %w", decryptErr)}
+			return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("decrypting file: %w", decryptErr)}
 		}
 	}
 
@@ -332,19 +333,19 @@ func downloadAndOpen(target string, ch chan tea.Msg) tea.Msg {
 		// Lost a race with another concurrent open of the same attachment;
 		// the other one already wrote dest.
 		err := exec.Command("xdg-open", dest).Start()
-		return openResultMsg{target: target, err: err}
+		return openResultMsg{target: target, isAttachment: true, err: err}
 	}
 	if openErr != nil {
-		return openResultMsg{target: target, err: openErr}
+		return openResultMsg{target: target, isAttachment: true, err: openErr}
 	}
 	defer f.Close()
 	if _, copyErr := io.Copy(f, bytes.NewReader(data)); copyErr != nil {
 		os.Remove(dest)
-		return openResultMsg{target: target, err: copyErr}
+		return openResultMsg{target: target, isAttachment: true, err: copyErr}
 	}
 
 	err := exec.Command("xdg-open", dest).Start()
-	return openResultMsg{target: target, err: err}
+	return openResultMsg{target: target, isAttachment: true, err: err}
 }
 
 type saveResultMsg struct {

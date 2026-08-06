@@ -485,6 +485,73 @@ func TestReplyPreviewShowsFilenameNotRawURLForAttachment(t *testing.T) {
 	}
 }
 
+func TestDeletePromptShowsFilenameNotRawURLForAttachment(t *testing.T) {
+	m := newTestModel(nil)
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	msgs := []Message{{Author: "Bob", Content: "https://upload.example.test/files/x/photo.jpg", Attachments: []string{"https://upload.example.test/files/x/photo.jpg"}}}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 0
+	m.confirmTarget = confirmDeleteMessage
+
+	prompt := m.deletePrompt(60)
+	if strings.Contains(prompt, "https://") {
+		t.Fatalf("delete prompt leaked raw URL: %q", prompt)
+	}
+	if !strings.Contains(prompt, "photo.jpg") {
+		t.Fatalf("delete prompt = %q, want it to mention the filename", prompt)
+	}
+}
+
+func TestOpenPopupShowsFilenameForAttachmentAndRawURLForPlainLink(t *testing.T) {
+	m := newTestModel(nil)
+	m.openItems = []string{
+		"https://upload.example.test/files/x/photo.jpg",
+		"https://example.com/some/page",
+	}
+	m.openItemsAttachCount = 1 // only the first entry is a real attachment
+	m.openMode = pickerModeOpen
+
+	popup := m.renderOpenPopup()
+	if strings.Contains(popup, "https://upload.example.test") {
+		t.Fatalf("open popup leaked raw attachment URL: %q", popup)
+	}
+	if !strings.Contains(popup, "photo.jpg") {
+		t.Fatalf("open popup = %q, want the attachment's decoded filename", popup)
+	}
+	if !strings.Contains(popup, "https://example.com/some/page") {
+		t.Fatalf("open popup = %q, want the plain link shown as-is", popup)
+	}
+}
+
+func TestOpenResultNotificationShowsFilenameNotRawURLForAttachment(t *testing.T) {
+	m := newTestModel(nil)
+	// Anchor must be exactly 88 hex chars (12-byte IV + 32-byte key) for
+	// aesgcm.ParseAESGCMURL to accept it - a too-short fake anchor would
+	// make attachmentDisplayName silently fall back to the raw URL,
+	// producing a false pass here.
+	key := strings.Repeat("ab", 44)
+	next, _ := m.Update(openResultMsg{target: "aesgcm://host/photo.jpg#" + key, isAttachment: true})
+	m = next.(Model)
+	if strings.Contains(m.noticeText, "aesgcm://") || strings.Contains(m.noticeText, key) {
+		t.Fatalf("open notification leaked raw aesgcm URL/key: %q", m.noticeText)
+	}
+	if !strings.Contains(m.noticeText, "photo.jpg") {
+		t.Fatalf("open notification = %q, want the decoded filename", m.noticeText)
+	}
+}
+
+func TestOpenResultNotificationShowsRawURLForPlainLink(t *testing.T) {
+	m := newTestModel(nil)
+	next, _ := m.Update(openResultMsg{target: "https://example.com/some/page", isAttachment: false})
+	m = next.(Model)
+	if !strings.Contains(m.noticeText, "https://example.com/some/page") {
+		t.Fatalf("open notification = %q, want the plain link shown as-is", m.noticeText)
+	}
+}
+
 func TestFileSendResultAddsAttachmentToTargetChat(t *testing.T) {
 	m := newTestModel(nil)
 	chat := Chat{Name: "Bob", Address: "bob@example.test"}

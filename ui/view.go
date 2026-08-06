@@ -322,7 +322,7 @@ func (m Model) deletePrompt(width int) string {
 		detail := ""
 		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
 			msg := msgs[m.selectedMsg]
-			detail = fmt.Sprintf("%s: %s", msg.Author, previewText(msg.Content, previewLen))
+			detail = fmt.Sprintf("%s: %s", msg.Author, previewText(MessagePreviewContent(msg), previewLen))
 		}
 		return m.styles.deletePrompt(width, "Delete message?", detail)
 	}
@@ -404,7 +404,16 @@ func (m Model) renderOpenPopup() string {
 	page := m.openItems[start:end]
 	rows := make([]string, len(page))
 	for i, item := range page {
-		rows[i] = fmt.Sprintf("%d. %s", i+1, previewText(item, previewLen))
+		// openableItems puts every real attachment before any plain link
+		// found in Content (see m.openItemsAttachCount) - show attachments
+		// by their decoded filename, not the raw URL (which for aesgcm://
+		// also embeds the file's decryption key in its fragment). A plain
+		// link is shown as-is: the URL itself is the meaningful thing there.
+		label := item
+		if start+i < m.openItemsAttachCount {
+			label = attachmentDisplayName(item)
+		}
+		rows[i] = fmt.Sprintf("%d. %s", i+1, previewText(label, previewLen))
 	}
 
 	verb := "open"
@@ -528,7 +537,7 @@ func (m Model) inputHint() string {
 		msgs := m.currentMessages()
 		if m.replyToIdx < len(msgs) {
 			orig := msgs[m.replyToIdx]
-			return m.styles.renderReplyHint(orig.Author, previewText(messagePreviewContent(orig), previewLen))
+			return m.styles.renderReplyHint(orig.Author, previewText(MessagePreviewContent(orig), previewLen))
 		}
 	}
 	if m.reactingMsgIdx >= 0 {

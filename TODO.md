@@ -11,8 +11,7 @@
 - doesnt encrypt for other own devices?
 - ctrl+w replace with ctrl+s, and ctrl+shift+s as save as (selecting path)
 - in devices show proper OMEMO fingerprint
-- plaintext attachments must be downloaded first and open in appropriate programs, not in browser (they all start with https://...)
-- on multi-attachment messages, should show normalized name in open selector
+- on multi-attachment messages, should show normalized name in open selector + in replies to them, in delete prompts, in last message view (in chat list)
 - ^shift+U bind doessnt work (omemo devices)
 - selecting file again in filepicker should deselect it from upload list
 - add backspace binding in help line
