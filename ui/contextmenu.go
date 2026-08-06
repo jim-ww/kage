@@ -94,9 +94,14 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 		return nil
 	}
 	return []contextMenuItem{
-		{label: "Switch to", run: func(m *Model) tea.Cmd { return m.switchAccount(idx) }},
-		{label: "Make default", run: func(m *Model) tea.Cmd { return m.actionMakeDefaultAccount(idx) }},
 		{label: "Status", run: func(m *Model) tea.Cmd { return m.actionOpenAccountStatusMenu(idx) }},
+		{label: "OMEMO devices", run: func(m *Model) tea.Cmd {
+			m.switchAccount(idx)
+			model, cmd := m.openDeviceList()
+			*m = model
+			return cmd
+		}},
+		{label: "Make default", run: func(m *Model) tea.Cmd { return m.actionMakeDefaultAccount(idx) }},
 	}
 }
 
