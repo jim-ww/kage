@@ -229,8 +229,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
 			for i, a := range msgs[m.selectedMsg].Attachments {
 				if m.zone.Get(zoneMsgInfoAttachment(i)).InBounds(msg) {
-					_ = clipboard.WriteAll(a)
-					break
+					if err := clipboard.WriteAll(a); err != nil {
+						return m, m.showNotification("copy failed")
+					}
+					return m, m.showNotification("URL copied")
 				}
 			}
 		}
