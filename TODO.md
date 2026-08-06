@@ -9,9 +9,8 @@
                    │                  prekey 23: consume prekey 23: sql: no
                    │                  rows in result set]
 - doesnt encrypt for other own devices?
-- message info modal should be closable on click outside of modal
 - in devices show proper OMEMO fingerprint
-- message info: add upload url (from attachments)
+- only allow one instance at a time?
 - ^shift+U bind doesnt work (omemo devices)
 - add backspace binding in help line
 - add keyboard navigation to modals (and ways to open them)
