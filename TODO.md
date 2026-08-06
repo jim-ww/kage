@@ -13,6 +13,7 @@
 - only allow one instance at a time?
 - ^shift+U bind doesnt work (omemo devices)
 - add backspace binding in help line
+- checking notification file lock is not enough: if notification daemon was killed, it stays on disk
 - add keyboard navigation to modals (and ways to open them)
 - show more contact info on status line Name press
 - make sure user can paste to all textinputs (e.g. account add JID/password)

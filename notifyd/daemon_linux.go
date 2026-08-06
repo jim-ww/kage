@@ -257,7 +257,7 @@ func handleMessageEvent(msgEv xmpp.MessageEvent, ownBare string, names map[strin
 	if msgEv.ReactionTargetID != "" || msgEv.RetractID != "" || msgEv.ReplaceID != "" {
 		return
 	}
-	if msgEv.Body == "" && msgEv.Encrypted == nil {
+	if msgEv.Body == "" && msgEv.Encrypted == nil && msgEv.EncryptedV1 == nil {
 		return
 	}
 
@@ -273,7 +273,7 @@ func handleMessageEvent(msgEv xmpp.MessageEvent, ownBare string, names map[strin
 
 	body := "New message"
 	switch {
-	case msgEv.Encrypted != nil:
+	case msgEv.Encrypted != nil, msgEv.EncryptedV1 != nil:
 		body = "🔒 New encrypted message"
 	case gpg.Looks(msgEv.Body):
 		body = "🔒 New encrypted message"
