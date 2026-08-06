@@ -721,6 +721,9 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			// is safe and still fixes attachment identification for
 			// backfilled replies.
 			body = stripReplyQuote(body)
+			if len(oobURLs) == 0 {
+				oobURLs = aesgcmURLsInBody(body)
+			}
 			sent := bareJID(am.From) == ownBare
 			sealedBody, encrypted := encryptForStorage(s, body)
 

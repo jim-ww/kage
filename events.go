@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -143,6 +144,9 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	// a recognized reply element, and stripReplyQuote is a no-op on a body
 	// that doesn't start with one anyway.
 	body = stripReplyQuote(body)
+	if len(oobURLs) == 0 {
+		oobURLs = aesgcmURLsInBody(body)
+	}
 
 	from := bareJID(msgEv.From) // chats are keyed by bare JID (roster entries); From with a resource never matches
 
@@ -242,5 +246,32 @@ func stripReplyQuote(body string) string {
 		return body
 	}
 	return strings.Join(lines[i:], "\n")
+}
+
+// aesgcmURLsInBody scans body's trailing non-empty lines for aesgcm:// URLs
+// (XEP-0454). Unlike a plain https:// link - ambiguous between a real
+// upload and the user just pasting a link, which is why plaintext
+// attachment detection relies on XEP-0066 OOB alone rather than guessing -
+// aesgcm:// is a synthetic scheme nothing but a file share ever produces,
+// so finding one isn't a guess, it's a deterministic protocol marker.
+// Needed because OMEMO/GPG-encrypted messages can't carry cleartext OOB
+// (see xmpp.SendOptions.OOBURLs's doc comment): other clients (e.g.
+// Conversations) send encrypted files exactly this way, with no OOB
+// element, and so do we.
+func aesgcmURLsInBody(body string) []string {
+	lines := strings.Split(body, "\n")
+	var urls []string
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "aesgcm://") {
+			break
+		}
+		urls = append(urls, line)
+	}
+	slices.Reverse(urls)
+	return urls
 }
 
