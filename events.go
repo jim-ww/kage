@@ -64,6 +64,15 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		e2eeMethod = "gpg"
 	}
 	decryptFailed := false
+
+	// Held across the OMEMO decrypt-or-skip decision through InsertMessage
+	// below: serializes against syncArchiveForContact's processMAMItem
+	// (account.go), which decrypts/persists over the same OMEMO state in a
+	// separate goroutine - see accountSession.omemoMu's doc comment for what
+	// goes wrong without this.
+	s.omemoMu.Lock()
+	defer s.omemoMu.Unlock()
+
 	if msgEv.Encrypted != nil || msgEv.EncryptedV1 != nil {
 		// A message already backfilled via MAM (or otherwise already stored -
 		// e.g. redelivered after a reconnect) would otherwise get OMEMO

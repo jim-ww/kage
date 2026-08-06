@@ -55,6 +55,18 @@ type accountSession struct {
 	// mutable state is all concurrency-safe by construction.
 	histMu  sync.Mutex
 	histPos map[string]historyCursor
+
+	// omemoMu serializes OMEMO decrypt+persist across the live path
+	// (events.go's handleIncomingMessage) and MAM backfill
+	// (syncArchiveForContact's processMAMItem): both run as separate
+	// goroutines against the same double-ratchet/prekey state in storage,
+	// and without this lock a message arriving live while backfill is still
+	// catching up on the same conversation can get decrypted twice
+	// concurrently - the first decrypt consumes the one-time prekey (or the
+	// cached skipped-message-key), and the second then fails with "no rows
+	// in result set" or "no message key is cached" instead of finding the
+	// row the first decrypt is about to insert.
+	omemoMu sync.Mutex
 }
 
 // rosterEntry is a contact's cached roster state, refreshed at connect time
@@ -600,198 +612,14 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 		for _, am := range items {
 			afterArchiveID = am.ArchiveID
 
-			// A page re-fetched after a stale cursor (e.g. the previous run
-			// crashed mid-backfill before advancing lastArchiveID) would
-			// otherwise re-run OMEMO decrypt on ciphertext already stored -
-			// wasteful at best, and for a message key already consumed out
-			// of the double ratchet's skip buffer, not guaranteed to fail
-			// cleanly the second time. Check storage before decrypting.
-			if exists, err := s.db.MessageExistsByArchiveID(ctx, storage.MessageExistsByArchiveIDParams{
-				AccountJid: s.account.JID,
-				ArchiveID:  nullString(am.ArchiveID),
-			}); err == nil && exists {
-				continue
+			outcome := s.processMAMItem(ctx, p, accountIdx, peerJID, ownBare, name, am)
+			if outcome.stopSync {
+				stop = true
+				break
 			}
-
-			// The same message can also already be stored via the live path
-			// (events.go), which has no archiveID to match against - check
-			// its dedup key too, or a MAM resync re-decrypts ciphertext whose
-			// ratchet key the live path already consumed (see comment above).
-			if am.ID != "" {
-				if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
-					AccountJid: s.account.JID,
-					RosterJid:  nullString(peerJID),
-					IDAttr:     nullString(am.ID),
-				}); err == nil && exists {
-					continue
-				}
+			if outcome.msg != nil {
+				newMsgs = append(newMsgs, *outcome.msg)
 			}
-
-			// Retractions/reactions/corrections backfilled via MAM (i.e. they
-			// happened while offline, so the live path in handleIncomingMessage
-			// never saw them) apply to a message already persisted - by this
-			// same sync, an earlier one, or the live path - rather than
-			// inserting a row of their own. Applied inline, immediately, same
-			// as the live path, instead of batched into newMsgs/HistorySyncedMsg
-			// below - the target message may already be on screen.
-			if am.RetractID != "" {
-				if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
-					AccountJid: s.account.JID,
-					IDAttr:     nullString(am.RetractID),
-					RosterJid:  nullString(peerJID),
-				}); err != nil {
-					slog.Warn("persisting mam retraction", "peer", peerJID, "err", err)
-				}
-				p.Send(ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peerJID, RetractID: am.RetractID})
-				continue
-			}
-			if am.ReactionTargetID != "" {
-				if err := replaceReactions(ctx, s, peerJID, am.ReactionTargetID, bareJID(am.From), am.Reactions); err != nil {
-					slog.Warn("persisting mam reactions", "peer", peerJID, "err", err)
-				}
-				p.Send(ui.MessageReactionsMsg{
-					AccountIdx: accountIdx,
-					From:       peerJID,
-					MessageID:  am.ReactionTargetID,
-					Reactions:  loadReactionsForMessage(ctx, s, peerJID, am.ReactionTargetID),
-				})
-				continue
-			}
-
-			// Belt-and-suspenders alongside dispatchArchiveResult's own
-			// filtering (xmpp/mam.go) - a plain message with neither body nor
-			// an OMEMO payload has nothing to show, matching
-			// handleIncomingMessage's live-path guard (events.go).
-			if am.Body == "" && am.Encrypted == nil && am.EncryptedV1 == nil && am.ReplaceID == "" {
-				continue
-			}
-
-			body := am.Body
-			oobURLs := am.OOBURLs
-			e2eEncrypted := am.Encrypted != nil || am.EncryptedV1 != nil || gpg.Looks(body)
-			e2eeMethod := ""
-			switch {
-			case am.Encrypted != nil:
-				e2eeMethod = "omemo-v2"
-			case am.EncryptedV1 != nil:
-				e2eeMethod = "omemo-v1"
-			case gpg.Looks(body):
-				e2eeMethod = "gpg"
-			}
-			decryptFailed := false
-			if am.Encrypted != nil || am.EncryptedV1 != nil {
-				var mgr *omemolib.Manager
-				var enc *omemolib.EncryptedMessage
-				var decodeErr error
-				if am.Encrypted != nil {
-					mgr = s.omemoMgrV2
-					enc, decodeErr = xmpp.DecodeOmemoMessage(am.Encrypted, bareJID(am.From))
-				} else {
-					mgr = s.omemoMgrV1
-					enc, decodeErr = xmpp.DecodeOmemoMessageV1(am.EncryptedV1, bareJID(am.From))
-				}
-				if mgr == nil {
-					body = "[message could not be decrypted: omemo isn't ready]"
-					decryptFailed = true
-				} else if decodeErr != nil {
-					body = "[message could not be decrypted: " + decodeErr.Error() + "]"
-					decryptFailed = true
-				} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
-					// Not a real failure - see handleIncomingMessage's live-path
-					// comment. Quietly skip instead of storing a noise row.
-					slog.Debug("mam: omemo message has no key for this device, skipping", "archive_id", am.ArchiveID, "from", am.From)
-					continue
-				} else if err != nil {
-					body = "[message could not be decrypted: " + err.Error() + "]"
-					decryptFailed = true
-				} else if pt == nil {
-					continue // key-transport only: session established/refreshed, no content to show
-				} else {
-					body = string(pt)
-				}
-			} else if s.useGPG && gpg.Looks(body) {
-				if pt, err := s.gpg.Decrypt(body, ""); err == nil {
-					body = pt
-				}
-			}
-			// MAM doesn't currently surface the <reply/> element (see
-			// ArchivedMessage), so unlike handleIncomingMessage this can't
-			// gate on ReplyToID - stripReplyQuote is a no-op on a body that
-			// doesn't start with a quote block, so applying it unconditionally
-			// is safe and still fixes attachment identification for
-			// backfilled replies.
-			body = stripReplyQuote(body)
-			if len(oobURLs) == 0 {
-				oobURLs = aesgcmURLsInBody(body)
-			}
-			sent := bareJID(am.From) == ownBare
-			sealedBody, encrypted := encryptForStorage(s, body)
-
-			if am.ReplaceID != "" {
-				if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
-					AccountJid:   s.account.JID,
-					Body:         sealedBody,
-					Encrypted:    encrypted,
-					E2eEncrypted: e2eEncrypted,
-					E2eeMethod:   nullString(e2eeMethod),
-					IDAttr:       nullString(am.ReplaceID),
-					RosterJid:    nullString(peerJID),
-				}); err != nil {
-					slog.Warn("persisting mam correction", "peer", peerJID, "err", err)
-				}
-				p.Send(ui.MessageCorrectedMsg{
-					AccountIdx: accountIdx,
-					From:       peerJID,
-					ReplaceID:  am.ReplaceID,
-					NewContent: body,
-					Encrypted:  e2eEncrypted,
-					EncMethod:  e2eeMethod,
-				})
-				continue
-			}
-
-			_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-				AccountJid:   s.account.JID,
-				Sent:         sent,
-				ToAttr:       nullString(am.To),
-				FromAttr:     nullString(am.From),
-				IDAttr:       nullString(am.ID),
-				Body:         sealedBody,
-				Encrypted:    encrypted,
-				E2eEncrypted: e2eEncrypted,
-				E2eeMethod:   nullString(e2eeMethod),
-				StanzaType:   "chat",
-				Delay:        am.SentAt.Unix(),
-				RosterJid:    nullString(peerJID),
-				ArchiveID:    nullString(am.ArchiveID),
-				OobUrls:      joinOOBURLs(oobURLs),
-			})
-			if err != nil {
-				if strings.Contains(err.Error(), "archiveID") {
-					// Already stored, and results arrive chronologically —
-					// everything after it is too.
-					stop = true
-					break
-				}
-				slog.Warn("persisting mam history", "peer", peerJID, "err", err)
-				continue
-			}
-
-			author := name
-			if sent {
-				author = "me"
-			}
-			newMsgs = append(newMsgs, ui.Message{
-				ID:            am.ID,
-				Author:        author,
-				Content:       body,
-				SentAt:        am.SentAt,
-				IsMe:          sent,
-				Encrypted:     e2eEncrypted,
-				EncMethod:     e2eeMethod,
-				Attachments:   oobURLs,
-				DecryptFailed: decryptFailed,
-			})
 		}
 		if len(newMsgs) > 0 {
 			p.Send(ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
@@ -800,6 +628,216 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			break
 		}
 	}
+}
+
+// mamItemOutcome reports what syncArchiveForContact's caller should do with
+// one processed archive item: append msg to the page's batch of new
+// messages, and/or stop paging (stopSync, on an archiveID conflict meaning
+// this item was already stored by an earlier run).
+type mamItemOutcome struct {
+	msg      *ui.Message
+	stopSync bool
+}
+
+// processMAMItem decrypts, persists, and reports the outcome for a single
+// MAM archive item. Held under s.omemoMu for its whole body — see that
+// field's doc comment — so it can't decrypt the same OMEMO ciphertext
+// concurrently with the live path in handleIncomingMessage (events.go).
+func (s *accountSession) processMAMItem(ctx context.Context, p *tea.Program, accountIdx int, peerJID, ownBare, name string, am xmpp.ArchivedMessage) mamItemOutcome {
+	s.omemoMu.Lock()
+	defer s.omemoMu.Unlock()
+
+	// A page re-fetched after a stale cursor (e.g. the previous run
+	// crashed mid-backfill before advancing lastArchiveID) would
+	// otherwise re-run OMEMO decrypt on ciphertext already stored -
+	// wasteful at best, and for a message key already consumed out
+	// of the double ratchet's skip buffer, not guaranteed to fail
+	// cleanly the second time. Check storage before decrypting.
+	if exists, err := s.db.MessageExistsByArchiveID(ctx, storage.MessageExistsByArchiveIDParams{
+		AccountJid: s.account.JID,
+		ArchiveID:  nullString(am.ArchiveID),
+	}); err == nil && exists {
+		return mamItemOutcome{}
+	}
+
+	// The same message can also already be stored via the live path
+	// (events.go), which has no archiveID to match against - check
+	// its dedup key too, or a MAM resync re-decrypts ciphertext whose
+	// ratchet key the live path already consumed (see comment above).
+	if am.ID != "" {
+		if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
+			AccountJid: s.account.JID,
+			RosterJid:  nullString(peerJID),
+			IDAttr:     nullString(am.ID),
+		}); err == nil && exists {
+			return mamItemOutcome{}
+		}
+	}
+
+	// Retractions/reactions/corrections backfilled via MAM (i.e. they
+	// happened while offline, so the live path in handleIncomingMessage
+	// never saw them) apply to a message already persisted - by this
+	// same sync, an earlier one, or the live path - rather than
+	// inserting a row of their own. Applied inline, immediately, same
+	// as the live path, instead of batched into newMsgs/HistorySyncedMsg
+	// below - the target message may already be on screen.
+	if am.RetractID != "" {
+		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
+			AccountJid: s.account.JID,
+			IDAttr:     nullString(am.RetractID),
+			RosterJid:  nullString(peerJID),
+		}); err != nil {
+			slog.Warn("persisting mam retraction", "peer", peerJID, "err", err)
+		}
+		p.Send(ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peerJID, RetractID: am.RetractID})
+		return mamItemOutcome{}
+	}
+	if am.ReactionTargetID != "" {
+		if err := replaceReactions(ctx, s, peerJID, am.ReactionTargetID, bareJID(am.From), am.Reactions); err != nil {
+			slog.Warn("persisting mam reactions", "peer", peerJID, "err", err)
+		}
+		p.Send(ui.MessageReactionsMsg{
+			AccountIdx: accountIdx,
+			From:       peerJID,
+			MessageID:  am.ReactionTargetID,
+			Reactions:  loadReactionsForMessage(ctx, s, peerJID, am.ReactionTargetID),
+		})
+		return mamItemOutcome{}
+	}
+
+	// Belt-and-suspenders alongside dispatchArchiveResult's own
+	// filtering (xmpp/mam.go) - a plain message with neither body nor
+	// an OMEMO payload has nothing to show, matching
+	// handleIncomingMessage's live-path guard (events.go).
+	if am.Body == "" && am.Encrypted == nil && am.EncryptedV1 == nil && am.ReplaceID == "" {
+		return mamItemOutcome{}
+	}
+
+	body := am.Body
+	oobURLs := am.OOBURLs
+	e2eEncrypted := am.Encrypted != nil || am.EncryptedV1 != nil || gpg.Looks(body)
+	e2eeMethod := ""
+	switch {
+	case am.Encrypted != nil:
+		e2eeMethod = "omemo-v2"
+	case am.EncryptedV1 != nil:
+		e2eeMethod = "omemo-v1"
+	case gpg.Looks(body):
+		e2eeMethod = "gpg"
+	}
+	decryptFailed := false
+	if am.Encrypted != nil || am.EncryptedV1 != nil {
+		var mgr *omemolib.Manager
+		var enc *omemolib.EncryptedMessage
+		var decodeErr error
+		if am.Encrypted != nil {
+			mgr = s.omemoMgrV2
+			enc, decodeErr = xmpp.DecodeOmemoMessage(am.Encrypted, bareJID(am.From))
+		} else {
+			mgr = s.omemoMgrV1
+			enc, decodeErr = xmpp.DecodeOmemoMessageV1(am.EncryptedV1, bareJID(am.From))
+		}
+		if mgr == nil {
+			body = "[message could not be decrypted: omemo isn't ready]"
+			decryptFailed = true
+		} else if decodeErr != nil {
+			body = "[message could not be decrypted: " + decodeErr.Error() + "]"
+			decryptFailed = true
+		} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
+			// Not a real failure - see handleIncomingMessage's live-path
+			// comment. Quietly skip instead of storing a noise row.
+			slog.Debug("mam: omemo message has no key for this device, skipping", "archive_id", am.ArchiveID, "from", am.From)
+			return mamItemOutcome{}
+		} else if err != nil {
+			body = "[message could not be decrypted: " + err.Error() + "]"
+			decryptFailed = true
+		} else if pt == nil {
+			return mamItemOutcome{} // key-transport only: session established/refreshed, no content to show
+		} else {
+			body = string(pt)
+		}
+	} else if s.useGPG && gpg.Looks(body) {
+		if pt, err := s.gpg.Decrypt(body, ""); err == nil {
+			body = pt
+		}
+	}
+	// MAM doesn't currently surface the <reply/> element (see
+	// ArchivedMessage), so unlike handleIncomingMessage this can't
+	// gate on ReplyToID - stripReplyQuote is a no-op on a body that
+	// doesn't start with a quote block, so applying it unconditionally
+	// is safe and still fixes attachment identification for
+	// backfilled replies.
+	body = stripReplyQuote(body)
+	if len(oobURLs) == 0 {
+		oobURLs = aesgcmURLsInBody(body)
+	}
+	sent := bareJID(am.From) == ownBare
+	sealedBody, encrypted := encryptForStorage(s, body)
+
+	if am.ReplaceID != "" {
+		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
+			AccountJid:   s.account.JID,
+			Body:         sealedBody,
+			Encrypted:    encrypted,
+			E2eEncrypted: e2eEncrypted,
+			E2eeMethod:   nullString(e2eeMethod),
+			IDAttr:       nullString(am.ReplaceID),
+			RosterJid:    nullString(peerJID),
+		}); err != nil {
+			slog.Warn("persisting mam correction", "peer", peerJID, "err", err)
+		}
+		p.Send(ui.MessageCorrectedMsg{
+			AccountIdx: accountIdx,
+			From:       peerJID,
+			ReplaceID:  am.ReplaceID,
+			NewContent: body,
+			Encrypted:  e2eEncrypted,
+			EncMethod:  e2eeMethod,
+		})
+		return mamItemOutcome{}
+	}
+
+	_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+		AccountJid:   s.account.JID,
+		Sent:         sent,
+		ToAttr:       nullString(am.To),
+		FromAttr:     nullString(am.From),
+		IDAttr:       nullString(am.ID),
+		Body:         sealedBody,
+		Encrypted:    encrypted,
+		E2eEncrypted: e2eEncrypted,
+		E2eeMethod:   nullString(e2eeMethod),
+		StanzaType:   "chat",
+		Delay:        am.SentAt.Unix(),
+		RosterJid:    nullString(peerJID),
+		ArchiveID:    nullString(am.ArchiveID),
+		OobUrls:      joinOOBURLs(oobURLs),
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "archiveID") {
+			// Already stored, and results arrive chronologically —
+			// everything after it is too.
+			return mamItemOutcome{stopSync: true}
+		}
+		slog.Warn("persisting mam history", "peer", peerJID, "err", err)
+		return mamItemOutcome{}
+	}
+
+	author := name
+	if sent {
+		author = "me"
+	}
+	return mamItemOutcome{msg: &ui.Message{
+		ID:            am.ID,
+		Author:        author,
+		Content:       body,
+		SentAt:        am.SentAt,
+		IsMe:          sent,
+		Encrypted:     e2eEncrypted,
+		EncMethod:     e2eeMethod,
+		Attachments:   oobURLs,
+		DecryptFailed: decryptFailed,
+	}}
 }
 
 // bareJID strips the resource part (after "/") from a full JID, matching the

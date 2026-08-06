@@ -2,13 +2,13 @@
                    │                ratchet decrypt: no message key is
                    │                cached for this message]
 
+- show decrypted message content in notifications
 - messages sent from same account on other devices do not appear in chat
 - check how local/remote messages timestampt are handled
 > » [09:10 🔒 ✓] [message could not be decrypted:
                    │                  establish session: consume one-time
                    │                  prekey 23: consume prekey 23: sql: no
                    │                  rows in result set]
-- doesnt encrypt for other own devices?
 - in devices show proper OMEMO fingerprint
 - only allow one instance at a time?
 - ^shift+U bind doesnt work (omemo devices)
