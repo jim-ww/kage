@@ -87,6 +87,26 @@ func TestBuildParseAESGCMURL(t *testing.T) {
 	}
 }
 
+// TestBuildAESGCMURLDoesNotDoubleScheme guards against a regression where
+// BuildAESGCMURL prefixed "aesgcm://" onto the full "https://..." URL
+// instead of replacing the scheme, producing "aesgcm://https://host/..." -
+// malformed per XEP-0454, rejected by every other client (Dino,
+// Conversations) as an unparseable transfer.
+func TestBuildAESGCMURLDoesNotDoubleScheme(t *testing.T) {
+	iv := make([]byte, IVSize)
+	key := make([]byte, KeySize)
+	aesgcmURL, err := BuildAESGCMURL("https://example.com/file.bin", iv, key)
+	if err != nil {
+		t.Fatalf("BuildAESGCMURL failed: %v", err)
+	}
+	if strings.Contains(aesgcmURL, "aesgcm://https://") || strings.Contains(aesgcmURL, "aesgcm://http://") {
+		t.Fatalf("aesgcm URL has a doubled scheme: %s", aesgcmURL)
+	}
+	if !strings.HasPrefix(aesgcmURL, "aesgcm://example.com/") {
+		t.Fatalf("aesgcm URL = %s, want aesgcm://example.com/...", aesgcmURL)
+	}
+}
+
 func TestParseAESGCMURLInvalid(t *testing.T) {
 	tests := []struct {
 		name string

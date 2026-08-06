@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strings"
 )
 
 const (
@@ -84,8 +85,12 @@ func EncryptReader(reader io.Reader) (ciphertext []byte, iv []byte, key []byte, 
 	return Encrypt(plaintext)
 }
 
-// BuildAESGCMURL converts an HTTPS URL and IV+key to an aesgcm:// URL per XEP-0454.
-// Both IV and key are hex-encoded and concatenated in the anchor (IV first, then key).
+// BuildAESGCMURL converts an HTTPS URL and IV+key to an aesgcm:// URL per
+// XEP-0454. The aesgcm:// scheme *replaces* https://, it doesn't prefix it -
+// "aesgcm://host/path", not "aesgcm://https://host/path" (the latter is what
+// this used to produce, which every other client - Dino, Conversations,
+// etc. - rejects as malformed, showing "File transfer failed"). Both IV and
+// key are hex-encoded and concatenated in the anchor (IV first, then key).
 func BuildAESGCMURL(httpsURL string, iv []byte, key []byte) (string, error) {
 	if len(iv) != IVSize {
 		return "", fmt.Errorf("invalid IV size: expected %d, got %d", IVSize, len(iv))
@@ -94,11 +99,19 @@ func BuildAESGCMURL(httpsURL string, iv []byte, key []byte) (string, error) {
 		return "", fmt.Errorf("invalid key size: expected %d, got %d", KeySize, len(key))
 	}
 
+	rest, ok := strings.CutPrefix(httpsURL, "https://")
+	if !ok {
+		rest, ok = strings.CutPrefix(httpsURL, "http://")
+		if !ok {
+			return "", fmt.Errorf("not an http(s) URL: %q", httpsURL)
+		}
+	}
+
 	ivHex := hex.EncodeToString(iv)
 	keyHex := hex.EncodeToString(key)
 	anchor := ivHex + keyHex
 
-	return "aesgcm://" + httpsURL + "#" + anchor, nil
+	return "aesgcm://" + rest + "#" + anchor, nil
 }
 
 // ParseAESGCMURL extracts the HTTPS URL, IV, and key from an aesgcm:// URL.
@@ -122,7 +135,7 @@ func ParseAESGCMURL(aesgcmURL string) (httpsURL string, iv []byte, key []byte, e
 		return "", nil, nil, fmt.Errorf("missing anchor in aesgcm URL")
 	}
 
-	httpsURL = aesgcmURL[len(prefix):hashIdx]
+	httpsURL = "https://" + aesgcmURL[len(prefix):hashIdx]
 	anchor := aesgcmURL[hashIdx+1:]
 
 	// Anchor should be 88 hex chars (44 bytes: 12 IV + 32 key)
