@@ -121,7 +121,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			return // key-transport message: session established/refreshed, no content to show
 		} else {
 			slog.Debug("omemo message decrypted successfully", "from", msgEv.From)
-			body, oobURLs = decodeOmemoPayload(pt)
+			body = string(pt)
 		}
 	}
 	if s.useGPG && gpg.Looks(body) {

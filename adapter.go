@@ -652,8 +652,15 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		protocol, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
 		slog.Debug("send: using omemo encryption", "protocol", protocol, "jid", s.account.JID, "to", to)
 		if mgr != nil {
-			payload := encodeOmemoPayload(plaintext, opts.OOBURLs)
-			enc, deviceErrs, err := mgr.EncryptMessage(ctx, to, payload)
+			// Deliberately a bare plaintext string, not a structured envelope
+			// carrying OOB metadata: an earlier version of this code wrapped
+			// it in XML so encrypted file messages could still get attachment
+			// styling, but that showed as literal "<kage-payload><body>..."
+			// noise in every other OMEMO client (Dino, Conversations, etc).
+			// Real interop matters more than attachment icons on encrypted
+			// files, so those just render as plain text/links instead - same
+			// as GPG.
+			enc, deviceErrs, err := mgr.EncryptMessage(ctx, to, []byte(plaintext))
 			if err != nil {
 				// The manager only auto-fetches a peer's device list when its
 				// cache is empty, so a peer that rotated/added devices since
@@ -663,7 +670,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 					slog.Debug("send: omemo device resync failed", "protocol", protocol, "to", to, "err", syncErr)
 					return "", fmt.Errorf("omemo-encrypting to %s: device list resync failed: %w", to, syncErr)
 				}
-				enc, deviceErrs, err = mgr.EncryptMessage(ctx, to, payload)
+				enc, deviceErrs, err = mgr.EncryptMessage(ctx, to, []byte(plaintext))
 				if err != nil {
 					slog.Debug("send: omemo encrypt failed after resync", "protocol", protocol, "jid", s.account.JID, "to", to, "err", err, "device_errs", deviceErrs)
 					return "", fmt.Errorf("omemo-encrypting to %s: %w (device errors: %v)", to, err, deviceErrs)

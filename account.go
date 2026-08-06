@@ -707,7 +707,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				} else if pt == nil {
 					continue // key-transport only: session established/refreshed, no content to show
 				} else {
-					body, oobURLs = decodeOmemoPayload(pt)
+					body = string(pt)
 				}
 			} else if s.useGPG && gpg.Looks(body) {
 				if pt, err := s.gpg.Decrypt(body, ""); err == nil {
