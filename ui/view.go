@@ -336,6 +336,7 @@ func (m Model) renderInfoPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.infoPrompt())
+	popup = m.zone.Mark(zoneMsgInfoPopup, popup)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

@@ -24,6 +24,7 @@ const (
 	zoneSendButton     = "send-button"
 	zoneAttachButton   = "attach-button"
 	zoneToggleSidebar  = "toggle-sidebar-button"
+	zoneMsgInfoPopup   = "msg-info-popup"
 )
 
 // inputWheelScrollLines is how many lines a single wheel notch moves the
@@ -205,6 +206,13 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.contextMenu != nil {
 		return m.handleContextMenuClick(msg)
+	}
+
+	if m.showMsgInfo {
+		if !m.zone.Get(zoneMsgInfoPopup).InBounds(msg) {
+			m.showMsgInfo = false
+		}
+		return m, nil
 	}
 
 	if msg.Mouse().Button == tea.MouseLeft {
