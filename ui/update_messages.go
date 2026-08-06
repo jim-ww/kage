@@ -494,6 +494,25 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, tea.Batch(cmd, m.showNotification("status: "+presenceLabel(msg.Status))), true
 
+	case AccountRemovedMsg:
+		if msg.Index < 0 || msg.Index >= len(m.accounts) {
+			return m, nil, true
+		}
+		name := m.accounts[msg.Index].DisplayName()
+		m.accounts[msg.Index].Removed = true
+		m.accounts[msg.Index].Connecting = false
+		m.accounts[msg.Index].ConnectError = ""
+		if msg.Index == m.currentAccount {
+			m.refreshViewport()
+		}
+		return m, m.showNotification("removed account " + name), true
+
+	case AccountRemoveErrorMsg:
+		if msg.Index < 0 || msg.Index >= len(m.accounts) {
+			return m, nil, true
+		}
+		return m, m.showNotification("removing account: " + msg.Err.Error()), true
+
 	case HistorySyncStartedMsg:
 		if msg.AccountIdx >= 0 && msg.AccountIdx < len(m.accounts) {
 			m.accounts[msg.AccountIdx].SyncingHistory = true

@@ -100,6 +100,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				cmds = append(cmds, m.retractSelectedMsg())
 			case confirmDeleteChat:
 				cmds = append(cmds, m.deleteSelectedChat())
+			case confirmRemoveAccount:
+				cmds = append(cmds, m.removeCurrentAccount())
 			}
 			m.confirmTarget = confirmNone
 			m.refreshViewport()

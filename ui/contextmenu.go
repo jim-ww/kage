@@ -84,14 +84,13 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 		{label: "Rename", run: (*Model).actionRenameChat},
 		{label: "Encryption", run: (*Model).actionOpenEncryptionMenu},
 		{label: "Leave chat", run: (*Model).actionLeaveChat},
-		{label: "Delete contact", run: (*Model).actionDeleteContact},
 	}
 }
 
 // accountRowContextMenuItems builds the right-click menu for the account at
 // idx (already selected/switched to by the caller).
 func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
-	if idx < 0 || idx >= len(m.accounts) {
+	if idx < 0 || idx >= len(m.accounts) || m.accounts[idx].Removed {
 		return nil
 	}
 	return []contextMenuItem{
@@ -103,7 +102,34 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 			return cmd
 		}},
 		{label: "Make default", run: func(m *Model) tea.Cmd { return m.actionMakeDefaultAccount(idx) }},
+		{label: "Remove account", run: func(m *Model) tea.Cmd { return m.actionRemoveAccount(idx) }},
 	}
+}
+
+// actionRemoveAccount opens the remove-account confirmation for the account
+// at idx (already selected/switched to by the caller — see
+// accountRowContextMenuItems). Confirming disconnects it and drops it from
+// config.toml (see AccountRemover) without touching local storage.
+func (m *Model) actionRemoveAccount(idx int) tea.Cmd {
+	if idx < 0 || idx >= len(m.accounts) || m.accountRemover == nil {
+		return m.showNotification("account removal unavailable")
+	}
+	if idx != m.currentAccount {
+		return nil
+	}
+	m.confirmTarget = confirmRemoveAccount
+	return nil
+}
+
+// removeCurrentAccount runs as a tea.Cmd since it purges the account's
+// published OMEMO device list over the network before disconnecting (see
+// AccountRemover.RemoveAccount).
+func (m *Model) removeCurrentAccount() tea.Cmd {
+	if m.accountRemover == nil || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return nil
+	}
+	accountIdx := m.currentAccount
+	return func() tea.Msg { return m.accountRemover.RemoveAccount(accountIdx) }
 }
 
 // accountStatuses lists every selectable account status, in the order

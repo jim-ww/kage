@@ -93,6 +93,14 @@ type Account struct {
 	// AccountStatusSetter and persisted to config so it's restored on the
 	// next startup.
 	Status Presence
+
+	// Removed is set once AccountRemover.RemoveAccount has disconnected this
+	// account and dropped it from config.toml. It stays in m.accounts (and
+	// so this slot in the sidebar) for the rest of this run — see
+	// AccountRemovedMsg for why indices can't shift — but is excluded from
+	// switching and shows as offline/removed until the next restart drops
+	// it from config entirely.
+	Removed bool
 }
 
 // DisplayName is the account's Alias if configured, else its bare JID.
@@ -109,6 +117,8 @@ func (a Account) DisplayName() string {
 // right now, not what presence it will show once it can.
 func (a Account) StatusText() string {
 	switch {
+	case a.Removed:
+		return "removed"
 	case a.Connecting:
 		return "connecting…"
 	case a.ConnectError != "":
@@ -185,6 +195,7 @@ const (
 	confirmNone confirmTarget = iota
 	confirmDeleteMessage
 	confirmDeleteChat
+	confirmRemoveAccount
 	confirmQuit
 )
 

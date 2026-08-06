@@ -274,6 +274,12 @@ func (m Model) deletePrompt() string {
 			}
 		}
 		return m.styles.deletePrompt("Leave chat?", detail)
+	case confirmRemoveAccount:
+		detail := ""
+		if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
+			detail = m.accounts[m.currentAccount].DisplayName()
+		}
+		return m.styles.deletePrompt("Remove account?", detail+" — disconnects and drops it from config; local history is kept")
 	default:
 		detail := ""
 		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {

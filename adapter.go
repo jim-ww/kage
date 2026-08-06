@@ -356,6 +356,60 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.
 	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: devices}
 }
 
+// RemoveAccount implements ui.AccountRemover: purges this account's own
+// device from each OMEMO protocol's published device list (so peers stop
+// treating it as a valid encryption target), disconnects it, and drops it
+// from config.toml. Local storage (history, roster cache, OMEMO
+// identity/session state) is never touched — sessions keeps the slot (see
+// ui.AccountRemovedMsg for why indices must stay stable), just closed, so
+// its reconnect supervisor goroutine exits instead of retrying.
+func (a *adapter) RemoveAccount(accountIdx int) tea.Msg {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return ui.AccountRemoveErrorMsg{Index: accountIdx, Err: fmt.Errorf("account is still connecting")}
+	}
+
+	ctx := context.Background()
+	client := s.client.Load()
+
+	purgeSelf := func(
+		mgr *omemolib.Manager,
+		fetch func(context.Context, string) (omemolib.DeviceList, error),
+		publish func(context.Context, omemolib.DeviceList) error,
+	) error {
+		if mgr == nil {
+			return nil
+		}
+		list, err := fetch(ctx, s.account.JID)
+		if err != nil {
+			return err
+		}
+		localID := mgr.LocalDevice().ID
+		ids := make([]omemolib.DeviceID, 0, len(list.Devices))
+		for _, id := range list.Devices {
+			if id != localID {
+				ids = append(ids, id)
+			}
+		}
+		return publish(ctx, omemolib.DeviceList{JID: s.account.JID, Devices: ids})
+	}
+	if err := purgeSelf(s.omemoMgrV2, client.FetchOmemoDeviceList, client.PublishOmemoDeviceList); err != nil {
+		slog.Warn("purging own device from omemo-v2 device list before removal", "jid", s.account.JID, "err", err)
+	}
+	if err := purgeSelf(s.omemoMgrV1, client.FetchOmemoDeviceListV1, client.PublishOmemoDeviceListV1); err != nil {
+		slog.Warn("purging own device from omemo-v1 device list before removal", "jid", s.account.JID, "err", err)
+	}
+
+	if err := client.Close(); err != nil {
+		slog.Warn("closing connection on account removal", "jid", s.account.JID, "err", err)
+	}
+	if err := config.RemoveAccount(a.cfgPath, s.account.JID); err != nil {
+		return ui.AccountRemoveErrorMsg{Index: accountIdx, Err: fmt.Errorf("removing account from config: %w", err)}
+	}
+
+	return ui.AccountRemovedMsg{Index: accountIdx}
+}
+
 // MarkRetracted implements ui.MessageSender: flags a message as locally
 // deleted in storage without sending anything over the network. Used when
 // deleting someone else's message, since XEP-0424 retraction only applies to

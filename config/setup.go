@@ -46,6 +46,28 @@ func WriteAccount(path string, acct Account) error {
 	return writeFileConfig(path, cfg)
 }
 
+// RemoveAccount deletes the account matching jid from the [[accounts]] list
+// in the config file at path, preserving everything else. A no-op if the
+// account isn't found there.
+func RemoveAccount(path, jid string) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	idx := -1
+	for i, acct := range cfg.Accounts {
+		if acct.JID == jid {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return fmt.Errorf("account %s not found in %s", jid, path)
+	}
+	cfg.Accounts = append(cfg.Accounts[:idx], cfg.Accounts[idx+1:]...)
+	return writeFileConfig(path, cfg)
+}
+
 // SetAccountGPGKeyID sets (or updates) the gpg_key_id field for the account
 // matching jid in the config file at path, preserving everything else. A
 // no-op if the account isn't found there.

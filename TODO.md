@@ -13,8 +13,7 @@
 
 - ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - account manager should look like button and show hover indication
-- save message drafts for each chat (encrypted), on exit/chat switch
-- account manager: remove 'accounts:' labewnloaded
+- save message drafts for each chat (encrypted, if encryption enabled), on exit/chat switch
 
 - preview files text contents (in separate viewport?)
 - chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts

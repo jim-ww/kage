@@ -8,7 +8,7 @@ import (
 )
 
 func (m *Model) switchAccount(index int) tea.Cmd {
-	if index < 0 || index >= len(m.accounts) || index == m.currentAccount {
+	if index < 0 || index >= len(m.accounts) || index == m.currentAccount || m.accounts[index].Removed {
 		return nil
 	}
 	m.currentAccount = index

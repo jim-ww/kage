@@ -138,6 +138,7 @@ type Model struct {
 	lastChatSetter       LastChatSetter
 	historyLoader        HistoryLoader
 	accountStatusSetter  AccountStatusSetter
+	accountRemover       AccountRemover
 	chatReadTracker      ChatReadTracker
 
 	// loadingOlderHistory marks chat indices with a LoadOlderHistory fetch
@@ -253,6 +254,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	deviceManager, _ := sender.(OmemoDeviceManager)
 	contactManager, _ := sender.(ContactManager)
 	accountStatusSetter, _ := sender.(AccountStatusSetter)
+	accountRemover, _ := sender.(AccountRemover)
 
 	return Model{
 		selectedView:           viewChat,
@@ -292,6 +294,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		lastChatSetter:         lastChatSetter,
 		historyLoader:          historyLoader,
 		accountStatusSetter:    accountStatusSetter,
+		accountRemover:         accountRemover,
 		chatReadTracker:        chatReadTracker,
 		loadingOlderHistory:    make(map[int]bool),
 		pendingOpenChatAddress: openLastChatAddress,
