@@ -2,11 +2,18 @@
                    │                ratchet decrypt: no message key is
                    │                cached for this message]
 
+- messages sent from same account on other devices do not appear in chat
+- check how local/remote messages timestampt are handled
+> » [09:10 🔒 ✓] [message could not be decrypted:
+                   │                  establish session: consume one-time
+                   │                  prekey 23: consume prekey 23: sql: no
+                   │                  rows in result set]
+- doesnt encrypt for other own devices?
 - in devices show proper OMEMO fingerprint
 - regular URLs in message body must not show as attachments
 - plaintext attachments must be downloaded first and open in appropriate programs, not in browser (they all start with https://...)
 - on multi-attachment messages, should show normalized name in open selector
-- ^shift+U bind doesnt work (omemo devices)
+- ^shift+U bind doessnt work (omemo devices)
 - selecting file again in filepicker should deselect it from upload list
 - add backspace binding in help line
 - cant open/send files? images (omemo?)

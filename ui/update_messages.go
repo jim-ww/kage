@@ -104,19 +104,32 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case transferProgressChanMsg:
+		m.setTransferProgress(msg.FileTransferProgressMsg)
+		return m, listenForTransferChan(msg.ch), true
+
 	case openResultMsg:
+		m.clearTransfer(msg.target)
 		if msg.err != nil {
 			return m, m.showNotification("failed to open " + msg.target), true
 		}
 		return m, m.showNotification("opened " + msg.target), true
 
 	case saveResultMsg:
+		m.clearTransfer(msg.target)
 		if msg.err != nil {
 			return m, m.showNotification("save failed: " + msg.err.Error()), true
 		}
 		return m, m.showNotification("saved " + msg.path), true
 
+	case FileTransferProgressMsg:
+		m.setTransferProgress(msg)
+		return m, nil, true
+
 	case ComposedSendResultMsg:
+		for _, path := range msg.Paths {
+			m.clearTransfer(path)
+		}
 		if len(msg.Messages) == 0 {
 			if msg.Err != nil {
 				return m, m.showNotification("send failed: " + msg.Err.Error()), true
@@ -162,6 +175,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, tea.Batch(cmds...), true
 
 	case FileSendResultMsg:
+		m.clearTransfer(msg.Path)
 		if msg.Err != nil {
 			return m, m.showNotification("file send failed: " + msg.Err.Error()), true
 		}

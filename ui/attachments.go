@@ -97,7 +97,7 @@ func (m *Model) startAttachedSend(text string, to string, reply SendOptions) tea
 	sender := m.sender
 
 	return func() tea.Msg {
-		result := ComposedSendResultMsg{AccountIdx: accountIdx, To: to, ReplyToID: reply.ReplyToID}
+		result := ComposedSendResultMsg{AccountIdx: accountIdx, To: to, ReplyToID: reply.ReplyToID, Paths: paths}
 		for i, path := range paths {
 			upload, ok := fileSender.UploadFile(accountIdx, to, path).(FileUploadResultMsg)
 			if !ok {

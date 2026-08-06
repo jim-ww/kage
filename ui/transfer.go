@@ -1,0 +1,168 @@
+package ui
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+// progressReader wraps an io.Reader, calling onProgress after every Read
+// with cumulative bytes read so far and the (already-known) total. Mirrors
+// xmpp.progressReader (upload side) - kept as a separate copy rather than a
+// shared package since ui must never import xmpp (see CLAUDE.md), and this
+// is a handful of lines.
+type progressReader struct {
+	io.Reader
+	total      int64
+	sent       int64
+	onProgress func(sent, total int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.Reader.Read(b)
+	p.sent += int64(n)
+	if p.onProgress != nil {
+		p.onProgress(p.sent, p.total)
+	}
+	return n, err
+}
+
+// transferProgressChanMsg wraps a FileTransferProgressMsg together with the
+// channel it came from, so the Update handler can re-issue
+// listenForTransferChan to keep draining further messages from the same
+// transfer. The transfer's own terminal message (openResultMsg/
+// saveResultMsg) is sent on the same channel but isn't wrapped this way, so
+// listening naturally stops once it arrives - see listenForTransferChan.
+type transferProgressChanMsg struct {
+	FileTransferProgressMsg
+	ch chan tea.Msg
+}
+
+// listenForTransferChan returns a Cmd that reads exactly one message off ch
+// and returns it verbatim. Used by a download's tea.Cmd to drain a
+// background goroutine's progress + terminal messages one at a time into
+// the Bubble Tea update loop, since a Cmd can otherwise only ever return a
+// single message.
+func listenForTransferChan(ch chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
+	}
+}
+
+// throttledProgressSender returns an onProgress func (sent, total int64)
+// that sends a transferProgressChanMsg on ch at most once per whole
+// percentage point, so a large download doesn't flood the channel with a
+// message per 32KB read. Drops (rather than blocks on) a full channel - the
+// next percentage change will likely get through.
+func throttledProgressSender(ch chan tea.Msg, id, label string) func(sent, total int64) {
+	lastPercent := -1
+	return func(sent, total int64) {
+		percent := -1
+		if total > 0 {
+			percent = int(sent * 100 / total)
+		}
+		if percent == lastPercent {
+			return
+		}
+		lastPercent = percent
+		select {
+		case ch <- transferProgressChanMsg{FileTransferProgressMsg{ID: id, Label: label, Sent: sent, Total: total}, ch}:
+		default:
+		}
+	}
+}
+
+// setTransferProgress upserts a transfer's progress, tracking insertion
+// order (transferOrder) separately so renderTransferLines has a stable,
+// start-order rendering instead of Go's randomized map iteration.
+func (m *Model) setTransferProgress(msg FileTransferProgressMsg) {
+	if m.transfers == nil {
+		m.transfers = make(map[string]FileTransferProgressMsg)
+	}
+	if _, exists := m.transfers[msg.ID]; !exists {
+		m.transferOrder = append(m.transferOrder, msg.ID)
+	}
+	m.transfers[msg.ID] = msg
+}
+
+// clearTransfer removes a finished transfer (its terminal result message
+// arrived) so it stops being rendered.
+func (m *Model) clearTransfer(id string) {
+	if _, ok := m.transfers[id]; !ok {
+		return
+	}
+	delete(m.transfers, id)
+	for i, k := range m.transferOrder {
+		if k == id {
+			m.transferOrder = append(m.transferOrder[:i], m.transferOrder[i+1:]...)
+			break
+		}
+	}
+}
+
+// transferBarWidth is the fixed width (in characters) of the "[####----]"
+// portion of a rendered transfer line.
+const transferBarWidth = 16
+
+// renderTransferLines returns one progress line per active transfer, in the
+// order each one started, or nil if none are active.
+func (m Model) renderTransferLines() []string {
+	if len(m.transferOrder) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(m.transferOrder))
+	for _, id := range m.transferOrder {
+		tp, ok := m.transfers[id]
+		if !ok {
+			continue
+		}
+		lines = append(lines, formatTransferLine(tp))
+	}
+	return lines
+}
+
+// formatTransferLine renders one transfer as "<label> [####----] NN%", or
+// "<label>... <bytes>" while the total size isn't known yet (e.g. a
+// download before the response headers arrive).
+func formatTransferLine(tp FileTransferProgressMsg) string {
+	if tp.Total <= 0 {
+		return fmt.Sprintf("%s... %s", tp.Label, humanBytes(tp.Sent))
+	}
+	percent := int(tp.Sent * 100 / tp.Total)
+	if percent > 100 {
+		percent = 100
+	}
+	return fmt.Sprintf("%s %s %3d%%", tp.Label, renderProgressBar(percent, transferBarWidth), percent)
+}
+
+// renderProgressBar draws a "[####----]" bar, ASCII-only so it renders
+// correctly in every terminal (same reasoning as plainFileIcons).
+func renderProgressBar(percent, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	filled := width * percent / 100
+	if filled > width {
+		filled = width
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", width-filled) + "]"
+}
+
+// humanBytes formats a byte count as e.g. "512 B", "3.1 KB", "22.4 MB".
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}

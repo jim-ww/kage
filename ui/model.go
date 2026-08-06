@@ -119,7 +119,9 @@ type Model struct {
 	viewportLines      []string            // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
 	noticeText         string
 	noticeID           int
-	noticeDuration     time.Duration // how long a notification toast stays visible before auto-dismissing
+	noticeDuration     time.Duration                      // how long a notification toast stays visible before auto-dismissing
+	transferOrder      []string                           // insertion order of transfers keys, for stable multi-line rendering
+	transfers          map[string]FileTransferProgressMsg // active uploads/downloads, keyed by ID (local path for an upload, URL for a download); removed once the transfer's terminal result msg arrives
 
 	// double-click detection for messages
 	lastClickedMsgIdx int       // index of the last clicked message (for double-click detection)

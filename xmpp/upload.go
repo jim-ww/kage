@@ -31,11 +31,33 @@ func (m mockFileInfo) ModTime() time.Time { return time.Now() }
 func (m mockFileInfo) IsDir() bool        { return false }
 func (m mockFileInfo) Sys() any           { return nil }
 
+// progressReader wraps an io.Reader, calling onProgress after every Read
+// with cumulative bytes read so far and the (already-known) total. Left as a
+// thin, unthrottled callback deliberately - throttling how often that's
+// turned into UI updates is the caller's job, not this type's.
+type progressReader struct {
+	io.Reader
+	total      int64
+	sent       int64
+	onProgress func(sent, total int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.Reader.Read(b)
+	p.sent += int64(n)
+	if p.onProgress != nil {
+		p.onProgress(p.sent, p.total)
+	}
+	return n, err
+}
+
 // UploadFile uploads path using XEP-0363 HTTP File Upload and returns the
 // service's download URL. The caller sends that URL as a normal message, which
 // is both widely interoperable and lets recipients without attachment support
-// still access the file.
-func (c *Client) UploadFile(ctx context.Context, path string) (string, error) {
+// still access the file. onProgress, if non-nil, is called with cumulative
+// bytes sent as the PUT streams (not called for the earlier disco/slot
+// negotiation, which is comparatively instant).
+func (c *Client) UploadFile(ctx context.Context, path string, onProgress func(sent, total int64)) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("statting %q: %w", path, err)
@@ -75,7 +97,11 @@ func (c *Client) UploadFile(ctx context.Context, path string) (string, error) {
 	if slot.PutURL == nil || slot.GetURL == nil {
 		return "", fmt.Errorf("upload service returned an incomplete slot")
 	}
-	req, err := slot.Put(ctx, f)
+	var body io.Reader = f
+	if onProgress != nil {
+		body = &progressReader{Reader: f, total: info.Size(), onProgress: onProgress}
+	}
+	req, err := slot.Put(ctx, body)
 	if err != nil {
 		return "", fmt.Errorf("creating upload request: %w", err)
 	}
@@ -108,7 +134,9 @@ func (c *Client) UploadFile(ctx context.Context, path string) (string, error) {
 
 // UploadFileWithReader uploads data from reader using XEP-0363 HTTP File Upload.
 // Used for encrypted file uploads where the data is already in memory.
-func (c *Client) UploadFileWithReader(ctx context.Context, path string, reader io.Reader) (string, error) {
+// onProgress, if non-nil, is called with cumulative bytes sent as the PUT
+// streams.
+func (c *Client) UploadFileWithReader(ctx context.Context, path string, reader io.Reader, onProgress func(sent, total int64)) (string, error) {
 	// Read all data to get size
 	data, err := io.ReadAll(reader)
 	if err != nil {
@@ -116,7 +144,10 @@ func (c *Client) UploadFileWithReader(ctx context.Context, path string, reader i
 	}
 
 	info := mockFileInfo{size: int64(len(data)), name: filepath.Base(path)}
-	reader = bytes.NewReader(data)
+	var body io.Reader = bytes.NewReader(data)
+	if onProgress != nil {
+		body = &progressReader{Reader: body, total: info.Size(), onProgress: onProgress}
+	}
 
 	// Service discovery and slot negotiation
 	discoveryCtx, cancelDiscovery := context.WithTimeout(ctx, 15*time.Second)
@@ -137,7 +168,7 @@ func (c *Client) UploadFileWithReader(ctx context.Context, path string, reader i
 	if slot.PutURL == nil || slot.GetURL == nil {
 		return "", fmt.Errorf("upload service returned an incomplete slot")
 	}
-	req, err := slot.Put(ctx, reader)
+	req, err := slot.Put(ctx, body)
 	if err != nil {
 		return "", fmt.Errorf("creating upload request: %w", err)
 	}

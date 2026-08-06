@@ -69,7 +69,9 @@ func (m Model) View() tea.View {
 	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, "", footer))
 
 	rendered := m.zone.Scan(root)
-	if m.noticeText != "" {
+	if transferLines := m.renderTransferLines(); len(transferLines) > 0 {
+		rendered = overlayBottomRight(rendered, m.styles.noticeToast(m.width, strings.Join(transferLines, "\n")))
+	} else if m.noticeText != "" {
 		rendered = overlayBottomRight(rendered, m.styles.noticeToast(m.width, m.noticeText))
 	}
 

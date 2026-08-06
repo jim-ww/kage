@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -769,8 +770,9 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 // (XEP-0454 AES-256-GCM when the resolved mode is encrypted, plain XEP-0363
 // otherwise) and uploads path, returning the URL to put in a message body.
 // Shared by SendFile (upload + immediate send) and UploadFile (upload only,
-// for staging a pending attachment).
-func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmpp.Client, to, path string) (string, error) {
+// for staging a pending attachment). onProgress, if non-nil, is called with
+// cumulative bytes sent as the PUT streams.
+func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmpp.Client, to, path string, onProgress func(sent, total int64)) (string, error) {
 	encryptFile := false
 	switch mode := resolveEncryptionMode(ctx, s, to); mode {
 	case "omemo-v1", "omemo-v2":
@@ -781,7 +783,7 @@ func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmp
 	}
 
 	if !encryptFile {
-		return client.UploadFile(ctx, path)
+		return client.UploadFile(ctx, path, onProgress)
 	}
 
 	// Encrypt file with AES-256-GCM before upload (XEP-0454)
@@ -796,7 +798,7 @@ func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmp
 		return "", fmt.Errorf("encrypting file: %w", err)
 	}
 
-	url, err := client.UploadFileWithReader(ctx, path, bytes.NewReader(ciphertext))
+	url, err := client.UploadFileWithReader(ctx, path, bytes.NewReader(ciphertext), onProgress)
 	if err != nil {
 		return "", fmt.Errorf("uploading encrypted file: %w", err)
 	}
@@ -807,6 +809,30 @@ func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmp
 		return "", fmt.Errorf("building aesgcm URL: %w", err)
 	}
 	return url, nil
+}
+
+// progressCallback returns a throttled onProgress func suitable for
+// xmpp.Client.UploadFile/UploadFileWithReader (or a download loop): it only
+// sends a ui.FileTransferProgressMsg to the UI when the whole percentage
+// changes, so a large file doesn't flood the update loop with a message per
+// 32KB chunk. id is an opaque per-transfer key (e.g. local path for an
+// upload, URL for a download) letting the UI track multiple concurrent
+// transfers separately.
+func (a *adapter) progressCallback(id, label string) func(sent, total int64) {
+	lastPercent := -1
+	return func(sent, total int64) {
+		percent := -1
+		if total > 0 {
+			percent = int(sent * 100 / total)
+		}
+		if percent == lastPercent {
+			return
+		}
+		lastPercent = percent
+		if a.program != nil {
+			a.program.Send(ui.FileTransferProgressMsg{ID: id, Label: label, Sent: sent, Total: total})
+		}
+	}
 }
 
 // SendFile implements ui.FileSender. Uploading and the follow-up message send
@@ -827,7 +853,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	url, err := a.uploadFile(ctx, s, client, to, path)
+	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, "uploading "+filepath.Base(path)))
 	if err != nil {
 		result.Err = err
 		return result
@@ -863,7 +889,7 @@ func (a *adapter) UploadFile(accountIdx int, to, path string) tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	url, err := a.uploadFile(ctx, s, client, to, path)
+	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, "uploading "+filepath.Base(path)))
 	if err != nil {
 		result.Err = err
 		return result

@@ -92,6 +92,19 @@ type ContactRemovedMsg struct {
 	Err        error
 }
 
+// FileTransferProgressMsg reports incremental progress for one file upload
+// or download, keyed by ID - an opaque per-transfer identifier chosen by the
+// sender (the local path for an upload, the attachment URL for a download)
+// so the UI can track several concurrent transfers separately. Label is the
+// human-readable line prefix (e.g. "uploading photo.jpg"). Total is 0 when
+// not yet known (e.g. a download before the response headers arrive).
+type FileTransferProgressMsg struct {
+	ID    string
+	Label string
+	Sent  int64
+	Total int64
+}
+
 // FileSendResultMsg reports completion of an asynchronous upload and send.
 type FileSendResultMsg struct {
 	AccountIdx int
@@ -127,7 +140,8 @@ type FileUploadResultMsg struct {
 type ComposedSendResultMsg struct {
 	AccountIdx int
 	To         string
-	ReplyToID  string // non-empty if this was sent in reply to a message
+	ReplyToID  string   // non-empty if this was sent in reply to a message
+	Paths      []string // every staged local path this batch attempted, for clearing their transfer-progress entries regardless of how far the batch got
 	Messages   []SentMessage
 	Err        error
 }
