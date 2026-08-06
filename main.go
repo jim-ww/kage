@@ -17,7 +17,8 @@ import (
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/gpg"
 	"github.com/jim-ww/kage/crypto/localstore"
-	"github.com/jim-ww/kage/notifyd"
+	"github.com/jim-ww/kage/ipc"
+	"github.com/jim-ww/kage/daemon"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/version"
@@ -245,19 +246,23 @@ func main() {
 
 	cfgPath := flag.String("c", "", "path to config")
 	debug := flag.Bool("debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise)")
-	runNotifyd := flag.Bool("notifyd", false, "internal: run as the background notification daemon (spawned automatically, not meant to be passed by hand)")
+	runBackground := flag.Bool("background", false, "internal: run as the background service that owns XMPP connections/storage/decryption and fires notifications (spawned automatically, not meant to be passed by hand)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage:\n  %s [flags]\n  %s version\n  %s export [-c config] <output.json>\n  %s import [-c config] <input.json>\n\nFlags:\n", os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
-	if *runNotifyd {
+	if *runBackground {
 		cfg, err := config.Load(*cfgPath)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err := notifyd.Run(cfg); err != nil {
+		setupLog(*debug)
+		if cfg.HistoryPageSize > 0 {
+			historyPageSize = cfg.HistoryPageSize
+		}
+		if err := daemon.Run(cfg, newBackend()); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -286,65 +291,35 @@ func main() {
 		}
 	}
 
-	if cfg.Notifications {
-		if err := notifyd.EnsureRunning(cfg.Path); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: starting notification daemon: %v\n", err)
-		}
-	}
-
-	if cfg.UseGPG {
-		ensureGPGKeys(&cfg)
+	// The background daemon always runs now — cfg.Notifications only gates
+	// whether it fires a desktop notification, not whether it starts at all
+	// (see events.go's handleIncomingMessage).
+	if err := daemon.EnsureRunning(cfg.Path); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: starting kage's background service: %v\n", err)
 	}
 	if cfg.HistoryPageSize > 0 {
 		historyPageSize = cfg.HistoryPageSize
 	}
 
-	dbPath, err := dataFilePath()
+	sockPath, err := ipc.SocketPath()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	dbConn, queries, err := storage.Open(dbPath)
+	client := newIPCClient()
+	conn, err := ipc.Dial(sockPath, client.handleEvent)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "connecting to kage's background service: %v\n", err)
+		os.Exit(1)
+	}
+	client.conn = conn
+	defer conn.Close()
+
+	uiAccounts, err := client.listAccounts()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer dbConn.Close()
-
-	if cfg.UseGPG {
-		primeGPGAgent(context.Background(), queries, cfg.Accounts)
-	}
-
-	localKey, err := loadLocalKey(cfg.Storage, cfg.UseKeyring, queries)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
-	ctx := context.Background()
-
-	// Dialing, roster fetch, and local-history decrypt all happen over the
-	// network and can be slow — the UI is shown immediately with a
-	// placeholder ("connecting...") row per account, and each account is
-	// connected in its own goroutine, reporting back via AccountConnectedMsg/
-	// AccountConnectErrorMsg once ready. sender.sessions is pre-sized so
-	// indices assigned here stay stable no matter which account finishes
-	// first.
-	uiAccounts := make([]ui.Account, len(cfg.Accounts))
-	for i, acct := range cfg.Accounts {
-		uiAccounts[i] = ui.Account{Name: acct.JID, Alias: acct.Alias, Connecting: true, Status: accountStatus(acct.Status)}
-	}
-	sender := &adapter{sessions: make([]*accountSession, len(cfg.Accounts)), cfgPath: cfg.Path, queries: queries, localKey: localKey, useGPG: cfg.UseGPG, useKeyring: cfg.UseKeyring}
-	defer func() {
-		sender.mu.Lock()
-		defer sender.mu.Unlock()
-		for _, s := range sender.sessions {
-			if s == nil {
-				continue
-			}
-			s.client.Load().Close()
-		}
-	}()
 
 	openLastChatAddress := ""
 	startAccountIdx := cfg.DefaultAccountIdx
@@ -361,13 +336,19 @@ func main() {
 		MaxMessagesPerChat: cfg.MaxMessagesPerChat,
 		NoticeDuration:     cfg.UI.NoticeDuration,
 	}
-	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display)
+	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, client, client, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display)
 	p := tea.NewProgram(model)
-	sender.program = p
+	client.program = p
 
-	for i, acct := range cfg.Accounts {
-		go connectAndSuperviseAccount(ctx, p, sender, i, acct, queries, localKey)
-	}
+	// If the daemon goes away mid-session (crash, upgrade), don't leave the
+	// TUI sitting on a dead connection — quit cleanly with a message rather
+	// than hanging on every subsequent action. A live "reconnecting..."
+	// banner is a nicer UX but out of scope for this pass.
+	go func() {
+		<-conn.Done()
+		fmt.Fprintln(os.Stderr, "kage's background service disconnected; please restart kage")
+		p.Send(tea.Quit())
+	}()
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

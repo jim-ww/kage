@@ -7,8 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/crypto/gpg"
+	"github.com/jim-ww/kage/ipc"
+	"github.com/jim-ww/kage/daemon"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
@@ -19,13 +20,13 @@ import (
 // chat message — routing XEP-0308 corrections to storage.UpdateMessageBodyByID
 // and a MessageCorrectedMsg instead of appending a new message, and XEP-0424
 // retractions to a flag (never an actual delete — see ui.Message.Retracted).
-func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
+func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
 	if msgEv.ReactionTargetID != "" {
 		from := bareJID(msgEv.From)
 		if err := replaceReactions(ctx, s, from, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
 			slog.Warn("persisting reactions", "from", from, "err", err)
 		}
-		p.Send(ui.MessageReactionsMsg{
+		broadcast(srv, evMessageReactions, ui.MessageReactionsMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			MessageID:  msgEv.ReactionTargetID,
@@ -43,7 +44,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		}); err != nil {
 			slog.Warn("persisting retraction flag", "err", err)
 		}
-		p.Send(ui.MessageRetractedMsg{
+		broadcast(srv, evMessageRetracted, ui.MessageRetractedMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			RetractID:  msgEv.RetractID,
@@ -172,7 +173,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		}); err != nil {
 			slog.Warn("persisting correction", "err", err)
 		}
-		p.Send(ui.MessageCorrectedMsg{
+		broadcast(srv, evMessageCorrected, ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			ReplaceID:  msgEv.ReplaceID,
@@ -223,22 +224,39 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		return
 	}
 
-	p.Send(ui.IncomingMessageMsg{
+	broadcast(srv, evIncomingMessage, ui.IncomingMessageMsg{
 		AccountIdx: accountIdx,
 		From:       from,
 		ReplyToID:  msgEv.ReplyToID,
 		Message: ui.Message{
-			ID:          msgEv.ID,
-			Author:      s.rosterName(from),
-			Content:     body,
-			SentAt:      msgEv.SentAt,
-			IsMe:        false,
+			ID:            msgEv.ID,
+			Author:        s.rosterName(from),
+			Content:       body,
+			SentAt:        msgEv.SentAt,
+			IsMe:          false,
 			Encrypted:     e2eEncrypted,
 			EncMethod:     e2eeMethod,
 			Attachments:   oobURLs,
 			DecryptFailed: decryptFailed,
 		},
 	})
+
+	if notifyEnabled.Load() && !decryptFailed {
+		daemon.Notify(s.rosterName(from), notifyPreview(body))
+	}
+}
+
+// notifyPreview trims body to a reasonable desktop-notification length —
+// now that the daemon decrypts before notifying, the previous placeholder
+// ("🔒 New encrypted message") is gone; this is real content, so keep it
+// short rather than dumping a whole message into the popup.
+func notifyPreview(body string) string {
+	const max = 120
+	body = strings.TrimSpace(body)
+	if len(body) <= max {
+		return body
+	}
+	return body[:max] + "…"
 }
 
 // stripReplyQuote removes the leading "> "-prefixed quote block adapter.go's

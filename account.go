@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
-	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/gpg"
+	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
@@ -72,8 +72,33 @@ type accountSession struct {
 // rosterEntry is a contact's cached roster state, refreshed at connect time
 // and kept in sync locally by RenameContact.
 type rosterEntry struct {
-	Name string
-	Subs string
+	Name     string
+	Subs     string
+	Presence ui.Presence // last known live presence; zero value (PresenceOffline) until a PresenceEvent arrives
+}
+
+// setRosterPresence records bareJID's live presence into the cached roster
+// so a client that attaches (or re-attaches) after this account's initial
+// presence burst still sees current status via listAccounts, instead of
+// only ever learning it from a live PresenceEvent it happened to be
+// connected in time to receive.
+func (s *accountSession) setRosterPresence(bareJID string, presence ui.Presence) {
+	entries := s.roster.Load()
+	updated := make(map[string]rosterEntry, len(derefRoster(entries))+1)
+	for k, v := range derefRoster(entries) {
+		updated[k] = v
+	}
+	e := updated[bareJID]
+	e.Presence = presence
+	updated[bareJID] = e
+	s.roster.Store(&updated)
+}
+
+func derefRoster(m *map[string]rosterEntry) map[string]rosterEntry {
+	if m == nil {
+		return nil
+	}
+	return *m
 }
 
 // liveClient returns the account's client, or an error if the account is
@@ -108,13 +133,13 @@ func (s *accountSession) rosterName(bareJID string) string {
 // then does it dial and fetch the live roster in the background, backfill
 // anything missed via XEP-0313 MAM, and fall into the normal
 // event-listen/reconnect supervisor loop.
-func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter, idx int, acct config.Account, queries *storage.Queries, localKey []byte) {
+func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, idx int, acct config.Account, queries *storage.Queries, localKey []byte) {
 	slog.Debug("connectAccountLocal starting", "jid", acct.JID)
 	start := time.Now()
 	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
 	if err != nil {
 		slog.Debug("connectAccountLocal failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
-		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
+		broadcast(srv, evAccountConnectError, wireAccountConnectErrorMsg{Index: idx, Err: err.Error()})
 		return
 	}
 	sess.useGPG = a.useGPG
@@ -129,17 +154,17 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 		a.mu.Lock()
 		a.sessions[idx] = sess
 		a.mu.Unlock()
-		p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
+		broadcast(srv, evAccountConnected, wireAccountConnectedMsg{Index: idx, Account: toWireAccount(uiAcct)})
 		return
 	}
-	p.Send(ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
+	broadcast(srv, evAccountConnected, wireAccountConnectedMsg{Index: idx, Account: toWireAccount(uiAcct)})
 
 	slog.Debug("connectAccountLive starting", "jid", acct.JID)
 	start = time.Now()
 	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats), presenceShow(uiAcct.Status))
 	if err != nil {
 		slog.Debug("connectAccountLive failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
-		p.Send(ui.AccountConnectErrorMsg{Index: idx, Err: err})
+		broadcast(srv, evAccountConnectError, wireAccountConnectErrorMsg{Index: idx, Err: err.Error()})
 		return
 	}
 	slog.Debug("connectAccountLive done", "jid", acct.JID, "elapsed", time.Since(start), "new_chats", len(newChats))
@@ -148,7 +173,7 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 	a.sessions[idx] = sess
 	a.mu.Unlock()
 
-	p.Send(ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore})
+	broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore})
 
 	// Start listening (and reconnecting on drop) right away, concurrently
 	// with syncArchive below - not after it. c.serve() has been reading the
@@ -157,13 +182,13 @@ func connectAndSuperviseAccount(ctx context.Context, p *tea.Program, a *adapter,
 	// on Client.events; running listen sequentially after syncArchive just
 	// left them sitting there unprocessed (roster presence looked stuck
 	// offline) until the backfill finished, sometimes tens of seconds later.
-	go superviseAccount(ctx, p, idx, sess)
+	go superviseAccount(ctx, srv, idx, sess)
 
 	slog.Debug("syncArchive starting", "jid", acct.JID)
 	start = time.Now()
-	p.Send(ui.HistorySyncStartedMsg{AccountIdx: idx})
-	syncArchive(ctx, p, idx, sess)
-	p.Send(ui.HistorySyncFinishedMsg{AccountIdx: idx})
+	broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: idx})
+	syncArchive(ctx, srv, idx, sess)
+	broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: idx})
 	slog.Debug("syncArchive done", "jid", acct.JID, "elapsed", time.Since(start))
 }
 
@@ -300,8 +325,8 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		if name == "" {
 			name = c.JID
 		}
-		_, known := merged[c.JID]
-		merged[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription}
+		prior, known := merged[c.JID]
+		merged[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription, Presence: prior.Presence}
 		if err := sess.db.UpsertRoster(ctx, storage.UpsertRosterParams{
 			AccountJid: sess.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
 		}); err != nil {
@@ -366,9 +391,9 @@ func connectAccount(ctx context.Context, acct config.Account, queries *storage.Q
 // Events channel closing without Close having been called), reconnects with
 // exponential backoff and resumes. Returns once the client is intentionally
 // closed (app shutdown).
-func superviseAccount(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
+func superviseAccount(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
 	for {
-		listen(ctx, p, accountIdx, s)
+		listen(ctx, srv, accountIdx, s)
 
 		client := s.client.Load()
 		if client.Closed() || ctx.Err() != nil {
@@ -422,14 +447,17 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 // listen bridges one account's xmpp events into the Bubble Tea program.
 // Returns when the current client's Events channel closes (client swapped
 // out from under it, e.g. by a reconnect, or the client was closed).
-func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
+func listen(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
 	for ev := range s.client.Load().Events() {
 		switch ev := ev.(type) {
 		case xmpp.PresenceEvent:
-			p.Send(ui.PresenceMsg{
+			from := bareJID(ev.From)
+			presence := mapPresence(ev)
+			s.setRosterPresence(from, presence)
+			broadcast(srv, evPresence, ui.PresenceMsg{
 				AccountIdx: accountIdx,
-				From:       bareJID(ev.From),
-				Presence:   mapPresence(ev),
+				From:       from,
+				Presence:   presence,
 			})
 			continue
 		case xmpp.SubscriptionRequestEvent:
@@ -439,9 +467,9 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 			}
 			continue
 		case xmpp.MessageEvent:
-			handleIncomingMessage(ctx, p, accountIdx, s, ev)
+			handleIncomingMessage(ctx, srv, accountIdx, s, ev)
 		case xmpp.ChatStateEvent:
-			p.Send(ui.TypingMsg{
+			broadcast(srv, evTyping, ui.TypingMsg{
 				AccountIdx: accountIdx,
 				From:       bareJID(ev.From),
 				Typing:     ev.State == xmpp.ChatStateComposing,
@@ -456,7 +484,7 @@ func listen(ctx context.Context, p *tea.Program, accountIdx int, s *accountSessi
 			}); err != nil {
 				slog.Warn("persisting delivery receipt", "err", err)
 			}
-			p.Send(ui.MessageDeliveredMsg{
+			broadcast(srv, evMessageDelivered, ui.MessageDeliveredMsg{
 				AccountIdx: accountIdx,
 				From:       from,
 				MessageID:  ev.ID,
@@ -557,7 +585,7 @@ func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 // client wasn't running — something local storage alone can never have. Runs
 // once, right after an account finishes connecting; best-effort per contact,
 // since not every server (or every contact's account) offers MAM.
-func syncArchive(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession) {
+func syncArchive(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
 	client := s.client.Load()
 
 	lastArchiveID := make(map[string]string)
@@ -576,7 +604,7 @@ func syncArchive(ctx context.Context, p *tea.Program, accountIdx int, s *account
 	slog.Debug("syncArchive: contacts to check", "jid", s.account.JID, "contacts", len(*entries))
 	for peerJID := range *entries {
 		start := time.Now()
-		syncArchiveForContact(ctx, p, accountIdx, s, client, peerJID, lastArchiveID[peerJID])
+		syncArchiveForContact(ctx, srv, accountIdx, s, client, peerJID, lastArchiveID[peerJID])
 		slog.Debug("syncArchiveForContact done", "jid", s.account.JID, "peer", peerJID, "elapsed", time.Since(start))
 	}
 }
@@ -584,7 +612,7 @@ func syncArchive(ctx context.Context, p *tea.Program, accountIdx int, s *account
 // syncArchiveForContact pages through peerJID's MAM archive strictly newer
 // than afterArchiveID until the server reports the page set complete,
 // persisting and forwarding each message to the UI as it's fetched.
-func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, s *accountSession, client *xmpp.Client, peerJID, afterArchiveID string) {
+func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client, peerJID, afterArchiveID string) {
 	const pageSize = 50
 	const maxPages = 200 // guards against a misbehaving server never reporting complete
 
@@ -612,7 +640,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 		for _, am := range items {
 			afterArchiveID = am.ArchiveID
 
-			outcome := s.processMAMItem(ctx, p, accountIdx, peerJID, ownBare, name, am)
+			outcome := s.processMAMItem(ctx, srv, accountIdx, peerJID, ownBare, name, am)
 			if outcome.stopSync {
 				stop = true
 				break
@@ -622,7 +650,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			}
 		}
 		if len(newMsgs) > 0 {
-			p.Send(ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
+			broadcast(srv, evHistorySynced, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
 		}
 		if stop || complete || afterArchiveID == prevAfter {
 			break
@@ -643,7 +671,7 @@ type mamItemOutcome struct {
 // MAM archive item. Held under s.omemoMu for its whole body — see that
 // field's doc comment — so it can't decrypt the same OMEMO ciphertext
 // concurrently with the live path in handleIncomingMessage (events.go).
-func (s *accountSession) processMAMItem(ctx context.Context, p *tea.Program, accountIdx int, peerJID, ownBare, name string, am xmpp.ArchivedMessage) mamItemOutcome {
+func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, accountIdx int, peerJID, ownBare, name string, am xmpp.ArchivedMessage) mamItemOutcome {
 	s.omemoMu.Lock()
 	defer s.omemoMu.Unlock()
 
@@ -689,14 +717,14 @@ func (s *accountSession) processMAMItem(ctx context.Context, p *tea.Program, acc
 		}); err != nil {
 			slog.Warn("persisting mam retraction", "peer", peerJID, "err", err)
 		}
-		p.Send(ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peerJID, RetractID: am.RetractID})
+		broadcast(srv, evMessageRetracted, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peerJID, RetractID: am.RetractID})
 		return mamItemOutcome{}
 	}
 	if am.ReactionTargetID != "" {
 		if err := replaceReactions(ctx, s, peerJID, am.ReactionTargetID, bareJID(am.From), am.Reactions); err != nil {
 			slog.Warn("persisting mam reactions", "peer", peerJID, "err", err)
 		}
-		p.Send(ui.MessageReactionsMsg{
+		broadcast(srv, evMessageReactions, ui.MessageReactionsMsg{
 			AccountIdx: accountIdx,
 			From:       peerJID,
 			MessageID:  am.ReactionTargetID,
@@ -786,7 +814,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, p *tea.Program, acc
 		}); err != nil {
 			slog.Warn("persisting mam correction", "peer", peerJID, "err", err)
 		}
-		p.Send(ui.MessageCorrectedMsg{
+		broadcast(srv, evMessageCorrected, ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,
 			From:       peerJID,
 			ReplaceID:  am.ReplaceID,

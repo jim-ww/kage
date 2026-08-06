@@ -14,28 +14,30 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/aesgcm"
-	"github.com/jim-ww/kage/notifyd"
+	"github.com/jim-ww/kage/ipc"
+	"github.com/jim-ww/kage/daemon"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
 	omemolib "github.com/jim-ww/omemo-go"
 )
 
-// adapter implements ui.MessageSender and ui.AccountAdder, encrypting
-// outgoing bodies when a peer key is configured and persisting sent messages
-// to storage. sessions is only ever appended to (by AddAccount, from the
-// Bubble Tea event loop's own goroutine via a tea.Cmd) after startup, so
-// existing indices stay stable and Send doesn't need to hold mu itself —
+// adapter implements the daemon-side business logic RPCs are dispatched to
+// (see daemon_server.go), encrypting outgoing bodies when a peer key is
+// configured and persisting sent messages to storage. sessions is only ever
+// appended to (by AddAccount, from an RPC handler goroutine) after startup,
+// so existing indices stay stable and Send doesn't need to hold mu itself —
 // mu only guards the append plus the read of len(sessions) it races with.
 type adapter struct {
-	mu         sync.Mutex
-	sessions   []*accountSession
-	cfgPath    string
-	program    *tea.Program
-	queries    *storage.Queries
-	localKey   []byte
-	useGPG     bool
-	useKeyring bool
+	mu          sync.Mutex
+	sessions    []*accountSession
+	cfgAccounts []config.Account // mirrors sessions, but populated for an index before that account finishes connecting - see daemonServer.listAccounts
+	cfgPath     string
+	srv         *ipc.Server
+	queries     *storage.Queries
+	localKey    []byte
+	useGPG      bool
+	useKeyring  bool
 }
 
 // AddAccount implements ui.AccountAdder: resolves and stores the password in
@@ -71,9 +73,10 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	a.mu.Lock()
 	accountIdx := len(a.sessions)
 	a.sessions = append(a.sessions, sess)
+	a.cfgAccounts = append(a.cfgAccounts, acct)
 	a.mu.Unlock()
 
-	go superviseAccount(ctx, a.program, accountIdx, sess)
+	go superviseAccount(ctx, a.srv, accountIdx, sess)
 
 	return ui.AccountAddedMsg{Account: uiAcct}
 }
@@ -112,12 +115,12 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 		return ui.AccountStatusSetMsg{Index: accountIdx, Err: fmt.Errorf("persisting status: %w", err)}
 	}
 	sess.account.Status = statusConfigValue(status)
-	// Best-effort: notifyd is a separate detached process that only reads
-	// config.toml at its own startup, so it needs telling explicitly that an
-	// account's status changed - a missing/unreachable notifyd just means no
-	// notifications, never a reason to fail the status change itself.
-	if err := notifyd.SignalReload(); err != nil {
-		slog.Warn("signaling notifyd to reload after status change", "err", err)
+	// Best-effort: this SIGHUPs the daemon's own process to re-read
+	// config.toml (see daemon.SignalReload) for settings like Notifications
+	// that aren't already reflected in the live session state above - never
+	// a reason to fail the status change itself.
+	if err := daemon.SignalReload(); err != nil {
+		slog.Warn("signaling daemon to reload after status change", "err", err)
 	}
 
 	ctx := context.Background()
@@ -150,7 +153,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	if err != nil {
 		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
 	}
-	go superviseAccount(ctx, a.program, accountIdx, sess)
+	go superviseAccount(ctx, a.srv, accountIdx, sess)
 	return ui.AccountStatusSetMsg{
 		Index: accountIdx, Status: status,
 		NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore,
@@ -481,7 +484,7 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 			updated[k] = v
 		}
 	}
-	updated[address] = rosterEntry{Name: name, Subs: subs}
+	updated[address] = rosterEntry{Name: name, Subs: subs, Presence: updated[address].Presence}
 	s.roster.Store(&updated)
 
 	return nil
@@ -829,9 +832,7 @@ func (a *adapter) progressCallback(id, label string) func(sent, total int64) {
 			return
 		}
 		lastPercent = percent
-		if a.program != nil {
-			a.program.Send(ui.FileTransferProgressMsg{ID: id, Label: label, Sent: sent, Total: total})
-		}
+		broadcast(a.srv, evFileTransferProgress, ui.FileTransferProgressMsg{ID: id, Label: label, Sent: sent, Total: total})
 	}
 }
 

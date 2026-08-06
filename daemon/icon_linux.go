@@ -1,4 +1,4 @@
-package notifyd
+package daemon
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 )
 
 // iconPNG is the tray icon: generated once at init instead of shipped as a
-// binary asset, so notifyd doesn't need an //go:embed file just for a
+// binary asset, so daemon doesn't need an //go:embed file just for a
 // plain filled square. Deliberately simple — a dark square with a lighter
 // inset, legible at the ~16-22px a system tray actually renders it at.
 var iconPNG []byte
@@ -34,7 +34,7 @@ func init() {
 
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
-		panic("notifyd: encoding tray icon: " + err.Error())
+		panic("daemon: encoding tray icon: " + err.Error())
 	}
 	iconPNG = buf.Bytes()
 }

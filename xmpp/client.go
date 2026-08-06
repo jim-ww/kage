@@ -91,10 +91,9 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	// XEP-0280: ask the server to carbon-copy messages sent/received by our
 	// other resources to us too. Without this, a message addressed to our
 	// bare JID is delivered to only one connected resource (server's choice,
-	// commonly whichever is most recently active) - fine for a single
-	// client, but it means a second resource on the same account (notifyd,
-	// running alongside the TUI) can go "connected" and never see a single
-	// message. Best-effort: an older server without carbons support just
+	// commonly whichever is most recently active) - relevant whenever another
+	// resource on this account (another device, or another client) is also
+	// connected. Best-effort: an older server without carbons support just
 	// means no benefit, not a failed connection.
 	if err := c.enableCarbons(ctx); err != nil {
 		slog.Warn("enabling message carbons", "err", err)

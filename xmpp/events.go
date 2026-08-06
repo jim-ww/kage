@@ -151,9 +151,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		_ = d.DecodeElement(&msg, start)
 
 		// XEP-0280: unwrap a carbon-copied message and process the original
-		// as if it arrived directly - this is what lets a second resource
-		// (notifyd, alongside the TUI) see messages the server delivered to
-		// our other resource instead of to us.
+		// as if it arrived directly - this is what lets another resource on
+		// this account see messages the server delivered to a different one.
 		switch {
 		case msg.CarbonReceived != nil:
 			msg = msg.CarbonReceived.Forwarded.Message

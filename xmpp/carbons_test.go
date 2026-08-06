@@ -8,14 +8,13 @@ import (
 )
 
 // TestCarbonsDeliverToSecondResource reproduces the exact bug this file's
-// carbon support fixes: notifyd runs a second live resource on the same
-// account as the TUI (see notifyd/daemon_linux.go). With only one resource
-// online, a plain message obviously arrives. But with two resources online
-// at equal priority, RFC 6121 §8 doesn't require the server to deliver a
-// bare-JID-addressed message to both - most servers pick just one (whichever
-// they consider "most active"), so the second resource saw nothing at all
-// despite being fully connected. XEP-0280 carbons (enabled in Dial) is what
-// makes the second resource see the message anyway, via a <forwarded/> copy.
+// carbon support fixes: with two resources of the same account online at
+// equal priority (e.g. two kage instances, or another client), RFC 6121 §8
+// doesn't require the server to deliver a bare-JID-addressed message to
+// both - most servers pick just one (whichever they consider "most active"),
+// so the second resource saw nothing at all despite being fully connected.
+// XEP-0280 carbons (enabled in Dial) is what makes the second resource see
+// the message anyway, via a <forwarded/> copy.
 func TestCarbonsDeliverToSecondResource(t *testing.T) {
 	tlsConfig := devtestTLSConfig(t)
 	ctx := context.Background()
@@ -27,9 +26,9 @@ func TestCarbonsDeliverToSecondResource(t *testing.T) {
 	}
 	defer alice1.Close()
 
-	// alice2 is a second simultaneous resource for the same bare JID -
-	// analogous to notifyd. It never sends or receives directly; it should
-	// only ever see bob's message as a carbon copy.
+	// alice2 is a second simultaneous resource for the same bare JID. It
+	// never sends or receives directly; it should only ever see bob's
+	// message as a carbon copy.
 	alice2, err := Dial(ctx, "alice@localhost", "alicepw", tlsConfig)
 	if err != nil {
 		t.Fatalf("dial alice2: %v", err)

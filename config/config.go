@@ -27,7 +27,8 @@ type fileConfig struct {
 	OpenLastChat       *bool          `toml:"open_last_chat"`                  // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
 	LastChatAccount    string         `toml:"last_chat_account,omitempty"`     // JID of the account owning the last opened chat
 	LastChatAddress    string         `toml:"last_chat_address,omitempty"`     // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
-	Notifications      *bool          `toml:"notifications"`                   // nil (unset) means the default: on; whether to spawn the desktop notification daemon
+	Notifications      *bool          `toml:"notifications"`                   // nil (unset) means the default: on; whether a decrypted incoming message fires a desktop notification (the background daemon itself always runs)
+	TerminalCmd        string         `toml:"terminal_cmd,omitempty"`          // terminal emulator to launch from the tray icon; unset means fall back to $TERMINAL, then xdg-terminal-exec, then a hardcoded list
 	UseGPG             *bool          `toml:"use_gpg"`                         // nil (unset) means the default: on; whether gpg encryption is available at all
 	UseKeyring         *bool          `toml:"use_keyring"`                     // nil (unset) means the default: on; whether the OS keyring is tried at all
 	HistoryPageSize    int            `toml:"history_page_size,omitempty"`     // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
@@ -65,9 +66,15 @@ type Config struct {
 	UI       UIConfig
 	Storage  StorageConfig
 	Accounts []Account
-	// Notifications controls whether the desktop notification daemon is
-	// spawned on startup. On by default.
+	// Notifications controls whether a decrypted incoming message fires a
+	// desktop notification. The background daemon itself always runs
+	// (the TUI depends on it for its XMPP connections/storage/decryption)
+	// regardless of this setting. On by default.
 	Notifications bool
+	// TerminalCmd is the terminal emulator command the tray icon's left-click
+	// launches a new kage TUI in. Empty means fall back to $TERMINAL, then
+	// xdg-terminal-exec, then a hardcoded list of common terminals.
+	TerminalCmd string
 	// UseGPG controls whether gpg encryption is available at all: when off,
 	// kage never shells out to gpg (no gpg-agent/keyring prompts) and "gpg"
 	// is hidden from the per-chat encryption picker. On by default.
@@ -184,6 +191,7 @@ func Load(path string) (Config, error) {
 			if cfg.NoticeDuration > 0 {
 				cfgOut.UI.NoticeDuration = time.Duration(cfg.NoticeDuration) * time.Second
 			}
+			cfgOut.TerminalCmd = cfg.TerminalCmd
 			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts
 			cfgOut.Path = path
