@@ -119,6 +119,7 @@ type Model struct {
 	viewportLines      []string            // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
 	noticeText         string
 	noticeID           int
+	noticeDuration     time.Duration // how long a notification toast stays visible before auto-dismissing
 
 	// double-click detection for messages
 	lastClickedMsgIdx int       // index of the last clicked message (for double-click detection)
@@ -187,12 +188,13 @@ type Model struct {
 
 // DisplayOptions bundles the message-rendering config toggles.
 type DisplayOptions struct {
-	Icons              bool   // show icons for attachments/encryption instead of plain-text tags
-	ShowNames          bool   // show the sender's name in the message header instead of just a direction glyph
-	TimeLayout         string // custom Go time layout for message timestamps; empty means the default
-	TimeOnlyToday      bool   // with the default time layout, show time-only for messages sent today instead of a full date
-	MaxMessagesPerChat int    // cap on messages kept per chat in memory/view; <= 0 means no cap
-	UseGPG             bool   // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
+	Icons              bool          // show icons for attachments/encryption instead of plain-text tags
+	ShowNames          bool          // show the sender's name in the message header instead of just a direction glyph
+	TimeLayout         string        // custom Go time layout for message timestamps; empty means the default
+	TimeOnlyToday      bool          // with the default time layout, show time-only for messages sent today instead of a full date
+	MaxMessagesPerChat int           // cap on messages kept per chat in memory/view; <= 0 means no cap
+	UseGPG             bool          // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
+	NoticeDuration     time.Duration // how long an in-app notification toast stays visible; <= 0 means the default
 }
 
 func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, display DisplayOptions) Model {
@@ -256,6 +258,11 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	accountStatusSetter, _ := sender.(AccountStatusSetter)
 	accountRemover, _ := sender.(AccountRemover)
 
+	noticeDuration := display.NoticeDuration
+	if noticeDuration <= 0 {
+		noticeDuration = DefaultNoticeDuration
+	}
+
 	return Model{
 		selectedView:           viewChat,
 		keys:                   keys,
@@ -266,6 +273,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		maxMessagesPerChat:     display.MaxMessagesPerChat,
 		icons:                  display.Icons,
 		useGPG:                 display.UseGPG,
+		noticeDuration:         noticeDuration,
 		showNames:              display.ShowNames,
 		timeLayout:             display.TimeLayout,
 		timeOnlyToday:          display.TimeOnlyToday,
@@ -313,6 +321,10 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 // (see textinput.Model.placeholderView's width-based truncation math), so
 // this must be at least as wide as the longest placeholder below.
 const addAccountFieldWidth = 42
+
+// DefaultNoticeDuration is how long an in-app notification toast stays
+// visible before auto-dismissing when DisplayOptions.NoticeDuration is unset.
+const DefaultNoticeDuration = 3 * time.Second
 
 func (m Model) newAddAccountForm() [3]textinput.Model {
 	var fields [3]textinput.Model

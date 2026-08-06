@@ -110,7 +110,7 @@ func (m *Model) showNotification(text string) tea.Cmd {
 	m.noticeID++
 	m.noticeText = text
 	id := m.noticeID
-	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+	return tea.Tick(m.noticeDuration, func(time.Time) tea.Msg {
 		return noticeClearMsg{id: id}
 	})
 }

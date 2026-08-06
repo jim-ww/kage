@@ -341,6 +341,7 @@ func main() {
 		TimeLayout:         cfg.UI.TimeLayout,
 		TimeOnlyToday:      cfg.UI.TimeOnlyToday,
 		MaxMessagesPerChat: cfg.MaxMessagesPerChat,
+		NoticeDuration:     cfg.UI.NoticeDuration,
 	}
 	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, sender, sender, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display)
 	p := tea.NewProgram(model)

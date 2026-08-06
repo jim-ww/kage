@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -31,6 +32,7 @@ type fileConfig struct {
 	UseKeyring         *bool          `toml:"use_keyring"`                     // nil (unset) means the default: on; whether the OS keyring is tried at all
 	HistoryPageSize    int            `toml:"history_page_size,omitempty"`     // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
 	MaxMessagesPerChat int            `toml:"max_messages_per_chat,omitempty"` // cap on messages kept in memory/view per chat; 0 (unset) means the default
+	NoticeDuration     int            `toml:"notice_duration,omitempty"`       // seconds an in-app notification toast stays visible before auto-dismissing; 0 (unset) means the default
 	Storage            StorageConfig  `toml:"storage"`
 	Accounts           []Account      `toml:"accounts"`
 }
@@ -44,17 +46,18 @@ type StorageConfig struct {
 }
 
 type UIConfig struct {
-	KeyMap        ui.KeyMap
-	Theme         ui.Theme
-	Mouse         bool   // enables mouse click/scroll support; on by default
-	SidebarWidth  int    // 0 means "use the width/4-based default"
-	InputHeight   int    // 0 means "use the DynamicHeight-based default"
-	SidebarHidden bool   // persisted chat list visibility; false (open) by default
-	OpenLastChat  bool   // whether to reopen the last chat on startup; on by default
-	Icons         bool   // show icons for attachments/encryption instead of plain-text tags; on by default
-	ShowNames     bool   // show the sender's name in the message header instead of just a direction glyph; off by default
-	TimeLayout    string // custom Go time layout for message timestamps; empty means the default
-	TimeOnlyToday bool   // with the default time layout, show time-only for messages sent today instead of a full date; on by default
+	KeyMap         ui.KeyMap
+	Theme          ui.Theme
+	Mouse          bool          // enables mouse click/scroll support; on by default
+	SidebarWidth   int           // 0 means "use the width/4-based default"
+	InputHeight    int           // 0 means "use the DynamicHeight-based default"
+	SidebarHidden  bool          // persisted chat list visibility; false (open) by default
+	OpenLastChat   bool          // whether to reopen the last chat on startup; on by default
+	Icons          bool          // show icons for attachments/encryption instead of plain-text tags; on by default
+	ShowNames      bool          // show the sender's name in the message header instead of just a direction glyph; off by default
+	TimeLayout     string        // custom Go time layout for message timestamps; empty means the default
+	TimeOnlyToday  bool          // with the default time layout, show time-only for messages sent today instead of a full date; on by default
+	NoticeDuration time.Duration // how long an in-app notification toast stays visible before auto-dismissing; DefaultNoticeDuration when unset
 }
 
 // Config is the fully resolved application configuration.
@@ -111,15 +114,21 @@ const DefaultHistoryPageSize = 200
 // when max_messages_per_chat isn't set in config.toml.
 const DefaultMaxMessagesPerChat = 1000
 
+// DefaultNoticeDuration is how long an in-app notification toast stays
+// visible before auto-dismissing when notice_duration isn't set in
+// config.toml.
+const DefaultNoticeDuration = 3 * time.Second
+
 func Load(path string) (Config, error) {
 	cfgOut := Config{
 		UI: UIConfig{
-			KeyMap:        ui.DefaultKeyMap,
-			Theme:         ui.DefaultTheme(),
-			Mouse:         true,
-			OpenLastChat:  true,
-			TimeOnlyToday: true,
-			Icons:         true,
+			KeyMap:         ui.DefaultKeyMap,
+			Theme:          ui.DefaultTheme(),
+			Mouse:          true,
+			OpenLastChat:   true,
+			TimeOnlyToday:  true,
+			Icons:          true,
+			NoticeDuration: DefaultNoticeDuration,
 		},
 		Notifications:      true,
 		UseGPG:             true,
@@ -171,6 +180,9 @@ func Load(path string) (Config, error) {
 			}
 			if cfg.MaxMessagesPerChat > 0 {
 				cfgOut.MaxMessagesPerChat = cfg.MaxMessagesPerChat
+			}
+			if cfg.NoticeDuration > 0 {
+				cfgOut.UI.NoticeDuration = time.Duration(cfg.NoticeDuration) * time.Second
 			}
 			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts

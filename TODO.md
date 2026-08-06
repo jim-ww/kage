@@ -1,5 +1,8 @@
+ [message could not be decrypted:
+                   │                ratchet decrypt: no message key is
+                   │                cached for this message]
+
 - cant open/send files? images (omemo?)
-- in-app notifications should stay for longer by default. make it configurable
 - add download % when loading file
 - add keyboard navigation to modals (and ways to open them)
 - add option to remove account
