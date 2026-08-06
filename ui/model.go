@@ -99,29 +99,30 @@ type Model struct {
 	viewport viewport.Model
 
 	// message interaction state
-	selectedMsg        int               // index of highlighted message (meaningful in viewViewport)
-	editingMsgIdx      int               // >= 0 while editing a message; -1 otherwise
-	replyToIdx         int               // >= 0 while composing a reply; -1 otherwise
-	reactingMsgIdx     int               // >= 0 while composing a reaction; -1 otherwise
-	emojiSuggestions   []emojiSuggestion // live fuzzy matches for the shortcode being typed, while reactingMsgIdx >= 0
-	emojiSuggestIdx    int               // which suggestion is highlighted; left/right to move, tab to accept it
-	confirmTarget      confirmTarget
-	contextMenu        *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
-	showMsgInfo        bool         // true while the message-info popup is open
-	openItems          []string     // non-empty while the open-link/attachment picker is open
-	openPage           int          // current page (of openItemsPerPage items) in the open picker
-	openMode           pickerMode   // what picking an item from openItems actually does: open or save
-	filePicker         filepicker.Model
-	pickingFile        bool                // true while the Bubble file picker is open
-	pendingAttachments []pendingAttachment // files staged (via the file picker) to go out with the next sent message; nothing is uploaded until send
-	selectedAttachment int                 // index into pendingAttachments highlighted for Tab/Backspace/ctrl+o; -1 when empty
-	msgOffsets         []int               // line offset of each message inside viewport content
-	viewportLines      []string            // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
-	noticeText         string
-	noticeID           int
-	noticeDuration     time.Duration                      // how long a notification toast stays visible before auto-dismissing
-	transferOrder      []string                           // insertion order of transfers keys, for stable multi-line rendering
-	transfers          map[string]FileTransferProgressMsg // active uploads/downloads, keyed by ID (local path for an upload, URL for a download); removed once the transfer's terminal result msg arrives
+	selectedMsg          int               // index of highlighted message (meaningful in viewViewport)
+	editingMsgIdx        int               // >= 0 while editing a message; -1 otherwise
+	replyToIdx           int               // >= 0 while composing a reply; -1 otherwise
+	reactingMsgIdx       int               // >= 0 while composing a reaction; -1 otherwise
+	emojiSuggestions     []emojiSuggestion // live fuzzy matches for the shortcode being typed, while reactingMsgIdx >= 0
+	emojiSuggestIdx      int               // which suggestion is highlighted; left/right to move, tab to accept it
+	confirmTarget        confirmTarget
+	contextMenu          *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
+	showMsgInfo          bool         // true while the message-info popup is open
+	openItems            []string     // non-empty while the open-link/attachment picker is open
+	openItemsAttachCount int          // how many leading entries of openItems are real attachments (vs. a plain link found in Content) - openableItems always puts attachments first
+	openPage             int          // current page (of openItemsPerPage items) in the open picker
+	openMode             pickerMode   // what picking an item from openItems actually does: open or save
+	filePicker           filepicker.Model
+	pickingFile          bool                // true while the Bubble file picker is open
+	pendingAttachments   []pendingAttachment // files staged (via the file picker) to go out with the next sent message; nothing is uploaded until send
+	selectedAttachment   int                 // index into pendingAttachments highlighted for Tab/Backspace/ctrl+o; -1 when empty
+	msgOffsets           []int               // line offset of each message inside viewport content
+	viewportLines        []string            // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
+	noticeText           string
+	noticeID             int
+	noticeDuration       time.Duration                      // how long a notification toast stays visible before auto-dismissing
+	transferOrder        []string                           // insertion order of transfers keys, for stable multi-line rendering
+	transfers            map[string]FileTransferProgressMsg // active uploads/downloads, keyed by ID (local path for an upload, URL for a download); removed once the transfer's terminal result msg arrives
 
 	// double-click detection for messages
 	lastClickedMsgIdx int       // index of the last clicked message (for double-click detection)

@@ -224,11 +224,23 @@ type openResultMsg struct {
 }
 
 // openWithXDGOpen shells out to xdg-open in the background; the result is
-// reported back as an openResultMsg so the UI can show a toast. For
-// aesgcm:// URLs, the file is downloaded (reporting progress as it goes —
-// see throttledProgressSender), decrypted, and then opened.
-func openWithXDGOpen(target string) tea.Cmd {
-	if !strings.HasPrefix(target, "aesgcm://") {
+// reported back as an openResultMsg so the UI can show a toast.
+//
+// A plain http(s):// target that isn't a known attachment (isAttachment
+// false - the user opening an ordinary link they pasted/received in a
+// message, not a file) is handed to xdg-open as-is, which resolves it via
+// the desktop's URL-scheme handler - normally the web browser, which is
+// exactly what's wanted for a link.
+//
+// Otherwise (aesgcm:// always, or a plain http(s):// target that *is* a
+// known attachment) the file is downloaded first - decrypted too, for
+// aesgcm:// (XEP-0454) - and only the resulting local file is passed to
+// xdg-open, so the desktop's file-type association picks the right viewer
+// (image viewer, PDF reader, etc.) instead of the URL handler opening it as
+// a raw browser download. Progress is reported as the download runs — see
+// throttledProgressSender.
+func openWithXDGOpen(target string, isAttachment bool) tea.Cmd {
+	if !isAttachment && !strings.HasPrefix(target, "aesgcm://") {
 		return func() tea.Msg {
 			err := exec.Command("xdg-open", target).Start()
 			return openResultMsg{target: target, err: err}
@@ -237,24 +249,30 @@ func openWithXDGOpen(target string) tea.Cmd {
 
 	ch := make(chan tea.Msg, 8)
 	go func() {
-		ch <- downloadAndOpenAesgcm(target, ch)
+		ch <- downloadAndOpen(target, ch)
 	}()
 	return listenForTransferChan(ch)
 }
 
-// downloadAndOpenAesgcm does the actual download+decrypt+open work for
-// openWithXDGOpen's aesgcm:// branch, reporting progress on ch as it goes.
+// downloadAndOpen does the actual download(+decrypt)+open work for
+// openWithXDGOpen's attachment path, reporting progress on ch as it goes.
 // Split out so openWithXDGOpen's Cmd construction (which must return
 // immediately) stays simple.
-func downloadAndOpenAesgcm(target string, ch chan tea.Msg) tea.Msg {
-	// Cache the decrypted file by a hash of the full target (URL+iv+key all
-	// factor into the plaintext), so re-opening the same attachment for
-	// viewing reuses the already-downloaded copy instead of writing a new
-	// one each time (unlike an explicit "Save As", which always wants a
-	// fresh, uniquely-named file in Downloads).
-	downloadURL, iv, key, parseErr := aesgcm.ParseAESGCMURL(target)
-	if parseErr != nil {
-		return openResultMsg{target: target, err: fmt.Errorf("parsing aesgcm URL: %w", parseErr)}
+func downloadAndOpen(target string, ch chan tea.Msg) tea.Msg {
+	// Cache the (decrypted, for aesgcm://) file by a hash of the full
+	// target (for aesgcm://, URL+iv+key all factor into the plaintext), so
+	// re-opening the same attachment for viewing reuses the
+	// already-downloaded copy instead of writing a new one each time
+	// (unlike an explicit "Save As", which always wants a fresh,
+	// uniquely-named file in Downloads).
+	downloadURL := target
+	var iv, key []byte
+	if strings.HasPrefix(target, "aesgcm://") {
+		var parseErr error
+		downloadURL, iv, key, parseErr = aesgcm.ParseAESGCMURL(target)
+		if parseErr != nil {
+			return openResultMsg{target: target, err: fmt.Errorf("parsing aesgcm URL: %w", parseErr)}
+		}
 	}
 
 	dir, dirErr := attachmentCacheDir()
@@ -301,9 +319,12 @@ func downloadAndOpenAesgcm(target string, ch chan tea.Msg) tea.Msg {
 		return openResultMsg{target: target, err: fmt.Errorf("reading download: %w", readErr)}
 	}
 
-	data, decryptErr := aesgcm.Decrypt(data, iv, key)
-	if decryptErr != nil {
-		return openResultMsg{target: target, err: fmt.Errorf("decrypting file: %w", decryptErr)}
+	if iv != nil && key != nil {
+		var decryptErr error
+		data, decryptErr = aesgcm.Decrypt(data, iv, key)
+		if decryptErr != nil {
+			return openResultMsg{target: target, err: fmt.Errorf("decrypting file: %w", decryptErr)}
+		}
 	}
 
 	f, openErr := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)

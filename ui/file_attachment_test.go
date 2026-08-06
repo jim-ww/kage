@@ -408,6 +408,68 @@ func TestOpenMsgOpensSelectedPendingAttachment(t *testing.T) {
 	}
 }
 
+// TestActionOpenMessageMarksAttachmentVsPlainLink verifies actionOpenMessage
+// correctly distinguishes a real attachment from a plain link found in
+// Content when there's more than one openable item — this determines
+// whether openWithXDGOpen downloads the file first (attachment) or just
+// hands the URL to xdg-open, i.e. the browser (plain link). See
+// openableItems: attachments always come first.
+func TestActionOpenMessageMarksAttachmentVsPlainLink(t *testing.T) {
+	m := newTestModel(nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	msgs := []Message{{
+		Author:      "Bob",
+		Content:     "here's the file: https://upload.example.test/report.pdf\nalso see https://example.com/info",
+		Attachments: []string{"https://upload.example.test/report.pdf"},
+	}}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 0
+
+	cmd := m.actionOpenMessage()
+	if cmd != nil {
+		t.Fatal("expected actionOpenMessage to open the picker (2 items), not return a direct-open Cmd")
+	}
+	if len(m.openItems) != 2 {
+		t.Fatalf("openItems = %v, want 2 entries", m.openItems)
+	}
+	if m.openItemsAttachCount != 1 {
+		t.Fatalf("openItemsAttachCount = %d, want 1 (only the real attachment)", m.openItemsAttachCount)
+	}
+	if m.openItems[0] != "https://upload.example.test/report.pdf" {
+		t.Fatalf("openItems[0] = %q, want the attachment first", m.openItems[0])
+	}
+}
+
+// TestActionOpenMessageSingleAttachmentTreatedAsAttachment verifies the
+// single-item shortcut path (no picker) also gets the isAttachment
+// distinction right, by checking it doesn't panic/misbehave and returns a
+// Cmd (the actual download-vs-browser choice is exercised at the
+// openWithXDGOpen level, not asserted here to avoid a real network/exec
+// dependency in this test).
+func TestActionOpenMessageSingleAttachmentTreatedAsAttachment(t *testing.T) {
+	m := newTestModel(nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	msgs := []Message{{
+		Author:      "Bob",
+		Content:     "https://upload.example.test/report.pdf",
+		Attachments: []string{"https://upload.example.test/report.pdf"},
+	}}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 0
+
+	if cmd := m.actionOpenMessage(); cmd == nil {
+		t.Fatal("expected a direct-open Cmd for the single-attachment case")
+	}
+}
+
 func TestReplyPreviewShowsFilenameNotRawURLForAttachment(t *testing.T) {
 	m := newTestModel(nil)
 	msgs := []Message{

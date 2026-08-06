@@ -180,13 +180,16 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	if len(m.openItems) > 0 {
 		start, end := openPageBounds(len(m.openItems), m.openPage)
 		if i, ok := digitKey(msg); ok && i >= 1 && i <= end-start {
-			target := m.openItems[start+i-1]
+			idx := start + i - 1
+			target := m.openItems[idx]
+			isAttachment := idx < m.openItemsAttachCount
 			m.openItems = nil
+			m.openItemsAttachCount = 0
 			m.openPage = 0
 			if m.openMode == pickerModeSave {
 				return m, saveURLToDownloads(target), true
 			}
-			return m, openWithXDGOpen(target), true
+			return m, openWithXDGOpen(target, isAttachment), true
 		}
 		switch msg.String() {
 		case "left", "h":
@@ -474,7 +477,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			// actively being composed, and there's no other way to preview
 			// it before sending (it isn't a Message yet).
 			if m.selectedAttachment >= 0 && m.selectedAttachment < len(m.pendingAttachments) {
-				return m, openWithXDGOpen(m.pendingAttachments[m.selectedAttachment].path), true
+				return m, openWithXDGOpen(m.pendingAttachments[m.selectedAttachment].path, true), true
 			}
 			return m, m.actionOpenMessage(), true
 		}
