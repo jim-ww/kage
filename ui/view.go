@@ -250,17 +250,18 @@ func (m Model) renderContextMenuPopup() string {
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
-// renderDeletePopup renders a centered confirmation dialog inside the viewport
-// area instead of overlaying raw ANSI (simpler and more portable).
 // deletePromptWidth is the wrap width for any styles.deletePrompt call
-// (this file, contacts.go, omemo_devices.go): -8 for the popup's own
-// border+padding (Border(1,1) + Padding(1,4)), capped at 60 so the dialog
-// doesn't stretch edge-to-edge on wide terminals — content narrower than
-// this just renders at its own width.
+// (this file, contacts.go, omemo_devices.go): -10 for the popup's own
+// border+padding (2 for Border(1,1) + 8 for Padding(1,4)), capped at 50 so
+// the dialog doesn't stretch edge-to-edge on wide terminals — content
+// narrower than this just renders at its own width. Recomputed on every
+// render from the current m.chatAreaWidth(), so it tracks live resizes.
 func (m Model) deletePromptWidth() int {
-	return min(max(1, m.chatAreaWidth()-8), 60)
+	return min(max(1, m.chatAreaWidth()-10), 50)
 }
 
+// renderDeletePopup renders a centered confirmation dialog inside the viewport
+// area instead of overlaying raw ANSI (simpler and more portable).
 func (m Model) renderDeletePopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
