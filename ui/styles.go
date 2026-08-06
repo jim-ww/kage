@@ -357,10 +357,10 @@ func (s uiStyles) renderAccountRow(name string, selected, hovered bool) string {
 	return style.Render(name)
 }
 
-func (s uiStyles) deletePrompt(title, detail string) string {
-	body := s.popupDanger.Render(title)
+func (s uiStyles) deletePrompt(width int, title, detail string) string {
+	body := s.popupDanger.Width(width).Render(title)
 	if detail != "" {
-		body += "\n" + s.messageReply.Render(detail)
+		body += "\n" + s.messageReply.Width(width).Render(detail)
 	}
 	return body + "\n\n  [y] yes    [n] no"
 }

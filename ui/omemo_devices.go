@@ -148,7 +148,7 @@ func (m Model) deviceListPrompt() string {
 				n++
 			}
 		}
-		return m.styles.deletePrompt(fmt.Sprintf("Remove %d device(s) from account?", n), "This republishes the affected protocol's device list without them.")
+		return m.styles.deletePrompt(m.deletePromptWidth(), fmt.Sprintf("Remove %d device(s) from account?", n), "This republishes the affected protocol's device list without them.")
 	}
 
 	start, end := openPageBounds(len(removable), dl.page)

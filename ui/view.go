@@ -252,19 +252,28 @@ func (m Model) renderContextMenuPopup() string {
 
 // renderDeletePopup renders a centered confirmation dialog inside the viewport
 // area instead of overlaying raw ANSI (simpler and more portable).
+// deletePromptWidth is the wrap width for any styles.deletePrompt call
+// (this file, contacts.go, omemo_devices.go): -8 for the popup's own
+// border+padding (Border(1,1) + Padding(1,4)), capped at 60 so the dialog
+// doesn't stretch edge-to-edge on wide terminals — content narrower than
+// this just renders at its own width.
+func (m Model) deletePromptWidth() int {
+	return min(max(1, m.chatAreaWidth()-8), 60)
+}
+
 func (m Model) renderDeletePopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.deletePrompt())
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.deletePrompt(m.deletePromptWidth()))
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
-func (m Model) deletePrompt() string {
+func (m Model) deletePrompt(width int) string {
 	switch m.confirmTarget {
 	case confirmQuit:
-		return m.styles.deletePrompt("Quit kage?", "")
+		return m.styles.deletePrompt(width, "Quit kage?", "")
 	case confirmDeleteChat:
 		detail := ""
 		if chat, ok := m.currentChat(); ok {
@@ -273,20 +282,20 @@ func (m Model) deletePrompt() string {
 				detail = fmt.Sprintf("%s <%s>", chat.Name, chat.Address)
 			}
 		}
-		return m.styles.deletePrompt("Leave chat?", detail)
+		return m.styles.deletePrompt(width, "Leave chat?", detail)
 	case confirmRemoveAccount:
 		detail := ""
 		if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
 			detail = m.accounts[m.currentAccount].DisplayName()
 		}
-		return m.styles.deletePrompt("Remove account?", detail+" — disconnects and drops it from config; local history is kept")
+		return m.styles.deletePrompt(width, "Remove account?", detail+" — disconnects and drops it from config; local history is kept")
 	default:
 		detail := ""
 		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
 			msg := msgs[m.selectedMsg]
 			detail = fmt.Sprintf("%s: %s", msg.Author, previewText(msg.Content, previewLen))
 		}
-		return m.styles.deletePrompt("Delete message?", detail)
+		return m.styles.deletePrompt(width, "Delete message?", detail)
 	}
 }
 

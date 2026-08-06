@@ -102,7 +102,7 @@ func (m Model) contactManagerPrompt() string {
 	contacts := cs.contacts(m)
 
 	if cs.pendingRemove != "" {
-		return m.styles.deletePrompt("Remove "+cs.pendingRemove+"?", "This also unsubscribes from their presence.")
+		return m.styles.deletePrompt(m.deletePromptWidth(), "Remove "+cs.pendingRemove+"?", "This also unsubscribes from their presence.")
 	}
 
 	start, end := openPageBounds(len(contacts), cs.page)
