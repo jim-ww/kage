@@ -32,12 +32,15 @@ func (m Model) View() tea.View {
 		accountBg = colors.borderA
 		accountFg = colors.appBg
 	}
-	accountHovered := m.isHovered(zonePaneAccountBar)
+	accountHovered := m.isHovered(zoneAccountBarName)
 	if accountHovered && !accountOpen {
 		accountFg = colors.accentCyan
 	}
 	accountName, accountStatus := m.renderAccountBar(scw, accountHovered, accountOpen)
-	statusLine := m.zone.Mark(zonePaneAccountBar, m.styles.accountBarLine(scw, accountBg, accountFg, accountName, accountStatus))
+	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(scw, accountBg, accountFg, accountName))
+	statusHovered := m.isHovered(zoneAccountBarStatus)
+	statusRow := m.zone.Mark(zoneAccountBarStatus, m.styles.accountBarStatusRow(scw, accountStatus, statusHovered))
+	statusLine := nameRow + "\n" + statusRow
 	sidebarBody := m.chats.View()
 	switch {
 	case m.selectedView == viewAccounts:
@@ -424,7 +427,7 @@ func (m Model) renderRenameChatPopup() string {
 
 // renderAccountBar returns the account bar's name and status text
 // separately, each already truncated to fit width (see
-// uiStyles.accountBarLine, which stacks and styles them).
+// uiStyles.accountBarNameRow/accountBarStatusRow, which style them).
 func (m Model) renderAccountBar(width int, hovered, open bool) (name, status string) {
 	if len(m.accounts) == 0 {
 		return ansi.Truncate("no accounts", max(1, width-2), "…"), ""

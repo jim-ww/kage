@@ -18,7 +18,8 @@ const (
 	zonePaneSidebar    = "pane-sidebar"
 	zonePaneViewport   = "pane-viewport"
 	zonePaneInput      = "pane-input"
-	zonePaneAccountBar = "pane-account-bar"
+	zoneAccountBarName   = "account-bar-name"
+	zoneAccountBarStatus = "account-bar-status"
 	zoneChatStatusBar  = "chat-status-bar"
 	zoneSendButton     = "send-button"
 	zoneAttachButton   = "attach-button"
@@ -161,8 +162,11 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.zone.Get(zoneToggleSidebar).InBounds(mouse) {
 		return zoneToggleSidebar
 	}
-	if m.zone.Get(zonePaneAccountBar).InBounds(mouse) {
-		return zonePaneAccountBar
+	if m.zone.Get(zoneAccountBarName).InBounds(mouse) {
+		return zoneAccountBarName
+	}
+	if m.zone.Get(zoneAccountBarStatus).InBounds(mouse) {
+		return zoneAccountBarStatus
 	}
 	for i := range m.emojiSuggestions {
 		if m.zone.Get(zoneEmojiSuggestion(i)).InBounds(mouse) {
@@ -298,7 +302,14 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.zone.Get(zonePaneAccountBar).InBounds(msg) {
+	if m.zone.Get(zoneAccountBarStatus).InBounds(msg) {
+		m.notifyTypingStopped()
+		m.lastClickedMsgIdx = -1
+		m.lastClickTime = time.Time{}
+		return m, m.actionOpenAccountStatusMenu(m.currentAccount)
+	}
+
+	if m.zone.Get(zoneAccountBarName).InBounds(msg) {
 		m.notifyTypingStopped()
 		if m.selectedView == viewAccounts {
 			m.setSelectedView(viewChats)

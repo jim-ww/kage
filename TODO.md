@@ -3,6 +3,7 @@
 - add download % when loading file
 - add keyboard navigation to modals (and ways to open them)
 - add option to remove account
+- show more contact info on status line Name press
 - make sure user can paste to all textinputs
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager: fix adding duplicate accounts

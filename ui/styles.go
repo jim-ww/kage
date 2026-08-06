@@ -153,23 +153,31 @@ func newUIStyles(theme Theme) uiStyles {
 	}
 }
 
-// accountBarLine renders the account bar's name row (colored to reflect
-// hover/active state) stacked above its status row (plain background,
-// right-aligned) — two visually distinct rows rather than one block sharing
-// a single background, since the name row's accent color would otherwise
-// bleed into (and clash with) the status text below it.
-func (s uiStyles) accountBarLine(width int, bg, fg color.Color, name, status string) string {
-	nameRow := s.sidebarStatus.
+// accountBarNameRow and accountBarStatusRow render the account bar's two
+// rows (colored to reflect hover/active state) separately — two visually
+// distinct rows rather than one block sharing a single background, since the
+// name row's accent color would otherwise bleed into (and clash with) the
+// status text below it — and so each can be marked as its own click zone.
+func (s uiStyles) accountBarNameRow(width int, bg, fg color.Color, name string) string {
+	return s.sidebarStatus.
 		Width(width).
 		Background(bg).
 		Foreground(fg).
 		Render(name)
-	statusRow := s.sidebarStatus.
+}
+
+// accountBarStatusRow renders just the account bar's status row, tinting it
+// on hover.
+func (s uiStyles) accountBarStatusRow(width int, status string, hovered bool) string {
+	fg := s.colors.textMuted
+	if hovered {
+		fg = s.colors.accentCyan
+	}
+	return s.sidebarStatus.
 		Width(width).
 		Align(lipgloss.Right).
-		Foreground(s.colors.textMuted).
+		Foreground(fg).
 		Render(status)
-	return nameRow + "\n" + statusRow
 }
 
 // chatStatusLine renders the chat pane's status bar (peer name/presence,
