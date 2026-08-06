@@ -102,7 +102,11 @@ func newUIStyles(theme Theme) uiStyles {
 			Foreground(colors.themFg),
 		notice: lipgloss.NewStyle().
 			Foreground(colors.noticeFg).
-			Padding(0, 1),
+			Background(colors.noticeBg).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colors.accentCyan).
+			Padding(0, 1).
+			Bold(true),
 		viewportArea: lipgloss.NewStyle().
 			Foreground(colors.themFg),
 		root: lipgloss.NewStyle().
@@ -320,8 +324,18 @@ func (s uiStyles) viewportContent(width, height int, content string) string {
 		Render(content)
 }
 
-func (s uiStyles) noticeBar(width int, content string) string {
-	return s.notice.Width(width).Render(content)
+// noticeToast renders the notification text as a self-sized bordered toast,
+// wrapped to maxWidth so a long message doesn't stretch off-screen.
+func (s uiStyles) noticeToast(maxWidth int, content string) string {
+	style := s.notice
+	// -4 for the box's own Border(1,1) + Padding(0,1); only constrain width
+	// when the text actually needs wrapping, otherwise let it size to
+	// content — Width() forces wrapping at that box width even when the
+	// text is shorter.
+	if textWidth := max(1, maxWidth-4); lipgloss.Width(content) > textWidth {
+		style = style.Width(textWidth)
+	}
+	return style.Render(content)
 }
 
 func (s uiStyles) viewportFrame(width, height int, content string) string {

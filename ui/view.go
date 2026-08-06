@@ -68,7 +68,12 @@ func (m Model) View() tea.View {
 	footer := m.styles.footerBar(m.width, footerText)
 	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, "", footer))
 
-	v := tea.NewView(m.zone.Scan(root))
+	rendered := m.zone.Scan(root)
+	if m.noticeText != "" {
+		rendered = overlayBottomRight(rendered, m.styles.noticeToast(m.width, m.noticeText))
+	}
+
+	v := tea.NewView(rendered)
 	v.AltScreen = true
 	// Ask Kitty-protocol terminals to report Key.BaseCode (the PC-101 key
 	// regardless of active keyboard layout) alongside the layout-shifted
@@ -151,15 +156,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderFilePickerPopup()
 	default:
 		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
-		contentHeight := viewportHeight
-		if m.noticeText != "" && contentHeight > 1 {
-			contentHeight--
-		}
-		viewportBody := m.styles.viewportContent(m.chatAreaWidth(), contentHeight, m.viewport.View())
-		if m.noticeText != "" {
-			notice := m.styles.noticeBar(m.chatAreaWidth(), m.noticeText)
-			viewportBody = lipgloss.JoinVertical(lipgloss.Left, viewportBody, notice)
-		}
+		viewportBody := m.styles.viewportContent(m.chatAreaWidth(), viewportHeight, m.viewport.View())
 		viewportArea = m.zone.Mark(zonePaneViewport, m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody))
 	}
 
@@ -176,6 +173,35 @@ func (m Model) renderChatArea(colors uiColors) string {
 		m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
+}
+
+// overlayBottomRight splices toast on top of base, anchored a small margin
+// off the bottom-right corner of the screen. base is the already fully
+// rendered (ANSI-styled) screen; toast is composited line-by-line with
+// ansi.Cut so it doesn't break escape codes or wide-character boundaries in
+// whatever base content it covers.
+func overlayBottomRight(base, toast string) string {
+	const marginBottom, marginRight = 2, 2
+
+	baseLines := strings.Split(base, "\n")
+	toastLines := strings.Split(toast, "\n")
+	toastWidth := lipgloss.Width(toast)
+
+	x := max(0, lipgloss.Width(base)-toastWidth-marginRight)
+	y := max(0, len(baseLines)-len(toastLines)-marginBottom)
+
+	for i, toastLine := range toastLines {
+		row := y + i
+		if row >= len(baseLines) {
+			break
+		}
+		bg := baseLines[row]
+		bgWidth := ansi.StringWidth(bg)
+		left := ansi.Cut(bg, 0, min(x, bgWidth))
+		right := ansi.Cut(bg, min(x+toastWidth, bgWidth), bgWidth)
+		baseLines[row] = left + toastLine + right
+	}
+	return strings.Join(baseLines, "\n")
 }
 
 // wrapFooterHint word-wraps a helpHint string (entries joined by " · ", each

@@ -90,8 +90,8 @@ type uiColors struct {
 	nickMe      color.Color
 	nickThem    color.Color
 	statusFg    color.Color
-	// noticeBg    color.Color
-	noticeFg color.Color
+	noticeBg    color.Color
+	noticeFg    color.Color
 }
 
 func newUIColors(theme Theme) uiColors {
@@ -114,7 +114,7 @@ func newUIColors(theme Theme) uiColors {
 		nickMe:      lipgloss.Color(theme.NickMe),
 		nickThem:    lipgloss.Color(theme.NickThem),
 		statusFg:    lipgloss.Color(theme.StatusFg),
-		// noticeBg:    lipgloss.Color(theme.NoticeBg),
-		noticeFg: lipgloss.Color(theme.NoticeFg),
+		noticeBg:    lipgloss.Color(theme.NoticeBg),
+		noticeFg:    lipgloss.Color(theme.NoticeFg),
 	}
 }
