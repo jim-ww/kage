@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	replyToIdAttr TEXT, -- XEP-0461: idAttr of the message this one replies to
 	retracted     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0424: sender attempted to retract this; content is kept, just flagged
 	delivered     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0184: peer acknowledged receipt of a message we sent
+	oobURLs       TEXT, -- XEP-0066: newline-separated URLs the sender explicitly marked as file attachments; NULL/empty means none
 
 	UNIQUE (accountJID, originID, fromAttr),
 	UNIQUE (accountJID, archiveID)

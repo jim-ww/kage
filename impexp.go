@@ -44,6 +44,7 @@ type exportMessage struct {
 	ReplyToID    string           `json:"replyToID,omitempty"`
 	Retracted    bool             `json:"retracted"`
 	Reactions    []exportReaction `json:"reactions,omitempty"`
+	OOBURLs      []string         `json:"oobURLs,omitempty"`
 }
 
 // exportFile is the top-level shape of an export JSON document.
@@ -116,6 +117,7 @@ func runExport(args []string) error {
 			ReplyToID:    r.Replytoidattr.String,
 			Retracted:    r.Retracted,
 			Reactions:    reactionsByMsg[reactionKey{r.Accountjid, r.Rosterjid.String, r.Idattr.String}],
+			OOBURLs:      splitOOBURLs(r.Ooburls),
 		})
 	}
 
@@ -235,6 +237,7 @@ func runImport(args []string) error {
 				RosterJid:     nullString(m.RosterJID),
 				ArchiveID:     nullString(m.ArchiveID),
 				ReplyToIDAttr: nullString(m.ReplyToID),
+				OobUrls:       joinOOBURLs(m.OOBURLs),
 			}); err != nil {
 				return fmt.Errorf("importing message %s/%s: %w", m.AccountJID, m.ID, err)
 			}

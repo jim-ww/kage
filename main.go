@@ -28,6 +28,20 @@ func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
 
+// joinOOBURLs/splitOOBURLs (de)serialize a message's XEP-0066 attachment
+// URLs for the messages.oobURLs column - newline-separated, since a URL
+// itself can't contain one.
+func joinOOBURLs(urls []string) sql.NullString {
+	return nullString(strings.Join(urls, "\n"))
+}
+
+func splitOOBURLs(s sql.NullString) []string {
+	if !s.Valid || s.String == "" {
+		return nil
+	}
+	return strings.Split(s.String, "\n")
+}
+
 // setupLog wires slog's default logger to <config dir>/kage/debug.log —
 // always, regardless of -debug — so it survives the TUI owning the terminal
 // (stderr isn't visible while bubbletea's alt screen is active). -debug only

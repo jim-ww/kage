@@ -103,8 +103,16 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		// happened. Original content/attachments remain available in the
 		// info popup (ctrl+i); we never actually erase local history.
 		bodyContent = "*deleted*"
-	} else if len(msg.Attachments) > 0 && strings.HasSuffix(strings.TrimSpace(msg.Content), strings.Join(msg.Attachments, "\n")) {
-		text := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(msg.Content), strings.Join(msg.Attachments, "\n")))
+	} else if len(msg.Attachments) > 0 {
+		// Attachments is authoritative (XEP-0066), not derived from Content -
+		// a sender's fallback body text isn't guaranteed to literally end
+		// with the attachment URLs, so this only strips them from the
+		// displayed text as a best-effort de-dupe when it does, rather than
+		// gating whether attachment styling shows at all.
+		text := strings.TrimSpace(msg.Content)
+		if joined := strings.Join(msg.Attachments, "\n"); strings.HasSuffix(text, joined) {
+			text = strings.TrimSpace(strings.TrimSuffix(text, joined))
+		}
 		var parts []string
 		if text != "" {
 			parts = append(parts, highlightCodeBlocks(text))

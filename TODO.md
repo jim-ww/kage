@@ -3,7 +3,7 @@
                    │                cached for this message]
 
 - regular URLs in message body must not show as attachments
-- plaintext attachments must open in appropriate programs, not in browser (they all start with https://...)
+- plaintext attachments must be downloaded first and open in appropriate programs, not in browser (they all start with https://...)
 - on multi-attachment messages, should show normalized name in open selector
 - selecting file again in filepicker should deselect it from upload list
 - add backspace binding in help line

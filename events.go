@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -52,6 +51,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	}
 
 	body := msgEv.Body
+	oobURLs := msgEv.OOBURLs
 	e2eEncrypted := msgEv.Encrypted != nil || msgEv.EncryptedV1 != nil || gpg.Looks(body)
 	e2eeMethod := ""
 	switch {
@@ -121,7 +121,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			return // key-transport message: session established/refreshed, no content to show
 		} else {
 			slog.Debug("omemo message decrypted successfully", "from", msgEv.From)
-			body = string(pt)
+			body, oobURLs = decodeOmemoPayload(pt)
 		}
 	}
 	if s.useGPG && gpg.Looks(body) {
@@ -137,9 +137,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 	// wire-level XEP-0461 <fallback> range can't mark up ciphertext) - strip
 	// it back off now that we've decrypted, mirroring what the unencrypted
 	// path already gets for free from the <fallback> element (see
-	// xmpp/events.go's Body doc comment). Left in place, this "> quoted\n"
-	// prefix breaks attachmentURLs' scheme prefix match below for a reply to
-	// (or consisting of) a file. Applied unconditionally rather than gated
+	// xmpp/events.go's Body doc comment). Applied unconditionally rather than gated
 	// on msgEv.ReplyToID: some peers (e.g. this doesn't always round-trip
 	// through our own <reply/> parsing) still send an in-band quote without
 	// a recognized reply element, and stripReplyQuote is a no-op on a body
@@ -202,6 +200,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 		StanzaType:    "chat",
 		RosterJid:     nullString(from),
 		ReplyToIDAttr: nullString(msgEv.ReplyToID),
+		OobUrls:       joinOOBURLs(oobURLs),
 	}); err != nil {
 		// Insertion failed (most likely the unique index rejecting a
 		// duplicate idAttr that slipped past the check above in a race) -
@@ -223,7 +222,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			IsMe:        false,
 			Encrypted:     e2eEncrypted,
 			EncMethod:     e2eeMethod,
-			Attachments:   resolveAttachments(body, msgEv.OOBURLs),
+			Attachments:   oobURLs,
 			DecryptFailed: decryptFailed,
 		},
 	})
@@ -245,38 +244,3 @@ func stripReplyQuote(body string) string {
 	return strings.Join(lines[i:], "\n")
 }
 
-// resolveAttachments determines which URLs in a message body, if any, are
-// file attachments rather than the user having just pasted a link. oobURLs
-// (the XEP-0066 <x xmlns='jabber:x:oob'> URLs the sender explicitly marked)
-// is authoritative when present, since it's an explicit signal rather than a
-// guess. Only messages from clients that don't send OOB (or our own history
-// predating this) fall back to attachmentURLs' body-text heuristic.
-func resolveAttachments(body string, oobURLs []string) []string {
-	if len(oobURLs) > 0 {
-		return oobURLs
-	}
-	return attachmentURLs(body)
-}
-
-// attachmentURLs recognizes the URL(s) produced by SendFile, one per line,
-// trailing the message body (optionally preceded by other text). A plain
-// link body remains visible as fallback text for every XMPP client, while
-// Kage additionally exposes it as a downloadable attachment.
-// Also recognizes aesgcm:// URLs (XEP-0454 encrypted file sharing).
-func attachmentURLs(body string) []string {
-	lines := strings.Split(body, "\n")
-	var urls []string
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		isURL := strings.HasPrefix(line, "https://") || strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "aesgcm://")
-		if !isURL {
-			break
-		}
-		urls = append(urls, line)
-	}
-	slices.Reverse(urls)
-	return urls
-}

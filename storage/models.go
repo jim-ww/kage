@@ -83,6 +83,7 @@ type Message struct {
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
 	Delivered     bool           `db:"delivered"`
+	Ooburls       sql.NullString `db:"ooburls"`
 }
 
 type Messagereaction struct {

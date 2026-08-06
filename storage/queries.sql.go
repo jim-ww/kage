@@ -654,7 +654,8 @@ INSERT INTO messages (
 	delay,
 	rosterJID,
 	archiveID,
-	replyToIdAttr
+	replyToIdAttr,
+	oobURLs
 )
 VALUES (
 	?1,
@@ -674,7 +675,8 @@ VALUES (
 	),
 	?13,
 	?14,
-	?15
+	?15,
+	?16
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -697,6 +699,7 @@ type InsertMessageParams struct {
 	RosterJid     sql.NullString `db:"roster_jid"`
 	ArchiveID     sql.NullString `db:"archive_id"`
 	ReplyToIDAttr sql.NullString `db:"reply_to_id_attr"`
+	OobUrls       sql.NullString `db:"oob_urls"`
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -716,6 +719,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.RosterJid,
 		arg.ArchiveID,
 		arg.ReplyToIDAttr,
+		arg.OobUrls,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -856,7 +860,8 @@ SELECT
 	archiveID,
 	replyToIdAttr,
 	retracted,
-	delivered
+	delivered,
+	oobURLs
 FROM messages
 ORDER BY delay ASC, id ASC
 `
@@ -880,6 +885,7 @@ type ListAllMessagesRow struct {
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
 	Delivered     bool           `db:"delivered"`
+	Ooburls       sql.NullString `db:"ooburls"`
 }
 
 // Every message row across every account, oldest first, used by the
@@ -913,6 +919,7 @@ func (q *Queries) ListAllMessages(ctx context.Context) ([]ListAllMessagesRow, er
 			&i.Replytoidattr,
 			&i.Retracted,
 			&i.Delivered,
+			&i.Ooburls,
 		); err != nil {
 			return nil, err
 		}
@@ -1059,7 +1066,8 @@ SELECT
 	delay,
 	replyToIdAttr,
 	retracted,
-	delivered
+	delivered,
+	oobURLs
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1090,6 +1098,7 @@ type ListMessagesByRosterRow struct {
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
 	Delivered     bool           `db:"delivered"`
+	Ooburls       sql.NullString `db:"ooburls"`
 }
 
 func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]ListMessagesByRosterRow, error) {
@@ -1115,6 +1124,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Replytoidattr,
 			&i.Retracted,
 			&i.Delivered,
+			&i.Ooburls,
 		); err != nil {
 			return nil, err
 		}
@@ -1144,7 +1154,8 @@ SELECT
 	delay,
 	replyToIdAttr,
 	retracted,
-	delivered
+	delivered,
+	oobURLs
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1184,6 +1195,7 @@ type ListMessagesByRosterBeforeRow struct {
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
 	Delivered     bool           `db:"delivered"`
+	Ooburls       sql.NullString `db:"ooburls"`
 }
 
 // ListMessagesByRosterBefore returns one page of a chat's history older
@@ -1227,6 +1239,7 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Replytoidattr,
 			&i.Retracted,
 			&i.Delivered,
+			&i.Ooburls,
 		); err != nil {
 			return nil, err
 		}

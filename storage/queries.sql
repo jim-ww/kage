@@ -62,7 +62,8 @@ INSERT INTO messages (
 	delay,
 	rosterJID,
 	archiveID,
-	replyToIdAttr
+	replyToIdAttr,
+	oobURLs
 )
 VALUES (
 	sqlc.arg(account_jid),
@@ -82,7 +83,8 @@ VALUES (
 	),
 	sqlc.arg(roster_jid),
 	sqlc.arg(archive_id),
-	sqlc.arg(reply_to_id_attr)
+	sqlc.arg(reply_to_id_attr),
+	sqlc.arg(oob_urls)
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -146,7 +148,8 @@ SELECT
 	delay,
 	replyToIdAttr,
 	retracted,
-	delivered
+	delivered,
+	oobURLs
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -181,7 +184,8 @@ SELECT
 	delay,
 	replyToIdAttr,
 	retracted,
-	delivered
+	delivered,
+	oobURLs
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -219,7 +223,8 @@ SELECT
 	archiveID,
 	replyToIdAttr,
 	retracted,
-	delivered
+	delivered,
+	oobURLs
 FROM messages
 ORDER BY delay ASC, id ASC;
 

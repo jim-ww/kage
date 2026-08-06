@@ -667,6 +667,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 			}
 
 			body := am.Body
+			oobURLs := am.OOBURLs
 			e2eEncrypted := am.Encrypted != nil || am.EncryptedV1 != nil || gpg.Looks(body)
 			e2eeMethod := ""
 			switch {
@@ -706,7 +707,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				} else if pt == nil {
 					continue // key-transport only: session established/refreshed, no content to show
 				} else {
-					body = string(pt)
+					body, oobURLs = decodeOmemoPayload(pt)
 				}
 			} else if s.useGPG && gpg.Looks(body) {
 				if pt, err := s.gpg.Decrypt(body, ""); err == nil {
@@ -760,6 +761,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				Delay:        am.SentAt.Unix(),
 				RosterJid:    nullString(peerJID),
 				ArchiveID:    nullString(am.ArchiveID),
+				OobUrls:      joinOOBURLs(oobURLs),
 			})
 			if err != nil {
 				if strings.Contains(err.Error(), "archiveID") {
@@ -784,7 +786,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				IsMe:          sent,
 				Encrypted:     e2eEncrypted,
 				EncMethod:     e2eeMethod,
-				Attachments:   resolveAttachments(body, am.OOBURLs),
+				Attachments:   oobURLs,
 				DecryptFailed: decryptFailed,
 			})
 		}
