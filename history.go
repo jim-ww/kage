@@ -96,6 +96,14 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 		if row.Sent {
 			author = "me"
 		}
+		// Rows persisted before the oobURLs column existed (or before a
+		// given message was re-synced since) have it empty even for a real
+		// aesgcm:// attachment - fall back to recognizing the scheme
+		// directly from the stored body, same as the live/MAM paths.
+		attachments := splitOOBURLs(row.Ooburls)
+		if len(attachments) == 0 {
+			attachments = aesgcmURLsInBody(pt)
+		}
 		msgs = append(msgs, ui.Message{
 			ID:          row.Idattr.String,
 			Author:      author,
@@ -107,7 +115,7 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 			Encrypted:   row.E2eencrypted,
 			EncMethod:   row.E2eemethod.String,
 			Reactions:   loadReactionsForMessage(ctx, s, chatAddr, row.Idattr.String),
-			Attachments: splitOOBURLs(row.Ooburls),
+			Attachments: attachments,
 		})
 		replyTo = append(replyTo, row.Replytoidattr.String)
 	}
