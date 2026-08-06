@@ -191,6 +191,22 @@ func (m *Model) actionLeaveChat() tea.Cmd {
 	return nil
 }
 
+// actionDeleteContact opens the contact-manager popup's remove-confirmation
+// directly for the selected chat's address (a chat-item context-menu's
+// "Delete contact") — skips the picker list since the target is already
+// known, unlike opening the manager via the ContactManager keybind.
+func (m *Model) actionDeleteContact() tea.Cmd {
+	if m.contactManager == nil {
+		return m.showNotification("contact management unavailable")
+	}
+	chat, ok := m.currentChat()
+	if !ok || chat.Address == "" {
+		return m.showNotification("no chat selected")
+	}
+	m.contactManagerState = &contactManagerState{accountIdx: m.currentAccount, pendingRemove: chat.Address}
+	return nil
+}
+
 // actionRenameChat opens the rename-contact prompt for the selected chat
 // (viewChats' RenameChat keybind / a chat-item context-menu's "Rename").
 // Prefilled with the chat's current custom name if it has one; the field is

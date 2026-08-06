@@ -84,6 +84,7 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 		{label: "Rename", run: (*Model).actionRenameChat},
 		{label: "Encryption", run: (*Model).actionOpenEncryptionMenu},
 		{label: "Leave chat", run: (*Model).actionLeaveChat},
+		{label: "Delete contact", run: (*Model).actionDeleteContact},
 	}
 }
 
