@@ -20,6 +20,7 @@ import (
 	"github.com/jim-ww/kage/notifyd"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
+	"github.com/jim-ww/kage/version"
 	"golang.org/x/term"
 	"mellium.im/xmpp/jid"
 )
@@ -69,7 +70,7 @@ func setupLog(debug bool) {
 		return
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: level})))
-	slog.Info("kage starting", "log_file", path)
+	slog.Info("kage starting", "version", version.Version, "log_file", path)
 }
 
 // ensureGPGKeys fills in GPGKeyID for any account that doesn't have one set,
@@ -236,6 +237,9 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "version":
+			fmt.Println(version.Version)
+			return
 		}
 	}
 
@@ -243,7 +247,7 @@ func main() {
 	debug := flag.Bool("debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise)")
 	runNotifyd := flag.Bool("notifyd", false, "internal: run as the background notification daemon (spawned automatically, not meant to be passed by hand)")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage:\n  %s [flags]\n  %s export [-c config] <output.json>\n  %s import [-c config] <input.json>\n\nFlags:\n", os.Args[0], os.Args[0], os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage:\n  %s [flags]\n  %s version\n  %s export [-c config] <output.json>\n  %s import [-c config] <input.json>\n\nFlags:\n", os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()

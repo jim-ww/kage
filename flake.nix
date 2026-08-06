@@ -14,6 +14,7 @@
     flake-parts.lib.mkFlake {inherit inputs;} {
       systems = flake-utils.lib.defaultSystems;
       perSystem = {pkgs, ...}: let
+        commitRev = inputs.self.rev or inputs.self.dirtyRev or "unknown";
         desktopItem = pkgs.makeDesktopItem {
           name = "kage";
           desktopName = "Kage";
@@ -30,6 +31,10 @@
           vendorHash = "sha256-djmbnvqVKu9RPilXJtdKgXgieUqxOUdFnUidp7CwJMg=";
 
           env.CGO_ENABLED = 0;
+
+          ldflags = ["-X github.com/jim-ww/kage/version.Version=0.0.4-${commitRev}"];
+
+          doCheck = false;
 
           nativeCheckInputs = [
             pkgs.gnupg

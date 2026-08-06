@@ -16,6 +16,7 @@ import (
 	"fyne.io/systray"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/gpg"
+	"github.com/jim-ww/kage/version"
 	"github.com/jim-ww/kage/xmpp"
 )
 
@@ -51,7 +52,7 @@ func Run(cfg config.Config) error {
 		lockFile.WriteAt([]byte(strconv.Itoa(os.Getpid())), 0)
 	}
 
-	log.Printf("notifyd: starting for %d account(s)", len(cfg.Accounts))
+	log.Printf("notifyd: starting version=%s for %d account(s)", version.Version, len(cfg.Accounts))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
