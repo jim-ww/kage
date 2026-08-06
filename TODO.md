@@ -11,7 +11,7 @@
 - doesnt encrypt for other own devices?
 - ctrl+w replace with ctrl+s, and ctrl+shift+s as save as (selecting path)
 - in devices show proper OMEMO fingerprint
-- ^shift+U bind doessnt work (omemo devices)
+- ^shift+U bind doesnt work (omemo devices)
 - selecting file again in filepicker should deselect it from upload list
 - add backspace binding in help line
 - cant open/send files? images (omemo?)

@@ -92,8 +92,10 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		reply := m.replyPreview(*msg.ReplyTo, allMsgs)
 		replyWrapped := strings.SplitSeq(ansi.Wrap(reply, max(8, totalWidth-lipgloss.Width(prefix)-2), " "), "\n")
 		for line := range replyWrapped {
-			lines = append(lines, prefix+m.styles.messageReply.Render(line))
-			prefix = "  "
+			// The selection/hover marker (">") belongs on the message's
+			// content line, not the quoted reply line above it - so the
+			// reply line always gets the plain indent here.
+			lines = append(lines, "  "+m.styles.messageReply.Render(line))
 		}
 	}
 
