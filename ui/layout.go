@@ -11,7 +11,7 @@ func (m *Model) setSelectedView(v selectedView) {
 }
 
 func (m *Model) updateSizes() {
-	fl := footerLineCount(m.keys.helpHint(m.selectedView), max(1, m.width-2), footerMaxLines)
+	fl := footerLineCount(m.keys.helpHint(m.selectedView, len(m.pendingAttachments) > 0), max(1, m.width-2), footerMaxLines)
 	m.height = max(0, m.termHeight-fl-footerMarginTop)
 
 	// Apply any user-dragged compose height (see zonePaneInput in

@@ -13,8 +13,6 @@
 - in devices show proper OMEMO fingerprint
 - ^shift+U bind doesnt work (omemo devices)
 - add backspace binding in help line
-- cant open/send files? images (omemo?)
-- add download % when loading file
 - add keyboard navigation to modals (and ways to open them)
 - show more contact info on status line Name press
 - make sure user can paste to all textinputs (e.g. account add JID/password)

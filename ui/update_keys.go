@@ -323,7 +323,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// Backspacing an empty compose box drops the highlighted attachment —
 	// mirrors the chat apps this pattern is borrowed from, and gives
 	// keyboard-only users a way to remove one without the mouse.
-	case msg.String() == "backspace":
+	case matchesKey(msg, m.keys.RemoveAttachment):
 		if m.selectedView == viewChat && m.input.Value() == "" && len(m.pendingAttachments) > 0 {
 			m.removeAttachment(m.selectedAttachment)
 			m.updateSizes()

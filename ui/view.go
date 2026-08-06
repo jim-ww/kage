@@ -64,7 +64,7 @@ func (m Model) View() tea.View {
 	}
 
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea)
-	footerText := wrapFooterHint(m.keys.helpHint(m.selectedView), max(1, m.width-2), footerMaxLines)
+	footerText := wrapFooterHint(m.keys.helpHint(m.selectedView, len(m.pendingAttachments) > 0), max(1, m.width-2), footerMaxLines)
 	footer := m.styles.footerBar(m.width, footerText)
 	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, "", footer))
 
