@@ -1,4 +1,4 @@
-- add quick way to clear draft message
+- add version command, embed it in nix flake
 - client-server architecture? so any number of clients would talk to daemon? instead of making duplicate connections
 - or only allow one instance at a time?
 - daemon tray: open kage client on LMB click

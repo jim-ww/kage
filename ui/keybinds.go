@@ -39,6 +39,7 @@ type KeyMap struct {
 	DeviceList       key.Binding // Ctrl+Shift+U — view/purge the current account's published OMEMO device list
 	ContactManager   key.Binding // c — add/remove roster contacts for the current account (accounts panel)
 	RemoveAttachment key.Binding // Backspace (on empty input) — drop the highlighted pending attachment
+	ClearDraft       key.Binding // Ctrl+Shift+E — erase the compose box
 	ListKeys         list.KeyMap
 	TextInputKeys    textinput.KeyMap
 	InputAreaKeys    textarea.KeyMap
@@ -110,6 +111,7 @@ var DefaultKeyMap = KeyMap{
 	DeviceList:       NewBinding([]string{"ctrl+shift+u"}, "omemo devices"),
 	ContactManager:   NewBinding([]string{"c"}, "manage contacts"),
 	RemoveAttachment: NewBinding([]string{"backspace"}, "remove attachment"),
+	ClearDraft:       NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -155,7 +157,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
 		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.SaveMsgAs, k.ReactMsg},
-		{k.AddAccount, k.AttachFile, k.RemoveAttachment, k.RenameChat, k.ToggleSidebar, k.DeviceList, k.ContactManager},
+		{k.AddAccount, k.AttachFile, k.RemoveAttachment, k.ClearDraft, k.RenameChat, k.ToggleSidebar, k.DeviceList, k.ContactManager},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -234,6 +236,7 @@ func (k KeyMap) helpHint(view selectedView, hasPendingAttachments bool) string {
 			part(k.SaveMsg, "save"),
 			part(k.SaveMsgAs, "save as"),
 			part(k.AttachFile, "attach"),
+			part(k.ClearDraft, "erase draft"),
 		}
 		if hasPendingAttachments {
 			entries = append(entries, part(k.RemoveAttachment, "remove attachment"))

@@ -339,6 +339,14 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 
+	case matchesKey(msg, m.keys.ClearDraft):
+		if m.selectedView == viewChat && m.input.Value() != "" {
+			m.input.SetValue("")
+			m.notifyTypingStopped()
+			m.updateSizes()
+			return m, nil, true
+		}
+
 	case matchesKey(msg, m.keys.Switch):
 		switch m.selectedView {
 		case viewAccounts:
