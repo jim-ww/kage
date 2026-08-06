@@ -1,16 +1,16 @@
- [message could not be decrypted:
-                   │                ratchet decrypt: no message key is
-                   │                cached for this message]
-
+- add quick way to clear draft message
+- client-server architecture? so any number of clients would talk to daemon? instead of making duplicate connections
+- or only allow one instance at a time?
+- daemon tray: open kage client on LMB click
+- handle extremely large text files pasted in message prompt / sent in chat (lags/slow)
+- make daemon more lightweight
+- filepicker: add mouse support
 - show decrypted message content in notifications
+- ctrl+f add sort for files creation date DESC
+- enter adds some ' ' after newline
 - messages sent from same account on other devices do not appear in chat
 - check how local/remote messages timestampt are handled
-> » [09:10 🔒 ✓] [message could not be decrypted:
-                   │                  establish session: consume one-time
-                   │                  prekey 23: consume prekey 23: sql: no
-                   │                  rows in result set]
 - in devices show proper OMEMO fingerprint
-- only allow one instance at a time?
 - ^shift+U bind doesnt work (omemo devices)
 - add backspace binding in help line
 - checking notification file lock is not enough: if notification daemon was killed, it stays on disk
