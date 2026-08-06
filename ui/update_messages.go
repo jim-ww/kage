@@ -110,6 +110,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 
 	case openResultMsg:
 		m.clearTransfer(msg.target)
+		delete(m.downloadsInFlight, msg.target)
 		label := msg.target
 		if msg.isAttachment {
 			label = attachmentDisplayName(msg.target)
@@ -121,6 +122,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 
 	case saveResultMsg:
 		m.clearTransfer(msg.target)
+		delete(m.downloadsInFlight, msg.target)
 		if msg.err != nil {
 			return m, m.showNotification("save failed: " + msg.err.Error()), true
 		}

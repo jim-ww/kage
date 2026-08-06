@@ -74,6 +74,42 @@ func throttledProgressSender(ch chan tea.Msg, id, label string) func(sent, total
 	}
 }
 
+// startOpen begins opening target unless a download of the same URL is
+// already in flight - mashing the open key/button before the first press's
+// download finishes would otherwise fire off a duplicate concurrent
+// download of the same file for no benefit (the first one already
+// satisfies both presses). A plain link/local path never downloads (see
+// openWithXDGOpen), so those aren't tracked or deduped - only re-launching
+// the browser on it, which is harmless.
+func (m *Model) startOpen(target string, isAttachment bool) tea.Cmd {
+	isRemoteURL := strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "aesgcm://")
+	downloadFirst := strings.HasPrefix(target, "aesgcm://") || (isAttachment && isRemoteURL)
+	if !downloadFirst {
+		return openWithXDGOpen(target, isAttachment)
+	}
+	if m.downloadsInFlight[target] {
+		return nil
+	}
+	if m.downloadsInFlight == nil {
+		m.downloadsInFlight = make(map[string]bool)
+	}
+	m.downloadsInFlight[target] = true
+	return openWithXDGOpen(target, isAttachment)
+}
+
+// startSave begins downloading target to the downloads directory unless a
+// download of the same URL is already in flight - see startOpen.
+func (m *Model) startSave(target string) tea.Cmd {
+	if m.downloadsInFlight[target] {
+		return nil
+	}
+	if m.downloadsInFlight == nil {
+		m.downloadsInFlight = make(map[string]bool)
+	}
+	m.downloadsInFlight[target] = true
+	return saveURLToDownloads(target)
+}
+
 // setTransferProgress upserts a transfer's progress, tracking insertion
 // order (transferOrder) separately so renderTransferLines has a stable,
 // start-order rendering instead of Go's randomized map iteration.

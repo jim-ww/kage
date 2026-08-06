@@ -406,6 +406,68 @@ func TestOpenMsgOpensSelectedPendingAttachment(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("ctrl+o did not return an open command")
 	}
+
+	// Regression: a staged attachment is a local file path, not a URL - even
+	// though it's passed as isAttachment=true, it must go straight to
+	// xdg-open, never through the HTTP-download path (which would fail
+	// trying to GET a bare filesystem path as if it were a URL).
+	got := cmd()
+	result, ok := got.(openResultMsg)
+	if !ok {
+		t.Fatalf("open command returned %#v, want openResultMsg", got)
+	}
+	if result.err != nil && strings.Contains(result.err.Error(), "download") {
+		t.Fatalf("opening a local staged attachment went through the download path: %v", result.err)
+	}
+}
+
+// TestStartOpenSkipsDuplicateDownloadInFlight verifies mashing the open key
+// on the same attachment before the first download finishes doesn't start a
+// second concurrent download of the same file.
+func TestStartOpenSkipsDuplicateDownloadInFlight(t *testing.T) {
+	m := newTestModel(nil)
+	target := "https://upload.example.test/report.pdf"
+
+	first := m.startOpen(target, true)
+	if first == nil {
+		t.Fatal("first startOpen returned nil, want a download Cmd")
+	}
+	if !m.downloadsInFlight[target] {
+		t.Fatal("startOpen did not mark the target as in-flight")
+	}
+
+	second := m.startOpen(target, true)
+	if second != nil {
+		t.Fatal("second startOpen while the first is in flight should return nil, not start a duplicate download")
+	}
+
+	// Once the transfer's terminal message arrives, the in-flight flag
+	// clears and a fresh open is allowed again.
+	next, _ := m.Update(openResultMsg{target: target, isAttachment: true})
+	m = next.(Model)
+	if m.downloadsInFlight[target] {
+		t.Fatal("downloadsInFlight entry not cleared after openResultMsg")
+	}
+	if third := m.startOpen(target, true); third == nil {
+		t.Fatal("startOpen after completion should allow a new download")
+	}
+}
+
+// TestStartOpenNeverDedupesPlainLinks verifies a plain link (not an
+// attachment, no download involved) is never gated by downloadsInFlight -
+// each press should just reopen the browser, which is cheap and expected.
+func TestStartOpenNeverDedupesPlainLinks(t *testing.T) {
+	m := newTestModel(nil)
+	target := "https://example.com/some/page"
+	if cmd := m.startOpen(target, false); cmd == nil {
+		t.Fatal("startOpen for a plain link returned nil")
+	}
+	if m.downloadsInFlight[target] {
+		t.Fatal("a plain link should never be tracked in downloadsInFlight")
+	}
+	if cmd := m.startOpen(target, false); cmd == nil {
+		t.Fatal("a second startOpen for the same plain link should still return a Cmd (not deduped)")
+	}
 }
 
 // TestActionOpenMessageMarksAttachmentVsPlainLink verifies actionOpenMessage

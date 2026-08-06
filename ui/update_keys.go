@@ -187,9 +187,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.openItemsAttachCount = 0
 			m.openPage = 0
 			if m.openMode == pickerModeSave {
-				return m, saveURLToDownloads(target), true
+				return m, m.startSave(target), true
 			}
-			return m, openWithXDGOpen(target, isAttachment), true
+			return m, m.startOpen(target, isAttachment), true
 		}
 		switch msg.String() {
 		case "left", "h":
@@ -477,7 +477,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			// actively being composed, and there's no other way to preview
 			// it before sending (it isn't a Message yet).
 			if m.selectedAttachment >= 0 && m.selectedAttachment < len(m.pendingAttachments) {
-				return m, openWithXDGOpen(m.pendingAttachments[m.selectedAttachment].path, true), true
+				return m, m.startOpen(m.pendingAttachments[m.selectedAttachment].path, true), true
 			}
 			return m, m.actionOpenMessage(), true
 		}

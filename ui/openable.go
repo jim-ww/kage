@@ -227,13 +227,14 @@ type openResultMsg struct {
 // openWithXDGOpen shells out to xdg-open in the background; the result is
 // reported back as an openResultMsg so the UI can show a toast.
 //
-// A plain http(s):// target that isn't a known attachment (isAttachment
-// false - the user opening an ordinary link they pasted/received in a
-// message, not a file) is handed to xdg-open as-is, which resolves it via
-// the desktop's URL-scheme handler - normally the web browser, which is
-// exactly what's wanted for a link.
+// A local file path (e.g. a staged-but-unsent pendingAttachment) or a plain
+// http(s):// target that isn't a known attachment (isAttachment false - the
+// user opening an ordinary link they pasted/received in a message, not a
+// file) is handed to xdg-open as-is: for a local path that's simply opening
+// it, for a link it resolves via the desktop's URL-scheme handler -
+// normally the web browser, which is exactly what's wanted.
 //
-// Otherwise (aesgcm:// always, or a plain http(s):// target that *is* a
+// Otherwise (aesgcm:// always, or a remote http(s):// target that *is* a
 // known attachment) the file is downloaded first - decrypted too, for
 // aesgcm:// (XEP-0454) - and only the resulting local file is passed to
 // xdg-open, so the desktop's file-type association picks the right viewer
@@ -241,7 +242,9 @@ type openResultMsg struct {
 // a raw browser download. Progress is reported as the download runs — see
 // throttledProgressSender.
 func openWithXDGOpen(target string, isAttachment bool) tea.Cmd {
-	if !isAttachment && !strings.HasPrefix(target, "aesgcm://") {
+	isRemoteURL := strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "aesgcm://")
+	downloadFirst := strings.HasPrefix(target, "aesgcm://") || (isAttachment && isRemoteURL)
+	if !downloadFirst {
 		return func() tea.Msg {
 			err := exec.Command("xdg-open", target).Start()
 			return openResultMsg{target: target, err: err}

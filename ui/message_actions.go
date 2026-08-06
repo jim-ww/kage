@@ -334,7 +334,7 @@ func (m *Model) actionOpenMessage() tea.Cmd {
 		// openableItems puts every attachment before any plain link found in
 		// Content, so index 0 is an attachment iff there is at least one.
 		isAttachment := len(msgs[m.selectedMsg].Attachments) > 0
-		return openWithXDGOpen(items[0], isAttachment)
+		return m.startOpen(items[0], isAttachment)
 	default:
 		m.openItems = items
 		m.openItemsAttachCount = len(msgs[m.selectedMsg].Attachments)
@@ -354,7 +354,7 @@ func (m *Model) actionSaveMessage() tea.Cmd {
 	case 0:
 		return m.showNotification("nothing to save")
 	case 1:
-		return saveURLToDownloads(items[0])
+		return m.startSave(items[0])
 	default:
 		m.openItems = items
 		m.openItemsAttachCount = len(msgs[m.selectedMsg].Attachments)
