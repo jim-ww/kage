@@ -108,6 +108,7 @@ type Model struct {
 	confirmTarget        confirmTarget
 	contextMenu          *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
 	showMsgInfo          bool         // true while the message-info popup is open
+	showHelp             bool         // true while the full-keybindings help popup (ctrl+?) is open
 	openItems            []string     // non-empty while the open-link/attachment picker is open
 	openItemsAttachCount int          // how many leading entries of openItems are real attachments (vs. a plain link found in Content) - openableItems always puts attachments first
 	openPage             int          // current page (of openItemsPerPage items) in the open picker

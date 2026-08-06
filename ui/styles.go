@@ -11,12 +11,11 @@ import (
 const (
 	sidebarStatusHeight = 2
 	chatStatusHeight    = 1
-	// footerMaxLines caps how tall the key-hint footer can grow when word-
-	// wrapping a view's full hint list — even a wide terminal can't fit
-	// viewChat's dozen-odd bindings on one line, so it wraps instead of
-	// truncating, but only up to this many rows before the overflow is
-	// dropped with an ellipsis.
-	footerMaxLines = 2
+	// footerMaxLines caps the key-hint footer to a single row — bindings that
+	// don't fit are dropped with an ellipsis rather than wrapping, so the
+	// footer's height (and so the rest of the layout) never shifts. Ctrl+?
+	// opens a modal with the full binding list for whoever needs the rest.
+	footerMaxLines = 1
 	// footerMarginTop is a blank row separating the main view from the
 	// footer, so the key hints don't read as glued to the input box.
 	footerMarginTop = 1

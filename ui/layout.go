@@ -76,7 +76,7 @@ func (m Model) narrow() bool { return m.width < narrowWidth }
 // picker). In narrow mode these need the full-width chat pane to render
 // into even while the chat list is the logically selected view.
 func (m Model) popupActive() bool {
-	return m.contextMenu != nil || m.confirmTarget != confirmNone || m.showMsgInfo ||
+	return m.contextMenu != nil || m.confirmTarget != confirmNone || m.showMsgInfo || m.showHelp ||
 		m.addingAccount || m.renamingChat || m.savingAs || len(m.openItems) > 0 || m.pickingFile || m.deviceList != nil
 }
 

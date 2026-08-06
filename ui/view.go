@@ -144,6 +144,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderDeletePopup()
 	case m.showMsgInfo:
 		viewportArea = m.renderInfoPopup()
+	case m.showHelp:
+		viewportArea = m.renderHelpPopup()
 	case m.deviceList != nil:
 		viewportArea = m.renderDeviceListPopup()
 	case m.contactManagerState != nil:
@@ -406,6 +408,29 @@ func (m Model) infoPrompt(width int) string {
 	}
 
 	return m.styles.infoPopup("Message info", rows, closeKey)
+}
+
+// renderHelpPopup lists every keybinding grouped by which tab it applies to
+// (plus a Global section for bindings that work everywhere) — the full
+// reference behind the footer's necessarily-truncated one-line hint.
+func (m Model) renderHelpPopup() string {
+	closeKey := m.keys.Help.Help().Key
+	var rows []string
+	for i, section := range m.keys.helpSections() {
+		if i > 0 {
+			rows = append(rows, "")
+		}
+		title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.accentCyan).Render(section.Title)
+		rows = append(rows, title)
+		for _, e := range section.Entries {
+			key := shortestKey(e.binding)
+			if key == "" {
+				continue
+			}
+			rows = append(rows, fmt.Sprintf("  %-14s %s", caretKey(key), e.desc))
+		}
+	}
+	return m.styles.infoPopup("Help", rows, closeKey)
 }
 
 // renderOpenPopup lists the pending link/attachment choices, numbered within

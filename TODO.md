@@ -1,6 +1,6 @@
 - messages sent from same account on other devices do not appear in chat
 - show normalized file name of omemo encrypted files in notifications
-- help line must always be one line long
+- send failed, no
 - change drag & drop behavior: add dropped file as attachment, instead of sending right away. ensure multi-file drop is handled too
 - show edited icon, if message was edited
 
@@ -16,11 +16,9 @@
 - check how local/remote messages timestampt are handled
 - in devices show proper OMEMO fingerprint
 - ^shift+U bind doesnt work (omemo devices)
-- add backspace binding in help line
 - add keyboard navigation to modals (and ways to open them)
 - show more contact info on status line Name press
 - make sure user can paste to all textinputs (e.g. account add JID/password)
-- on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager: fix adding duplicate accounts
 - option to remove specific chat history (on server)
 - implement backups, compatible with conversations

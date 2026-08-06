@@ -41,6 +41,7 @@ type KeyMap struct {
 	ContactManager   key.Binding // c — add/remove roster contacts for the current account (accounts panel)
 	RemoveAttachment key.Binding // Backspace (on empty input) — drop the highlighted pending attachment
 	ClearDraft       key.Binding // Ctrl+Shift+E — erase the compose box
+	Help             key.Binding // Ctrl+? — open the full-keybindings help popup
 	ListKeys         list.KeyMap
 	TextInputKeys    textinput.KeyMap
 	InputAreaKeys    textarea.KeyMap
@@ -114,6 +115,19 @@ var DefaultKeyMap = KeyMap{
 	ContactManager:   NewBinding([]string{"c"}, "manage contacts"),
 	RemoveAttachment: NewBinding([]string{"backspace"}, "remove attachment"),
 	ClearDraft:       NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
+	// "ctrl+?" is the intended gesture (ctrl + the "?" that shares the "/"
+	// key on a US layout), but no terminal actually reports that literal
+	// string: legacy encoding sends the raw ctrl+/ control byte as
+	// "ctrl+_" (see uv's C0 table — ansi.US maps to Code:'_', ModCtrl),
+	// while under the Kitty protocol used here (see ReportAllKeysAsEscapeCodes
+	// in view.go) Key.String() prefers the shifted "?" text over the
+	// ctrl-prefixed keystroke, so it plainly reports "ctrl+/" (no shift in
+	// the string) or occasionally "ctrl+shift+/". Bind every variant; list
+	// "ctrl+?" first purely so it's what the footer/help-popup label shows.
+	Help: key.NewBinding(
+		key.WithKeys("ctrl+?", "ctrl+/", "ctrl+_", "ctrl+shift+/"),
+		key.WithHelp("ctrl+?", "help"),
+	),
 
 	ListKeys:      list.DefaultKeyMap(),
 	TextInputKeys: textinput.DefaultKeyMap(),
@@ -150,17 +164,98 @@ func matchesLetter(msg tea.KeyMsg, r rune) bool {
 	return msg.String() == string(r)
 }
 
-func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Quit, k.Back, k.Switch, k.SelectSend}
+// helpEntry pairs a binding with the description it should show for a
+// particular view — the same binding can mean different things depending on
+// which view it's pressed in (e.g. SelectSend is "select" in the accounts
+// list but "send" in a chat).
+type helpEntry struct {
+	binding key.Binding
+	desc    string
 }
 
-func (k KeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
-		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
-		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.SaveMsgAs, k.ReactMsg},
-		{k.AddAccount, k.AttachFile, k.PasteImage, k.RemoveAttachment, k.ClearDraft, k.RenameChat, k.ToggleSidebar, k.DeviceList, k.ContactManager},
-		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
+// shortestKey is the shortest bound key for b, not the full "ctrl+k/up"-style
+// joined label Help().Key would give — used wherever space is tight (the
+// footer) or a single representative label is wanted (the help popup).
+func shortestKey(b key.Binding) string {
+	keys := b.Keys()
+	if len(keys) == 0 {
+		return ""
+	}
+	shortest := keys[0]
+	for _, k := range keys[1:] {
+		if len(k) < len(shortest) {
+			shortest = k
+		}
+	}
+	return shortest
+}
+
+// globalEntries lists bindings that work the same in every view — shown as
+// their own section in the help popup, and appended to each view's entries
+// for the footer hint.
+func (k KeyMap) globalEntries() []helpEntry {
+	return []helpEntry{
+		{k.Switch, "switch focus"},
+		{k.Help, "help"},
+		{k.Quit, "quit"},
+	}
+}
+
+// viewEntries lists the bindings meaningful in view, each paired with the
+// description that applies there. This is the single source of truth for
+// both the footer hint (helpHint) and the per-tab sections in the help popup
+// (renderHelpPopup) — keeping one list means the two can't drift apart.
+func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []helpEntry {
+	switch view {
+	case viewAccounts:
+		return []helpEntry{
+			{k.MsgUp, "prev account"},
+			{k.MsgDown, "next account"},
+			{k.SelectSend, "select"},
+			{k.AddAccount, "add"},
+			{k.DeviceList, "omemo devices"},
+			{k.ContactManager, "contacts"},
+		}
+	case viewChats:
+		return []helpEntry{
+			{k.ListKeys.CursorUp, "up"},
+			{k.ListKeys.CursorDown, "down"},
+			{k.ChatOpen, "open"},
+			{k.RenameChat, "rename"},
+			{k.DeleteMsg, "delete"},
+			{k.ListKeys.Filter, "filter"},
+			{k.ToggleSidebar, "hide chats"},
+		}
+	case viewChat:
+		// Ordered by how often each is used — least-used trail off the end
+		// so narrow terminals still show the important ones first when
+		// footerMaxLines caps how far the footer hint wraps.
+		entries := []helpEntry{
+			{k.SelectSend, "send"},
+			{k.ReplyMsg, "reply"},
+			{k.EditMsg, "edit"},
+			{k.DeleteMsg, "delete"},
+			{k.ReactMsg, "react"},
+			{k.YankMsg, "yank"},
+			{k.InfoMsg, "info"},
+			{k.OpenMsg, "open"},
+			{k.SaveMsg, "save"},
+			{k.SaveMsgAs, "save as"},
+			{k.AttachFile, "attach"},
+			{k.PasteImage, "paste image"},
+			{k.ClearDraft, "erase draft"},
+		}
+		if hasPendingAttachments {
+			entries = append(entries, helpEntry{k.RemoveAttachment, "remove attachment"})
+		}
+		entries = append(entries,
+			helpEntry{k.FocusChats, "chats"},
+			helpEntry{k.ToggleSidebar, "hide list"},
+			helpEntry{k.Back, "back"},
+		)
+		return entries
+	default:
+		return nil
 	}
 }
 
@@ -169,88 +264,47 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 // the (possibly user-remapped) bindings; the descriptions are tailored to
 // what each key does in that particular view.
 func (k KeyMap) helpHint(view selectedView, hasPendingAttachments bool) string {
-	// Use only the shortest bound key, not the full "ctrl+k/up"-style joined
-	// label Help().Key would give — this stays compact even wrapped over
-	// several lines; the full set of alternate keys is in FullHelp.
-	//
+	entries := k.viewEntries(view, hasPendingAttachments)
+	if entries == nil {
+		return ""
+	}
+	entries = append(entries, k.globalEntries()...)
+
 	// Within an entry, join key and desc (and desc's own words) with a
 	// non-breaking space instead of a regular one — wrapFooterHint word-wraps
 	// this whole string, and a regular space would let it break an entry
 	// across lines (e.g. "ctrl+k" on one line, "prev msg" on the next). Only
 	// the " · " between entries is meant to be a wrap point.
-	part := func(b key.Binding, desc string) string {
-		keys := b.Keys()
-		if len(keys) == 0 {
-			return desc
+	parts := make([]string, len(entries))
+	for i, e := range entries {
+		key := shortestKey(e.binding)
+		if key == "" {
+			parts[i] = e.desc
+			continue
 		}
-		shortest := keys[0]
-		for _, k := range keys[1:] {
-			if len(k) < len(shortest) {
-				shortest = k
-			}
-		}
-		return strings.Join(strings.Fields(caretKey(shortest)+" "+desc), " ")
+		parts[i] = strings.Join(strings.Fields(caretKey(key)+" "+e.desc), " ")
 	}
+	return strings.Join(parts, " · ")
+}
 
-	switch view {
-	case viewAccounts:
-		return strings.Join([]string{
-			part(k.MsgUp, "prev account"),
-			part(k.MsgDown, "next account"),
-			part(k.SelectSend, "select"),
-			part(k.AddAccount, "add"),
-			part(k.DeviceList, "omemo devices"),
-			part(k.ContactManager, "contacts"),
-			part(k.Switch, "chats"),
-			part(k.Quit, "quit"),
-		}, " · ")
-	case viewChats:
-		return strings.Join([]string{
-			part(k.ListKeys.CursorUp, "up"),
-			part(k.ListKeys.CursorDown, "down"),
-			part(k.ChatOpen, "open"),
-			part(k.RenameChat, "rename"),
-			part(k.DeleteMsg, "delete"),
-			part(k.ListKeys.Filter, "filter"),
-			part(k.ToggleSidebar, "hide chats"),
-			part(k.Switch, "accounts"),
-			part(k.Quit, "quit"),
-		}, " · ")
-	case viewChat:
-		// Ordered by how often each is used — least-used trail off the end
-		// so narrow terminals still show the important ones first when
-		// footerMaxLines caps how far this wraps. See KeyMap.FullHelp for
-		// the complete, view-agnostic reference.
-		//
-		// Joined with " · " (spaces, not a bare "·") like the other views —
-		// wrapFooterHint only breaks on regular spaces (see helpHint's nbsp
-		// note), so a bare separator leaves it no break point between
-		// entries and it hard-splits mid-word instead.
-		entries := []string{
-			part(k.SelectSend, "send"),
-			part(k.ReplyMsg, "reply"),
-			part(k.EditMsg, "edit"),
-			part(k.DeleteMsg, "delete"),
-			part(k.ReactMsg, "react"),
-			part(k.YankMsg, "yank"),
-			part(k.InfoMsg, "info"),
-			part(k.OpenMsg, "open"),
-			part(k.SaveMsg, "save"),
-			part(k.SaveMsgAs, "save as"),
-			part(k.AttachFile, "attach"),
-			part(k.PasteImage, "paste image"),
-			part(k.ClearDraft, "erase draft"),
-		}
-		if hasPendingAttachments {
-			entries = append(entries, part(k.RemoveAttachment, "remove attachment"))
-		}
-		entries = append(entries,
-			part(k.FocusChats, "chats"),
-			part(k.ToggleSidebar, "hide list"),
-			part(k.Back, "back"),
-		)
-		return strings.Join(entries, " · ")
-	default:
-		return ""
+// helpSection is one titled group of bindings in the full-keybindings help
+// popup — one section per tab (view) plus a "Global" section, so it's clear
+// which keys only apply while that tab is focused.
+type helpSection struct {
+	Title   string
+	Entries []helpEntry
+}
+
+// helpSections builds the full-keybindings help popup's content: one section
+// per tab (labeled so it's clear which keys apply where), plus the bindings
+// that work everywhere.
+func (k KeyMap) helpSections() []helpSection {
+	return []helpSection{
+		{"Accounts tab", k.viewEntries(viewAccounts, false)},
+		{"Chats tab", k.viewEntries(viewChats, false)},
+		// hasPendingAttachments: true so the popup documents every binding
+		// that view can use, not just the ones live for the current draft.
+		{"Chat tab", k.viewEntries(viewChat, true)},
+		{"Global", k.globalEntries()},
 	}
 }

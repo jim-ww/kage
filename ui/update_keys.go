@@ -121,6 +121,15 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
+	// ── Help popup intercepts all input until dismissed ─────────────────
+	if m.showHelp {
+		switch {
+		case matchesKey(msg, m.keys.Help), matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
+			m.showHelp = false
+		}
+		return m, nil, true
+	}
+
 	// ── OMEMO device-list popup intercepts all input until dismissed ───
 	if m.deviceList != nil {
 		return m.updateDeviceListKey(msg)
@@ -238,6 +247,10 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 
 	// ── Global ────────────────────────────────────────────────────────
+	case matchesKey(msg, m.keys.Help):
+		m.showHelp = true
+		return m, nil, true
+
 	case matchesKey(msg, m.keys.Quit):
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit, true
