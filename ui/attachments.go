@@ -18,12 +18,12 @@ type pendingAttachment struct {
 // stageAttachment adds path as a pending attachment and selects it — the
 // file picker stays open (see update_keys.go) so more can be staged before
 // sending. The set of staged paths has no duplicates: re-selecting a file
-// that's already staged just (re)selects its existing chip instead of
+// that's already staged toggles it off (removes its chip) instead of
 // adding a second copy.
 func (m *Model) stageAttachment(path string) {
 	for i, a := range m.pendingAttachments {
 		if a.path == path {
-			m.selectedAttachment = i
+			m.removeAttachment(i)
 			return
 		}
 	}

@@ -83,8 +83,8 @@ func TestFilePickerReceivesAsyncDirectoryRead(t *testing.T) {
 // TestFilePickerEnterStagesAttachmentWithoutUploading verifies the ctrl+f
 // flow: selecting a file only stages it locally (no network call — nothing
 // uploads until send), the picker stays open so more files can be attached
-// before the message is sent, and re-selecting the same file just re-selects
-// its existing chip instead of adding a duplicate.
+// before the message is sent, and re-selecting the same file toggles it back
+// off (deselects it) instead of adding a duplicate.
 func TestFilePickerEnterStagesAttachmentWithoutUploading(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.pdf")
@@ -104,26 +104,29 @@ func TestFilePickerEnterStagesAttachmentWithoutUploading(t *testing.T) {
 	next, _ := m.Update(m.filePicker.Init()())
 	m = next.(Model)
 
-	// Select the same file twice.
+	// Select the file, then select it again — should toggle off.
 	next, cmd := m.Update(keyCode(tea.KeyEnter))
 	m = next.(Model)
 	if cmd != nil {
 		t.Fatal("staging a file must not start any command — nothing uploads until send")
 	}
+	if !m.pickingFile {
+		t.Fatal("picker closed after selecting a file, want it to stay open for attaching more")
+	}
+	if len(m.pendingAttachments) != 1 || m.pendingAttachments[0].name != "report.pdf" {
+		t.Fatalf("pendingAttachments = %#v, want report.pdf staged exactly once", m.pendingAttachments)
+	}
+
 	next, cmd = m.Update(keyCode(tea.KeyEnter))
 	m = next.(Model)
 	if cmd != nil {
 		t.Fatal("staging a file must not start any command — nothing uploads until send")
 	}
-
-	if !m.pickingFile {
-		t.Fatal("picker closed after selecting a file, want it to stay open for attaching more")
+	if len(m.pendingAttachments) != 0 {
+		t.Fatalf("pendingAttachments = %#v, want re-selecting the same file to deselect it", m.pendingAttachments)
 	}
-	if len(m.pendingAttachments) != 1 || m.pendingAttachments[0].name != "report.pdf" {
-		t.Fatalf("pendingAttachments = %#v, want report.pdf staged exactly once (deduped)", m.pendingAttachments)
-	}
-	if m.selectedAttachment != 0 {
-		t.Fatalf("selectedAttachment = %d, want 0", m.selectedAttachment)
+	if m.selectedAttachment != -1 {
+		t.Fatalf("selectedAttachment = %d, want -1 (list empty after deselect)", m.selectedAttachment)
 	}
 	if sender.path != "" {
 		t.Fatalf("UploadFile was called during staging (path=%q), want no upload before send", sender.path)
