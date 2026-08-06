@@ -109,6 +109,7 @@ func (m *Model) startAttachedSend(text string, to string, reply SendOptions) tea
 		}
 
 		body := composeBodyWithAttachments(text, urls)
+		reply.OOBURLs = urls
 		id, err := sender.Send(accountIdx, to, body, reply)
 		if err != nil {
 			return ComposedSendResultMsg{AccountIdx: accountIdx, To: to, Err: err}

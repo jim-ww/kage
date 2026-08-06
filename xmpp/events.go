@@ -50,6 +50,12 @@ type MessageEvent struct {
 	// (eu.siacs.conversations.axolotl) OMEMO message; same shape as
 	// Encrypted otherwise.
 	EncryptedV1 *omemoEncryptedElemV1
+
+	// OOBURLs are the XEP-0066 out-of-band URLs this message explicitly
+	// marked as file attachments, if any. Only ever set on the plaintext
+	// path (a sender that encrypts its body has no reason to also leak
+	// these in the clear - see xmpp.SendOptions.OOBURLs).
+	OOBURLs []string
 }
 
 func (MessageEvent) isEvent() {}
@@ -297,6 +303,13 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			replaceID = msg.Replace.ID
 		}
 
+		var oobURLs []string
+		for _, x := range msg.OOB {
+			if x.URL != "" {
+				oobURLs = append(oobURLs, x.URL)
+			}
+		}
+
 		events <- MessageEvent{
 			ID:        msg.ID,
 			From:      msg.From.String(),
@@ -304,6 +317,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			SentAt:    time.Now(),
 			ReplaceID: replaceID,
 			ReplyToID: replyToID,
+			OOBURLs:   oobURLs,
 		}
 	case "presence":
 		var p presenceBody

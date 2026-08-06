@@ -223,7 +223,7 @@ func handleIncomingMessage(ctx context.Context, p *tea.Program, accountIdx int, 
 			IsMe:        false,
 			Encrypted:     e2eEncrypted,
 			EncMethod:     e2eeMethod,
-			Attachments:   attachmentURLs(body),
+			Attachments:   resolveAttachments(body, msgEv.OOBURLs),
 			DecryptFailed: decryptFailed,
 		},
 	})
@@ -243,6 +243,19 @@ func stripReplyQuote(body string) string {
 		return body
 	}
 	return strings.Join(lines[i:], "\n")
+}
+
+// resolveAttachments determines which URLs in a message body, if any, are
+// file attachments rather than the user having just pasted a link. oobURLs
+// (the XEP-0066 <x xmlns='jabber:x:oob'> URLs the sender explicitly marked)
+// is authoritative when present, since it's an explicit signal rather than a
+// guess. Only messages from clients that don't send OOB (or our own history
+// predating this) fall back to attachmentURLs' body-text heuristic.
+func resolveAttachments(body string, oobURLs []string) []string {
+	if len(oobURLs) > 0 {
+		return oobURLs
+	}
+	return attachmentURLs(body)
 }
 
 // attachmentURLs recognizes the URL(s) produced by SendFile, one per line,

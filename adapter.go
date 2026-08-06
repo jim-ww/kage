@@ -578,7 +578,10 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 
 // send is the context-aware implementation behind Send. File uploads use it
 // with their deadline so a subsequent peer-key lookup or stanza send cannot
-// outlive the operation that initiated it.
+// outlive the operation that initiated it. opts.OOBURLs, if given, marks
+// those URLs as XEP-0066 attachments - only applied when the send ends up
+// unencrypted, since attaching them in the clear would leak the URL
+// alongside an encrypted body.
 func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
 	s, valid := a.session(accountIdx)
 	if !valid {
@@ -707,6 +710,10 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}
 	}
 
+	if !e2eEncrypted {
+		sendOpts.OOBURLs = opts.OOBURLs
+	}
+
 	id, err := client.Send(ctx, to, wireBody, sendOpts)
 	if err != nil {
 		return "", err
@@ -817,6 +824,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 		return result
 	}
 
+	opts.OOBURLs = []string{url}
 	id, err := a.send(ctx, accountIdx, to, url, opts)
 	if err != nil {
 		result.Err = err

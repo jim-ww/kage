@@ -784,7 +784,7 @@ func syncArchiveForContact(ctx context.Context, p *tea.Program, accountIdx int, 
 				IsMe:          sent,
 				Encrypted:     e2eEncrypted,
 				EncMethod:     e2eeMethod,
-				Attachments:   attachmentURLs(body),
+				Attachments:   resolveAttachments(body, am.OOBURLs),
 				DecryptFailed: decryptFailed,
 			})
 		}

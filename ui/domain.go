@@ -226,4 +226,10 @@ type SendOptions struct {
 	// it). Mutually exclusive with the other options above.
 	ReactionTargetID string
 	Reactions        []string
+
+	// OOBURLs marks each of these URLs (which must also appear in body, one
+	// per line) as a file attachment via XEP-0066, so receivers can tell
+	// "this is a file" from "the user pasted a link" instead of guessing
+	// from the body text alone.
+	OOBURLs []string
 }

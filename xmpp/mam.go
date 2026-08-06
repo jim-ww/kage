@@ -54,6 +54,10 @@ type ArchivedMessage struct {
 	// of an earlier message with this ID; Body (or Encrypted) carries the
 	// corrected content, same as a normal message.
 	ReplaceID string
+
+	// OOBURLs are the XEP-0066 out-of-band URLs this archived item explicitly
+	// marked as file attachments, if any.
+	OOBURLs []string
 }
 
 // mamResultElem is the <result/> wrapper XEP-0313 attaches to a <message/>
@@ -121,10 +125,20 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		am.Body = msg.Body
 		am.Encrypted = msg.Encrypted
 		am.EncryptedV1 = msg.EncryptedV1
+		for _, x := range msg.OOB {
+			if x.URL != "" {
+				am.OOBURLs = append(am.OOBURLs, x.URL)
+			}
+		}
 	case msg.Body != "" || msg.Encrypted != nil || msg.EncryptedV1 != nil:
 		am.Body = msg.Body
 		am.Encrypted = msg.Encrypted
 		am.EncryptedV1 = msg.EncryptedV1
+		for _, x := range msg.OOB {
+			if x.URL != "" {
+				am.OOBURLs = append(am.OOBURLs, x.URL)
+			}
+		}
 	default:
 		// Nothing worth archiving/showing - see the belt-and-suspenders
 		// check on the caller side too (syncArchiveForContact).

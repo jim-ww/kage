@@ -72,6 +72,9 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 	if opts.RetractID == "" && opts.ReactionTargetID == "" {
 		msg.Request = &struct{}{}
 	}
+	for _, u := range opts.OOBURLs {
+		msg.OOB = append(msg.OOB, oobElem{URL: u})
+	}
 	if err := c.session.Encode(ctx, msg); err != nil {
 		return "", err
 	}

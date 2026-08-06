@@ -26,6 +26,12 @@ type messageBody struct {
 	MAMResult   *mamResultElem        `xml:"urn:xmpp:mam:2 result"`
 	PubsubEvent *pubsubEventElem      `xml:"http://jabber.org/protocol/pubsub#event event"`
 
+	// OOB is XEP-0066 (Out of Band Data): each element explicitly marks a URL
+	// in/alongside the body as a file attachment (e.g. from XEP-0363 HTTP
+	// Upload) rather than an ordinary link the user pasted in. A message can
+	// carry more than one when several files are shared together.
+	OOB []oobElem `xml:"jabber:x:oob x"`
+
 	// XEP-0184 message delivery receipts: Request marks an outgoing message
 	// as wanting a receipt; Received is the receipt itself, naming the id of
 	// the message it acknowledges.
@@ -135,6 +141,11 @@ type retractElem struct {
 	ID string `xml:"id,attr"`
 }
 
+// oobElem is one XEP-0066 <x xmlns='jabber:x:oob'> element.
+type oobElem struct {
+	URL string `xml:"url"`
+}
+
 // receiptElem is XEP-0184: acknowledges receipt of the message with this ID.
 type receiptElem struct {
 	ID string `xml:"id,attr"`
@@ -219,6 +230,13 @@ type SendOptions struct {
 	// <encrypted/> element instead of a plaintext body. Mutually exclusive
 	// with the other options above and with Encrypted.
 	EncryptedV1 *omemoEncryptedElemV1
+
+	// OOBURLs marks each of these URLs as a XEP-0066 out-of-band attachment,
+	// so receivers can tell "this is a file" from "the user pasted a link"
+	// without guessing from the body text. Only meaningful on a plaintext
+	// send: adding it alongside Encrypted/EncryptedV1 would leak the URL in
+	// the clear next to the ciphertext, so callers must not combine them.
+	OOBURLs []string
 }
 
 const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."

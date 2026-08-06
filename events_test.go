@@ -18,6 +18,23 @@ func TestStripReplyQuoteLeavesUnquotedBodyUnchanged(t *testing.T) {
 	}
 }
 
+func TestResolveAttachmentsPrefersOOB(t *testing.T) {
+	// A plain shared link (not a real upload) still ends its own line, which
+	// would otherwise trip the body-text heuristic; an explicit OOB signal
+	// from the sender must win regardless.
+	body := "check this out\nhttps://example.com/not-a-file"
+	got := resolveAttachments(body, nil)
+	if len(got) != 1 || got[0] != "https://example.com/not-a-file" {
+		t.Fatalf("resolveAttachments(%q, nil) = %v, want heuristic fallback to match the trailing URL", body, got)
+	}
+
+	oob := []string{"https://example.com/real-file.jpg"}
+	got = resolveAttachments(body, oob)
+	if len(got) != 1 || got[0] != oob[0] {
+		t.Fatalf("resolveAttachments(%q, %v) = %v, want OOB URLs verbatim", body, oob, got)
+	}
+}
+
 func TestAttachmentURLsAfterStrippingReplyQuote(t *testing.T) {
 	body := "> Bob\n> photo.jpg\naesgcm://host/photo.jpg#key"
 	stripped := stripReplyQuote(body)

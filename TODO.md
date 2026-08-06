@@ -2,7 +2,9 @@
                    │                ratchet decrypt: no message key is
                    │                cached for this message]
 
-- multiple uploaded files in one message do not render properly
+- regular URLs in message body must not show as attachments
+- plaintext attachments must open in appropriate programs, not in browser (they all start with https://...)
+- on multi-attachment messages, should show normalized name in open selector
 - selecting file again in filepicker should deselect it from upload list
 - add backspace binding in help line
 - cant open/send files? images (omemo?)
