@@ -2,12 +2,14 @@
                    │                ratchet decrypt: no message key is
                    │                cached for this message]
 
+- multiple uploaded files in one message do not render properly
+- selecting file again in filepicker should deselect it from upload list
+- add backspace binding in help line
 - cant open/send files? images (omemo?)
 - add download % when loading file
 - add keyboard navigation to modals (and ways to open them)
-- add option to remove account
 - show more contact info on status line Name press
-- make sure user can paste to all textinputs
+- make sure user can paste to all textinputs (e.g. account add JID/password)
 - on small screens, only show ctrl+? in help line, and show help fullscreen instead
 - account manager: fix adding duplicate accounts
 - option to remove specific chat history (on server)
@@ -19,15 +21,10 @@
 - save message drafts for each chat (encrypted, if encryption enabled), on exit/chat switch
 
 - preview files text contents (in separate viewport?)
-- chat list: add 'a' keybind and 'add' button at bottom dock to add new contacts
-- message deletion: shouldnt delete message locally, instead just show in deleted message state, with option to see its contents
-- list chat participants, ability to see info about them, start chat with them
-- account manager: status ('● Online', '◐ Away', '○ Offline') and manage it (e.g. offline stops syncing that account)
-- setup dev prosody fully with nix?
+- implement group chat support
+- list group chat participants, ability to see info about them, start chat with them
 - search message content in across chats
-- import/export messages in json format
-- manage(add/remove/see) contacts, also remove contacts permanently?
-- optimization speed up cursor message selection in chat
+- optimization speed up cursor message selection in chat and for scrolling
 - optimization: load messages history per chat, in batches as needed, instead of fetching full list for all at startup
 - chat view: vim motions for textinput (visual/insert mode emulation)
 - implement go-to specific date in chat history

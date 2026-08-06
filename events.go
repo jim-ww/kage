@@ -249,12 +249,17 @@ func stripReplyQuote(body string) string {
 // while Kage additionally exposes it as a downloadable attachment.
 // Also recognizes aesgcm:// URLs (XEP-0454 encrypted file sharing).
 func attachmentURLs(body string) []string {
-	body = strings.TrimSpace(body)
-	if strings.HasPrefix(body, "https://") || strings.HasPrefix(body, "http://") {
-		return []string{body}
+	var urls []string
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		isURL := strings.HasPrefix(line, "https://") || strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "aesgcm://")
+		if !isURL {
+			return nil
+		}
+		urls = append(urls, line)
 	}
-	if strings.HasPrefix(body, "aesgcm://") {
-		return []string{body}
-	}
-	return nil
+	return urls
 }

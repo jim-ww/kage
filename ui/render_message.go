@@ -103,8 +103,12 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		// happened. Original content/attachments remain available in the
 		// info popup (ctrl+i); we never actually erase local history.
 		bodyContent = "*deleted*"
-	} else if len(msg.Attachments) == 1 && strings.TrimSpace(msg.Content) == msg.Attachments[0] {
-		bodyContent = renderAttachmentLine(msg.Attachments[0], m.icons)
+	} else if len(msg.Attachments) > 0 && strings.TrimSpace(msg.Content) == strings.Join(msg.Attachments, "\n") {
+		lines := make([]string, len(msg.Attachments))
+		for i, a := range msg.Attachments {
+			lines[i] = renderAttachmentLine(a, m.icons)
+		}
+		bodyContent = strings.Join(lines, "\n")
 	} else {
 		bodyContent = highlightCodeBlocks(msg.Content)
 	}
