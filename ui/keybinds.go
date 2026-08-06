@@ -34,6 +34,7 @@ type KeyMap struct {
 	ConfirmNo        key.Binding // n / esc — cancel popup
 	AddAccount       key.Binding // a — open the add-account form (only while accounts panel is focused)
 	AttachFile       key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
+	PasteImage       key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
 	RenameChat       key.Binding // r — open the rename-contact prompt for the selected chat
 	ToggleSidebar    key.Binding // Ctrl+\ — show/hide the chat list sidebar
 	DeviceList       key.Binding // Ctrl+Shift+U — view/purge the current account's published OMEMO device list
@@ -106,6 +107,7 @@ var DefaultKeyMap = KeyMap{
 	ConfirmNo:        NewBinding([]string{"n", "esc"}, "no"),
 	AddAccount:       NewBinding([]string{"a"}, "add account"),
 	AttachFile:       NewBinding([]string{"ctrl+f"}, "attach file"),
+	PasteImage:       NewBinding([]string{"ctrl+p"}, "paste image"),
 	RenameChat:       NewBinding([]string{"r"}, "rename chat"),
 	ToggleSidebar:    NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
 	DeviceList:       NewBinding([]string{"ctrl+shift+u"}, "omemo devices"),
@@ -157,7 +159,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.Back, k.Switch, k.ChatOpen, k.SelectSend},
 		{k.MsgUp, k.MsgDown, k.DeleteMsg, k.YankMsg, k.EditMsg, k.ReplyMsg},
 		{k.InfoMsg, k.OpenMsg, k.SaveMsg, k.SaveMsgAs, k.ReactMsg},
-		{k.AddAccount, k.AttachFile, k.RemoveAttachment, k.ClearDraft, k.RenameChat, k.ToggleSidebar, k.DeviceList, k.ContactManager},
+		{k.AddAccount, k.AttachFile, k.PasteImage, k.RemoveAttachment, k.ClearDraft, k.RenameChat, k.ToggleSidebar, k.DeviceList, k.ContactManager},
 		{k.ListKeys.Filter, k.ListKeys.ClearFilter},
 	}
 }
@@ -236,6 +238,7 @@ func (k KeyMap) helpHint(view selectedView, hasPendingAttachments bool) string {
 			part(k.SaveMsg, "save"),
 			part(k.SaveMsgAs, "save as"),
 			part(k.AttachFile, "attach"),
+			part(k.PasteImage, "paste image"),
 			part(k.ClearDraft, "erase draft"),
 		}
 		if hasPendingAttachments {

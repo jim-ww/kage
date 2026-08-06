@@ -41,8 +41,10 @@
           ];
 
           # notify-send (libnotify) is what notifyd shells out to for desktop
-          # notifications — wrap it onto PATH so it's found regardless of
-          # what's installed system-wide.
+          # notifications; wl-paste/xclip back the PasteImage keybind (reads
+          # a clipboard image directly, bypassing the terminal's bracketed
+          # paste — see ui/clipboard_image.go). Wrap them onto PATH so
+          # they're found regardless of what's installed system-wide.
           nativeBuildInputs = [pkgs.makeWrapper];
 
           postInstall = ''
@@ -51,7 +53,7 @@
           '';
 
           postFixup = ''
-            wrapProgram $out/bin/kage --prefix PATH : ${pkgs.lib.makeBinPath [pkgs.libnotify]}
+            wrapProgram $out/bin/kage --prefix PATH : ${pkgs.lib.makeBinPath [pkgs.libnotify pkgs.wl-clipboard pkgs.xclip]}
           '';
         };
 

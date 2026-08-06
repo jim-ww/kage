@@ -132,6 +132,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.setTransferProgress(msg)
 		return m, nil, true
 
+	case clipboardImageResultMsg:
+		if msg.err != nil {
+			return m, m.showNotification("paste image: " + msg.err.Error()), true
+		}
+		m.stageAttachment(msg.path)
+		return m, nil, true
+
 	case ComposedSendResultMsg:
 		for _, path := range msg.Paths {
 			m.clearTransfer(path)

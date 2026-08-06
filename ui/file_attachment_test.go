@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -733,6 +734,137 @@ func TestPastedTextThatIsNotAFilePathGoesToInput(t *testing.T) {
 	m = next.(Model)
 	if m.input.Value() != "hello world" {
 		t.Fatalf("input = %q, want pasted text", m.input.Value())
+	}
+}
+
+func TestLongPastedTextIsStagedAsAttachment(t *testing.T) {
+	m := newTestModel(nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+
+	content := strings.Repeat("x", pasteAsFileThreshold+1)
+	next, _ := m.Update(tea.PasteMsg{Content: content})
+	m = next.(Model)
+
+	if m.input.Value() != "" {
+		t.Fatalf("input = %q, want empty (paste should not land in the textinput)", m.input.Value())
+	}
+	if len(m.pendingAttachments) != 1 {
+		t.Fatalf("got %d pending attachments, want 1", len(m.pendingAttachments))
+	}
+	staged, err := os.ReadFile(m.pendingAttachments[0].path)
+	if err != nil {
+		t.Fatalf("reading staged attachment: %v", err)
+	}
+	if string(staged) != content {
+		t.Fatalf("staged content = %q, want pasted text", string(staged))
+	}
+}
+
+func TestBinaryPastedContentIsStagedAsAttachment(t *testing.T) {
+	m := newTestModel(nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+
+	// A minimal PNG header — short (well under pasteAsFileThreshold) but
+	// invalid UTF-8, mimicking a "copy image" landing in the paste buffer
+	// as raw bytes instead of a file path.
+	content := "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe\xfd"
+	next, _ := m.Update(tea.PasteMsg{Content: content})
+	m = next.(Model)
+
+	if m.input.Value() != "" {
+		t.Fatalf("input = %q, want empty (binary paste should not land in the textinput)", m.input.Value())
+	}
+	if len(m.pendingAttachments) != 1 {
+		t.Fatalf("got %d pending attachments, want 1", len(m.pendingAttachments))
+	}
+	if ext := filepath.Ext(m.pendingAttachments[0].path); ext != ".png" {
+		t.Fatalf("staged attachment extension = %q, want .png", ext)
+	}
+	staged, err := os.ReadFile(m.pendingAttachments[0].path)
+	if err != nil {
+		t.Fatalf("reading staged attachment: %v", err)
+	}
+	if string(staged) != content {
+		t.Fatalf("staged content = %q, want pasted bytes", string(staged))
+	}
+}
+
+func TestPasteImageKeybindStartsClipboardRead(t *testing.T) {
+	m := newTestModel(nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+
+	_, cmd, handled := m.updateKeyMsg(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	if !handled {
+		t.Fatal("ctrl+g was not handled")
+	}
+	if cmd == nil {
+		t.Fatal("ctrl+g did not start a clipboard read command")
+	}
+}
+
+func TestClipboardImageResultStagesAttachment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clip.png")
+	if err := os.WriteFile(path, []byte("fake png bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(nil)
+
+	next, _ := m.Update(clipboardImageResultMsg{path: path})
+	m = next.(Model)
+
+	if len(m.pendingAttachments) != 1 {
+		t.Fatalf("got %d pending attachments, want 1", len(m.pendingAttachments))
+	}
+	if m.pendingAttachments[0].path != path {
+		t.Fatalf("staged path = %q, want %q", m.pendingAttachments[0].path, path)
+	}
+}
+
+func TestClipboardImageResultErrorShowsNotification(t *testing.T) {
+	m := newTestModel(nil)
+
+	next, _ := m.Update(clipboardImageResultMsg{err: fmt.Errorf("no image on clipboard")})
+	m = next.(Model)
+
+	if len(m.pendingAttachments) != 0 {
+		t.Fatal("error result should not stage an attachment")
+	}
+	if !strings.Contains(m.noticeText, "no image on clipboard") {
+		t.Fatalf("notice = %q, want it to mention the error", m.noticeText)
+	}
+}
+
+func TestFirstImageMIMEType(t *testing.T) {
+	list := "text/plain\nimage/jpeg\nimage/png\nUTF8_STRING\n"
+	got, ok := firstImageMIMEType(list)
+	if !ok || got != "image/png" {
+		t.Fatalf("got (%q, %v), want (image/png, true) — png should be preferred", got, ok)
+	}
+
+	list = "text/plain\nimage/jpeg\n"
+	got, ok = firstImageMIMEType(list)
+	if !ok || got != "image/jpeg" {
+		t.Fatalf("got (%q, %v), want (image/jpeg, true) when png isn't offered", got, ok)
+	}
+
+	if _, ok := firstImageMIMEType("text/plain\nUTF8_STRING\n"); ok {
+		t.Fatal("want false when no image/* type is offered")
 	}
 }
 

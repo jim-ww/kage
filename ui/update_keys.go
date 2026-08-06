@@ -321,6 +321,15 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.filePicker.Init(), true
 		}
 
+	case matchesKey(msg, m.keys.PasteImage):
+		if m.selectedView == viewChat {
+			if m.currentChatIndex() < 0 {
+				cmds = append(cmds, m.showNotification("no chat selected"))
+				return m, tea.Batch(cmds...), true
+			}
+			return m, pasteClipboardImage, true
+		}
+
 	// Tab cycles which staged attachment is highlighted (shown "[in
 	// brackets]" above the compose box when more than one is staged) —
 	// checked ahead of Switch, which also binds tab but only acts on

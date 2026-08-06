@@ -1,12 +1,62 @@
 package ui
 
 import (
+	"mime"
+	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
+
+// pasteAsFileThreshold is the length above which a paste into the compose
+// box is treated as file content rather than a chat message: long pastes
+// (logs, code, config dumps) are unreadable and unwieldy inline, so they're
+// staged as an attachment instead of dumped into the textinput.
+const pasteAsFileThreshold = 1000
+
+// pasteLooksBinary reports whether pasted content is raw binary data rather
+// than text — e.g. a "copy image" from a browser landing in the terminal's
+// paste buffer as literal image bytes instead of a file path. Regardless of
+// length, that's never useful typed into the compose box as text.
+func pasteLooksBinary(content string) bool {
+	if !utf8.ValidString(content) {
+		return true
+	}
+	return strings.ContainsRune(content, 0)
+}
+
+// pasteFileExtension sniffs content to pick a file extension for a pasted
+// binary blob, falling back to .bin when the type can't be identified (or
+// isn't registered with a known extension) so the file still opens somehow.
+func pasteFileExtension(content string) string {
+	mimeType := http.DetectContentType([]byte(content))
+	if exts, err := mime.ExtensionsByType(mimeType); err == nil && len(exts) > 0 {
+		return exts[0]
+	}
+	return ".bin"
+}
+
+// writePasteAsFile saves pasted content to a temp file so it can be staged
+// as an attachment the same way a picked/dropped file is. The name is
+// timestamped so repeated large pastes in one session don't collide; binary
+// pastes (e.g. a copied image) get a sniffed extension instead of .txt so
+// the resulting attachment opens in the right viewer.
+func writePasteAsFile(content string) (string, error) {
+	ext := ".txt"
+	if pasteLooksBinary(content) {
+		ext = pasteFileExtension(content)
+	}
+	path := filepath.Join(os.TempDir(), "kage-paste-"+time.Now().Format("20060102-150405.000")+ext)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
 
 // droppedFilePath recognizes bracketed-paste content that is actually a
 // dragged-and-dropped file rather than typed/pasted text: terminals deliver a
@@ -110,6 +160,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				chat, _ := m.currentChat()
 				model, cmd := m.startFileUpload(chat.Address, path)
 				return model, cmd
+			}
+			// A long paste (log dump, code, config) or a binary one (e.g.
+			// an image copied in a browser landing here as raw bytes) is
+			// unreadable and unwieldy inline — stage it as an attachment
+			// instead of inserting it into the compose textinput.
+			if pasteLooksBinary(pasteMsg.Content) || len(pasteMsg.Content) > pasteAsFileThreshold {
+				if path, err := writePasteAsFile(pasteMsg.Content); err == nil {
+					m.stageAttachment(path)
+					return m, nil
+				}
 			}
 		}
 
