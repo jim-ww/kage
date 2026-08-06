@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -61,23 +60,25 @@ func (m *Model) cycleSelectedAttachment() {
 	m.selectedAttachment = (m.selectedAttachment + 1) % len(m.pendingAttachments)
 }
 
-// composeBodyWithAttachments builds the wire body for a message that
-// combines typed text with attachment URLs: text first (if any), then one
-// URL per line, same "body is the URL" convention SendFile already uses for
-// a single attachment — any client renders each linkified URL as its own
-// attachment.
-func composeBodyWithAttachments(text string, urls []string) string {
-	parts := make([]string, 0, len(urls)+1)
-	if text != "" {
-		parts = append(parts, text)
+// composeBodyWithAttachments builds the wire body for a single-attachment
+// message: text first (if any), then the URL on its own line, same "body is
+// the URL" convention SendFile already uses.
+func composeBodyWithAttachments(text string, url string) string {
+	if text == "" {
+		return url
 	}
-	parts = append(parts, urls...)
-	return strings.Join(parts, "\n")
+	return text + "\n" + url
 }
 
-// startAttachedSend uploads every staged attachment and sends one message
-// combining text with all their URLs, as a single Bubble Tea command —
-// uploading (like SendFile) can take a while, so it must not block Update().
+// startAttachedSend uploads every staged attachment and sends each as its
+// own single-attachment message, as a single Bubble Tea command — uploading
+// (like SendFile) can take a while, so it must not block Update(). Multiple
+// files aren't combined into one message: other clients (verified against
+// Dino) only read the first XEP-0066 <x xmlns='jabber:x:oob'>/attachment
+// URL in a message and silently drop the rest, so a "combined" message
+// would only ever show its first file to anyone else. text (if any) goes
+// only on the first message; every message shares reply's ReplyToID, so a
+// multi-file reply threads all of them to the same original message.
 // Nothing is uploaded until this actually runs, i.e. not until the user
 // hits send; staging a file earlier (stageAttachment) never touches the
 // network. reply carries the same reply metadata the text-only send path
@@ -96,31 +97,32 @@ func (m *Model) startAttachedSend(text string, to string, reply SendOptions) tea
 	sender := m.sender
 
 	return func() tea.Msg {
-		urls := make([]string, len(paths))
+		result := ComposedSendResultMsg{AccountIdx: accountIdx, To: to, ReplyToID: reply.ReplyToID}
 		for i, path := range paths {
-			result, ok := fileSender.UploadFile(accountIdx, to, path).(FileUploadResultMsg)
+			upload, ok := fileSender.UploadFile(accountIdx, to, path).(FileUploadResultMsg)
 			if !ok {
-				return ComposedSendResultMsg{AccountIdx: accountIdx, To: to, Err: fmt.Errorf("uploading %s: unexpected result", filepath.Base(path))}
+				result.Err = fmt.Errorf("uploading %s: unexpected result", filepath.Base(path))
+				return result
 			}
-			if result.Err != nil {
-				return ComposedSendResultMsg{AccountIdx: accountIdx, To: to, Err: fmt.Errorf("uploading %s: %w", filepath.Base(path), result.Err)}
+			if upload.Err != nil {
+				result.Err = fmt.Errorf("uploading %s: %w", filepath.Base(path), upload.Err)
+				return result
 			}
-			urls[i] = result.URL
-		}
 
-		body := composeBodyWithAttachments(text, urls)
-		reply.OOBURLs = urls
-		id, err := sender.Send(accountIdx, to, body, reply)
-		if err != nil {
-			return ComposedSendResultMsg{AccountIdx: accountIdx, To: to, Err: err}
+			msgText := ""
+			if i == 0 {
+				msgText = text
+			}
+			body := composeBodyWithAttachments(msgText, upload.URL)
+			sendOpts := reply
+			sendOpts.OOBURLs = []string{upload.URL}
+			id, err := sender.Send(accountIdx, to, body, sendOpts)
+			if err != nil {
+				result.Err = fmt.Errorf("sending %s: %w", filepath.Base(path), err)
+				return result
+			}
+			result.Messages = append(result.Messages, SentMessage{ID: id, Content: body, Attachments: []string{upload.URL}})
 		}
-		return ComposedSendResultMsg{
-			AccountIdx:  accountIdx,
-			To:          to,
-			ID:          id,
-			Content:     body,
-			Attachments: urls,
-			ReplyToID:   reply.ReplyToID,
-		}
+		return result
 	}
 }

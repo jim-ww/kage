@@ -115,19 +115,28 @@ type FileUploadResultMsg struct {
 }
 
 // ComposedSendResultMsg reports completion of startAttachedSend: uploading
-// every staged attachment and sending the combined text+attachments message.
-// On success it's added to the chat exactly like a fresh outgoing message;
-// on failure nothing is added (the user's text and attachments are gone —
-// same tradeoff FileSendResultMsg already makes rather than trying to
-// restore compose state after an async round trip).
+// every staged attachment and sending each as its own single-attachment
+// message (see startAttachedSend for why - multi-attachment-per-message
+// isn't reliably understood by other clients), all sharing ReplyToID.
+// Messages holds every one that made it out before Err (if any) aborted the
+// rest - a failure partway through still leaves whatever already sent
+// reflected in the chat, matching what's actually on the wire. On total
+// failure (nothing sent) nothing is added, same tradeoff FileSendResultMsg
+// already makes rather than trying to restore compose state after an async
+// round trip.
 type ComposedSendResultMsg struct {
-	AccountIdx  int
-	To          string
+	AccountIdx int
+	To         string
+	ReplyToID  string // non-empty if this was sent in reply to a message
+	Messages   []SentMessage
+	Err        error
+}
+
+// SentMessage is one message startAttachedSend successfully sent.
+type SentMessage struct {
 	ID          string
 	Content     string
 	Attachments []string
-	ReplyToID   string // non-empty if this was sent in reply to a message
-	Err         error
 }
 
 // IncomingMessageMsg is sent into the Bubble Tea loop when a message arrives

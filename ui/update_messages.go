@@ -117,8 +117,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, m.showNotification("saved " + msg.path), true
 
 	case ComposedSendResultMsg:
-		if msg.Err != nil {
-			return m, m.showNotification("send failed: " + msg.Err.Error()), true
+		if len(msg.Messages) == 0 {
+			if msg.Err != nil {
+				return m, m.showNotification("send failed: " + msg.Err.Error()), true
+			}
+			return m, nil, true
 		}
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
 		if chatIdx < 0 {
@@ -128,27 +131,35 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
 		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
-		newMsg := Message{
-			ID:          msg.ID,
-			Author:      "me",
-			Content:     msg.Content,
-			SentAt:      time.Now(),
-			IsMe:        true,
-			Attachments: msg.Attachments,
+		var lastContent string
+		for _, sent := range msg.Messages {
+			newMsg := Message{
+				ID:          sent.ID,
+				Author:      "me",
+				Content:     sent.Content,
+				SentAt:      time.Now(),
+				IsMe:        true,
+				Attachments: sent.Attachments,
+			}
+			if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
+				newMsg.ReplyTo = &replyIdx
+			}
+			msgs = append(msgs, newMsg)
+			lastContent = newMsg.Content
 		}
-		if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
-			newMsg.ReplyTo = &replyIdx
-		}
-		msgs = append(msgs, newMsg)
 		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
-		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, newMsg.Content)
+		var cmds []tea.Cmd
+		cmds = append(cmds, m.setChatLastMessage(msg.AccountIdx, chatIdx, lastContent))
+		if msg.Err != nil {
+			cmds = append(cmds, m.showNotification("send failed: "+msg.Err.Error()))
+		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
-		return m, cmd, true
+		return m, tea.Batch(cmds...), true
 
 	case FileSendResultMsg:
 		if msg.Err != nil {

@@ -11,6 +11,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+type sendCall struct {
+	body string
+	opts SendOptions
+}
+
 type fakeFileSender struct {
 	path string
 	opts SendOptions
@@ -19,11 +24,22 @@ type fakeFileSender struct {
 	// uploadErr is set, in which case it's returned as the error instead.
 	uploadURL string
 	uploadErr error
+
+	// sendCalls records every Send call, in order, for tests that need to
+	// verify per-message behavior (e.g. one Send per staged attachment).
+	sendCalls []sendCall
+	sendIDs   []string // returned by Send, one per call, cycling if shorter than the number of calls
 }
 
-func (f *fakeFileSender) Send(int, string, string, SendOptions) (string, error) { return "", nil }
-func (f *fakeFileSender) SetTyping(int, string, bool) error                     { return nil }
-func (f *fakeFileSender) MarkRetracted(int, string, string) error               { return nil }
+func (f *fakeFileSender) Send(_ int, _ string, body string, opts SendOptions) (string, error) {
+	f.sendCalls = append(f.sendCalls, sendCall{body: body, opts: opts})
+	if len(f.sendIDs) == 0 {
+		return "", nil
+	}
+	return f.sendIDs[(len(f.sendCalls)-1)%len(f.sendIDs)], nil
+}
+func (f *fakeFileSender) SetTyping(int, string, bool) error       { return nil }
+func (f *fakeFileSender) MarkRetracted(int, string, string) error { return nil }
 func (f *fakeFileSender) SendFile(_ int, to, path string, opts SendOptions) tea.Msg {
 	f.path = path
 	f.opts = opts
@@ -270,6 +286,80 @@ func TestSendWithAttachmentAndReplyCombinesIntoOneMessage(t *testing.T) {
 	}
 	if !strings.Contains(sent.Content, "check this out") || !strings.Contains(sent.Content, "https://upload.example.test/report.pdf") {
 		t.Fatalf("sent message Content = %q, want text and attachment URL both present", sent.Content)
+	}
+}
+
+// TestMultiAttachmentSendSplitsIntoSeparateMessages verifies staging several
+// files sends one message per file (not one message combining every
+// attachment) - other clients (verified against Dino's source) only read
+// the first attachment URL in a message and silently drop the rest, so a
+// combined multi-attachment message would only ever show its first file
+// elsewhere. Text goes on the first message only; every message shares the
+// same reply target.
+func TestMultiAttachmentSendSplitsIntoSeparateMessages(t *testing.T) {
+	dir := t.TempDir()
+	pathA := filepath.Join(dir, "a.jpg")
+	pathB := filepath.Join(dir, "b.png")
+	for _, p := range []string{pathA, pathB} {
+		if err := os.WriteFile(p, []byte("contents"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sender := &fakeFileSender{sendIDs: []string{"msg-a", "msg-b"}}
+	m := newTestModelWithSender(sender, nil)
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{
+		Chats: []list.Item{chat},
+		Messages: map[int][]Message{
+			0: {{ID: "orig-id", Author: "Bob", Content: "hi there"}},
+		},
+	}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 0
+	m.replyToIdx = 0
+	m.stageAttachment(pathA)
+	m.stageAttachment(pathB)
+
+	m.input.SetValue("check these out")
+	sendCmd := m.sendCurrentInput()
+	if sendCmd == nil {
+		t.Fatal("sendCurrentInput returned nil, want the async upload+send command")
+	}
+
+	result := sendCmd()
+	if len(sender.sendCalls) != 2 {
+		t.Fatalf("got %d Send calls, want 2 (one per staged attachment)", len(sender.sendCalls))
+	}
+	first, second := sender.sendCalls[0], sender.sendCalls[1]
+	if !strings.Contains(first.body, "check these out") {
+		t.Fatalf("first message body = %q, want the typed text", first.body)
+	}
+	if strings.Contains(second.body, "check these out") {
+		t.Fatalf("second message body = %q, want no typed text (only the first message carries it)", second.body)
+	}
+	if first.opts.ReplyToID != "orig-id" || second.opts.ReplyToID != "orig-id" {
+		t.Fatalf("ReplyToID = %q / %q, want both %q", first.opts.ReplyToID, second.opts.ReplyToID, "orig-id")
+	}
+	if len(first.opts.OOBURLs) != 1 || len(second.opts.OOBURLs) != 1 {
+		t.Fatalf("each Send call should carry exactly one OOB URL, got %v / %v", first.opts.OOBURLs, second.opts.OOBURLs)
+	}
+
+	next, _ := m.Update(result)
+	m = next.(Model)
+
+	msgs := m.accounts[0].Messages[0]
+	if len(msgs) != 3 { // original + 2 sent
+		t.Fatalf("got %d messages, want 3", len(msgs))
+	}
+	for _, sent := range msgs[1:] {
+		if sent.ReplyTo == nil || *sent.ReplyTo != 0 {
+			t.Fatalf("sent message ReplyTo = %v, want pointer to 0", sent.ReplyTo)
+		}
+		if len(sent.Attachments) != 1 {
+			t.Fatalf("sent message Attachments = %#v, want exactly one", sent.Attachments)
+		}
 	}
 }
 

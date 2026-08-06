@@ -2,6 +2,7 @@
                    │                ratchet decrypt: no message key is
                    │                cached for this message]
 
+- in devices show proper OMEMO fingerprint
 - regular URLs in message body must not show as attachments
 - plaintext attachments must be downloaded first and open in appropriate programs, not in browser (they all start with https://...)
 - on multi-attachment messages, should show normalized name in open selector
