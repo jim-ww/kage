@@ -369,8 +369,22 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	sess.roster.Store(&merged)
 
 	resyncPeerDeviceLists(ctx, sess, merged)
+	probeRosterPresence(ctx, client, merged)
 
 	return newChats, newMessages, newHistoryMore, nil
+}
+
+// probeRosterPresence explicitly re-requests presence for every roster
+// contact on connect instead of trusting the server's initial-presence-burst
+// push to have reached us - see Client.ProbePresence. Best-effort: a probe
+// failure just leaves that contact at its last-known (possibly stale)
+// presence, same as before this existed.
+func probeRosterPresence(ctx context.Context, client *xmpp.Client, roster map[string]rosterEntry) {
+	for peerJID := range roster {
+		if err := client.ProbePresence(ctx, peerJID); err != nil {
+			slog.Debug("probing presence on connect", "peer", peerJID, "err", err)
+		}
+	}
 }
 
 // resyncPeerDeviceLists re-fetches every roster contact's OMEMO device list
@@ -475,6 +489,7 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 					}
 				}
 				s.client.Store(client)
+				probeRosterPresence(ctx, client, derefRoster(s.roster.Load()))
 				slog.Debug("account reconnected", "jid", s.account.JID)
 				return
 			}

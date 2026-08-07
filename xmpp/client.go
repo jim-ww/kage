@@ -232,6 +232,21 @@ func (c *Client) ApproveSubscription(ctx context.Context, addr string) error {
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.SubscribedPresence, To: j.Bare()}.Wrap(nil))
 }
 
+// ProbePresence asks addr's server to resend its current presence. Presence
+// is otherwise only ever learned passively - the server's own initial-
+// presence-burst push, sent once when we first go available - so a burst
+// missed for any reason (a race with our own startup, a server that treats
+// it as best-effort) leaves that contact looking permanently offline until
+// they happen to change status again. A probe is a direct, idempotent way to
+// re-request it rather than trusting that push alone.
+func (c *Client) ProbePresence(ctx context.Context, addr string) error {
+	j, err := jid.Parse(addr)
+	if err != nil {
+		return fmt.Errorf("parsing JID %q: %w", addr, err)
+	}
+	return c.session.Send(ctx, stanza.Presence{Type: stanza.ProbePresence, To: j.Bare()}.Wrap(nil))
+}
+
 // RemoveContact removes addr from the roster and cancels both halves of the
 // subscription: unsubscribe (we stop receiving addr's presence) and
 // unsubscribed (addr stops receiving ours) — a roster delete alone leaves
