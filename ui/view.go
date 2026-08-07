@@ -493,10 +493,18 @@ func (m Model) renderOpenPopup() string {
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
+// renderFilePickerPopup marks each rendered row of the file picker with its
+// own zone (zoneFilePickerRow) so handleLeftClick can turn a click into the
+// right number of synthetic up/down key presses — the picker's selection
+// index isn't exported, so there's no other way to tell it "select row 3".
 func (m Model) renderFilePickerPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
-	body := m.styles.listPopup("Attach file — "+m.filePicker.CurrentDirectory, []string{m.filePicker.View()}, "[enter] open/select  ·  [esc] cancel")
+	lines := strings.Split(m.filePicker.View(), "\n")
+	for i, line := range lines {
+		lines[i] = m.zone.Mark(zoneFilePickerRow(i), line)
+	}
+	body := m.styles.listPopup("Attach file — "+m.filePicker.CurrentDirectory, []string{strings.Join(lines, "\n")}, "[enter] open/select  ·  [esc] cancel")
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

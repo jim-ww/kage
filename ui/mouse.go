@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -33,6 +34,7 @@ const (
 // compose box's cursor (and so its internal viewport) by.
 const inputWheelScrollLines = 2
 
+func zoneFilePickerRow(i int) string     { return fmt.Sprintf("file-picker-row-%d", i) }
 func zoneAccountRow(i int) string        { return fmt.Sprintf("account-row-%d", i) }
 func zoneChatItem(i int) string          { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string           { return fmt.Sprintf("msg-%d", i) }
@@ -223,6 +225,10 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.contextMenu != nil {
 		return m.handleContextMenuClick(msg)
+	}
+
+	if m.pickingFile {
+		return m.handleFilePickerClick(msg)
 	}
 
 	if m.showMsgInfo {
@@ -510,6 +516,67 @@ func (m *Model) selectChatItem(i int) {
 	m.viewport.GotoBottom()
 }
 
+// filePickerCursorRow scans the file picker's rendered lines (one per
+// zoneFilePickerRow) and returns the row currently holding the cursor glyph,
+// or -1 if none does (e.g. an empty directory). The picker's selected index
+// isn't exported, so this is the only way to locate it from the outside.
+func filePickerCursorRow(lines []string, cursor string) int {
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimLeft(ansi.Strip(line), " "), cursor) {
+			return i
+		}
+	}
+	return -1
+}
+
+// handleFilePickerClick turns a click on a file-picker row into synthetic
+// up/down key presses that walk the picker's cursor to that row — the
+// picker's selection index isn't exported, so this is the only way to move
+// it to an arbitrary row from outside. Sent as a tea.Sequence so they're
+// applied one at a time, in order, through the normal pickingFile key
+// interception in update_keys.go (which already knows how to stage a
+// selected file) rather than duplicating that logic here. A second click on
+// the already-selected row within the double-click window also opens it.
+func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if msg.Mouse().Button != tea.MouseLeft {
+		return m, nil
+	}
+
+	lines := strings.Split(m.filePicker.View(), "\n")
+	targetRow := -1
+	for i := range lines {
+		if m.zone.Get(zoneFilePickerRow(i)).InBounds(msg) {
+			targetRow = i
+			break
+		}
+	}
+	if targetRow < 0 {
+		return m, nil
+	}
+
+	cursorRow := filePickerCursorRow(lines, m.filePicker.Cursor)
+
+	clickTime := time.Now()
+	isDoubleClick := m.lastFilePickerRow == targetRow && !m.lastFilePickerTime.IsZero() && clickTime.Sub(m.lastFilePickerTime) < 500*time.Millisecond
+	m.lastFilePickerRow = targetRow
+	m.lastFilePickerTime = clickTime
+
+	var cmds []tea.Cmd
+	if cursorRow >= 0 {
+		step := tea.KeyPressMsg{Code: tea.KeyDown}
+		if targetRow < cursorRow {
+			step = tea.KeyPressMsg{Code: tea.KeyUp}
+		}
+		for range max(targetRow, cursorRow) - min(targetRow, cursorRow) {
+			cmds = append(cmds, func() tea.Msg { return step })
+		}
+	}
+	if isDoubleClick {
+		cmds = append(cmds, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} })
+	}
+	return m, tea.Sequence(cmds...)
+}
+
 // handleMouseWheel scrolls whichever pane the wheel event landed over: the
 // chat list in the sidebar, or the message viewport. Swallowed entirely
 // while a context menu is open, so it can't scroll what's underneath it.
@@ -519,6 +586,16 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 
 	mouse := msg.Mouse()
+
+	if m.pickingFile {
+		key := tea.KeyPressMsg{Code: tea.KeyDown}
+		if mouse.Button == tea.MouseWheelUp {
+			key = tea.KeyPressMsg{Code: tea.KeyUp}
+		}
+		var cmd tea.Cmd
+		m.filePicker, cmd = m.filePicker.Update(key)
+		return m, cmd
+	}
 
 	if m.zone.Get(zonePaneSidebar).InBounds(msg) {
 		switch mouse.Button {
