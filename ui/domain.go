@@ -52,6 +52,24 @@ type Message struct {
 	// exclude it from unread counting: opening the chat will never reveal
 	// anything more, so it shouldn't inflate the badge.
 	DecryptFailed bool
+
+	// CallLog is set when this row is a call-log entry (a finished voice
+	// call recorded into the chat timeline, like a phone app's call
+	// history) rather than an ordinary sent/received message. nil for
+	// every normal message.
+	CallLog *CallLogInfo
+}
+
+// CallLogInfo describes a finished voice call recorded into a chat's
+// timeline as a Message with CallLog set.
+type CallLogInfo struct {
+	// Direction is "incoming" or "outgoing".
+	Direction string
+	// Outcome is "answered", "missed", "declined", or "failed".
+	Outcome string
+	// Duration is the call's connected duration. Zero unless Outcome is
+	// "answered".
+	Duration time.Duration
 }
 
 // Reaction is one distinct emoji's aggregate state on a message.

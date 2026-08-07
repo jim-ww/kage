@@ -506,6 +506,68 @@ type DraftSaver interface {
 	SaveDraft(accountJID, chatAddress, text string) error
 }
 
+// CallController drives the daemon's voice call state machine
+// (callsession.go) for an account: placing/accepting/ending a XEP-0166/0167
+// call, implemented outside ui (main.go's adapter/ipcClient) so ui stays
+// decoupled from the XMPP/Jingle layers. Each call is a network round trip
+// through IPC to the daemon, so — like ContactManager.AddContact/RemoveContact
+// — these return tea.Msg rather than blocking Update synchronously.
+type CallController interface {
+	StartCall(accountIdx int, to string) tea.Msg
+	AnswerCall(accountIdx int) tea.Msg
+	HangupCall(accountIdx int) tea.Msg
+	RejectCall(accountIdx int) tea.Msg
+	MuteCall(accountIdx int, muted bool) tea.Msg
+}
+
+// CallActionResultMsg reports the result of a CallController method call
+// (StartCall/AnswerCall/HangupCall/RejectCall) failing to even reach or be
+// accepted by the daemon — the call's actual state transitions arrive
+// separately via CallStateMsg/IncomingCallMsg, broadcast from the daemon's
+// own call state machine regardless of which side is driving it.
+type CallActionResultMsg struct {
+	Action     string // "start", "answer", "hangup", "reject" — which method produced this
+	AccountIdx int
+	Err        error
+}
+
+// IncomingCallMsg is sent into the Bubble Tea loop when a peer proposes a
+// voice call (XEP-0353) to one of the configured accounts. The daemon has
+// already answered <ringing/>; nothing further happens until the UI drives
+// CallController.AnswerCall or RejectCall.
+type IncomingCallMsg struct {
+	AccountIdx int
+	From       string // bare JID
+	SID        string
+	Media      string // "audio"
+}
+
+// CallStateMsg is sent into the Bubble Tea loop on every transition of an
+// account's current call (see callState.String in callsession.go for the
+// State values: "proposing", "ringing-remote", "ringing-local",
+// "negotiating", "connected", "ended", plus "failed" for an error teardown).
+// Reason is free text to show alongside a terminal state. Muted/Quality ride
+// along on every broadcast (not just ones that changed them), so they're
+// always current regardless of what else transitioned.
+type CallStateMsg struct {
+	AccountIdx int
+	Peer       string // bare JID
+	SID        string
+	State      string
+	Reason     string
+	Muted      bool
+	Quality    string // "", "good", "fair", "poor"
+}
+
+// MissedCallMsg is sent when a peer proposed a call while this account
+// already had one in progress — the daemon auto-rejected it (no call waiting
+// in this slice) and this is the UI's only signal that it happened.
+type MissedCallMsg struct {
+	AccountIdx int
+	From       string // bare JID
+	SID        string
+}
+
 type noticeClearMsg struct {
 	id int
 }

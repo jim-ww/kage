@@ -12,7 +12,11 @@ func (m *Model) setSelectedView(v selectedView) {
 
 func (m *Model) updateSizes() {
 	fl := footerLineCount(m.keys.helpHint(m.selectedView, len(m.pendingAttachments) > 0), max(1, m.width-2), footerMaxLines)
-	m.height = max(0, m.termHeight-fl-footerMarginTop)
+	callBar := 0
+	if m.callBarActive() {
+		callBar = callBarHeight
+	}
+	m.height = max(0, m.termHeight-fl-footerMarginTop-callBar)
 
 	// Apply any user-dragged compose height (see zonePaneInput in
 	// ui/mouse.go) as the textarea's floor before SetWidth below triggers

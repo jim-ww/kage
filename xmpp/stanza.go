@@ -32,6 +32,18 @@ type messageBody struct {
 	// carry more than one when several files are shared together.
 	OOB []oobElem `xml:"jabber:x:oob x"`
 
+	// XEP-0353 Jingle Message Initiation: the pre-session call signaling that
+	// rides on <message/> rather than IQs. At most one is set, same
+	// one-field-per-element convention as the chat states below. Sending
+	// goes through jmiMessage in jingle.go instead; these exist so incoming
+	// ones are decoded by the single pass handleStanza already makes.
+	JMIPropose *jmiProposeElem `xml:"urn:xmpp:jingle-message:0 propose"`
+	JMIRinging *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 ringing"`
+	JMIProceed *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 proceed"`
+	JMIReject  *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 reject"`
+	JMIAccept  *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 accept"`
+	JMIRetract *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 retract"`
+
 	// XEP-0184 message delivery receipts: Request marks an outgoing message
 	// as wanting a receipt; Received is the receipt itself, naming the id of
 	// the message it acknowledges.

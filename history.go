@@ -24,19 +24,23 @@ const meReactorJID = "me"
 // (differently-shaped, sqlc-generated) row types so the decrypt/build logic
 // below isn't duplicated per query.
 type historyRow struct {
-	ID            int64
-	Sent          bool
-	Idattr        sql.NullString
-	Body          sql.NullString
-	Encrypted     bool
-	E2eencrypted  bool
-	E2eemethod    sql.NullString
-	Delay         int64
-	Replytoidattr sql.NullString
-	Retracted     bool
-	Edited        bool
-	Delivered     bool
-	Ooburls       sql.NullString
+	ID               int64
+	Sent             bool
+	Idattr           sql.NullString
+	Body             sql.NullString
+	Encrypted        bool
+	E2eencrypted     bool
+	E2eemethod       sql.NullString
+	Delay            int64
+	Replytoidattr    sql.NullString
+	Retracted        bool
+	Edited           bool
+	Delivered        bool
+	Ooburls          sql.NullString
+	Stanzatype       string
+	Calldirection    sql.NullString
+	Calloutcome      sql.NullString
+	Calldurationsecs sql.NullInt64
 }
 
 // readStoredBody returns row's plaintext body, decrypting it if row.Encrypted
@@ -77,6 +81,21 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 	msgs := make([]ui.Message, 0, len(rows))
 	replyTo := make([]string, 0, len(rows)) // parallel to msgs: each entry's ReplyToIdAttr, resolved to an index below
 	for _, row := range rows {
+		if row.Stanzatype == "call" {
+			msgs = append(msgs, ui.Message{
+				ID:     row.Idattr.String,
+				Author: chatName,
+				SentAt: time.Unix(row.Delay, 0),
+				IsMe:   row.Sent,
+				CallLog: &ui.CallLogInfo{
+					Direction: row.Calldirection.String,
+					Outcome:   row.Calloutcome.String,
+					Duration:  time.Duration(row.Calldurationsecs.Int64) * time.Second,
+				},
+			})
+			replyTo = append(replyTo, "")
+			continue
+		}
 		if !row.Body.Valid {
 			continue
 		}
@@ -154,6 +173,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 			Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
 			Edited: r.Edited, Delivered: r.Delivered, Ooburls: r.Ooburls,
+			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 		}
 	}
 	return buildMessages(ctx, s, chatAddr, chatName, hrows)
@@ -211,6 +231,7 @@ func loadHistoryPage(ctx context.Context, s *accountSession, chatAddr, chatName 
 			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
 			Edited: r.Edited, Delivered: r.Delivered, Ooburls: r.Ooburls,
+			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 		}
 	}
 	if len(rows) > 0 {

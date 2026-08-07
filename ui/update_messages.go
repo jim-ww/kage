@@ -657,6 +657,30 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case IncomingCallMsg:
+		model, cmd := m.handleIncomingCallMsg(msg)
+		return model, cmd, true
+
+	case CallStateMsg:
+		model, cmd := m.handleCallStateMsg(msg)
+		return model, cmd, true
+
+	case callClearMsg:
+		if m.call != nil && m.call.accountIdx == msg.accountIdx && m.call.gen == msg.gen {
+			m.call = nil
+			m.updateSizes()
+		}
+		return m, nil, true
+
+	case CallActionResultMsg:
+		if msg.Err != nil {
+			return m, m.showNotification("call " + msg.Action + " failed: " + msg.Err.Error()), true
+		}
+		return m, nil, true
+
+	case MissedCallMsg:
+		return m, m.showNotification("missed call from " + msg.From + " (busy)"), true
+
 	case PresenceMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {

@@ -67,6 +67,11 @@ type accountSession struct {
 	// in result set" or "no message key is cached" instead of finding the
 	// row the first decrypt is about to insert.
 	omemoMu sync.Mutex
+
+	// callMu guards call, the one voice call this account can have in flight
+	// (see callsession.go). One at a time is enough: there's no call waiting.
+	callMu sync.Mutex
+	call   *callSession
 }
 
 // rosterEntry is a contact's cached roster state, refreshed at connect time
@@ -532,6 +537,12 @@ func listen(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSess
 			continue
 		case xmpp.MessageEvent:
 			handleIncomingMessage(ctx, srv, accountIdx, s, ev)
+		case xmpp.JingleMessageEvent:
+			s.handleJingleMessage(ctx, srv, accountIdx, ev)
+			continue
+		case xmpp.JingleEvent:
+			s.handleJingle(ctx, srv, accountIdx, ev)
+			continue
 		case xmpp.ChatStateEvent:
 			broadcast(srv, evTyping, ui.TypingMsg{
 				AccountIdx: accountIdx,

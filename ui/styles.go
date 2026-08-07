@@ -11,6 +11,10 @@ import (
 const (
 	sidebarStatusHeight = 2
 	chatStatusHeight    = 1
+	// callBarHeight is the persistent call bar's row count — only reserved
+	// in updateSizes while callBarActive() (see layout.go), so idle layout
+	// is unaffected.
+	callBarHeight = 1
 	// footerMaxLines caps the key-hint footer to a single row — bindings that
 	// don't fit are dropped with an ellipsis rather than wrapping, so the
 	// footer's height (and so the rest of the layout) never shifts. Ctrl+?
@@ -51,6 +55,7 @@ type uiStyles struct {
 	attachButton          lipgloss.Style
 	contextMenuItem       lipgloss.Style
 	contextMenuItemHover  lipgloss.Style
+	callBar               lipgloss.Style
 }
 
 func newUIStyles(theme Theme) uiStyles {
@@ -120,6 +125,14 @@ func newUIStyles(theme Theme) uiStyles {
 		footer: lipgloss.NewStyle().
 			Foreground(colors.time).
 			Padding(0, 1),
+		// callBar mirrors footer's plain look — it sits in the same kind of
+		// fixed layout row, just with an accent background so an in-progress
+		// call reads as a persistent status, not another hint line.
+		callBar: lipgloss.NewStyle().
+			Foreground(colors.appBg).
+			Background(colors.accentCyan).
+			Padding(0, 1).
+			Bold(true),
 		accountNormal: lipgloss.NewStyle().
 			Foreground(colors.themFg).
 			PaddingLeft(1),
@@ -375,6 +388,24 @@ func (s uiStyles) popupDialog(border color.Color, content string) string {
 
 func (s uiStyles) footerBar(width int, content string) string {
 	return s.footer.Width(width).Render(content)
+}
+
+func (s uiStyles) callBarLine(width int, content string) string {
+	return s.callBar.Width(width).Render(content)
+}
+
+// renderCallBarButton renders one of the call bar's [key] label buttons —
+// same small hover-reversed pattern as renderStoragePasswordButton, just
+// against callBar's background instead of the account bar's.
+func (s uiStyles) renderCallBarButton(label string, hovered bool) string {
+	st := lipgloss.NewStyle().
+		Foreground(s.colors.appBg).
+		Background(s.colors.accentCyan).
+		Bold(true)
+	if hovered {
+		st = st.Reverse(true)
+	}
+	return st.Render(label)
 }
 
 func (s uiStyles) renderAccountRow(name string, selected, hovered bool) string {

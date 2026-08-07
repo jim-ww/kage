@@ -75,7 +75,8 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 		return nil, fmt.Errorf("dialing %s: %w", j, err)
 	}
 
-	c := &Client{JID: j, session: session, events: make(chan Event, 32), discoMux: newDiscoMux()}
+	c := &Client{JID: j, session: session, events: make(chan Event, 32)}
+	c.discoMux = newDiscoMux(c.handleJingleIQ)
 	go c.serve()
 
 	// Advertise our features via XEP-0115 entity capabilities on the initial

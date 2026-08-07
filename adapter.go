@@ -946,3 +946,55 @@ func (a *adapter) UploadFile(accountIdx int, to, path string) tea.Msg {
 	result.URL = url
 	return result
 }
+
+// --- voice calls (XEP-0166/0167/0176/0353, see callsession.go) ---
+//
+// Blocking-in-the-RPC-handler is fine here for the same reason SetTyping is:
+// each of these only builds and writes one stanza. The slow parts (ICE
+// gathering, DTLS, audio) happen on the call's own goroutines and report
+// back via evCallState broadcasts.
+
+// StartCall places an outgoing voice call from accountIdx to "to".
+func (a *adapter) StartCall(accountIdx int, to string) error {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return sess.startCall(context.Background(), a.srv, accountIdx, to)
+}
+
+// AnswerCall accepts the call currently ringing on accountIdx.
+func (a *adapter) AnswerCall(accountIdx int) error {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return sess.answerCall(context.Background())
+}
+
+// HangupCall ends accountIdx's current call from our side.
+func (a *adapter) HangupCall(accountIdx int) error {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return sess.hangupCall(context.Background())
+}
+
+// RejectCall declines the call currently ringing on accountIdx.
+func (a *adapter) RejectCall(accountIdx int) error {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return sess.rejectCall(context.Background())
+}
+
+// MuteCall sets or clears the local mic mute on accountIdx's current call.
+func (a *adapter) MuteCall(accountIdx int, muted bool) error {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return sess.muteCall(muted)
+}

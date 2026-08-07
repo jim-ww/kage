@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -80,13 +81,25 @@ func (m Model) View() tea.View {
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea)
 	footerText := wrapFooterHint(m.keys.helpHint(m.selectedView, len(m.pendingAttachments) > 0), max(1, m.width-2), footerMaxLines)
 	footer := m.styles.footerBar(m.width, footerText)
-	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, mainRow, "", footer))
+	rootRows := []string{mainRow}
+	if m.callBarActive() {
+		// A real, fixed layout row (not the toast overlay below) — only
+		// present at all while a call is active, so idle layout is exactly
+		// as before this existed. Reserved in updateSizes (callBarHeight).
+		rootRows = append(rootRows, m.renderCallBar(m.width))
+	}
+	rootRows = append(rootRows, "", footer)
+	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, rootRows...))
 
 	rendered := m.zone.Scan(root)
+	var toastLines []string
 	if transferLines := m.renderTransferLines(); len(transferLines) > 0 {
-		rendered = overlayBottomRight(rendered, m.styles.noticeToast(m.width, strings.Join(transferLines, "\n")))
+		toastLines = transferLines
 	} else if m.noticeText != "" {
-		rendered = overlayBottomRight(rendered, m.styles.noticeToast(m.width, m.noticeText))
+		toastLines = append(toastLines, m.noticeText)
+	}
+	if len(toastLines) > 0 {
+		rendered = overlayBottomRight(rendered, m.styles.noticeToast(m.width, strings.Join(toastLines, "\n")))
 	}
 
 	v := tea.NewView(rendered)
@@ -196,6 +209,62 @@ func (m Model) renderChatArea(colors uiColors) string {
 		m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
+}
+
+// renderCallBar builds the persistent call status bar row: plain status text
+// plus real clickable [key] label buttons (zoneCallAnswer/Reject/Mute/Hangup)
+// for whichever actions apply to the current call state — mirrors the
+// zoneSendButton pattern (m.zone.Mark around a styles.render* button,
+// hover-highlighted via m.isHovered). "" when there's no call to show,
+// matching callBarActive so View() only reserves space for it when needed.
+func (m Model) renderCallBar(width int) string {
+	if m.call == nil {
+		return ""
+	}
+	switch m.call.state {
+	case "ringing-local":
+		text := "📞 incoming call: " + m.call.peer + "   "
+		answer := m.zone.Mark(zoneCallAnswer, m.styles.renderCallBarButton("[y] answer", m.isHovered(zoneCallAnswer)))
+		reject := m.zone.Mark(zoneCallReject, m.styles.renderCallBarButton("[n] reject", m.isHovered(zoneCallReject)))
+		return m.styles.callBarLine(width, text+answer+"  "+reject)
+
+	case "proposing", "ringing-remote", "negotiating":
+		verb := "calling"
+		if m.call.state == "negotiating" {
+			verb = "connecting to"
+		}
+		text := "📞 " + verb + " " + m.call.peer + "...   "
+		hangup := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
+		return m.styles.callBarLine(width, text+hangup)
+
+	case "connected":
+		dur := "00:00"
+		if !m.call.startedAt.IsZero() {
+			dur = formatCallDuration(time.Since(m.call.startedAt))
+		}
+		mic := "🎤 unmuted"
+		muteLabel := "[m] mute"
+		if m.call.muted {
+			mic = "🎤 muted"
+			muteLabel = "[m] unmute"
+		}
+		quality := "📶 …"
+		if m.call.quality != "" {
+			quality = "📶 " + m.call.quality
+		}
+		text := "📞 " + m.call.peer + "  " + dur + "  " + mic + "  " + quality + "   "
+		muteBtn := m.zone.Mark(zoneCallMute, m.styles.renderCallBarButton(muteLabel, m.isHovered(zoneCallMute)))
+		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
+		return m.styles.callBarLine(width, text+muteBtn+"  "+hangupBtn)
+
+	case "ended", "failed":
+		// Terminal state: nothing left to click, just the plain self-clearing
+		// text (callClearMsg drops m.call shortly after — see call.go).
+		return m.styles.callBarLine(width, m.callBarLine())
+
+	default:
+		return ""
+	}
 }
 
 // overlayBottomRight splices toast on top of base, anchored a small margin

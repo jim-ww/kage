@@ -71,27 +71,30 @@ type Localkeysalt struct {
 }
 
 type Message struct {
-	ID            int64          `db:"id"`
-	Accountjid    string         `db:"accountjid"`
-	Sent          bool           `db:"sent"`
-	Toattr        sql.NullString `db:"toattr"`
-	Fromattr      sql.NullString `db:"fromattr"`
-	Idattr        sql.NullString `db:"idattr"`
-	Body          sql.NullString `db:"body"`
-	Encrypted     bool           `db:"encrypted"`
-	E2eencrypted  bool           `db:"e2eencrypted"`
-	E2eemethod    sql.NullString `db:"e2eemethod"`
-	Originid      sql.NullString `db:"originid"`
-	Stanzatype    string         `db:"stanzatype"`
-	Received      bool           `db:"received"`
-	Delay         int64          `db:"delay"`
-	Rosterjid     sql.NullString `db:"rosterjid"`
-	Archiveid     sql.NullString `db:"archiveid"`
-	Replytoidattr sql.NullString `db:"replytoidattr"`
-	Retracted     bool           `db:"retracted"`
-	Edited        bool           `db:"edited"`
-	Delivered     bool           `db:"delivered"`
-	Ooburls       sql.NullString `db:"ooburls"`
+	ID               int64          `db:"id"`
+	Accountjid       string         `db:"accountjid"`
+	Sent             bool           `db:"sent"`
+	Toattr           sql.NullString `db:"toattr"`
+	Fromattr         sql.NullString `db:"fromattr"`
+	Idattr           sql.NullString `db:"idattr"`
+	Body             sql.NullString `db:"body"`
+	Encrypted        bool           `db:"encrypted"`
+	E2eencrypted     bool           `db:"e2eencrypted"`
+	E2eemethod       sql.NullString `db:"e2eemethod"`
+	Originid         sql.NullString `db:"originid"`
+	Stanzatype       string         `db:"stanzatype"`
+	Received         bool           `db:"received"`
+	Delay            int64          `db:"delay"`
+	Rosterjid        sql.NullString `db:"rosterjid"`
+	Archiveid        sql.NullString `db:"archiveid"`
+	Replytoidattr    sql.NullString `db:"replytoidattr"`
+	Retracted        bool           `db:"retracted"`
+	Edited           bool           `db:"edited"`
+	Delivered        bool           `db:"delivered"`
+	Ooburls          sql.NullString `db:"ooburls"`
+	Calldirection    sql.NullString `db:"calldirection"`
+	Calloutcome      sql.NullString `db:"calloutcome"`
+	Calldurationsecs sql.NullInt64  `db:"calldurationsecs"`
 }
 
 type Messagereaction struct {

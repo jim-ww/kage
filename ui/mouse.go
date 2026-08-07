@@ -28,6 +28,10 @@ const (
 	zoneAttachButton          = "attach-button"
 	zoneToggleSidebar         = "toggle-sidebar-button"
 	zoneMsgInfoPopup          = "msg-info-popup"
+	zoneCallAnswer            = "call-answer-button"
+	zoneCallReject            = "call-reject-button"
+	zoneCallMute              = "call-mute-button"
+	zoneCallHangup            = "call-hangup-button"
 )
 
 // inputWheelScrollLines is how many lines a single wheel notch moves the
@@ -195,6 +199,23 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		return ""
 	}
 
+	// The call bar's own buttons take priority the same way zoneSendButton
+	// etc. do — it's a fixed status-bar area, so it should win over anything
+	// happening to render underneath it.
+	if m.callBarActive() {
+		if m.zone.Get(zoneCallAnswer).InBounds(mouse) {
+			return zoneCallAnswer
+		}
+		if m.zone.Get(zoneCallReject).InBounds(mouse) {
+			return zoneCallReject
+		}
+		if m.zone.Get(zoneCallMute).InBounds(mouse) {
+			return zoneCallMute
+		}
+		if m.zone.Get(zoneCallHangup).InBounds(mouse) {
+			return zoneCallHangup
+		}
+	}
 	if m.zone.Get(zoneSendButton).InBounds(mouse) {
 		return zoneSendButton
 	}
@@ -350,6 +371,21 @@ func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 // three panes (sidebar / viewport / input) when the click missed anything
 // more specific inside it.
 func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if m.callBarActive() {
+		if m.zone.Get(zoneCallAnswer).InBounds(msg) {
+			return m, m.answerRingingCall()
+		}
+		if m.zone.Get(zoneCallReject).InBounds(msg) {
+			return m, m.rejectRingingCall()
+		}
+		if m.zone.Get(zoneCallMute).InBounds(msg) {
+			return m, m.toggleMuteCall()
+		}
+		if m.zone.Get(zoneCallHangup).InBounds(msg) {
+			return m, m.hangupCurrentCall()
+		}
+	}
+
 	if m.zone.Get(zoneToggleSidebar).InBounds(msg) {
 		return m.toggleSidebar()
 	}

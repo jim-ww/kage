@@ -7,6 +7,7 @@ import (
 	"mellium.im/xmpp/disco"
 	"mellium.im/xmpp/disco/info"
 	"mellium.im/xmpp/mux"
+	"mellium.im/xmpp/stanza"
 )
 
 // discoCapsNode identifies kage for XEP-0115 entity capabilities. It doesn't
@@ -30,6 +31,12 @@ var discoFeatures = featureList{
 	"eu.siacs.conversations.axolotl.devicelist+notify",
 	"urn:xmpp:openpgp:0:public-keys+notify",
 	"http://jabber.org/protocol/chatstates",
+	"urn:xmpp:jingle:1",
+	"urn:xmpp:jingle:apps:rtp:1",
+	"urn:xmpp:jingle:apps:rtp:audio",
+	"urn:xmpp:jingle:apps:dtls:0",
+	"urn:xmpp:jingle:transports:ice-udp:1",
+	"urn:xmpp:jingle-message:0",
 }
 
 var discoIdentity = identityList{
@@ -73,11 +80,16 @@ func (il identityList) ForIdentities(node string, f func(info.Identity) error) e
 // query addressed to our caps node (discoCapsNode+"#"+ver, as advertised in
 // our presence's <c/> - see discoCaps) resolve to the same base feature/
 // identity list, per XEP-0115.
-func newDiscoMux() *mux.ServeMux {
+//
+// jingle is the client's own handler for incoming XEP-0166 <jingle/> IQs
+// (passed in rather than looked up, since the mux is built as part of
+// constructing the Client that owns it).
+func newDiscoMux(jingle mux.IQHandlerFunc) *mux.ServeMux {
 	return mux.New("jabber:client",
 		disco.HandleWithURI(discoCapsNode, crypto.SHA1.HashFunc().New()),
 		mux.Feature(discoFeatures),
 		mux.Ident(discoIdentity),
+		mux.IQFunc(stanza.SetIQ, jingleIQName, jingle),
 	)
 }
 

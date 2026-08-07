@@ -35,6 +35,11 @@ const (
 	rpcPurgeOwnDeviceList    = "PurgeOwnDeviceList"
 	rpcListAccounts          = "ListAccounts"
 	rpcSetFocusState         = "SetFocusState"
+	rpcStartCall             = "StartCall"
+	rpcAnswerCall            = "AnswerCall"
+	rpcHangupCall            = "HangupCall"
+	rpcRejectCall            = "RejectCall"
+	rpcMuteCall              = "MuteCall"
 )
 
 // Event kinds (daemon -> client broadcast, see account.go/events.go/adapter.go's
@@ -54,6 +59,9 @@ const (
 	evHistorySynced        = "HistorySynced"
 	evHistorySyncStarted   = "HistorySyncStarted"
 	evHistorySyncFinished  = "HistorySyncFinished"
+	evIncomingCall         = "IncomingCall"
+	evCallState            = "CallState"
+	evMissedCall           = "MissedCall"
 )
 
 // --- RPC param/result structs. Kept plain and JSON-friendly on purpose:
@@ -136,6 +144,50 @@ type setFocusStateParams struct {
 	AccountJID, ChatAddress string
 	Focused                 bool
 }
+type startCallParams struct {
+	AccountIdx int
+	To         string
+}
+type muteCallParams struct {
+	AccountIdx int
+	Muted      bool
+}
+
+// incomingCallEvent tells attached clients that a peer is ringing us
+// (XEP-0353 propose). The daemon has already answered <ringing/>; nothing
+// further happens until an AnswerCall or RejectCall RPC comes back.
+type incomingCallEvent struct {
+	AccountIdx int
+	From       string // bare JID
+	SID        string
+	Media      string // "audio"
+}
+
+// callStateEvent reports every transition of the account's current call. See
+// callState.String in callsession.go for the State values, plus "failed" for
+// an error teardown; Reason is free text for the UI to show. Muted/Quality
+// ride along on every broadcast (not just ones that changed them) so the UI
+// never has to remember them across a msg that reset the rest of the state -
+// see callSession.broadcastState.
+type callStateEvent struct {
+	AccountIdx int
+	Peer       string // bare JID
+	SID        string
+	State      string
+	Reason     string
+	Muted      bool
+	Quality    string // "", "good", "fair", "poor" - "" until the first sample lands
+}
+
+// missedCallEvent tells attached clients that a peer proposed a call while
+// this account already had one in progress - the daemon auto-rejected it
+// (see handlePropose's busy branch) rather than offering call waiting.
+type missedCallEvent struct {
+	AccountIdx int
+	From       string // bare JID
+	SID        string
+}
+
 type purgeOwnDeviceListParams struct {
 	AccountIdx int
 	Keep       []ui.OmemoDevice

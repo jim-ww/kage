@@ -242,6 +242,30 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
+	// ── Ringing-local call banner intercepts y/n (answer/reject) ───────
+	// Checked ahead of the global switch since y/n aren't otherwise bound
+	// outside a confirm popup (already handled above) — a call can ring in
+	// on any view, not just while its matching chat happens to be open.
+	if m.call != nil && m.call.state == "ringing-local" {
+		switch {
+		case matchesKey(msg, m.keys.ConfirmYes):
+			return m, m.answerRingingCall(), true
+		case matchesKey(msg, m.keys.ConfirmNo):
+			return m, m.rejectRingingCall(), true
+		}
+	}
+
+	// ── Call bar intercepts h (hang up) / m (mute) while a call is in
+	// progress but not ringing-local (that's y/n above) ────────────────
+	if m.call != nil && m.callInProgress() && m.call.state != "ringing-local" {
+		switch {
+		case matchesLetter(msg, 'h'):
+			return m, m.hangupCurrentCall(), true
+		case matchesLetter(msg, 'm') && m.call.state == "connected":
+			return m, m.toggleMuteCall(), true
+		}
+	}
+
 	switch {
 
 	// ── Reaction-composition suggestion nav (must precede ChatOpen,
@@ -332,6 +356,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if m.selectedView == viewAccounts {
 			model, cmd := m.openContactManager()
 			return model, cmd, true
+		}
+
+	case matchesKey(msg, m.keys.CallToggle):
+		if m.selectedView == viewChat || m.callInProgress() {
+			return m, m.startCallToCurrentChat(), true
 		}
 
 	case matchesKey(msg, m.keys.ChangeStoragePassword):

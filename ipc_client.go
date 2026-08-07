@@ -202,6 +202,36 @@ func (c *ipcClient) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) te
 	return msg
 }
 
+// StartCall/AnswerCall/HangupCall/RejectCall drive the daemon's voice call
+// state machine (callsession.go), implementing ui.CallController. The RPC
+// only reports whether the request reached/was accepted by the daemon - the
+// call's actual state transitions arrive separately via evCallState/
+// evIncomingCall broadcasts, handled in dispatch below.
+func (c *ipcClient) StartCall(accountIdx int, to string) tea.Msg {
+	err := c.conn.Call(rpcStartCall, startCallParams{AccountIdx: accountIdx, To: to}, nil)
+	return ui.CallActionResultMsg{Action: "start", AccountIdx: accountIdx, Err: err}
+}
+
+func (c *ipcClient) AnswerCall(accountIdx int) tea.Msg {
+	err := c.conn.Call(rpcAnswerCall, accountIdxParams{AccountIdx: accountIdx}, nil)
+	return ui.CallActionResultMsg{Action: "answer", AccountIdx: accountIdx, Err: err}
+}
+
+func (c *ipcClient) HangupCall(accountIdx int) tea.Msg {
+	err := c.conn.Call(rpcHangupCall, accountIdxParams{AccountIdx: accountIdx}, nil)
+	return ui.CallActionResultMsg{Action: "hangup", AccountIdx: accountIdx, Err: err}
+}
+
+func (c *ipcClient) RejectCall(accountIdx int) tea.Msg {
+	err := c.conn.Call(rpcRejectCall, accountIdxParams{AccountIdx: accountIdx}, nil)
+	return ui.CallActionResultMsg{Action: "reject", AccountIdx: accountIdx, Err: err}
+}
+
+func (c *ipcClient) MuteCall(accountIdx int, muted bool) tea.Msg {
+	err := c.conn.Call(rpcMuteCall, muteCallParams{AccountIdx: accountIdx, Muted: muted}, nil)
+	return ui.CallActionResultMsg{Action: "mute", AccountIdx: accountIdx, Err: err}
+}
+
 // listAccounts is the bootstrap call used once at startup, before ui.New,
 // to get every configured account's current state (not part of any ui
 // interface - main calls it directly).
@@ -269,6 +299,12 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.HistorySyncStartedMsg](c, ev.Data)
 	case evHistorySyncFinished:
 		sendEvent[ui.HistorySyncFinishedMsg](c, ev.Data)
+	case evIncomingCall:
+		sendEvent[ui.IncomingCallMsg](c, ev.Data)
+	case evCallState:
+		sendEvent[ui.CallStateMsg](c, ev.Data)
+	case evMissedCall:
+		sendEvent[ui.MissedCallMsg](c, ev.Data)
 	case evAccountConnected:
 		var w wireAccountConnectedMsg
 		if err := json.Unmarshal(ev.Data, &w); err != nil {

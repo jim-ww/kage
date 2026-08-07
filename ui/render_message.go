@@ -54,7 +54,43 @@ func (m Model) formatMessageTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04")
 }
 
+// callLogLine renders a call-log entry's compact "📞 ..." line instead of the
+// normal author/content/timestamp bubble layout — same muted/italic styling
+// as a deleted message, since it's informational rather than real chat
+// content. Prefixed the same way renderMessage indents a normal bubble (the
+// selection/hover marker or its two-space placeholder) so it starts at the
+// same column instead of flush against the left edge.
+func (m Model) callLogLine(msg Message, msgIdx int) string {
+	prefix := m.styles.renderMessagePrefix(msgIdx == m.selectedMsg, m.isHovered(zoneMessage(msgIdx)))
+	glyph := "call"
+	if m.icons {
+		glyph = "📞"
+	}
+	var text string
+	switch msg.CallLog.Outcome {
+	case "missed":
+		text = "Missed call"
+	case "declined":
+		text = "Declined call"
+	case "failed":
+		text = "Call failed"
+	case "answered":
+		dir := "Incoming"
+		if msg.CallLog.Direction == "outgoing" {
+			dir = "Outgoing"
+		}
+		text = fmt.Sprintf("%s call · %s", dir, formatCallDuration(msg.CallLog.Duration))
+	default:
+		text = "Call ended"
+	}
+	timeLabel := m.formatMessageTime(msg.SentAt)
+	return prefix + m.styles.messageDeleted.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
+}
+
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
+	if msg.CallLog != nil {
+		return m.callLogLine(msg, msgIdx)
+	}
 	isSelected := msgIdx == m.selectedMsg
 	prefix := m.styles.renderMessagePrefix(isSelected, m.isHovered(zoneMessage(msgIdx)))
 

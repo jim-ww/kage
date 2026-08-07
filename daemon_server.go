@@ -278,6 +278,41 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.SetFocusState(p.AccountJID, p.ChatAddress, p.Focused)
 
+	case rpcStartCall:
+		p, err := unmarshalParams[startCallParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.StartCall(p.AccountIdx, p.To)
+
+	case rpcAnswerCall:
+		p, err := unmarshalParams[accountIdxParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.AnswerCall(p.AccountIdx)
+
+	case rpcHangupCall:
+		p, err := unmarshalParams[accountIdxParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.HangupCall(p.AccountIdx)
+
+	case rpcRejectCall:
+		p, err := unmarshalParams[accountIdxParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.RejectCall(p.AccountIdx)
+
+	case rpcMuteCall:
+		p, err := unmarshalParams[muteCallParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.MuteCall(p.AccountIdx, p.Muted)
+
 	case rpcListAccounts:
 		return d.listAccounts(context.Background()), nil
 	}

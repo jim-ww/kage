@@ -91,6 +91,33 @@ SET archiveID = excluded.archiveID
 RETURNING id;
 
 
+-- name: InsertCallLog :one
+-- A local-only row recording the outcome of a finished voice call, inserted
+-- directly by the daemon (never round-tripped through MAM) so it shows up in
+-- the chat's normal message timeline like any other message.
+INSERT INTO messages (
+	accountJID,
+	sent,
+	rosterJID,
+	stanzaType,
+	delay,
+	callDirection,
+	callOutcome,
+	callDurationSecs
+)
+VALUES (
+	sqlc.arg(account_jid),
+	sqlc.arg(sent),
+	sqlc.arg(roster_jid),
+	'call',
+	CAST(strftime('%s', 'now') AS INTEGER),
+	sqlc.arg(call_direction),
+	sqlc.arg(call_outcome),
+	sqlc.arg(call_duration_secs)
+)
+RETURNING id;
+
+
 -- name: MarkMessagesReceived :exec
 UPDATE messages
 SET received = TRUE
@@ -159,7 +186,10 @@ SELECT
 	retracted,
 	edited,
 	delivered,
-	oobURLs
+	oobURLs,
+	callDirection,
+	callOutcome,
+	callDurationSecs
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -196,7 +226,10 @@ SELECT
 	retracted,
 	edited,
 	delivered,
-	oobURLs
+	oobURLs,
+	callDirection,
+	callOutcome,
+	callDurationSecs
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -236,7 +269,10 @@ SELECT
 	retracted,
 	edited,
 	delivered,
-	oobURLs
+	oobURLs,
+	callDirection,
+	callOutcome,
+	callDurationSecs
 FROM messages
 ORDER BY delay ASC, id ASC;
 

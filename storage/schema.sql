@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS messages (
 	edited        BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0308: this row's body was overwritten by a later correction
 	delivered     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0184: peer acknowledged receipt of a message we sent
 	oobURLs       TEXT, -- XEP-0066: newline-separated URLs the sender explicitly marked as file attachments; NULL/empty means none
+	callDirection TEXT, -- call log rows only (stanzaType = 'call'): 'incoming' or 'outgoing'
+	callOutcome   TEXT, -- call log rows only: 'answered', 'missed', 'declined', or 'failed'
+	callDurationSecs INTEGER, -- call log rows only: meaningful when callOutcome = 'answered'
 
 	UNIQUE (accountJID, originID, fromAttr),
 	UNIQUE (accountJID, archiveID)

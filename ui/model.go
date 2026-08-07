@@ -182,6 +182,7 @@ type Model struct {
 	draftSaver             DraftSaver
 	storagePasswordChanger StoragePasswordChanger
 	focusReporter          FocusReporter
+	callController         CallController
 
 	// focused tracks whether the terminal currently has OS focus, reported
 	// by tea.FocusMsg/tea.BlurMsg (requires terminal support). Starts true
@@ -243,6 +244,11 @@ type Model struct {
 	// contactManagerState is non-nil while the "manage contacts" popup is
 	// open — see ui/contacts.go.
 	contactManagerState *contactManagerState
+
+	// call is non-nil whenever this account has a voice call in flight or
+	// just ended (briefly, to show the reason) — see ui/call.go. nil means
+	// idle: no call, nothing to render.
+	call *callUIState
 }
 
 // DisplayOptions bundles the message-rendering config toggles.
@@ -330,6 +336,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	accountStatusSetter, _ := sender.(AccountStatusSetter)
 	accountRemover, _ := sender.(AccountRemover)
 	focusReporter, _ := sender.(FocusReporter)
+	callController, _ := sender.(CallController)
 
 	noticeDuration := display.NoticeDuration
 	if noticeDuration <= 0 {
@@ -383,6 +390,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		draftSaver:             draftSaver,
 		storagePasswordChanger: storagePasswordChanger,
 		focusReporter:          focusReporter,
+		callController:         callController,
 		focused:                true,
 		openChatAccountIdx:     -1,
 		loadingOlderHistory:    make(map[int]bool),

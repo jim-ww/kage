@@ -196,6 +196,11 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			}
 		}
 
+		if ev, ok := msg.jmiEvent(); ok {
+			events <- ev
+			return
+		}
+
 		if state, ok := msg.chatState(); ok {
 			events <- ChatStateEvent{From: msg.From.String(), State: state}
 		}
