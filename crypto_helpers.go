@@ -38,20 +38,35 @@ func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString
 	return sql.NullString{String: ct, Valid: true}, true
 }
 
-// decryptDraft returns body in plaintext, opening it with localKey
-// (crypto/localstore) if encrypted is set. Best-effort: a missing key or a
-// decrypt failure (e.g. the storage password changed) just yields an empty
-// draft with a warning logged, rather than failing whatever's loading the
-// chat list.
-func decryptDraft(localKey []byte, body string, encrypted bool) string {
-	if !encrypted {
-		return body
+// loadDraft returns row's plaintext draft body, decrypting it with localKey
+// (crypto/localstore) if it's stored encrypted. A plaintext row read while a
+// password *is* now available gets opportunistically re-sealed and written
+// back — same migration readStoredBody does for message bodies — so a draft
+// saved before a storage password was ever configured gets swept up the
+// next time it's loaded rather than sitting in plaintext forever. If a
+// decrypt is required but impossible (no key, or the key doesn't open it),
+// best-effort: yields an empty draft with a warning logged, rather than
+// failing whatever's loading the chat list.
+func loadDraft(ctx context.Context, queries *storage.Queries, accountJID string, row storage.ListChatDraftsRow, localKey []byte) string {
+	if !row.Encrypted {
+		if localKey != nil {
+			if ct, err := localstore.Seal(localKey, row.Body); err == nil {
+				if err := queries.SetChatDraft(ctx, storage.SetChatDraftParams{
+					AccountJid: accountJID, RosterJid: row.Rosterjid, Body: ct, Encrypted: true,
+				}); err != nil {
+					slog.Warn("encrypting stored draft", "err", err)
+				}
+			} else {
+				slog.Warn("encrypting stored draft", "err", err)
+			}
+		}
+		return row.Body
 	}
 	if localKey == nil {
 		slog.Warn("stored draft is encrypted but no local storage password is available")
 		return ""
 	}
-	pt, err := localstore.Open(localKey, body)
+	pt, err := localstore.Open(localKey, row.Body)
 	if err != nil {
 		slog.Warn("decrypting stored draft", "err", err)
 		return ""
