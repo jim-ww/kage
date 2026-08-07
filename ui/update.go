@@ -195,6 +195,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setEmojiSuggestions(nil)
 			}
 		}
+		if m.input.Value() != oldValue {
+			m.pushDraftSnapshot(m.input.Value())
+		}
 		cmds = append(cmds, m.notifyTypingChanged(oldValue))
 	}
 

@@ -364,7 +364,20 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	case matchesKey(msg, m.keys.ClearDraft):
 		if m.selectedView == viewChat && m.input.Value() != "" {
 			m.input.SetValue("")
+			m.pushDraftSnapshot("")
 			m.notifyTypingStopped()
+			m.updateSizes()
+			return m, nil, true
+		}
+
+	case matchesKey(msg, m.keys.RedoDraft):
+		if m.selectedView == viewChat && m.redoDraft() {
+			m.updateSizes()
+			return m, nil, true
+		}
+
+	case matchesKey(msg, m.keys.UndoDraft):
+		if m.selectedView == viewChat && m.undoDraft() {
 			m.updateSizes()
 			return m, nil, true
 		}

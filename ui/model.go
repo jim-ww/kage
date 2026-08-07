@@ -98,6 +98,13 @@ type Model struct {
 	input    textarea.Model
 	viewport viewport.Model
 
+	// draftHistory is the compose box's undo/redo stack for the current
+	// session — draftHistory[draftHistIdx] is always the value currently in
+	// m.input. Reset (not appended to) whenever the box's content changes for
+	// a reason other than typing; see resetDraftHistory.
+	draftHistory []string
+	draftHistIdx int
+
 	// message interaction state
 	selectedMsg          int               // index of highlighted message (meaningful in viewViewport)
 	editingMsgIdx        int               // >= 0 while editing a message; -1 otherwise
@@ -295,6 +302,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		currentAccount:         startAccount,
 		chats:                  l,
 		input:                  ti,
+		draftHistory:           []string{""},
 		viewport:               viewport.New(),
 		editingMsgIdx:          -1,
 		replyToIdx:             -1,

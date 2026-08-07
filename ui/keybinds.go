@@ -41,6 +41,8 @@ type KeyMap struct {
 	ContactManager   key.Binding // c — add/remove roster contacts for the current account (accounts panel)
 	RemoveAttachment key.Binding // Backspace (on empty input) — drop the highlighted pending attachment
 	ClearDraft       key.Binding // Ctrl+Shift+E — erase the compose box
+	UndoDraft        key.Binding // Ctrl+Z — undo the last change to the compose box
+	RedoDraft        key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
 	Help             key.Binding // Ctrl+? — open the full-keybindings help popup
 	ListKeys         list.KeyMap
 	TextInputKeys    textinput.KeyMap
@@ -115,6 +117,8 @@ var DefaultKeyMap = KeyMap{
 	ContactManager:   NewBinding([]string{"c"}, "manage contacts"),
 	RemoveAttachment: NewBinding([]string{"backspace"}, "remove attachment"),
 	ClearDraft:       NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
+	UndoDraft:        NewBinding([]string{"ctrl+z"}, "undo"),
+	RedoDraft:        NewBinding([]string{"ctrl+shift+z"}, "redo"),
 	// "ctrl+?" is the intended gesture (ctrl + the "?" that shares the "/"
 	// key on a US layout), but no terminal actually reports that literal
 	// string: legacy encoding sends the raw ctrl+/ control byte as
@@ -244,6 +248,8 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.AttachFile, "attach"},
 			{k.PasteImage, "paste image"},
 			{k.ClearDraft, "erase draft"},
+			{k.UndoDraft, "undo"},
+			{k.RedoDraft, "redo"},
 		}
 		if hasPendingAttachments {
 			entries = append(entries, helpEntry{k.RemoveAttachment, "remove attachment"})

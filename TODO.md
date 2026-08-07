@@ -6,7 +6,6 @@
 - handle extremely large text files pasted in message prompt / sent in chat (lags/slow)
 - filepicker: add mouse support
 - ctrl+f add sort for files creation date DESC
-- enter adds some ' ' after newline
 - check how local/remote messages timestampt are handled
 - in devices show proper OMEMO fingerprint
 - ^shift+U bind doesnt work (omemo devices)

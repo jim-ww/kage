@@ -28,6 +28,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		m.reactingMsgIdx = -1
 		m.setEmojiSuggestions(nil)
 		m.input.SetValue("")
+		m.resetDraftHistory("")
 		m.input.Placeholder = "message..."
 		m.updateSizes()
 		m.refreshViewport()
@@ -69,6 +70,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		m.selectedAttachment = -1
 		m.notifyTypingStopped()
 		m.input.SetValue("")
+		m.resetDraftHistory("")
 		m.updateSizes()
 		return tea.Batch(cmds...)
 	}
@@ -157,6 +159,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 
 	m.notifyTypingStopped()
 	m.input.SetValue("")
+	m.resetDraftHistory("")
 	m.updateSizes()
 	m.refreshViewport()
 	m.viewport.GotoBottom()
@@ -292,6 +295,7 @@ func (m *Model) actionEditMessage() tea.Cmd {
 	}
 	m.editingMsgIdx = m.selectedMsg
 	m.input.SetValue(msgs[m.selectedMsg].Content)
+	m.resetDraftHistory(msgs[m.selectedMsg].Content)
 	m.input.Placeholder = "edit message..."
 	return m.input.Focus()
 }
@@ -436,7 +440,9 @@ func (m *Model) actionReactMessage() tea.Cmd {
 		return m.showNotification("no message selected")
 	}
 	m.reactingMsgIdx = m.selectedMsg
-	m.input.SetValue(myReactionsText(msgs[m.selectedMsg].Reactions))
+	reactionText := myReactionsText(msgs[m.selectedMsg].Reactions)
+	m.input.SetValue(reactionText)
+	m.resetDraftHistory(reactionText)
 	m.input.CursorEnd()
 	m.input.Placeholder = "react: :shortcode: or emoji, enter to send..."
 	m.setEmojiSuggestions(nil)
