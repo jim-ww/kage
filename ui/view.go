@@ -497,10 +497,20 @@ func (m Model) renderOpenPopup() string {
 // own zone (zoneFilePickerRow) so handleLeftClick can turn a click into the
 // right number of synthetic up/down key presses — the picker's selection
 // index isn't exported, so there's no other way to tell it "select row 3".
+// Rows are padded to the widest row's width first so every row's click/hover
+// zone spans the full list width, not just its own text (see
+// padLinesToWidth).
 func (m Model) renderFilePickerPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 	lines := strings.Split(m.filePicker.View(), "\n")
+	width := 0
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > width {
+			width = w
+		}
+	}
+	lines = strings.Split(padLinesToWidth(strings.Join(lines, "\n"), width), "\n")
 	for i, line := range lines {
 		lines[i] = m.zone.Mark(zoneFilePickerRow(i), line)
 	}
