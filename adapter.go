@@ -250,6 +250,23 @@ func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
 	return counts, nil
 }
 
+// SaveDraft implements ui.DraftSaver: persists chatAddress's compose-box
+// text, or clears the persisted draft entirely when text is empty (rather
+// than storing an empty row).
+func (a *adapter) SaveDraft(accountJID, chatAddress, text string) error {
+	if text == "" {
+		return a.queries.DeleteChatDraft(context.Background(), storage.DeleteChatDraftParams{
+			AccountJid: accountJID,
+			RosterJid:  chatAddress,
+		})
+	}
+	return a.queries.SetChatDraft(context.Background(), storage.SetChatDraftParams{
+		AccountJid: accountJID,
+		RosterJid:  chatAddress,
+		Body:       text,
+	})
+}
+
 // omemoProtocolLabel matches ui.OmemoDevice.Protocol's "v1"/"v2" convention.
 func omemoProtocolLabel(p omemolib.Protocol) string {
 	if p == omemolib.ProtocolV1 {

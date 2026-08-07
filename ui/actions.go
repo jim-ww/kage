@@ -151,7 +151,7 @@ func (m *Model) cancelPending() {
 	m.reactingMsgIdx = -1
 	m.lastClickedMsgIdx = -1
 	m.setEmojiSuggestions(nil)
-	m.input.SetValue("")
+	m.restoreStashedDraft()
 	m.input.Placeholder = "message..."
 	m.updateSizes()
 }

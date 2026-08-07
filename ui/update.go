@@ -197,6 +197,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.input.Value() != oldValue {
 			m.pushDraftSnapshot(m.input.Value())
+			// Editing/reacting content isn't a new-message draft — don't let
+			// the debounce timer overwrite the chat's real stored Draft with
+			// it (see stashDraftForCompose/restoreStashedDraft instead).
+			if m.editingMsgIdx < 0 && m.reactingMsgIdx < 0 {
+				if chat, ok := m.currentChat(); ok && chat.Address != "" {
+					m.draftSaveGen++
+					cmds = append(cmds, draftSaveTimer(m.currentAccount, chat.Address, m.draftSaveGen))
+				}
+			}
 		}
 		cmds = append(cmds, m.notifyTypingChanged(oldValue))
 	}

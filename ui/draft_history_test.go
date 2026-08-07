@@ -7,6 +7,28 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// fakeDraftSaver is a stub MessageSender+DraftSaver: Send always succeeds,
+// and SaveDraft records every call (keyed by chat address) so tests can
+// assert what got persisted and when.
+type fakeDraftSaver struct {
+	saved map[string]string
+	calls int
+}
+
+func newFakeDraftSaver() *fakeDraftSaver { return &fakeDraftSaver{saved: map[string]string{}} }
+
+func (f *fakeDraftSaver) Send(int, string, string, SendOptions) (string, error) {
+	return "msg-id", nil
+}
+func (f *fakeDraftSaver) SetTyping(int, string, bool) error       { return nil }
+func (f *fakeDraftSaver) MarkRetracted(int, string, string) error { return nil }
+
+func (f *fakeDraftSaver) SaveDraft(_, chatAddress, text string) error {
+	f.calls++
+	f.saved[chatAddress] = text
+	return nil
+}
+
 func ctrlZKey() tea.KeyMsg { return tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl} }
 func ctrlShiftZKey() tea.KeyMsg {
 	return tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl | tea.ModShift}
@@ -86,5 +108,120 @@ func TestComposeUndoHistoryClearedOnSend(t *testing.T) {
 	m = next.(Model)
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("undo after send should stay empty, got %q", got)
+	}
+}
+
+// TestDraftSavedOnChatSwitch checks that switching chats persists the
+// outgoing chat's unsent text and loads in the incoming chat's stored draft.
+func TestDraftSavedOnChatSwitch(t *testing.T) {
+	saver := newFakeDraftSaver()
+	m := newTestModelWithSender(saver, &fakeAccountAdder{})
+	chatA := Chat{Address: "alice@localhost"}
+	chatB := Chat{Address: "bob@localhost", Draft: "already typed for bob"}
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chatA, chatB}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chatA, chatB}); cmd != nil {
+		runCmd(cmd)
+	}
+
+	m.chats.Select(0)
+	model, cmd := m.openCurrentChat()
+	m = model.(Model)
+	runCmd(cmd)
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input after opening alice (no stored draft) = %q, want empty", got)
+	}
+
+	next, _ := m.Update(keyText("hi alice"))
+	m = next.(Model)
+
+	m.chats.Select(1)
+	model, cmd = m.openCurrentChat()
+	m = model.(Model)
+	runCmd(cmd)
+
+	if got, want := saver.saved["alice@localhost"], "hi alice"; got != want {
+		t.Fatalf("saved draft for alice = %q, want %q", got, want)
+	}
+	if got, want := m.input.Value(), "already typed for bob"; got != want {
+		t.Fatalf("input after switching to bob = %q, want %q", got, want)
+	}
+	if chat, ok := m.accounts[0].Chats[0].(Chat); !ok || chat.Draft != "hi alice" {
+		t.Fatalf("in-memory Chat.Draft for alice = %q, want %q", chat.Draft, "hi alice")
+	}
+
+	// Switching back to alice restores it.
+	m.chats.Select(0)
+	model, cmd = m.openCurrentChat()
+	m = model.(Model)
+	runCmd(cmd)
+	if got, want := m.input.Value(), "hi alice"; got != want {
+		t.Fatalf("input after switching back to alice = %q, want %q", got, want)
+	}
+}
+
+// TestDraftClearedOnSend checks that sending a message persists an empty
+// draft for that chat, so a stale draft doesn't reappear on the next visit.
+func TestDraftClearedOnSend(t *testing.T) {
+	saver := newFakeDraftSaver()
+	m := newTestModelWithSender(saver, &fakeAccountAdder{})
+	chat := Chat{Address: "bob@localhost", Draft: "leftover"}
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		runCmd(cmd)
+	}
+	m.chats.Select(0)
+	model, cmd := m.openCurrentChat()
+	m = model.(Model)
+	runCmd(cmd)
+
+	next, _ := m.Update(keyText("hi"))
+	m = next.(Model)
+	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(Model)
+	runCmd(cmd)
+
+	if got, ok := saver.saved["bob@localhost"]; !ok || got != "" {
+		t.Fatalf("saved draft for bob after send = (%q, %v), want (\"\", true)", got, ok)
+	}
+	if chat, ok := m.accounts[0].Chats[0].(Chat); !ok || chat.Draft != "" {
+		t.Fatalf("in-memory Chat.Draft after send = %q, want empty", chat.Draft)
+	}
+}
+
+// TestDraftDebounceSaveWhileTyping checks that a draftSaveMsg firing after
+// the debounce window persists the draft even though the chat was never
+// switched away from — covers a crash/kill mid-type.
+func TestDraftDebounceSaveWhileTyping(t *testing.T) {
+	saver := newFakeDraftSaver()
+	m := newTestModelWithSender(saver, &fakeAccountAdder{})
+	chat := Chat{Address: "bob@localhost"}
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		runCmd(cmd)
+	}
+	m.chats.Select(0)
+	model, cmd := m.openCurrentChat()
+	m = model.(Model)
+	runCmd(cmd)
+
+	next, _ := m.Update(keyText("still typing"))
+	m = next.(Model)
+	if m.draftSaveGen == 0 {
+		t.Fatal("draftSaveGen should have advanced after a keystroke")
+	}
+
+	// A stale gen (as if a prior keystroke's timer fired late) must not save.
+	next, cmd = m.Update(draftSaveMsg{accountIdx: m.currentAccount, addr: "bob@localhost", gen: m.draftSaveGen - 1})
+	m = next.(Model)
+	runCmd(cmd)
+	if _, ok := saver.saved["bob@localhost"]; ok {
+		t.Fatal("a stale-gen draftSaveMsg should not have persisted anything")
+	}
+
+	next, cmd = m.Update(draftSaveMsg{accountIdx: m.currentAccount, addr: "bob@localhost", gen: m.draftSaveGen})
+	m = next.(Model)
+	runCmd(cmd)
+	if got, want := saver.saved["bob@localhost"], "still typing"; got != want {
+		t.Fatalf("saved draft after debounce fired = %q, want %q", got, want)
 	}
 }

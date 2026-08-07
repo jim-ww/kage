@@ -240,6 +240,34 @@ func typingPauseTimer(addr string, gen int) tea.Cmd {
 	})
 }
 
+// draftSaveDebounce is how long the compose input can sit idle (mid-typing,
+// not yet sent or navigated away from) before the draft is persisted to
+// storage — long enough that a fast typist doesn't trigger a write per
+// keystroke, short enough that a crash/kill loses at most a few seconds of
+// unsaved text. Chat-switch and send/clear also persist immediately,
+// independent of this timer (see swapComposeDraft/saveChatDraft call sites);
+// this only covers the case where the user just keeps typing in the same
+// chat for a while.
+const draftSaveDebounce = 3 * time.Second
+
+// draftSaveMsg fires draftSaveDebounce after a keystroke that changed the
+// compose input. gen must still match Model.draftSaveGen and addr must still
+// be the chat currently loaded into the input when it arrives — otherwise a
+// later keystroke already re-armed the timer, or the user switched/sent/
+// cleared in the meantime (which already persisted the draft itself), and
+// this one is stale and ignored.
+type draftSaveMsg struct {
+	accountIdx int
+	addr       string
+	gen        int
+}
+
+func draftSaveTimer(accountIdx int, addr string, gen int) tea.Cmd {
+	return tea.Tick(draftSaveDebounce, func(time.Time) tea.Msg {
+		return draftSaveMsg{accountIdx: accountIdx, addr: addr, gen: gen}
+	})
+}
+
 // AccountAdder connects and persists a new XMPP account, implemented outside
 // ui (main.go's adapter) so ui stays decoupled from the network/config
 // layers. Runs on the Bubble Tea event loop's goroutine via a tea.Cmd, so it
@@ -429,6 +457,16 @@ type ChatReadTracker interface {
 	IncrementChatUnread(accountJID, chatAddress string, delta int) error
 	ResetChatUnread(accountJID, chatAddress string) error
 	ChatUnreadCounts(accountJID string) (map[string]int, error)
+}
+
+// DraftSaver persists the compose box's unsent text per chat, implemented
+// outside ui (main.go's adapter, backed by storage) so ui stays decoupled
+// from the storage layer. Called inline like Send/SetTyping rather than
+// through a tea.Cmd; a failure just means the in-memory draft (still updated
+// regardless) won't survive a restart. An empty text means "no draft" and
+// should clear any persisted row rather than storing an empty string.
+type DraftSaver interface {
+	SaveDraft(accountJID, chatAddress, text string) error
 }
 
 type noticeClearMsg struct {

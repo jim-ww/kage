@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -77,5 +78,28 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 	}
 	if counts["you@example.com"] != 3 {
 		t.Errorf("ChatUnreadCounts[you@example.com] = %d, want 3", counts["you@example.com"])
+	}
+
+	if err := client.SaveDraft("me@example.com", "you@example.com", "hello there"); err != nil {
+		t.Fatalf("SaveDraft: %v", err)
+	}
+	drafts, err := queries.ListChatDrafts(context.Background(), "me@example.com")
+	if err != nil {
+		t.Fatalf("ListChatDrafts: %v", err)
+	}
+	if len(drafts) != 1 || drafts[0].Rosterjid != "you@example.com" || drafts[0].Body != "hello there" {
+		t.Errorf("ListChatDrafts = %+v, want one row for you@example.com = %q", drafts, "hello there")
+	}
+
+	// Saving an empty draft deletes the row rather than storing "".
+	if err := client.SaveDraft("me@example.com", "you@example.com", ""); err != nil {
+		t.Fatalf("SaveDraft (clear): %v", err)
+	}
+	drafts, err = queries.ListChatDrafts(context.Background(), "me@example.com")
+	if err != nil {
+		t.Fatalf("ListChatDrafts after clear: %v", err)
+	}
+	if len(drafts) != 0 {
+		t.Errorf("ListChatDrafts after clearing = %+v, want none", drafts)
 	}
 }

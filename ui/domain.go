@@ -165,6 +165,12 @@ type Chat struct {
 	// wasn't the actively-focused one, persisted via ChatReadTracker. Reset
 	// to zero when the chat is opened.
 	Unread int
+
+	// Draft is the compose box's unsent text last recorded for this chat —
+	// loaded from storage when the account connects, kept in sync with
+	// m.input as the compose box switches between chats, and persisted via
+	// DraftSaver. Empty means no unsent draft.
+	Draft string
 }
 
 func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }

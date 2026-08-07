@@ -129,6 +129,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return chatUnreadCountsResult{Counts: counts}, nil
 
+	case rpcSaveDraft:
+		p, err := unmarshalParams[saveDraftParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.SaveDraft(p.AccountJID, p.ChatAddress, p.Text)
+
 	case rpcSendFile:
 		p, err := unmarshalParams[sendFileParams](params)
 		if err != nil {

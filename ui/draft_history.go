@@ -39,6 +39,34 @@ func (m *Model) redoDraft() bool {
 	return true
 }
 
+// stashDraftForCompose saves the compose box's current text (if any, and if
+// there isn't already a stash from an outer edit/react composition) so
+// restoreStashedDraft can put it back later — called before an edit/react
+// composition overwrites m.input with the target message's own content,
+// which would otherwise silently discard whatever new-message draft was
+// being typed.
+func (m *Model) stashDraftForCompose() {
+	if m.editingMsgIdx >= 0 || m.reactingMsgIdx >= 0 {
+		return
+	}
+	if v := m.input.Value(); v != "" {
+		m.stashedDraft = &v
+	}
+}
+
+// restoreStashedDraft puts back whatever stashDraftForCompose saved (or
+// clears the compose box if nothing was stashed) and forgets the stash —
+// called wherever an edit/react composition ends, sent or cancelled.
+func (m *Model) restoreStashedDraft() {
+	v := ""
+	if m.stashedDraft != nil {
+		v = *m.stashedDraft
+	}
+	m.input.SetValue(v)
+	m.resetDraftHistory(v)
+	m.stashedDraft = nil
+}
+
 // resetDraftHistory clears undo/redo history for the compose box, starting
 // fresh from value — used whenever the box's content changes for a reason
 // other than typing (message sent, draft explicitly cleared, or a different

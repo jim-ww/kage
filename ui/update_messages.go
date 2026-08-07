@@ -606,6 +606,17 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case draftSaveMsg:
+		if m.draftSaveGen != msg.gen || m.currentAccount != msg.accountIdx {
+			return m, nil, true
+		}
+		if chat, ok := m.currentChat(); ok && chat.Address == msg.addr {
+			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+				return m, m.saveChatDraft(msg.accountIdx, chatIdx, m.input.Value()), true
+			}
+		}
+		return m, nil, true
+
 	case TypingMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {

@@ -366,8 +366,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.input.SetValue("")
 			m.pushDraftSnapshot("")
 			m.notifyTypingStopped()
+			var cmd tea.Cmd
+			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+				cmd = m.saveChatDraft(m.currentAccount, chatIdx, "")
+			}
 			m.updateSizes()
-			return m, nil, true
+			return m, cmd, true
 		}
 
 	case matchesKey(msg, m.keys.RedoDraft):

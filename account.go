@@ -220,6 +220,15 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		unread[r.Rosterjid] = int(r.Count)
 	}
 
+	draftRows, err := queries.ListChatDrafts(ctx, acct.JID)
+	if err != nil {
+		slog.Warn("loading chat drafts", "jid", acct.JID, "err", err)
+	}
+	drafts := make(map[string]string, len(draftRows))
+	for _, r := range draftRows {
+		drafts[r.Rosterjid] = r.Body
+	}
+
 	chats := make([]list.Item, 0, len(rows))
 	messages := make(map[int][]ui.Message, len(rows))
 	historyMore := make(map[int]bool, len(rows))
@@ -237,7 +246,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		histStart := time.Now()
 		hist, hasMore := loadHistoryPage(ctx, sess, r.Jid, name)
 		slog.Debug("loadHistoryPage done", "jid", acct.JID, "peer", r.Jid, "elapsed", time.Since(histStart), "messages", len(hist), "more", hasMore)
-		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid]}
+		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid]}
 		if len(hist) > 0 {
 			messages[i] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])

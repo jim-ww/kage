@@ -108,6 +108,19 @@ CREATE TABLE IF NOT EXISTS chatUnread (
 	PRIMARY KEY (accountJID, rosterJID)
 ) WITHOUT ROWID;
 
+-- Local-only unsent compose-box text per chat, never synced to the network.
+-- A row only exists while a chat has unsent draft text; the row is deleted
+-- (not just emptied) once the draft is sent or explicitly cleared, so this
+-- table stays proportional to "chats with something unsent" rather than
+-- "chats ever opened".
+CREATE TABLE IF NOT EXISTS chatDraft (
+	accountJID TEXT NOT NULL,
+	rosterJID  TEXT NOT NULL,
+	body       TEXT NOT NULL,
+
+	PRIMARY KEY (accountJID, rosterJID)
+) WITHOUT ROWID;
+
 -- OMEMO storage, backing crypto/omemo's omemo.Store. Every table below is
 -- keyed additionally by protocol ("v1" | "v2") since an account runs a
 -- separate identity/device pool per OMEMO protocol version - ProtocolV1

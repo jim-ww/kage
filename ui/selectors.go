@@ -178,6 +178,77 @@ func (m *Model) resetChatUnread(accountIdx, chatIdx int) tea.Cmd {
 	})
 }
 
+// setChatDraft updates the chat list's stored draft text for the chat at
+// chatIdx and, if that chat's account is currently displayed, refreshes the
+// visible list item. A no-op if the draft didn't actually change.
+func (m *Model) setChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return nil
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok || chat.Draft == text {
+		return nil
+	}
+	chat.Draft = text
+	m.accounts[accountIdx].Chats[chatIdx] = chat
+	if accountIdx == m.currentAccount {
+		return m.chats.SetItem(chatIdx, chat)
+	}
+	return nil
+}
+
+// saveChatDraft updates chatIdx's draft in memory and, if a DraftSaver is
+// wired in, persists it so it survives a restart. Best-effort: a persistence
+// failure doesn't roll back the in-memory draft.
+func (m *Model) saveChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return nil
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok || chat.Draft == text {
+		return nil
+	}
+	cmd := m.setChatDraft(accountIdx, chatIdx, text)
+	if m.draftSaver == nil || chat.Address == "" {
+		return cmd
+	}
+	accountJID, address, saver := m.accounts[accountIdx].Name, chat.Address, m.draftSaver
+	return tea.Batch(cmd, func() tea.Msg {
+		_ = saver.SaveDraft(accountJID, address, text)
+		return nil
+	})
+}
+
+// swapComposeDraft saves the draft of the chat currently loaded into
+// m.input (tracked by openChatAccountIdx/openChatAddress) and loads in
+// newAccountIdx/newChatIdx's stored draft instead — called whenever a
+// different chat becomes the active one. A same-chat "switch" (reopening the
+// chat that's already open) is a no-op, so it can't clobber in-progress
+// typing with the last-saved snapshot.
+func (m *Model) swapComposeDraft(newAccountIdx, newChatIdx int) tea.Cmd {
+	if newAccountIdx < 0 || newAccountIdx >= len(m.accounts) {
+		return nil
+	}
+	newChat, ok := m.accounts[newAccountIdx].Chats[newChatIdx].(Chat)
+	if !ok {
+		return nil
+	}
+	if m.openChatAccountIdx == newAccountIdx && m.openChatAddress == newChat.Address {
+		return nil
+	}
+
+	var cmd tea.Cmd
+	if oldIdx := m.chatIndexByAddress(m.openChatAccountIdx, m.openChatAddress); oldIdx >= 0 {
+		cmd = m.saveChatDraft(m.openChatAccountIdx, oldIdx, m.input.Value())
+	}
+
+	m.input.SetValue(newChat.Draft)
+	m.resetDraftHistory(newChat.Draft)
+	m.openChatAccountIdx = newAccountIdx
+	m.openChatAddress = newChat.Address
+	return cmd
+}
+
 // messageIndexByID returns the index of the message with the given stanza ID
 // within msgs, or -1 if none matches (or id is empty).
 func messageIndexByID(msgs []Message, id string) int {

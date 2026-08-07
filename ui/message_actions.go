@@ -27,8 +27,10 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		m.notifyTypingStopped()
 		m.reactingMsgIdx = -1
 		m.setEmojiSuggestions(nil)
-		m.input.SetValue("")
-		m.resetDraftHistory("")
+		m.restoreStashedDraft()
+		if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+			cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
+		}
 		m.input.Placeholder = "message..."
 		m.updateSizes()
 		m.refreshViewport()
@@ -69,8 +71,8 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		m.pendingAttachments = nil
 		m.selectedAttachment = -1
 		m.notifyTypingStopped()
-		m.input.SetValue("")
-		m.resetDraftHistory("")
+		m.restoreStashedDraft()
+		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
 		m.updateSizes()
 		return tea.Batch(cmds...)
 	}
@@ -158,8 +160,8 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	}
 
 	m.notifyTypingStopped()
-	m.input.SetValue("")
-	m.resetDraftHistory("")
+	m.restoreStashedDraft()
+	cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
 	m.updateSizes()
 	m.refreshViewport()
 	m.viewport.GotoBottom()
@@ -293,6 +295,7 @@ func (m *Model) actionEditMessage() tea.Cmd {
 	if !m.canEdit(msgs) {
 		return m.showNotification("can only edit your last message")
 	}
+	m.stashDraftForCompose()
 	m.editingMsgIdx = m.selectedMsg
 	m.input.SetValue(msgs[m.selectedMsg].Content)
 	m.resetDraftHistory(msgs[m.selectedMsg].Content)
@@ -439,6 +442,7 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return m.showNotification("no message selected")
 	}
+	m.stashDraftForCompose()
 	m.reactingMsgIdx = m.selectedMsg
 	reactionText := myReactionsText(msgs[m.selectedMsg].Reactions)
 	m.input.SetValue(reactionText)
@@ -486,8 +490,10 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 			_ = m.lastChatSetter.SetLastChat(m.accounts[m.currentAccount].Name, chat.Address)
 		}
 	}
+	draftCmd := m.swapComposeDraft(m.currentAccount, m.currentChatIndex())
+	m.updateSizes()
 	unreadCmd := m.resetChatUnread(m.currentAccount, m.currentChatIndex())
-	return m, tea.Batch(unreadCmd, m.input.Focus())
+	return m, tea.Batch(draftCmd, unreadCmd, m.input.Focus())
 }
 
 // canEdit returns true only when selectedMsg is the last "IsMe" message.

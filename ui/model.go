@@ -105,6 +105,27 @@ type Model struct {
 	draftHistory []string
 	draftHistIdx int
 
+	// openChatAccountIdx/openChatAddress identify which chat's draft is
+	// currently loaded into m.input, so switching to a different chat knows
+	// where to save the outgoing text and which chat's stored Draft to load
+	// in. openChatAddress is "" when nothing's been loaded yet (startup,
+	// before the first chat is opened). See swapComposeDraft.
+	openChatAccountIdx int
+	openChatAddress    string
+
+	// draftSaveGen increments on every keystroke that changes the draft;
+	// armDraftSaveTimer's pending draftSaveMsg must still match it when it
+	// fires, or a later keystroke already re-armed (or the chat changed) and
+	// this one is stale — mirrors typingGen/typingPauseMsg.
+	draftSaveGen int
+
+	// stashedDraft holds an in-progress new-message draft that was in the
+	// compose box when the user started editing/reacting to a different
+	// message (both overwrite m.input with that message's own content) — nil
+	// means nothing's stashed. Restored by restoreStashedDraft once that
+	// composition ends (sent or cancelled), so it isn't silently lost.
+	stashedDraft *string
+
 	// message interaction state
 	selectedMsg          int               // index of highlighted message (meaningful in viewViewport)
 	editingMsgIdx        int               // >= 0 while editing a message; -1 otherwise
@@ -153,6 +174,7 @@ type Model struct {
 	accountStatusSetter  AccountStatusSetter
 	accountRemover       AccountRemover
 	chatReadTracker      ChatReadTracker
+	draftSaver           DraftSaver
 
 	// loadingOlderHistory marks chat indices with a LoadOlderHistory fetch
 	// currently in flight, so scrolling/MsgUp near the top of a long history
@@ -272,6 +294,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	inputHeightSetter, _ := sender.(InputHeightSetter)
 	lastChatSetter, _ := sender.(LastChatSetter)
 	chatReadTracker, _ := sender.(ChatReadTracker)
+	draftSaver, _ := sender.(DraftSaver)
 	historyLoader, _ := sender.(HistoryLoader)
 	deviceManager, _ := sender.(OmemoDeviceManager)
 	contactManager, _ := sender.(ContactManager)
@@ -325,6 +348,8 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		accountStatusSetter:    accountStatusSetter,
 		accountRemover:         accountRemover,
 		chatReadTracker:        chatReadTracker,
+		draftSaver:             draftSaver,
+		openChatAccountIdx:     -1,
 		loadingOlderHistory:    make(map[int]bool),
 		pendingOpenChatAddress: openLastChatAddress,
 		sidebarWidthOverride:   initialSidebarWidth,

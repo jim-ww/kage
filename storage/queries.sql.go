@@ -53,6 +53,21 @@ func (q *Queries) CountOmemoPreKeys(ctx context.Context, arg CountOmemoPreKeysPa
 	return count, err
 }
 
+const deleteChatDraft = `-- name: DeleteChatDraft :exec
+DELETE FROM chatDraft
+WHERE accountJID = ?1 AND rosterJID = ?2
+`
+
+type DeleteChatDraftParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+}
+
+func (q *Queries) DeleteChatDraft(ctx context.Context, arg DeleteChatDraftParams) error {
+	_, err := q.db.ExecContext(ctx, deleteChatDraft, arg.AccountJid, arg.RosterJid)
+	return err
+}
+
 const deleteOmemoDevices = `-- name: DeleteOmemoDevices :exec
 DELETE FROM omemoDevice
 WHERE accountJID = ?1 AND protocol = ?2 AND peerJID = ?3
@@ -981,6 +996,40 @@ func (q *Queries) ListAllReactions(ctx context.Context) ([]ListAllReactionsRow, 
 	return items, nil
 }
 
+const listChatDrafts = `-- name: ListChatDrafts :many
+SELECT rosterJID, body
+FROM chatDraft
+WHERE accountJID = ?1
+`
+
+type ListChatDraftsRow struct {
+	Rosterjid string `db:"rosterjid"`
+	Body      string `db:"body"`
+}
+
+func (q *Queries) ListChatDrafts(ctx context.Context, accountJid string) ([]ListChatDraftsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listChatDrafts, accountJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChatDraftsRow
+	for rows.Next() {
+		var i ListChatDraftsRow
+		if err := rows.Scan(&i.Rosterjid, &i.Body); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatUnread = `-- name: ListChatUnread :many
 SELECT rosterJID, count
 FROM chatUnread
@@ -1635,6 +1684,24 @@ type ResetChatUnreadParams struct {
 
 func (q *Queries) ResetChatUnread(ctx context.Context, arg ResetChatUnreadParams) error {
 	_, err := q.db.ExecContext(ctx, resetChatUnread, arg.AccountJid, arg.RosterJid)
+	return err
+}
+
+const setChatDraft = `-- name: SetChatDraft :exec
+INSERT INTO chatDraft (accountJID, rosterJID, body)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET body = excluded.body
+`
+
+type SetChatDraftParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+	Body       string `db:"body"`
+}
+
+func (q *Queries) SetChatDraft(ctx context.Context, arg SetChatDraftParams) error {
+	_, err := q.db.ExecContext(ctx, setChatDraft, arg.AccountJid, arg.RosterJid, arg.Body)
 	return err
 }
 

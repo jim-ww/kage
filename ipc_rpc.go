@@ -20,6 +20,7 @@ const (
 	rpcIncrementChatUnread   = "IncrementChatUnread"
 	rpcResetChatUnread       = "ResetChatUnread"
 	rpcChatUnreadCounts      = "ChatUnreadCounts"
+	rpcSaveDraft             = "SaveDraft"
 	rpcSendFile              = "SendFile"
 	rpcUploadFile            = "UploadFile"
 	rpcLoadOlderHistory      = "LoadOlderHistory"
@@ -92,6 +93,7 @@ type chatUnreadDeltaParams struct {
 }
 type accountJIDParams struct{ AccountJID string }
 type chatUnreadCountsResult struct{ Counts map[string]int }
+type saveDraftParams struct{ AccountJID, ChatAddress, Text string }
 
 type sendFileParams struct {
 	AccountIdx int

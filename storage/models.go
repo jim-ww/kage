@@ -8,6 +8,12 @@ import (
 	"database/sql"
 )
 
+type Chatdraft struct {
+	Accountjid string `db:"accountjid"`
+	Rosterjid  string `db:"rosterjid"`
+	Body       string `db:"body"`
+}
+
 type Chatencryption struct {
 	Accountjid string `db:"accountjid"`
 	Rosterjid  string `db:"rosterjid"`
