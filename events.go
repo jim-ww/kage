@@ -127,6 +127,17 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			slog.Warn("decrypting omemo message failed", "from", msgEv.From, "err", err)
 			body = "[message could not be decrypted: " + err.Error() + "]"
 			decryptFailed = true
+			if errors.Is(err, omemolib.ErrUnknownSession) {
+				// The message itself is unrecoverable (a plain ratchet
+				// message can't bootstrap a session), but nothing stops
+				// every future message from sender's device failing the
+				// same way forever, since sender has no way to learn their
+				// session with us is broken. Rebuild one now and push it to
+				// them - mirrors Conversations' AxolotlService "healing"
+				// (buildSessionFromPEP + a key-transport reply) - so this is
+				// the last message lost to it, not every one from here on.
+				healBrokenSession(ctx, s, mgr, enc.Sender, from)
+			}
 		} else if pt == nil {
 			slog.Debug("omemo message was key-transport only (no content)", "from", msgEv.From)
 			return // key-transport message: session established/refreshed, no content to show
@@ -245,6 +256,45 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	if notifyEnabled.Load() && !decryptFailed {
 		daemon.Notify(s.rosterName(from), notifyPreview(body, oobURLs))
 	}
+}
+
+// healBrokenSession recovers from an OMEMO decrypt failure caused by a
+// broken/missing session with sender (omemolib.ErrUnknownSession) —
+// typically our own session state got wiped (e.g. the local database was
+// deleted) while sender's client still believes a live session exists, so it
+// keeps sending ordinary ratchet messages we can never decrypt instead of
+// the prekey message that could bootstrap a fresh session. sender has no
+// way to learn this on its own; nothing here fixes that except forcing a
+// rebuild ourselves and telling them about it. Best-effort: a failure here
+// just means the peer stays broken until something else notices (a restart,
+// a device-list push) — no worse than before this existed.
+func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Manager, sender omemolib.Device, peerBareJID string) {
+	if err := mgr.ResetSession(ctx, sender); err != nil {
+		slog.Warn("healing broken omemo session: clearing stale session", "peer", peerBareJID, "device", sender.ID, "err", err)
+		return
+	}
+
+	enc, deviceErrs, err := mgr.EncryptKeyTransport(ctx, peerBareJID)
+	if err != nil {
+		slog.Warn("healing broken omemo session: rebuilding session failed", "peer", peerBareJID, "device", sender.ID, "err", err)
+		return
+	}
+	for _, de := range deviceErrs {
+		slog.Debug("healing broken omemo session: one device failed (others still sent)", "peer", peerBareJID, "device_id", de.Device.ID, "err", de.Err)
+	}
+
+	client := s.client.Load()
+	var sendErr error
+	if mgr == s.omemoMgrV1 {
+		_, sendErr = client.Send(ctx, peerBareJID, "", xmpp.SendOptions{EncryptedV1: xmpp.EncodeOmemoMessageV1(enc)})
+	} else {
+		_, sendErr = client.Send(ctx, peerBareJID, "", xmpp.SendOptions{Encrypted: xmpp.EncodeOmemoMessage(enc)})
+	}
+	if sendErr != nil {
+		slog.Warn("healing broken omemo session: sending key-transport reply failed", "peer", peerBareJID, "device", sender.ID, "err", sendErr)
+		return
+	}
+	slog.Debug("healing broken omemo session: rebuilt session and sent key-transport reply", "peer", peerBareJID, "device", sender.ID)
 }
 
 // notifyPreview trims body to a reasonable desktop-notification length —

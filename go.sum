@@ -64,8 +64,12 @@ github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUq
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/jim-ww/omemo-go v0.1.1 h1:KC+d/qdxSZw31+q3mQOpWwkiayDwtfYe9HVKLJRijcM=
 github.com/jim-ww/omemo-go v0.1.1/go.mod h1:AG1iKtAiknNrjJc3ZJ95ops7rO3sE6y/5pXZfwuyAl4=
+github.com/jim-ww/omemo-go v0.1.2 h1:dTxom7b3900TTlfOhKujbHnn27eEEYXMM/mCGBd55sQ=
+github.com/jim-ww/omemo-go v0.1.2/go.mod h1:AG1iKtAiknNrjJc3ZJ95ops7rO3sE6y/5pXZfwuyAl4=
 github.com/jim-ww/xochimilco v0.0.0-20260805123812-e10aed621610 h1:ZSdCBiS4BdBg8VKxol24BNhLp4C/DyT5s03ybye8KuA=
 github.com/jim-ww/xochimilco v0.0.0-20260805123812-e10aed621610/go.mod h1:Xs6/H60D4Q/fxJ78DnUz4pexjfFAWRVzzVCpW3ncIhw=
+github.com/jim-ww/xochimilco v0.1.0 h1:6Fl+pgmNiigeZC1+SWl4tyt1opBXS6NKw1OSG2N3dII=
+github.com/jim-ww/xochimilco v0.1.0/go.mod h1:Xs6/H60D4Q/fxJ78DnUz4pexjfFAWRVzzVCpW3ncIhw=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/lrstanley/bubblezone/v2 v2.0.0 h1:pMb9fHKs0slJF6OrzQ2hEgWusqyl9VU/S0UZ5hyh7ZA=

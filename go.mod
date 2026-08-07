@@ -12,7 +12,7 @@ require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/enescakir/emoji v1.0.0
-	github.com/jim-ww/omemo-go v0.1.1
+	github.com/jim-ww/omemo-go v0.1.2
 	github.com/lrstanley/bubblezone/v2 v2.0.0
 	github.com/sahilm/fuzzy v0.1.1
 	github.com/zalando/go-keyring v0.2.8
@@ -38,7 +38,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/jim-ww/xochimilco v0.0.0-20260805123812-e10aed621610 // indirect
+	github.com/jim-ww/xochimilco v0.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
