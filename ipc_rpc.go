@@ -16,6 +16,7 @@ const (
 	rpcSetSidebarWidth       = "SetSidebarWidth"
 	rpcSetSidebarHidden      = "SetSidebarHidden"
 	rpcSetInputHeight        = "SetInputHeight"
+	rpcSetFilePickerSort     = "SetFilePickerSort"
 	rpcSetLastChat           = "SetLastChat"
 	rpcIncrementChatUnread   = "IncrementChatUnread"
 	rpcResetChatUnread       = "ResetChatUnread"
@@ -87,6 +88,10 @@ type setChatEncryptionParams struct {
 type widthParams struct{ Width int }
 type hiddenParams struct{ Hidden bool }
 type heightParams struct{ Height int }
+type filePickerSortParams struct {
+	Field     string
+	Ascending bool
+}
 type setLastChatParams struct{ AccountJID, ChatAddress string }
 type chatUnreadDeltaParams struct {
 	AccountJID, ChatAddress string

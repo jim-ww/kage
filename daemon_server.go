@@ -97,6 +97,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.SetInputHeight(p.Height)
 
+	case rpcSetFilePickerSort:
+		p, err := unmarshalParams[filePickerSortParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.SetFilePickerSort(p.Field, p.Ascending)
+
 	case rpcSetLastChat:
 		p, err := unmarshalParams[setLastChatParams](params)
 		if err != nil {

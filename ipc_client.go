@@ -81,6 +81,10 @@ func (c *ipcClient) SetInputHeight(height int) error {
 	return c.conn.Call(rpcSetInputHeight, heightParams{Height: height}, nil)
 }
 
+func (c *ipcClient) SetFilePickerSort(field string, ascending bool) error {
+	return c.conn.Call(rpcSetFilePickerSort, filePickerSortParams{Field: field, Ascending: ascending}, nil)
+}
+
 func (c *ipcClient) SetLastChat(accountJID, chatAddress string) error {
 	return c.conn.Call(rpcSetLastChat, setLastChatParams{AccountJID: accountJID, ChatAddress: chatAddress}, nil)
 }

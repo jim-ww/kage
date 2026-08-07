@@ -440,6 +440,15 @@ type InputHeightSetter interface {
 	SetInputHeight(height int) error
 }
 
+// FilePickerSortSetter persists the attach-file picker's sort field
+// ("created"/"updated") and direction the user last selected, implemented
+// outside ui (main.go's adapter) so ui stays decoupled from the config
+// layer. A local file write, called inline like Send/SetTyping rather than
+// through a tea.Cmd.
+type FilePickerSortSetter interface {
+	SetFilePickerSort(field string, ascending bool) error
+}
+
 // StoragePasswordChanger re-encrypts every locally-encrypted message body
 // and draft under a new password, implemented outside ui (main.go's
 // adapter, backed by storage) so ui stays decoupled from the storage/crypto

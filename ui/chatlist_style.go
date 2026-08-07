@@ -5,12 +5,12 @@ import (
 	"io"
 	"strings"
 
-	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jim-ww/kage/ui/filepicker"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 

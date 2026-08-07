@@ -213,6 +213,13 @@ func (a *adapter) SetInputHeight(height int) error {
 	return config.SetInputHeight(a.cfgPath, height)
 }
 
+// SetFilePickerSort implements ui.FilePickerSortSetter: persists the
+// attach-file picker's sort field/direction so it's restored on the next
+// launch.
+func (a *adapter) SetFilePickerSort(field string, ascending bool) error {
+	return config.SetFilePickerSort(a.cfgPath, field, ascending)
+}
+
 // SetLastChat implements ui.LastChatSetter: persists which chat was last
 // opened so it can be reopened on startup when open_last_chat is set.
 func (a *adapter) SetLastChat(accountJID, chatAddress string) error {

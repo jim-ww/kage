@@ -159,6 +159,20 @@ func SetSidebarHidden(path string, hidden bool) error {
 	return writeFileConfig(path, cfg)
 }
 
+// SetFilePickerSort sets (or updates) the file_picker_sort_field/
+// file_picker_sort_ascending settings in the config file at path, preserving
+// everything else — called whenever the user cycles the attach-file
+// picker's sort order (see ui.FilePickerSortSetter).
+func SetFilePickerSort(path string, field string, ascending bool) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	cfg.FilePickerSortField = field
+	cfg.FilePickerSortAscending = ascending
+	return writeFileConfig(path, cfg)
+}
+
 // SetLastChat sets (or updates) the last_chat_account/last_chat_address
 // settings in the config file at path, preserving everything else — called
 // whenever the user opens a chat, so it can be reopened on startup when

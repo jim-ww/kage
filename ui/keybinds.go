@@ -34,6 +34,7 @@ type KeyMap struct {
 	ConfirmNo             key.Binding // n / esc — cancel popup
 	AddAccount            key.Binding // a — open the add-account form (only while accounts panel is focused)
 	AttachFile            key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
+	SortFilePicker        key.Binding // Ctrl+S — cycle the file picker's sort order (updated/created × asc/desc)
 	PasteImage            key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
 	RenameChat            key.Binding // r — open the rename-contact prompt for the selected chat
 	ToggleSidebar         key.Binding // Ctrl+\ — show/hide the chat list sidebar
@@ -88,29 +89,37 @@ func NewBinding(keys []string, desc string) key.Binding {
 }
 
 var DefaultKeyMap = KeyMap{
-	Quit:                  NewBinding([]string{"q", "ctrl+c"}, "quit"),
-	Back:                  NewBinding([]string{"esc"}, "back to chats"),
-	Switch:                NewBinding([]string{"tab"}, "switch focus"),
-	FocusChats:            NewBinding([]string{"\\"}, "focus chats"),
-	ChatOpen:              NewBinding([]string{"l", "right"}, "open chat"),
-	SelectSend:            NewBinding([]string{"enter"}, "select/send"),
-	MsgUp:                 NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
-	MsgDown:               NewBinding([]string{"ctrl+j", "down"}, "next msg"),
-	HalfPageUp:            NewBinding([]string{"ctrl+u"}, "half page up"),
-	HalfPageDown:          NewBinding([]string{"ctrl+d"}, "half page down"),
-	DeleteMsg:             NewBinding([]string{"ctrl+shift+d"}, "delete"),
-	YankMsg:               NewBinding([]string{"ctrl+y"}, "yank"),
-	EditMsg:               NewBinding([]string{"ctrl+e"}, "edit (own last)"),
-	ReplyMsg:              NewBinding([]string{"ctrl+r"}, "reply"),
-	InfoMsg:               NewBinding([]string{"ctrl+i"}, "message info"),
-	OpenMsg:               NewBinding([]string{"ctrl+o"}, "open links/attachments"),
-	SaveMsg:               NewBinding([]string{"ctrl+s"}, "save links/attachments"),
-	SaveMsgAs:             NewBinding([]string{"ctrl+shift+s"}, "save links/attachments as"),
-	ReactMsg:              NewBinding([]string{"ctrl+t"}, "react"),
-	ConfirmYes:            NewBinding([]string{"y"}, "yes"),
-	ConfirmNo:             NewBinding([]string{"n", "esc"}, "no"),
-	AddAccount:            NewBinding([]string{"a"}, "add account"),
-	AttachFile:            NewBinding([]string{"ctrl+f"}, "attach file"),
+	Quit:         NewBinding([]string{"q", "ctrl+c"}, "quit"),
+	Back:         NewBinding([]string{"esc"}, "back to chats"),
+	Switch:       NewBinding([]string{"tab"}, "switch focus"),
+	FocusChats:   NewBinding([]string{"\\"}, "focus chats"),
+	ChatOpen:     NewBinding([]string{"l", "right"}, "open chat"),
+	SelectSend:   NewBinding([]string{"enter"}, "select/send"),
+	MsgUp:        NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
+	MsgDown:      NewBinding([]string{"ctrl+j", "down"}, "next msg"),
+	HalfPageUp:   NewBinding([]string{"ctrl+u"}, "half page up"),
+	HalfPageDown: NewBinding([]string{"ctrl+d"}, "half page down"),
+	DeleteMsg:    NewBinding([]string{"ctrl+shift+d"}, "delete"),
+	YankMsg:      NewBinding([]string{"ctrl+y"}, "yank"),
+	EditMsg:      NewBinding([]string{"ctrl+e"}, "edit (own last)"),
+	ReplyMsg:     NewBinding([]string{"ctrl+r"}, "reply"),
+	InfoMsg:      NewBinding([]string{"ctrl+i"}, "message info"),
+	OpenMsg:      NewBinding([]string{"ctrl+o"}, "open links/attachments"),
+	SaveMsg:      NewBinding([]string{"ctrl+s"}, "save links/attachments"),
+	SaveMsgAs:    NewBinding([]string{"ctrl+shift+s"}, "save links/attachments as"),
+	ReactMsg:     NewBinding([]string{"ctrl+t"}, "react"),
+	ConfirmYes:   NewBinding([]string{"y"}, "yes"),
+	ConfirmNo:    NewBinding([]string{"n", "esc"}, "no"),
+	AddAccount:   NewBinding([]string{"a"}, "add account"),
+	AttachFile:   NewBinding([]string{"ctrl+f"}, "attach file"),
+	// Ctrl+<letter> combos are matched by physical key position on
+	// essentially all terminals (see matchesKey), unlike bare letters whose
+	// layout-independent BaseCode needs Kitty protocol support the user's
+	// terminal may not have — pick Ctrl+S here so sorting actually works
+	// under non-Latin layouts instead of just in theory. Reused from
+	// SaveMsg's binding is fine: the file picker intercepts all input while
+	// open, so SaveMsg never sees a keypress in that state.
+	SortFilePicker:        NewBinding([]string{"ctrl+s"}, "cycle sort"),
 	PasteImage:            NewBinding([]string{"ctrl+p"}, "paste image"),
 	RenameChat:            NewBinding([]string{"r"}, "rename chat"),
 	ToggleSidebar:         NewBinding([]string{"ctrl+\\"}, "toggle chat list"),

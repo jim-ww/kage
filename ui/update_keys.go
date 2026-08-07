@@ -170,6 +170,16 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.pickingFile = false
 			return m, nil, true
 		}
+		if matchesKey(msg, m.keys.SortFilePicker) {
+			var sortCmd tea.Cmd
+			m.filePicker, sortCmd = m.filePicker.CycleSort()
+			if m.filePickerSortSetter != nil {
+				if err := m.filePickerSortSetter.SetFilePickerSort(m.filePicker.SortField.String(), m.filePicker.SortAscending); err != nil {
+					return m, tea.Batch(sortCmd, m.showNotification("saving file picker sort: "+err.Error())), true
+				}
+			}
+			return m, sortCmd, true
+		}
 		var pickerCmd tea.Cmd
 		m.filePicker, pickerCmd = m.filePicker.Update(msg)
 		if selected, path := m.filePicker.DidSelectFile(msg); selected {

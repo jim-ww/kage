@@ -4,12 +4,12 @@ import (
 	"os"
 	"time"
 
-	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"github.com/jim-ww/kage/ui/filepicker"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -172,6 +172,7 @@ type Model struct {
 	sidebarWidthSetter     SidebarWidthSetter
 	sidebarHiddenSetter    SidebarHiddenSetter
 	inputHeightSetter      InputHeightSetter
+	filePickerSortSetter   FilePickerSortSetter
 	chatEncryptionSetter   ChatEncryptionSetter
 	lastChatSetter         LastChatSetter
 	historyLoader          HistoryLoader
@@ -239,13 +240,20 @@ type Model struct {
 
 // DisplayOptions bundles the message-rendering config toggles.
 type DisplayOptions struct {
-	Icons              bool          // show icons for attachments/encryption instead of plain-text tags
-	ShowNames          bool          // show the sender's name in the message header instead of just a direction glyph
-	TimeLayout         string        // custom Go time layout for message timestamps; empty means the default
-	TimeOnlyToday      bool          // with the default time layout, show time-only for messages sent today instead of a full date
-	MaxMessagesPerChat int           // cap on messages kept per chat in memory/view; <= 0 means no cap
-	UseGPG             bool          // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
-	NoticeDuration     time.Duration // how long an in-app notification toast stays visible; <= 0 means the default
+	Icons               bool          // show icons for attachments/encryption instead of plain-text tags
+	ShowNames           bool          // show the sender's name in the message header instead of just a direction glyph
+	TimeLayout          string        // custom Go time layout for message timestamps; empty means the default
+	TimeOnlyToday       bool          // with the default time layout, show time-only for messages sent today instead of a full date
+	MaxMessagesPerChat  int           // cap on messages kept per chat in memory/view; <= 0 means no cap
+	UseGPG              bool          // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
+	NoticeDuration      time.Duration // how long an in-app notification toast stays visible; <= 0 means the default
+	FilePickerDirsFirst bool          // group directories before files in the attach-file picker regardless of sort order
+	// FilePickerSortField/FilePickerSortAscending seed the attach-file
+	// picker's initial sort, persisted from the last selection (see
+	// FilePickerSortSetter). "" (or any value other than "created")
+	// resolves to updated/mtime; see filepicker.ParseSortField.
+	FilePickerSortField     string
+	FilePickerSortAscending bool
 }
 
 func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, display DisplayOptions) Model {
@@ -293,6 +301,9 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		picker.CurrentDirectory = home
 	}
 	picker.ShowPermissions = false
+	picker.DirsFirst = display.FilePickerDirsFirst
+	picker.SortField = filepicker.ParseSortField(display.FilePickerSortField)
+	picker.SortAscending = display.FilePickerSortAscending
 	applyFilePickerStyles(&picker, styles.colors)
 	fileSender, _ := sender.(FileSender)
 	renamer, _ := sender.(ContactRenamer)
@@ -301,6 +312,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	sidebarWidthSetter, _ := sender.(SidebarWidthSetter)
 	sidebarHiddenSetter, _ := sender.(SidebarHiddenSetter)
 	inputHeightSetter, _ := sender.(InputHeightSetter)
+	filePickerSortSetter, _ := sender.(FilePickerSortSetter)
 	lastChatSetter, _ := sender.(LastChatSetter)
 	chatReadTracker, _ := sender.(ChatReadTracker)
 	draftSaver, _ := sender.(DraftSaver)
@@ -354,6 +366,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		sidebarWidthSetter:     sidebarWidthSetter,
 		sidebarHiddenSetter:    sidebarHiddenSetter,
 		inputHeightSetter:      inputHeightSetter,
+		filePickerSortSetter:   filePickerSortSetter,
 		lastChatSetter:         lastChatSetter,
 		historyLoader:          historyLoader,
 		accountStatusSetter:    accountStatusSetter,

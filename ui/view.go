@@ -503,7 +503,20 @@ func (m Model) renderOpenPopup() string {
 func (m Model) renderFilePickerPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
-	lines := strings.Split(m.filePicker.View(), "\n")
+
+	sortKey := caretKey(m.keys.SortFilePicker.Help().Key)
+	title := "Attach file — " + m.filePicker.CurrentDirectory
+	footer := "[enter] open/select  ·  [" + sortKey + "] sort: " + m.filePicker.SortLabel() + "  ·  [esc] cancel"
+
+	// Set the picker's minimum row width to at least the title/footer's
+	// width so short filenames don't leave size/date stranded mid-line —
+	// the popup box always auto-sizes to whichever line (title, footer, or
+	// a row) is widest, so without this, rows narrower than the title got
+	// right-padded by padLinesToWidth *after* the date column instead of
+	// widening the name column in front of it.
+	picker := m.filePicker
+	picker.SetWidth(max(lipgloss.Width(title), lipgloss.Width(footer)))
+	lines := strings.Split(picker.View(), "\n")
 	width := 0
 	for _, line := range lines {
 		if w := lipgloss.Width(line); w > width {
@@ -514,7 +527,7 @@ func (m Model) renderFilePickerPopup() string {
 	for i, line := range lines {
 		lines[i] = m.zone.Mark(zoneFilePickerRow(i), line)
 	}
-	body := m.styles.listPopup("Attach file — "+m.filePicker.CurrentDirectory, []string{strings.Join(lines, "\n")}, "[enter] open/select  ·  [esc] cancel")
+	body := m.styles.listPopup(title, []string{strings.Join(lines, "\n")}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

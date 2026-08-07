@@ -13,29 +13,32 @@ import (
 )
 
 type fileConfig struct {
-	Keybinds           map[string]any `toml:"keybinds"`
-	Theme              ui.Theme       `toml:"theme"`
-	Mouse              *bool          `toml:"mouse"`                           // nil (unset) means the default: on
-	SidebarWidth       int            `toml:"sidebar_width,omitempty"`         // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
-	InputHeight        int            `toml:"input_height,omitempty"`          // persisted from dragging the compose box border; 0 (unset) means the DynamicHeight-based default
-	SidebarHidden      bool           `toml:"sidebar_hidden,omitempty"`        // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
-	Icons              *bool          `toml:"icons"`                           // nil (unset) means the default: on; show icons for attachments/encryption instead of plain-text tags
-	ShowNames          bool           `toml:"show_names,omitempty"`            // show the sender's name in the message header instead of just a direction glyph; off by default
-	TimeLayout         string         `toml:"time_layout,omitempty"`           // custom Go time layout for message timestamps; unset means the default ("15:04"/"2006-01-02 15:04")
-	TimeOnlyToday      *bool          `toml:"time_only_today"`                 // nil (unset) means the default: on; with the default time layout, show time-only for messages sent today instead of a full date
-	DefaultAccount     string         `toml:"default_account"`                 // JID selected on startup; unset means the first configured account
-	OpenLastChat       *bool          `toml:"open_last_chat"`                  // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
-	LastChatAccount    string         `toml:"last_chat_account,omitempty"`     // JID of the account owning the last opened chat
-	LastChatAddress    string         `toml:"last_chat_address,omitempty"`     // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
-	Notifications      *bool          `toml:"notifications"`                   // nil (unset) means the default: on; whether a decrypted incoming message fires a desktop notification (the background daemon itself always runs)
-	TerminalCmd        string         `toml:"terminal_cmd,omitempty"`          // terminal emulator to launch from the tray icon; unset means fall back to $TERMINAL, then xdg-terminal-exec, then a hardcoded list
-	UseGPG             *bool          `toml:"use_gpg"`                         // nil (unset) means the default: on; whether gpg encryption is available at all
-	UseKeyring         *bool          `toml:"use_keyring"`                     // nil (unset) means the default: on; whether the OS keyring is tried at all
-	HistoryPageSize    int            `toml:"history_page_size,omitempty"`     // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
-	MaxMessagesPerChat int            `toml:"max_messages_per_chat,omitempty"` // cap on messages kept in memory/view per chat; 0 (unset) means the default
-	NoticeDuration     int            `toml:"notice_duration,omitempty"`       // seconds an in-app notification toast stays visible before auto-dismissing; 0 (unset) means the default
-	Storage            StorageConfig  `toml:"storage"`
-	Accounts           []Account      `toml:"accounts"`
+	Keybinds                map[string]any `toml:"keybinds"`
+	Theme                   ui.Theme       `toml:"theme"`
+	Mouse                   *bool          `toml:"mouse"`                                // nil (unset) means the default: on
+	SidebarWidth            int            `toml:"sidebar_width,omitempty"`              // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
+	InputHeight             int            `toml:"input_height,omitempty"`               // persisted from dragging the compose box border; 0 (unset) means the DynamicHeight-based default
+	SidebarHidden           bool           `toml:"sidebar_hidden,omitempty"`             // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
+	Icons                   *bool          `toml:"icons"`                                // nil (unset) means the default: on; show icons for attachments/encryption instead of plain-text tags
+	FilePickerDirsFirst     *bool          `toml:"file_picker_dirs_first"`               // nil (unset) means the default: on; group directories before files in the attach-file picker regardless of sort order
+	FilePickerSortField     string         `toml:"file_picker_sort_field,omitempty"`     // "created" or "updated"; persisted from cycling sort in the attach-file picker; unset means "updated"
+	FilePickerSortAscending bool           `toml:"file_picker_sort_ascending,omitempty"` // persisted from cycling sort in the attach-file picker; unset means descending
+	ShowNames               bool           `toml:"show_names,omitempty"`                 // show the sender's name in the message header instead of just a direction glyph; off by default
+	TimeLayout              string         `toml:"time_layout,omitempty"`                // custom Go time layout for message timestamps; unset means the default ("15:04"/"2006-01-02 15:04")
+	TimeOnlyToday           *bool          `toml:"time_only_today"`                      // nil (unset) means the default: on; with the default time layout, show time-only for messages sent today instead of a full date
+	DefaultAccount          string         `toml:"default_account"`                      // JID selected on startup; unset means the first configured account
+	OpenLastChat            *bool          `toml:"open_last_chat"`                       // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
+	LastChatAccount         string         `toml:"last_chat_account,omitempty"`          // JID of the account owning the last opened chat
+	LastChatAddress         string         `toml:"last_chat_address,omitempty"`          // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
+	Notifications           *bool          `toml:"notifications"`                        // nil (unset) means the default: on; whether a decrypted incoming message fires a desktop notification (the background daemon itself always runs)
+	TerminalCmd             string         `toml:"terminal_cmd,omitempty"`               // terminal emulator to launch from the tray icon; unset means fall back to $TERMINAL, then xdg-terminal-exec, then a hardcoded list
+	UseGPG                  *bool          `toml:"use_gpg"`                              // nil (unset) means the default: on; whether gpg encryption is available at all
+	UseKeyring              *bool          `toml:"use_keyring"`                          // nil (unset) means the default: on; whether the OS keyring is tried at all
+	HistoryPageSize         int            `toml:"history_page_size,omitempty"`          // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
+	MaxMessagesPerChat      int            `toml:"max_messages_per_chat,omitempty"`      // cap on messages kept in memory/view per chat; 0 (unset) means the default
+	NoticeDuration          int            `toml:"notice_duration,omitempty"`            // seconds an in-app notification toast stays visible before auto-dismissing; 0 (unset) means the default
+	Storage                 StorageConfig  `toml:"storage"`
+	Accounts                []Account      `toml:"accounts"`
 }
 
 // StorageConfig configures the password local message history is encrypted
@@ -47,18 +50,21 @@ type StorageConfig struct {
 }
 
 type UIConfig struct {
-	KeyMap         ui.KeyMap
-	Theme          ui.Theme
-	Mouse          bool          // enables mouse click/scroll support; on by default
-	SidebarWidth   int           // 0 means "use the width/4-based default"
-	InputHeight    int           // 0 means "use the DynamicHeight-based default"
-	SidebarHidden  bool          // persisted chat list visibility; false (open) by default
-	OpenLastChat   bool          // whether to reopen the last chat on startup; on by default
-	Icons          bool          // show icons for attachments/encryption instead of plain-text tags; on by default
-	ShowNames      bool          // show the sender's name in the message header instead of just a direction glyph; off by default
-	TimeLayout     string        // custom Go time layout for message timestamps; empty means the default
-	TimeOnlyToday  bool          // with the default time layout, show time-only for messages sent today instead of a full date; on by default
-	NoticeDuration time.Duration // how long an in-app notification toast stays visible before auto-dismissing; DefaultNoticeDuration when unset
+	KeyMap                  ui.KeyMap
+	Theme                   ui.Theme
+	Mouse                   bool          // enables mouse click/scroll support; on by default
+	SidebarWidth            int           // 0 means "use the width/4-based default"
+	InputHeight             int           // 0 means "use the DynamicHeight-based default"
+	SidebarHidden           bool          // persisted chat list visibility; false (open) by default
+	OpenLastChat            bool          // whether to reopen the last chat on startup; on by default
+	Icons                   bool          // show icons for attachments/encryption instead of plain-text tags; on by default
+	FilePickerDirsFirst     bool          // group directories before files in the attach-file picker regardless of sort order; on by default
+	FilePickerSortField     string        // "created" or "updated"; persisted attach-file picker sort field; "updated" by default
+	FilePickerSortAscending bool          // persisted attach-file picker sort direction; descending by default
+	ShowNames               bool          // show the sender's name in the message header instead of just a direction glyph; off by default
+	TimeLayout              string        // custom Go time layout for message timestamps; empty means the default
+	TimeOnlyToday           bool          // with the default time layout, show time-only for messages sent today instead of a full date; on by default
+	NoticeDuration          time.Duration // how long an in-app notification toast stays visible before auto-dismissing; DefaultNoticeDuration when unset
 }
 
 // Config is the fully resolved application configuration.
@@ -129,13 +135,15 @@ const DefaultNoticeDuration = 3 * time.Second
 func Load(path string) (Config, error) {
 	cfgOut := Config{
 		UI: UIConfig{
-			KeyMap:         ui.DefaultKeyMap,
-			Theme:          ui.DefaultTheme(),
-			Mouse:          true,
-			OpenLastChat:   true,
-			TimeOnlyToday:  true,
-			Icons:          true,
-			NoticeDuration: DefaultNoticeDuration,
+			KeyMap:              ui.DefaultKeyMap,
+			Theme:               ui.DefaultTheme(),
+			Mouse:               true,
+			OpenLastChat:        true,
+			TimeOnlyToday:       true,
+			Icons:               true,
+			FilePickerDirsFirst: true,
+			FilePickerSortField: "updated",
+			NoticeDuration:      DefaultNoticeDuration,
 		},
 		Notifications:      true,
 		UseGPG:             true,
@@ -164,6 +172,13 @@ func Load(path string) (Config, error) {
 			if cfg.Icons != nil {
 				cfgOut.UI.Icons = *cfg.Icons
 			}
+			if cfg.FilePickerDirsFirst != nil {
+				cfgOut.UI.FilePickerDirsFirst = *cfg.FilePickerDirsFirst
+			}
+			if cfg.FilePickerSortField != "" {
+				cfgOut.UI.FilePickerSortField = cfg.FilePickerSortField
+			}
+			cfgOut.UI.FilePickerSortAscending = cfg.FilePickerSortAscending
 			cfgOut.UI.ShowNames = cfg.ShowNames
 			cfgOut.UI.TimeLayout = cfg.TimeLayout
 			cfgOut.UI.InputHeight = cfg.InputHeight
@@ -292,6 +307,8 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 			keys.SaveMsg = ui.NewBinding(override, "save links/attachments")
 		case "attach_file":
 			keys.AttachFile = ui.NewBinding(override, "attach file")
+		case "sort_file_picker":
+			keys.SortFilePicker = ui.NewBinding(override, "cycle sort")
 		case "react":
 			keys.ReactMsg = ui.NewBinding(override, "react")
 		case "confirm_yes":

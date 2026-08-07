@@ -2,11 +2,9 @@
 - send failed, no
 - change drag & drop behavior: add dropped file as attachment, instead of sending right away. ensure multi-file drop is handled too
 
-- make daemon more lightweight
+- when images added with ctrl+p, they added and sent as single message, not multiple?
 - handle extremely large text files pasted in message prompt / sent in chat (lags/slow)
-- filepicker: add mouse support
 - add keyboard navigation to modals (and ways to open them)
-- ctrl+f add sort for files creation date DESC
 - check how local/remote messages timestampt are handled
 - in devices show proper OMEMO fingerprint
 - ^shift+U bind doesnt work (omemo devices)
@@ -18,6 +16,7 @@
 - omit options from config, that have default values
 - search message content in across chats
 
+- refactor: move components to ui/ package
 - optimization speed up cursor message selection in chat and for scrolling
 - preview files text contents (in separate viewport?)
 - implement group chat support
