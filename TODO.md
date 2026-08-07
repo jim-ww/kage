@@ -1,6 +1,10 @@
 - messages sent from same account on other devices do not appear in chat
 - send failed, no
+- add option to move carret in message input with mouse (e.g. press on specific word character)
 - change drag & drop behavior: add dropped file as attachment, instead of sending right away. ensure multi-file drop is handled too
+- do not send notifications, when tui client (with sender's chat opened) is focused
+- show own full account address somewhere (in case alias is set)
+- simplify emoji selection
 
 - when images added with ctrl+p, they added and sent as single message, not multiple?
 - handle extremely large text files pasted in message prompt / sent in chat (lags/slow)

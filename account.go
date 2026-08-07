@@ -368,7 +368,35 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 	sess.roster.Store(&merged)
 
+	resyncPeerDeviceLists(ctx, sess, merged)
+
 	return newChats, newMessages, newHistoryMore, nil
+}
+
+// resyncPeerDeviceLists re-fetches every roster contact's OMEMO device list
+// (both protocol versions) on every connect, rather than trusting whatever
+// was last cached in storage. Manager.devicesFor only self-refreshes a
+// cached list when it's completely empty - otherwise it relies solely on a
+// contact's DeviceListChangedEvent (XEP-0163 PEP push) ever reaching us, and
+// that push can be missed (e.g. both sides reconnecting around the same
+// time). A contact who rotated devices - most commonly by wiping their own
+// local database and getting a fresh device ID - would otherwise stay
+// silently unreachable until something happens to empty our cache of them.
+// Best-effort and run once per connect, same cost class as setupOmemo's own
+// startup fetch; failures are logged, not fatal.
+func resyncPeerDeviceLists(ctx context.Context, s *accountSession, roster map[string]rosterEntry) {
+	for peerJID := range roster {
+		if s.omemoMgrV2 != nil {
+			if err := s.omemoMgrV2.SyncDevices(ctx, peerJID); err != nil {
+				slog.Debug("resyncing omemo-v2 device list on connect", "peer", peerJID, "jid", s.account.JID, "err", err)
+			}
+		}
+		if s.omemoMgrV1 != nil {
+			if err := s.omemoMgrV1.SyncDevices(ctx, peerJID); err != nil {
+				slog.Debug("resyncing omemo-v1 device list on connect", "peer", peerJID, "jid", s.account.JID, "err", err)
+			}
+		}
+	}
 }
 
 // connectAccount runs connectAccountLocal then connectAccountLive back to
