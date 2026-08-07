@@ -17,7 +17,6 @@
 - implement backups, compatible with conversations
 - omit options from config, that have default values
 
-- ctrl+z to undo last change in message draft. should store all changes in this session, until message is sent, then clear. ctrl+shift+z redo?
 - account manager should look like button and show hover indication
 - save message drafts for each chat (encrypted, if encryption enabled), on exit/chat switch
 

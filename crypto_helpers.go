@@ -38,6 +38,27 @@ func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString
 	return sql.NullString{String: ct, Valid: true}, true
 }
 
+// decryptDraft returns body in plaintext, opening it with localKey
+// (crypto/localstore) if encrypted is set. Best-effort: a missing key or a
+// decrypt failure (e.g. the storage password changed) just yields an empty
+// draft with a warning logged, rather than failing whatever's loading the
+// chat list.
+func decryptDraft(localKey []byte, body string, encrypted bool) string {
+	if !encrypted {
+		return body
+	}
+	if localKey == nil {
+		slog.Warn("stored draft is encrypted but no local storage password is available")
+		return ""
+	}
+	pt, err := localstore.Open(localKey, body)
+	if err != nil {
+		slog.Warn("decrypting stored draft", "err", err)
+		return ""
+	}
+	return pt
+}
+
 // publishOwnGPGKey exports our own public key and publishes it to our PEP
 // nodes (XEP-0373) so contacts can discover it automatically instead of us
 // having to hand them a fingerprint out of band. Best-effort: some servers

@@ -87,8 +87,8 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListChatDrafts: %v", err)
 	}
-	if len(drafts) != 1 || drafts[0].Rosterjid != "you@example.com" || drafts[0].Body != "hello there" {
-		t.Errorf("ListChatDrafts = %+v, want one row for you@example.com = %q", drafts, "hello there")
+	if len(drafts) != 1 || drafts[0].Rosterjid != "you@example.com" || drafts[0].Body != "hello there" || drafts[0].Encrypted {
+		t.Errorf("ListChatDrafts = %+v, want one plaintext row for you@example.com = %q", drafts, "hello there")
 	}
 
 	// Saving an empty draft deletes the row rather than storing "".

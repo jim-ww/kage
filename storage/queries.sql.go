@@ -997,7 +997,7 @@ func (q *Queries) ListAllReactions(ctx context.Context) ([]ListAllReactionsRow, 
 }
 
 const listChatDrafts = `-- name: ListChatDrafts :many
-SELECT rosterJID, body
+SELECT rosterJID, body, encrypted
 FROM chatDraft
 WHERE accountJID = ?1
 `
@@ -1005,6 +1005,7 @@ WHERE accountJID = ?1
 type ListChatDraftsRow struct {
 	Rosterjid string `db:"rosterjid"`
 	Body      string `db:"body"`
+	Encrypted bool   `db:"encrypted"`
 }
 
 func (q *Queries) ListChatDrafts(ctx context.Context, accountJid string) ([]ListChatDraftsRow, error) {
@@ -1016,7 +1017,7 @@ func (q *Queries) ListChatDrafts(ctx context.Context, accountJid string) ([]List
 	var items []ListChatDraftsRow
 	for rows.Next() {
 		var i ListChatDraftsRow
-		if err := rows.Scan(&i.Rosterjid, &i.Body); err != nil {
+		if err := rows.Scan(&i.Rosterjid, &i.Body, &i.Encrypted); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1688,20 +1689,26 @@ func (q *Queries) ResetChatUnread(ctx context.Context, arg ResetChatUnreadParams
 }
 
 const setChatDraft = `-- name: SetChatDraft :exec
-INSERT INTO chatDraft (accountJID, rosterJID, body)
-VALUES (?1, ?2, ?3)
+INSERT INTO chatDraft (accountJID, rosterJID, body, encrypted)
+VALUES (?1, ?2, ?3, ?4)
 ON CONFLICT (accountJID, rosterJID) DO UPDATE
-SET body = excluded.body
+SET body = excluded.body, encrypted = excluded.encrypted
 `
 
 type SetChatDraftParams struct {
 	AccountJid string `db:"account_jid"`
 	RosterJid  string `db:"roster_jid"`
 	Body       string `db:"body"`
+	Encrypted  bool   `db:"encrypted"`
 }
 
 func (q *Queries) SetChatDraft(ctx context.Context, arg SetChatDraftParams) error {
-	_, err := q.db.ExecContext(ctx, setChatDraft, arg.AccountJid, arg.RosterJid, arg.Body)
+	_, err := q.db.ExecContext(ctx, setChatDraft,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.Body,
+		arg.Encrypted,
+	)
 	return err
 }
 

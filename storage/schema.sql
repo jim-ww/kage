@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS chatDraft (
 	accountJID TEXT NOT NULL,
 	rosterJID  TEXT NOT NULL,
 	body       TEXT NOT NULL,
+	encrypted  BOOLEAN NOT NULL DEFAULT FALSE, -- whether body is AES-sealed (crypto/localstore) or plain text, same as messages.encrypted
 
 	PRIMARY KEY (accountJID, rosterJID)
 ) WITHOUT ROWID;

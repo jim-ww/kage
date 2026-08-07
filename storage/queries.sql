@@ -445,17 +445,17 @@ WHERE accountJID = sqlc.arg(account_jid) AND count > 0;
 
 
 -- name: SetChatDraft :exec
-INSERT INTO chatDraft (accountJID, rosterJID, body)
-VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(body))
+INSERT INTO chatDraft (accountJID, rosterJID, body, encrypted)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(body), sqlc.arg(encrypted))
 ON CONFLICT (accountJID, rosterJID) DO UPDATE
-SET body = excluded.body;
+SET body = excluded.body, encrypted = excluded.encrypted;
 
 -- name: DeleteChatDraft :exec
 DELETE FROM chatDraft
 WHERE accountJID = sqlc.arg(account_jid) AND rosterJID = sqlc.arg(roster_jid);
 
 -- name: ListChatDrafts :many
-SELECT rosterJID, body
+SELECT rosterJID, body, encrypted
 FROM chatDraft
 WHERE accountJID = sqlc.arg(account_jid);
 

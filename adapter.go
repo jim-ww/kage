@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/aesgcm"
+	"github.com/jim-ww/kage/crypto/localstore"
 	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/daemon"
 	"github.com/jim-ww/kage/storage"
@@ -251,8 +252,9 @@ func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
 }
 
 // SaveDraft implements ui.DraftSaver: persists chatAddress's compose-box
-// text, or clears the persisted draft entirely when text is empty (rather
-// than storing an empty row).
+// text, sealed under the local storage key (crypto/localstore) same as a
+// message body when one is configured, or clears the persisted draft
+// entirely when text is empty (rather than storing an empty row).
 func (a *adapter) SaveDraft(accountJID, chatAddress, text string) error {
 	if text == "" {
 		return a.queries.DeleteChatDraft(context.Background(), storage.DeleteChatDraftParams{
@@ -260,10 +262,19 @@ func (a *adapter) SaveDraft(accountJID, chatAddress, text string) error {
 			RosterJid:  chatAddress,
 		})
 	}
+	body, encrypted := text, false
+	if a.localKey != nil {
+		if ct, err := localstore.Seal(a.localKey, text); err == nil {
+			body, encrypted = ct, true
+		} else {
+			slog.Warn("encrypting draft for storage", "err", err)
+		}
+	}
 	return a.queries.SetChatDraft(context.Background(), storage.SetChatDraftParams{
 		AccountJid: accountJID,
 		RosterJid:  chatAddress,
-		Body:       text,
+		Body:       body,
+		Encrypted:  encrypted,
 	})
 }
 

@@ -12,6 +12,7 @@ type Chatdraft struct {
 	Accountjid string `db:"accountjid"`
 	Rosterjid  string `db:"rosterjid"`
 	Body       string `db:"body"`
+	Encrypted  bool   `db:"encrypted"`
 }
 
 type Chatencryption struct {

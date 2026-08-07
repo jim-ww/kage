@@ -226,7 +226,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	}
 	drafts := make(map[string]string, len(draftRows))
 	for _, r := range draftRows {
-		drafts[r.Rosterjid] = r.Body
+		drafts[r.Rosterjid] = decryptDraft(localKey, r.Body, r.Encrypted)
 	}
 
 	chats := make([]list.Item, 0, len(rows))
@@ -335,7 +335,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 	drafts := make(map[string]string, len(draftRows))
 	for _, r := range draftRows {
-		drafts[r.Rosterjid] = r.Body
+		drafts[r.Rosterjid] = decryptDraft(sess.localKey, r.Body, r.Encrypted)
 	}
 
 	var newChats []list.Item
