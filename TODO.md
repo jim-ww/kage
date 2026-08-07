@@ -1,9 +1,8 @@
+- move change password(encryption) functionality to RMB click on accounts tab modal
 - messages sent from same account on other devices do not appear in chat
-- last_chat_address is ignorred
 - send failed, no
 - add option to move carret in message input with mouse (e.g. press on specific word character)
 - change drag & drop behavior: add dropped file as attachment, instead of sending right away. ensure multi-file drop is handled too
-- do not send notifications, when tui client (with sender's chat opened) is focused
 - show own full account address somewhere (in case alias is set)
 - simplify emoji selection
 

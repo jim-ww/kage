@@ -8,7 +8,7 @@ import "github.com/jim-ww/kage/config"
 // locking, and ipc socket daemon relies on are only implemented there (see
 // the _linux.go files) — kage's TUI itself doesn't currently work on other
 // platforms either, since it now always depends on the background service.
-func EnsureRunning(cfgPath string) error {
+func EnsureRunning(cfgPath string, debug bool) error {
 	return nil
 }
 

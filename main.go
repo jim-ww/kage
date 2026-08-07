@@ -294,7 +294,7 @@ func main() {
 	// The background daemon always runs now — cfg.Notifications only gates
 	// whether it fires a desktop notification, not whether it starts at all
 	// (see events.go's handleIncomingMessage).
-	if err := daemon.EnsureRunning(cfg.Path); err != nil {
+	if err := daemon.EnsureRunning(cfg.Path, *debug); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: starting kage's background service: %v\n", err)
 	}
 	if cfg.HistoryPageSize > 0 {
