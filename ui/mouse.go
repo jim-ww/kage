@@ -57,6 +57,21 @@ func messageIndexFromZone(id string) (int, bool) {
 	return i, true
 }
 
+// filePickerRowFromZone extracts i back out of a zoneFilePickerRow(i) ID,
+// for handleMouseMotion to follow the mouse without re-scanning every row's
+// zone bounds.
+func filePickerRowFromZone(id string) (int, bool) {
+	rest, ok := strings.CutPrefix(id, "file-picker-row-")
+	if !ok {
+		return 0, false
+	}
+	i, err := strconv.Atoi(rest)
+	if err != nil {
+		return 0, false
+	}
+	return i, true
+}
+
 // zoneRowContains reports whether mouse falls within z's vertical span and
 // within [0, maxX) horizontally. It doesn't trust z.EndX: chat rows are
 // marked inside sidebarBox, which draws a lipgloss border around the
@@ -112,6 +127,16 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			m.updateSizes()
 		}
 		return m, nil
+	}
+
+	if m.pickingFile {
+		lines := strings.Split(m.filePicker.View(), "\n")
+		row := m.filePickerRowUnderMouse(msg, lines)
+		if row < 0 {
+			return m, nil
+		}
+		cursorRow := filePickerCursorRow(lines, m.filePicker.Cursor)
+		return m, filePickerMoveCmd(cursorRow, row)
 	}
 
 	m.hover.id = m.zoneUnderMouse(msg)
@@ -529,27 +554,53 @@ func filePickerCursorRow(lines []string, cursor string) int {
 	return -1
 }
 
-// handleFilePickerClick turns a click on a file-picker row into synthetic
-// up/down key presses that walk the picker's cursor to that row — the
-// picker's selection index isn't exported, so this is the only way to move
-// it to an arbitrary row from outside. Sent as a tea.Sequence so they're
-// applied one at a time, in order, through the normal pickingFile key
-// interception in update_keys.go (which already knows how to stage a
-// selected file) rather than duplicating that logic here. A second click on
-// the already-selected row within the double-click window also opens it.
+// filePickerRowUnderMouse returns the file-picker row the mouse is over, or
+// -1 if it isn't over any row.
+func (m Model) filePickerRowUnderMouse(msg tea.MouseMsg, lines []string) int {
+	for i := range lines {
+		if m.zone.Get(zoneFilePickerRow(i)).InBounds(msg) {
+			return i
+		}
+	}
+	return -1
+}
+
+// filePickerMoveCmd walks the picker's cursor from cursorRow to targetRow
+// via synthetic up/down key presses — the picker's selection index isn't
+// exported, so this is the only way to move it to an arbitrary row from
+// outside. Returned as a tea.Sequence so the presses are applied one at a
+// time, in order, through the normal Update loop rather than by mutating
+// m.filePicker directly here.
+func filePickerMoveCmd(cursorRow, targetRow int) tea.Cmd {
+	if cursorRow < 0 || cursorRow == targetRow {
+		return nil
+	}
+	step := tea.KeyPressMsg{Code: tea.KeyDown}
+	if targetRow < cursorRow {
+		step = tea.KeyPressMsg{Code: tea.KeyUp}
+	}
+	var cmds []tea.Cmd
+	for range max(targetRow, cursorRow) - min(targetRow, cursorRow) {
+		cmds = append(cmds, func() tea.Msg { return step })
+	}
+	return tea.Sequence(cmds...)
+}
+
+// handleFilePickerClick turns a click on a file-picker row into the cursor
+// moves needed to select it (see filePickerMoveCmd), applied through the
+// normal pickingFile key interception in update_keys.go (which already
+// knows how to stage a selected file) rather than duplicating that logic
+// here. A second click on the already-selected row within the double-click
+// window also opens it. In practice the cursor is usually already on the
+// clicked row by the time this fires, since hovering it (handleMouseMotion)
+// moves the cursor there first.
 func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Mouse().Button != tea.MouseLeft {
 		return m, nil
 	}
 
 	lines := strings.Split(m.filePicker.View(), "\n")
-	targetRow := -1
-	for i := range lines {
-		if m.zone.Get(zoneFilePickerRow(i)).InBounds(msg) {
-			targetRow = i
-			break
-		}
-	}
+	targetRow := m.filePickerRowUnderMouse(msg, lines)
 	if targetRow < 0 {
 		return m, nil
 	}
@@ -561,20 +612,11 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 	m.lastFilePickerRow = targetRow
 	m.lastFilePickerTime = clickTime
 
-	var cmds []tea.Cmd
-	if cursorRow >= 0 {
-		step := tea.KeyPressMsg{Code: tea.KeyDown}
-		if targetRow < cursorRow {
-			step = tea.KeyPressMsg{Code: tea.KeyUp}
-		}
-		for range max(targetRow, cursorRow) - min(targetRow, cursorRow) {
-			cmds = append(cmds, func() tea.Msg { return step })
-		}
-	}
+	cmd := filePickerMoveCmd(cursorRow, targetRow)
 	if isDoubleClick {
-		cmds = append(cmds, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} })
+		cmd = tea.Sequence(cmd, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} })
 	}
-	return m, tea.Sequence(cmds...)
+	return m, cmd
 }
 
 // handleMouseWheel scrolls whichever pane the wheel event landed over: the
