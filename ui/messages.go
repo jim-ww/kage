@@ -498,3 +498,9 @@ type DraftSaver interface {
 type noticeClearMsg struct {
 	id int
 }
+
+// openPendingChatMsg triggers openPendingChat on startup, once, via Init's
+// returned tea.Cmd — needed because the account owning the last-opened chat
+// may already be fully connected when the TUI attaches to a running daemon,
+// so no AccountConnectedMsg/AccountLiveMsg ever arrives to trigger it.
+type openPendingChatMsg struct{}

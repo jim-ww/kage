@@ -432,5 +432,5 @@ func (m Model) newAddAccountForm() [3]textinput.Model {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 func (m Model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, func() tea.Msg { return openPendingChatMsg{} })
 }

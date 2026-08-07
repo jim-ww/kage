@@ -98,6 +98,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		model, cmd := m.handleMouseRelease(msg)
 		return model.(Model), cmd, true
 
+	case openPendingChatMsg:
+		return m, m.openPendingChat(), true
+
 	case noticeClearMsg:
 		if msg.id == m.noticeID {
 			m.noticeText = ""
