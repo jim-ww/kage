@@ -160,6 +160,27 @@ func setupOmemoProtocol(
 		slog.Warn("publishing omemo bundle", "protocol", protocol, "jid", s.account.JID, "err", err)
 	}
 
+	// One-time prekeys are consumed (deleted from store) the moment any
+	// device starts a fresh session with us, and the pool is otherwise only
+	// ever seeded once at identity creation - nothing else in kage ever
+	// tops it up. Left unchecked, the pool eventually runs dry (every new
+	// session then fails outright), and even before that, any peer holding
+	// a bundle snapshot fetched before a prekey was consumed will try to
+	// use an ID we've already deleted, failing with "no rows in result
+	// set". Checking and republishing here, on every connect, keeps the
+	// published bundle honest and the pool from ever draining permanently.
+	if needsMore, err := mgr.NeedsMorePreKeys(ctx); err != nil {
+		slog.Warn("checking omemo prekey count", "protocol", protocol, "jid", s.account.JID, "err", err)
+	} else if needsMore {
+		if err := mgr.GenerateOneTimePreKeys(ctx, omemolib.DefaultPreKeyCount); err != nil {
+			slog.Warn("replenishing omemo prekeys", "protocol", protocol, "jid", s.account.JID, "err", err)
+		} else if err := mgr.PublishBundle(ctx); err != nil {
+			slog.Warn("republishing omemo bundle after prekey replenishment", "protocol", protocol, "jid", s.account.JID, "err", err)
+		} else {
+			slog.Debug("omemo prekeys replenished", "protocol", protocol, "jid", s.account.JID, "count", omemolib.DefaultPreKeyCount)
+		}
+	}
+
 	devices, err := fetchDeviceList(ctx, s.account.JID)
 	if err != nil {
 		slog.Warn("fetching own omemo device list", "protocol", protocol, "jid", s.account.JID, "err", err)
