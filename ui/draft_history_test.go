@@ -225,3 +225,54 @@ func TestDraftDebounceSaveWhileTyping(t *testing.T) {
 		t.Fatalf("saved draft after debounce fired = %q, want %q", got, want)
 	}
 }
+
+// TestFlushDraftOnExit checks that FlushDraft (called once by main.go right
+// after the Bubble Tea program stops) persists whatever's in the compose box
+// even though the 3s debounce never got a chance to fire — covering the
+// "typed something, quit immediately" case.
+func TestFlushDraftOnExit(t *testing.T) {
+	saver := newFakeDraftSaver()
+	m := newTestModelWithSender(saver, &fakeAccountAdder{})
+	chat := Chat{Address: "bob@localhost"}
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		runCmd(cmd)
+	}
+	m.chats.Select(0)
+	model, cmd := m.openCurrentChat()
+	m = model.(Model)
+	runCmd(cmd)
+
+	next, _ := m.Update(keyText("last words"))
+	m = next.(Model)
+
+	if _, ok := saver.saved["bob@localhost"]; ok {
+		t.Fatal("nothing should be persisted yet - only the debounce timer or FlushDraft should save it")
+	}
+	m.FlushDraft()
+	if got, want := saver.saved["bob@localhost"], "last words"; got != want {
+		t.Fatalf("saved draft after FlushDraft = %q, want %q", got, want)
+	}
+}
+
+// TestFlushDraftNoopWhenUnchanged checks FlushDraft doesn't fire a redundant
+// save when the compose box still matches the chat's already-stored draft
+// (e.g. the user opened the chat, looked at it, and quit without typing).
+func TestFlushDraftNoopWhenUnchanged(t *testing.T) {
+	saver := newFakeDraftSaver()
+	m := newTestModelWithSender(saver, &fakeAccountAdder{})
+	chat := Chat{Address: "bob@localhost", Draft: "already saved"}
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		runCmd(cmd)
+	}
+	m.chats.Select(0)
+	model, cmd := m.openCurrentChat()
+	m = model.(Model)
+	runCmd(cmd)
+
+	m.FlushDraft()
+	if saver.calls != 0 {
+		t.Fatalf("FlushDraft should be a no-op when unchanged, got %d SaveDraft call(s)", saver.calls)
+	}
+}

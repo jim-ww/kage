@@ -350,7 +350,14 @@ func main() {
 		p.Send(tea.Quit())
 	}()
 
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	// Flush any not-yet-autosaved compose text before exiting - the periodic
+	// debounce (see ui.draftSaveDebounce) only fires after a few idle
+	// seconds, so quitting right after typing would otherwise lose it.
+	if fm, ok := finalModel.(ui.Model); ok {
+		fm.FlushDraft()
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -219,6 +219,27 @@ func (m *Model) saveChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
 	})
 }
 
+// FlushDraft synchronously persists whatever's currently in the compose box
+// as the open chat's draft (skipped if it already matches what's stored).
+// The periodic autosave (draftSaveDebounce) only fires after a few idle
+// seconds, so quitting mid-type can otherwise lose the last few keystrokes
+// that hadn't been flushed yet — call this once, after the Bubble Tea
+// program has stopped, before the process exits.
+func (m Model) FlushDraft() {
+	if m.draftSaver == nil || m.openChatAddress == "" {
+		return
+	}
+	chatIdx := m.chatIndexByAddress(m.openChatAccountIdx, m.openChatAddress)
+	if chatIdx < 0 {
+		return
+	}
+	chat, ok := m.accounts[m.openChatAccountIdx].Chats[chatIdx].(Chat)
+	if !ok || chat.Draft == m.input.Value() {
+		return
+	}
+	_ = m.draftSaver.SaveDraft(m.accounts[m.openChatAccountIdx].Name, chat.Address, m.input.Value())
+}
+
 // swapComposeDraft saves the draft of the chat currently loaded into
 // m.input (tracked by openChatAccountIdx/openChatAddress) and loads in
 // newAccountIdx/newChatIdx's stored draft instead — called whenever a

@@ -326,6 +326,18 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 	}
 
+	// Loaded once up front rather than per-contact: a chatDraft row can exist
+	// for a JID even when it's not yet "known" to the roster cache below
+	// (e.g. the contact was removed and re-added while a draft sat unsent).
+	draftRows, err := sess.db.ListChatDrafts(ctx, sess.account.JID)
+	if err != nil {
+		slog.Warn("loading chat drafts", "jid", sess.account.JID, "err", err)
+	}
+	drafts := make(map[string]string, len(draftRows))
+	for _, r := range draftRows {
+		drafts[r.Rosterjid] = r.Body
+	}
+
 	var newChats []list.Item
 	newMessages := make(map[int][]ui.Message)
 	newHistoryMore := make(map[int]bool)
@@ -346,7 +358,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 		idx := existingChatCount + len(newChats)
 		hist, hasMore := loadHistoryPage(ctx, sess, c.JID, name)
-		chat := ui.Chat{Name: name, Address: c.JID}
+		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID]}
 		if len(hist) > 0 {
 			newMessages[idx] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
