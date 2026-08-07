@@ -136,6 +136,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.SaveDraft(p.AccountJID, p.ChatAddress, p.Text)
 
+	case rpcChangeStoragePassword:
+		p, err := unmarshalParams[changeStoragePasswordParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.ChangeStoragePassword(p.NewPassword)
+
 	case rpcSendFile:
 		p, err := unmarshalParams[sendFileParams](params)
 		if err != nil {

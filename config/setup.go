@@ -173,6 +173,23 @@ func SetLastChat(path, accountJID, chatAddress string) error {
 	return writeFileConfig(path, cfg)
 }
 
+// SetStoragePlaintextPassword sets (or updates) the [storage] password field
+// in the config file at path, preserving everything else — the plaintext
+// fallback used when the OS keyring is unavailable/disabled (see
+// SetStorageKeyringPassword for the keyring path). Clears PasswordCmd: the
+// two are mutually exclusive ways of resolving the same setting, and leaving
+// a stale password_cmd behind would silently shadow the password just set
+// (ResolveStoragePassword tries PasswordCmd before Password).
+func SetStoragePlaintextPassword(path, password string) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	cfg.Storage.Password = password
+	cfg.Storage.PasswordCmd = ""
+	return writeFileConfig(path, cfg)
+}
+
 func loadOrEmpty(path string) (fileConfig, error) {
 	existing, err := loadFile(path)
 	if err != nil {

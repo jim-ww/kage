@@ -11,42 +11,43 @@ import (
 )
 
 type KeyMap struct {
-	Quit             key.Binding
-	Back             key.Binding
-	Switch           key.Binding
-	FocusChats       key.Binding
-	ChatOpen         key.Binding
-	SelectSend       key.Binding
-	MsgUp            key.Binding // k — navigate to previous message
-	MsgDown          key.Binding // j — navigate to next message
-	HalfPageUp       key.Binding // Ctrl+U — jump up by half the visible messages
-	HalfPageDown     key.Binding // Ctrl+D — jump down by half the visible messages
-	DeleteMsg        key.Binding // Ctrl+Shift+D — delete selected message (with popup)
-	YankMsg          key.Binding // Ctrl+Y — yank selected message
-	EditMsg          key.Binding // Ctrl+E — edit (only last own message)
-	ReplyMsg         key.Binding // Ctrl+R — reply to selected message
-	InfoMsg          key.Binding // Ctrl+I — show message info popup
-	OpenMsg          key.Binding // Ctrl+O — open links/attachments in selected message
-	SaveMsg          key.Binding // Ctrl+S — save links/attachments in selected message to disk
-	SaveMsgAs        key.Binding // Ctrl+Shift+S — save links/attachments, prompting for a destination path first
-	ReactMsg         key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
-	ConfirmYes       key.Binding // y — confirm popup
-	ConfirmNo        key.Binding // n / esc — cancel popup
-	AddAccount       key.Binding // a — open the add-account form (only while accounts panel is focused)
-	AttachFile       key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
-	PasteImage       key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
-	RenameChat       key.Binding // r — open the rename-contact prompt for the selected chat
-	ToggleSidebar    key.Binding // Ctrl+\ — show/hide the chat list sidebar
-	DeviceList       key.Binding // Ctrl+Shift+U — view/purge the current account's published OMEMO device list
-	ContactManager   key.Binding // c — add/remove roster contacts for the current account (accounts panel)
-	RemoveAttachment key.Binding // Backspace (on empty input) — drop the highlighted pending attachment
-	ClearDraft       key.Binding // Ctrl+Shift+E — erase the compose box
-	UndoDraft        key.Binding // Ctrl+Z — undo the last change to the compose box
-	RedoDraft        key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
-	Help             key.Binding // Ctrl+? — open the full-keybindings help popup
-	ListKeys         list.KeyMap
-	TextInputKeys    textinput.KeyMap
-	InputAreaKeys    textarea.KeyMap
+	Quit                  key.Binding
+	Back                  key.Binding
+	Switch                key.Binding
+	FocusChats            key.Binding
+	ChatOpen              key.Binding
+	SelectSend            key.Binding
+	MsgUp                 key.Binding // k — navigate to previous message
+	MsgDown               key.Binding // j — navigate to next message
+	HalfPageUp            key.Binding // Ctrl+U — jump up by half the visible messages
+	HalfPageDown          key.Binding // Ctrl+D — jump down by half the visible messages
+	DeleteMsg             key.Binding // Ctrl+Shift+D — delete selected message (with popup)
+	YankMsg               key.Binding // Ctrl+Y — yank selected message
+	EditMsg               key.Binding // Ctrl+E — edit (only last own message)
+	ReplyMsg              key.Binding // Ctrl+R — reply to selected message
+	InfoMsg               key.Binding // Ctrl+I — show message info popup
+	OpenMsg               key.Binding // Ctrl+O — open links/attachments in selected message
+	SaveMsg               key.Binding // Ctrl+S — save links/attachments in selected message to disk
+	SaveMsgAs             key.Binding // Ctrl+Shift+S — save links/attachments, prompting for a destination path first
+	ReactMsg              key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
+	ConfirmYes            key.Binding // y — confirm popup
+	ConfirmNo             key.Binding // n / esc — cancel popup
+	AddAccount            key.Binding // a — open the add-account form (only while accounts panel is focused)
+	AttachFile            key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
+	PasteImage            key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
+	RenameChat            key.Binding // r — open the rename-contact prompt for the selected chat
+	ToggleSidebar         key.Binding // Ctrl+\ — show/hide the chat list sidebar
+	DeviceList            key.Binding // Ctrl+Shift+U — view/purge the current account's published OMEMO device list
+	ContactManager        key.Binding // c — add/remove roster contacts for the current account (accounts panel)
+	RemoveAttachment      key.Binding // Backspace (on empty input) — drop the highlighted pending attachment
+	ClearDraft            key.Binding // Ctrl+Shift+E — erase the compose box
+	UndoDraft             key.Binding // Ctrl+Z — undo the last change to the compose box
+	RedoDraft             key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
+	ChangeStoragePassword key.Binding // Ctrl+Shift+P — change the local message/draft storage encryption password (accounts panel)
+	Help                  key.Binding // Ctrl+? — open the full-keybindings help popup
+	ListKeys              list.KeyMap
+	TextInputKeys         textinput.KeyMap
+	InputAreaKeys         textarea.KeyMap
 }
 
 // defaultInputAreaKeys is textarea.DefaultKeyMap with InsertNewline moved off
@@ -87,38 +88,39 @@ func NewBinding(keys []string, desc string) key.Binding {
 }
 
 var DefaultKeyMap = KeyMap{
-	Quit:             NewBinding([]string{"q", "ctrl+c"}, "quit"),
-	Back:             NewBinding([]string{"esc"}, "back to chats"),
-	Switch:           NewBinding([]string{"tab"}, "switch focus"),
-	FocusChats:       NewBinding([]string{"\\"}, "focus chats"),
-	ChatOpen:         NewBinding([]string{"l", "right"}, "open chat"),
-	SelectSend:       NewBinding([]string{"enter"}, "select/send"),
-	MsgUp:            NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
-	MsgDown:          NewBinding([]string{"ctrl+j", "down"}, "next msg"),
-	HalfPageUp:       NewBinding([]string{"ctrl+u"}, "half page up"),
-	HalfPageDown:     NewBinding([]string{"ctrl+d"}, "half page down"),
-	DeleteMsg:        NewBinding([]string{"ctrl+shift+d"}, "delete"),
-	YankMsg:          NewBinding([]string{"ctrl+y"}, "yank"),
-	EditMsg:          NewBinding([]string{"ctrl+e"}, "edit (own last)"),
-	ReplyMsg:         NewBinding([]string{"ctrl+r"}, "reply"),
-	InfoMsg:          NewBinding([]string{"ctrl+i"}, "message info"),
-	OpenMsg:          NewBinding([]string{"ctrl+o"}, "open links/attachments"),
-	SaveMsg:          NewBinding([]string{"ctrl+s"}, "save links/attachments"),
-	SaveMsgAs:        NewBinding([]string{"ctrl+shift+s"}, "save links/attachments as"),
-	ReactMsg:         NewBinding([]string{"ctrl+t"}, "react"),
-	ConfirmYes:       NewBinding([]string{"y"}, "yes"),
-	ConfirmNo:        NewBinding([]string{"n", "esc"}, "no"),
-	AddAccount:       NewBinding([]string{"a"}, "add account"),
-	AttachFile:       NewBinding([]string{"ctrl+f"}, "attach file"),
-	PasteImage:       NewBinding([]string{"ctrl+p"}, "paste image"),
-	RenameChat:       NewBinding([]string{"r"}, "rename chat"),
-	ToggleSidebar:    NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
-	DeviceList:       NewBinding([]string{"ctrl+shift+u"}, "omemo devices"),
-	ContactManager:   NewBinding([]string{"c"}, "manage contacts"),
-	RemoveAttachment: NewBinding([]string{"backspace"}, "remove attachment"),
-	ClearDraft:       NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
-	UndoDraft:        NewBinding([]string{"ctrl+z"}, "undo"),
-	RedoDraft:        NewBinding([]string{"ctrl+shift+z"}, "redo"),
+	Quit:                  NewBinding([]string{"q", "ctrl+c"}, "quit"),
+	Back:                  NewBinding([]string{"esc"}, "back to chats"),
+	Switch:                NewBinding([]string{"tab"}, "switch focus"),
+	FocusChats:            NewBinding([]string{"\\"}, "focus chats"),
+	ChatOpen:              NewBinding([]string{"l", "right"}, "open chat"),
+	SelectSend:            NewBinding([]string{"enter"}, "select/send"),
+	MsgUp:                 NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
+	MsgDown:               NewBinding([]string{"ctrl+j", "down"}, "next msg"),
+	HalfPageUp:            NewBinding([]string{"ctrl+u"}, "half page up"),
+	HalfPageDown:          NewBinding([]string{"ctrl+d"}, "half page down"),
+	DeleteMsg:             NewBinding([]string{"ctrl+shift+d"}, "delete"),
+	YankMsg:               NewBinding([]string{"ctrl+y"}, "yank"),
+	EditMsg:               NewBinding([]string{"ctrl+e"}, "edit (own last)"),
+	ReplyMsg:              NewBinding([]string{"ctrl+r"}, "reply"),
+	InfoMsg:               NewBinding([]string{"ctrl+i"}, "message info"),
+	OpenMsg:               NewBinding([]string{"ctrl+o"}, "open links/attachments"),
+	SaveMsg:               NewBinding([]string{"ctrl+s"}, "save links/attachments"),
+	SaveMsgAs:             NewBinding([]string{"ctrl+shift+s"}, "save links/attachments as"),
+	ReactMsg:              NewBinding([]string{"ctrl+t"}, "react"),
+	ConfirmYes:            NewBinding([]string{"y"}, "yes"),
+	ConfirmNo:             NewBinding([]string{"n", "esc"}, "no"),
+	AddAccount:            NewBinding([]string{"a"}, "add account"),
+	AttachFile:            NewBinding([]string{"ctrl+f"}, "attach file"),
+	PasteImage:            NewBinding([]string{"ctrl+p"}, "paste image"),
+	RenameChat:            NewBinding([]string{"r"}, "rename chat"),
+	ToggleSidebar:         NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
+	DeviceList:            NewBinding([]string{"ctrl+shift+u"}, "omemo devices"),
+	ContactManager:        NewBinding([]string{"c"}, "manage contacts"),
+	RemoveAttachment:      NewBinding([]string{"backspace"}, "remove attachment"),
+	ClearDraft:            NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
+	ChangeStoragePassword: NewBinding([]string{"ctrl+shift+p"}, "change storage password"),
+	UndoDraft:             NewBinding([]string{"ctrl+z"}, "undo"),
+	RedoDraft:             NewBinding([]string{"ctrl+shift+z"}, "redo"),
 	// "ctrl+?" is the intended gesture (ctrl + the "?" that shares the "/"
 	// key on a US layout), but no terminal actually reports that literal
 	// string: legacy encoding sends the raw ctrl+/ control byte as
@@ -219,6 +221,7 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.AddAccount, "add"},
 			{k.DeviceList, "omemo devices"},
 			{k.ContactManager, "contacts"},
+			{k.ChangeStoragePassword, "change storage password"},
 		}
 	case viewChats:
 		return []helpEntry{

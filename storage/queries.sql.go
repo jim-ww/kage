@@ -1065,6 +1065,82 @@ func (q *Queries) ListChatUnread(ctx context.Context, accountJid string) ([]List
 	return items, nil
 }
 
+const listEncryptedChatDrafts = `-- name: ListEncryptedChatDrafts :many
+SELECT accountJID, rosterJID, body
+FROM chatDraft
+WHERE encrypted = TRUE
+`
+
+type ListEncryptedChatDraftsRow struct {
+	Accountjid string `db:"accountjid"`
+	Rosterjid  string `db:"rosterjid"`
+	Body       string `db:"body"`
+}
+
+// Every locally-encrypted draft across every account, used alongside
+// ListEncryptedMessageBodies by the storage-password change flow.
+func (q *Queries) ListEncryptedChatDrafts(ctx context.Context) ([]ListEncryptedChatDraftsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEncryptedChatDrafts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEncryptedChatDraftsRow
+	for rows.Next() {
+		var i ListEncryptedChatDraftsRow
+		if err := rows.Scan(&i.Accountjid, &i.Rosterjid, &i.Body); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEncryptedMessageBodies = `-- name: ListEncryptedMessageBodies :many
+SELECT id, body
+FROM messages
+WHERE encrypted = TRUE
+`
+
+type ListEncryptedMessageBodiesRow struct {
+	ID   int64          `db:"id"`
+	Body sql.NullString `db:"body"`
+}
+
+// Every locally-encrypted message body across every account, used by the
+// storage-password change flow to decrypt-and-reseal each row inside one
+// transaction. id is the table's rowid, the simplest stable key to update
+// back by (no account/roster scoping needed - the local storage key is one
+// shared secret for the whole database, not per-account).
+func (q *Queries) ListEncryptedMessageBodies(ctx context.Context) ([]ListEncryptedMessageBodiesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEncryptedMessageBodies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEncryptedMessageBodiesRow
+	for rows.Next() {
+		var i ListEncryptedMessageBodiesRow
+		if err := rows.Scan(&i.ID, &i.Body); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestArchiveIDs = `-- name: ListLatestArchiveIDs :many
 SELECT
 	m.rosterJID,
@@ -1885,6 +1961,22 @@ func (q *Queries) UpdateMessageBodyByID(ctx context.Context, arg UpdateMessageBo
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateMessageBodyByRowID = `-- name: UpdateMessageBodyByRowID :exec
+UPDATE messages
+SET body = ?1
+WHERE id = ?2
+`
+
+type UpdateMessageBodyByRowIDParams struct {
+	Body sql.NullString `db:"body"`
+	ID   int64          `db:"id"`
+}
+
+func (q *Queries) UpdateMessageBodyByRowID(ctx context.Context, arg UpdateMessageBodyByRowIDParams) error {
+	_, err := q.db.ExecContext(ctx, updateMessageBodyByRowID, arg.Body, arg.ID)
+	return err
 }
 
 const upsertDiscoFeature = `-- name: UpsertDiscoFeature :one

@@ -158,23 +158,24 @@ type Model struct {
 	lastClickedMsgIdx int       // index of the last clicked message (for double-click detection)
 	lastClickTime     time.Time // time of the last message click (for double-click detection)
 
-	sender               MessageSender
-	fileSender           FileSender
-	accountAdder         AccountAdder
-	deviceManager        OmemoDeviceManager
-	contactManager       ContactManager
-	renamer              ContactRenamer
-	defaultAccountSetter DefaultAccountSetter
-	sidebarWidthSetter   SidebarWidthSetter
-	sidebarHiddenSetter  SidebarHiddenSetter
-	inputHeightSetter    InputHeightSetter
-	chatEncryptionSetter ChatEncryptionSetter
-	lastChatSetter       LastChatSetter
-	historyLoader        HistoryLoader
-	accountStatusSetter  AccountStatusSetter
-	accountRemover       AccountRemover
-	chatReadTracker      ChatReadTracker
-	draftSaver           DraftSaver
+	sender                 MessageSender
+	fileSender             FileSender
+	accountAdder           AccountAdder
+	deviceManager          OmemoDeviceManager
+	contactManager         ContactManager
+	renamer                ContactRenamer
+	defaultAccountSetter   DefaultAccountSetter
+	sidebarWidthSetter     SidebarWidthSetter
+	sidebarHiddenSetter    SidebarHiddenSetter
+	inputHeightSetter      InputHeightSetter
+	chatEncryptionSetter   ChatEncryptionSetter
+	lastChatSetter         LastChatSetter
+	historyLoader          HistoryLoader
+	accountStatusSetter    AccountStatusSetter
+	accountRemover         AccountRemover
+	chatReadTracker        ChatReadTracker
+	draftSaver             DraftSaver
+	storagePasswordChanger StoragePasswordChanger
 
 	// loadingOlderHistory marks chat indices with a LoadOlderHistory fetch
 	// currently in flight, so scrolling/MsgUp near the top of a long history
@@ -202,6 +203,10 @@ type Model struct {
 	savingAs     bool
 	saveAsTarget string
 	saveAsInput  textinput.Model
+
+	// changePasswordState is non-nil while the "change local storage
+	// password" popup is open — see ui/storage_password.go.
+	changePasswordState *changePasswordState
 
 	// typingActiveTo is the address of the chat we're currently marked as
 	// "composing" to (empty if not composing to anyone). typingGen
@@ -295,6 +300,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	lastChatSetter, _ := sender.(LastChatSetter)
 	chatReadTracker, _ := sender.(ChatReadTracker)
 	draftSaver, _ := sender.(DraftSaver)
+	storagePasswordChanger, _ := sender.(StoragePasswordChanger)
 	historyLoader, _ := sender.(HistoryLoader)
 	deviceManager, _ := sender.(OmemoDeviceManager)
 	contactManager, _ := sender.(ContactManager)
@@ -349,6 +355,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		accountRemover:         accountRemover,
 		chatReadTracker:        chatReadTracker,
 		draftSaver:             draftSaver,
+		storagePasswordChanger: storagePasswordChanger,
 		openChatAccountIdx:     -1,
 		loadingOlderHistory:    make(map[int]bool),
 		pendingOpenChatAddress: openLastChatAddress,

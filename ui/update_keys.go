@@ -140,6 +140,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m.updateContactManagerKey(msg)
 	}
 
+	// ── Change-storage-password popup intercepts all input until submitted/canceled ──
+	if m.changePasswordState != nil {
+		model, cmd := m.updateChangePasswordForm(msg)
+		return model.(Model), cmd, true
+	}
+
 	// ── Add-account form intercepts all input until submitted/canceled ──
 	if m.addingAccount {
 		model, cmd := m.updateAddAccountForm(msg)
@@ -316,6 +322,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if m.selectedView == viewAccounts {
 			model, cmd := m.openContactManager()
 			return model, cmd, true
+		}
+
+	case matchesKey(msg, m.keys.ChangeStoragePassword):
+		if m.selectedView == viewAccounts {
+			cmd := m.openChangePasswordPopup()
+			return m, cmd, true
 		}
 
 	case matchesKey(msg, m.keys.RenameChat):

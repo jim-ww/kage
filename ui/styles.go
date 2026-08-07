@@ -253,6 +253,27 @@ func attachButtonWidth(icons bool) int {
 	return lipgloss.Width(attachButtonLabel(icons)) + 2
 }
 
+// renderStoragePasswordButton renders the small "change local storage
+// password" button shown at the left of the account bar's status row, only
+// while the accounts panel is open. Styled like attachButton (background +
+// padding, reversed on hover) so it reads as a real button rather than a
+// plain glyph, just kept small/unbold so it doesn't compete with the
+// higher-traffic send/attach buttons elsewhere.
+func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
+	label := "[k]"
+	if icons {
+		label = "🔑"
+	}
+	st := lipgloss.NewStyle().
+		Foreground(s.colors.themFg).
+		Background(s.colors.borderD).
+		Padding(0, 1)
+	if hovered {
+		st = st.Reverse(true)
+	}
+	return st.Render(label)
+}
+
 func (s uiStyles) renderAttachButton(icons, hovered bool) string {
 	st := s.attachButton
 	if hovered {

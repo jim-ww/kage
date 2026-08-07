@@ -66,6 +66,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 		sessions:    make([]*accountSession, len(cfg.Accounts)),
 		cfgAccounts: append([]config.Account(nil), cfg.Accounts...),
 		cfgPath:     cfg.Path,
+		db:          dbConn,
 		queries:     queries,
 		localKey:    localKey,
 		useGPG:      cfg.UseGPG,

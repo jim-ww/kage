@@ -7,8 +7,8 @@ import (
 
 // RPC method names (client -> daemon, see daemon_server.go/ipc_client.go).
 const (
-	rpcSend                = "Send"
-	rpcMarkRetracted        = "MarkRetracted"
+	rpcSend                  = "Send"
+	rpcMarkRetracted         = "MarkRetracted"
 	rpcSetTyping             = "SetTyping"
 	rpcRenameContact         = "RenameContact"
 	rpcSetDefaultAccount     = "SetDefaultAccount"
@@ -21,6 +21,7 @@ const (
 	rpcResetChatUnread       = "ResetChatUnread"
 	rpcChatUnreadCounts      = "ChatUnreadCounts"
 	rpcSaveDraft             = "SaveDraft"
+	rpcChangeStoragePassword = "ChangeStoragePassword"
 	rpcSendFile              = "SendFile"
 	rpcUploadFile            = "UploadFile"
 	rpcLoadOlderHistory      = "LoadOlderHistory"
@@ -80,8 +81,8 @@ type renameContactParams struct {
 }
 type setDefaultAccountParams struct{ JID string }
 type setChatEncryptionParams struct {
-	AccountIdx     int
-	PeerJID, Mode  string
+	AccountIdx    int
+	PeerJID, Mode string
 }
 type widthParams struct{ Width int }
 type hiddenParams struct{ Hidden bool }
@@ -94,6 +95,7 @@ type chatUnreadDeltaParams struct {
 type accountJIDParams struct{ AccountJID string }
 type chatUnreadCountsResult struct{ Counts map[string]int }
 type saveDraftParams struct{ AccountJID, ChatAddress, Text string }
+type changeStoragePasswordParams struct{ NewPassword string }
 
 type sendFileParams struct {
 	AccountIdx int

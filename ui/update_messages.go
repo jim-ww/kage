@@ -606,6 +606,18 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case StoragePasswordChangedMsg:
+		if m.changePasswordState == nil {
+			return m, nil, true
+		}
+		m.changePasswordState.busy = false
+		if msg.Err != nil {
+			m.changePasswordState.err = msg.Err.Error()
+			return m, nil, true
+		}
+		m.changePasswordState = nil
+		return m, m.showNotification("storage password changed — kage will restart shortly, please relaunch it"), true
+
 	case draftSaveMsg:
 		if m.draftSaveGen != msg.gen || m.currentAccount != msg.accountIdx {
 			return m, nil, true

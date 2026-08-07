@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,8 +16,8 @@ import (
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/aesgcm"
 	"github.com/jim-ww/kage/crypto/localstore"
-	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/daemon"
+	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
@@ -35,6 +36,7 @@ type adapter struct {
 	cfgAccounts []config.Account // mirrors sessions, but populated for an index before that account finishes connecting - see daemonServer.listAccounts
 	cfgPath     string
 	srv         *ipc.Server
+	db          *sql.DB // raw handle alongside queries, needed for the transaction ChangeStoragePassword runs
 	queries     *storage.Queries
 	localKey    []byte
 	useGPG      bool

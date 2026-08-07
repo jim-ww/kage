@@ -619,6 +619,30 @@ SELECT EXISTS (
 		AND archiveID = sqlc.arg(archive_id)
 );
 
+-- name: ListEncryptedMessageBodies :many
+-- Every locally-encrypted message body across every account, used by the
+-- storage-password change flow to decrypt-and-reseal each row inside one
+-- transaction. id is the table's rowid, the simplest stable key to update
+-- back by (no account/roster scoping needed - the local storage key is one
+-- shared secret for the whole database, not per-account).
+SELECT id, body
+FROM messages
+WHERE encrypted = TRUE;
+
+-- name: UpdateMessageBodyByRowID :exec
+UPDATE messages
+SET body = sqlc.arg(body)
+WHERE id = sqlc.arg(id);
+
+
+-- name: ListEncryptedChatDrafts :many
+-- Every locally-encrypted draft across every account, used alongside
+-- ListEncryptedMessageBodies by the storage-password change flow.
+SELECT accountJID, rosterJID, body
+FROM chatDraft
+WHERE encrypted = TRUE;
+
+
 -- name: MessageExistsByIDAttr :one
 -- Checked before decrypting a live incoming OMEMO message, so a message
 -- already backfilled via MAM (or otherwise already stored) isn't decrypted

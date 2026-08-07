@@ -16,16 +16,17 @@ import (
 // row must be handled before the enclosing sidebar pane's "switch focus"
 // fallback.
 const (
-	zonePaneSidebar      = "pane-sidebar"
-	zonePaneViewport     = "pane-viewport"
-	zonePaneInput        = "pane-input"
-	zoneAccountBarName   = "account-bar-name"
-	zoneAccountBarStatus = "account-bar-status"
-	zoneChatStatusBar    = "chat-status-bar"
-	zoneSendButton       = "send-button"
-	zoneAttachButton     = "attach-button"
-	zoneToggleSidebar    = "toggle-sidebar-button"
-	zoneMsgInfoPopup     = "msg-info-popup"
+	zonePaneSidebar           = "pane-sidebar"
+	zonePaneViewport          = "pane-viewport"
+	zonePaneInput             = "pane-input"
+	zoneAccountBarName        = "account-bar-name"
+	zoneAccountBarStatus      = "account-bar-status"
+	zoneStoragePasswordButton = "storage-password-button"
+	zoneChatStatusBar         = "chat-status-bar"
+	zoneSendButton            = "send-button"
+	zoneAttachButton          = "attach-button"
+	zoneToggleSidebar         = "toggle-sidebar-button"
+	zoneMsgInfoPopup          = "msg-info-popup"
 )
 
 // inputWheelScrollLines is how many lines a single wheel notch moves the
@@ -175,6 +176,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	}
 	if m.zone.Get(zoneToggleSidebar).InBounds(mouse) {
 		return zoneToggleSidebar
+	}
+	if m.zone.Get(zoneStoragePasswordButton).InBounds(mouse) {
+		return zoneStoragePasswordButton
 	}
 	if m.zone.Get(zoneAccountBarName).InBounds(mouse) {
 		return zoneAccountBarName
@@ -332,6 +336,14 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			m.updateSizes()
 			return m, nil
 		}
+	}
+
+	if m.zone.Get(zoneStoragePasswordButton).InBounds(msg) {
+		m.notifyTypingStopped()
+		m.lastClickedMsgIdx = -1
+		m.lastClickTime = time.Time{}
+		cmd := m.openChangePasswordPopup()
+		return m, cmd
 	}
 
 	if m.zone.Get(zoneAccountBarStatus).InBounds(msg) {

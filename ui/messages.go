@@ -440,6 +440,23 @@ type InputHeightSetter interface {
 	SetInputHeight(height int) error
 }
 
+// StoragePasswordChanger re-encrypts every locally-encrypted message body
+// and draft under a new password, implemented outside ui (main.go's
+// adapter, backed by storage) so ui stays decoupled from the storage/crypto
+// layers. Unlike most setters here this runs as a tea.Cmd rather than being
+// called inline from Update — it walks and re-seals every encrypted row in
+// one transaction, slow enough on a large history to visibly block the UI
+// if done synchronously. See StoragePasswordChangedMsg for the result.
+type StoragePasswordChanger interface {
+	ChangeStoragePassword(newPassword string) error
+}
+
+// StoragePasswordChangedMsg reports the result of a StoragePasswordChanger
+// call, produced by the "change storage password" popup's submit action.
+type StoragePasswordChangedMsg struct {
+	Err error
+}
+
 // LastChatSetter persists which chat was last opened, implemented outside
 // ui (main.go's adapter) so ui stays decoupled from the config layer. A
 // local file write, called inline like Send/SetTyping rather than through a

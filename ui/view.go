@@ -38,8 +38,21 @@ func (m Model) View() tea.View {
 	}
 	accountName, accountStatus := m.renderAccountBar(scw, accountHovered, accountOpen)
 	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(scw, accountBg, accountFg, accountName))
-	statusHovered := m.isHovered(zoneAccountBarStatus)
-	statusRow := m.zone.Mark(zoneAccountBarStatus, m.styles.accountBarStatusRow(scw, accountStatus, statusHovered))
+	statusRow := ""
+	if accountOpen {
+		// Only shown while the accounts panel itself is open — it's an
+		// accounts-scoped action, and stays out of the way (full-width status
+		// text) the rest of the time.
+		keyIconHovered := m.isHovered(zoneStoragePasswordButton)
+		keyIcon := m.zone.Mark(zoneStoragePasswordButton, m.styles.renderStoragePasswordButton(m.icons, keyIconHovered))
+		keyIconWidth := lipgloss.Width(keyIcon)
+		statusHovered := m.isHovered(zoneAccountBarStatus)
+		statusText := m.zone.Mark(zoneAccountBarStatus, m.styles.accountBarStatusRow(max(1, scw-keyIconWidth), accountStatus, statusHovered))
+		statusRow = keyIcon + statusText
+	} else {
+		statusHovered := m.isHovered(zoneAccountBarStatus)
+		statusRow = m.zone.Mark(zoneAccountBarStatus, m.styles.accountBarStatusRow(scw, accountStatus, statusHovered))
+	}
 	statusLine := nameRow + "\n" + statusRow
 	sidebarBody := m.chats.View()
 	switch {
@@ -150,6 +163,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderDeviceListPopup()
 	case m.contactManagerState != nil:
 		viewportArea = m.renderContactManagerPopup()
+	case m.changePasswordState != nil:
+		viewportArea = m.renderChangePasswordPopup()
 	case m.addingAccount:
 		viewportArea = m.renderAddAccountPopup()
 	case m.renamingChat:
@@ -505,6 +520,35 @@ func (m Model) renderAddAccountPopup() string {
 
 	footer := "[tab] next field  ·  [enter] add  ·  [esc] cancel"
 	body := m.styles.listPopup("Add account", rows, footer)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+
+	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+// renderChangePasswordPopup shows the "change local storage password"
+// popup's two masked fields, plus a loud warning: unlike an account
+// password, this key isn't recoverable from anywhere else (not the server,
+// not a peer) — losing it means losing every locally-stored message/draft
+// it protects.
+func (m Model) renderChangePasswordPopup() string {
+	cw := m.chatAreaWidth()
+	vh := m.height - m.inputAreaHeight()
+
+	s := m.changePasswordState
+	rows := []string{
+		m.styles.popupDanger.Render("Write this down. If you lose it, your local message history is unrecoverable."),
+		"",
+		s.inputs[0].View(),
+		s.inputs[1].View(),
+	}
+	if s.busy {
+		rows = append(rows, "", "re-encrypting local storage...")
+	} else if s.err != "" {
+		rows = append(rows, "", m.styles.popupDanger.Render(s.err))
+	}
+
+	footer := "[tab] next field  ·  [enter] change  ·  [esc] cancel"
+	body := m.styles.listPopup("Change storage password", rows, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)

@@ -105,6 +105,10 @@ func (c *ipcClient) SaveDraft(accountJID, chatAddress, text string) error {
 	return c.conn.Call(rpcSaveDraft, saveDraftParams{AccountJID: accountJID, ChatAddress: chatAddress, Text: text}, nil)
 }
 
+func (c *ipcClient) ChangeStoragePassword(newPassword string) error {
+	return c.conn.Call(rpcChangeStoragePassword, changeStoragePasswordParams{NewPassword: newPassword}, nil)
+}
+
 func (c *ipcClient) SendFile(accountIdx int, to, path string, opts ui.SendOptions) tea.Msg {
 	var msg ui.FileSendResultMsg
 	if err := c.conn.Call(rpcSendFile, sendFileParams{AccountIdx: accountIdx, To: to, Path: path, Opts: opts}, &msg); err != nil {
