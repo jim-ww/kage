@@ -271,6 +271,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return msg, nil
 
+	case rpcSetFocusState:
+		p, err := unmarshalParams[setFocusStateParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.SetFocusState(p.AccountJID, p.ChatAddress, p.Focused)
+
 	case rpcListAccounts:
 		return d.listAccounts(context.Background()), nil
 	}

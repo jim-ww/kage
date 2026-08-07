@@ -80,7 +80,28 @@ func droppedFilePath(content string) (string, bool) {
 	return path, true
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
+	if m.focusReporter != nil {
+		oldFocused := m.focused
+		oldAccountJID, oldChatAddress := m.activeChatKey()
+		defer func() {
+			rm, ok := retModel.(Model)
+			if !ok {
+				return
+			}
+			newAccountJID, newChatAddress := rm.activeChatKey()
+			if rm.focused == oldFocused && newAccountJID == oldAccountJID && newChatAddress == oldChatAddress {
+				return
+			}
+			reporter := rm.focusReporter
+			focused := rm.focused
+			retCmd = tea.Batch(retCmd, func() tea.Msg {
+				_ = reporter.SetFocusState(newAccountJID, newChatAddress, focused)
+				return nil
+			})
+		}()
+	}
+
 	if model, cmd, handled := m.handleEventMsg(msg); handled {
 		return model, cmd
 	}

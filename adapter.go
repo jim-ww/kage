@@ -226,6 +226,16 @@ func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
 }
 
+// SetFocusState implements ui.FocusReporter: records whether the attached
+// TUI's terminal has OS focus and which chat (if any) it currently has
+// open, so handleIncomingMessage (events.go) can skip a desktop
+// notification for a message that's already visible on screen.
+func (a *adapter) SetFocusState(accountJID, chatAddress string, focused bool) error {
+	tuiFocused.Store(focused)
+	tuiActiveChat.Store(focusedChatKey(accountJID, chatAddress))
+	return nil
+}
+
 // IncrementChatUnread implements ui.ChatReadTracker: bumps the persisted
 // local-only unread counter for a chat by delta.
 func (a *adapter) IncrementChatUnread(accountJID, chatAddress string, delta int) error {

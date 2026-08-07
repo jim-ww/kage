@@ -34,6 +34,7 @@ const (
 	rpcFetchOwnDeviceList    = "FetchOwnDeviceList"
 	rpcPurgeOwnDeviceList    = "PurgeOwnDeviceList"
 	rpcListAccounts          = "ListAccounts"
+	rpcSetFocusState         = "SetFocusState"
 )
 
 // Event kinds (daemon -> client broadcast, see account.go/events.go/adapter.go's
@@ -130,6 +131,10 @@ type setAccountStatusResult struct {
 	NewChats       []ui.Chat
 	NewMessages    map[int][]ui.Message
 	NewHistoryMore map[int]bool
+}
+type setFocusStateParams struct {
+	AccountJID, ChatAddress string
+	Focused                 bool
 }
 type purgeOwnDeviceListParams struct {
 	AccountIdx int

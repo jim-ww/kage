@@ -97,6 +97,10 @@ func (c *ipcClient) ResetChatUnread(accountJID, chatAddress string) error {
 	return c.conn.Call(rpcResetChatUnread, setLastChatParams{AccountJID: accountJID, ChatAddress: chatAddress}, nil)
 }
 
+func (c *ipcClient) SetFocusState(accountJID, chatAddress string, focused bool) error {
+	return c.conn.Call(rpcSetFocusState, setFocusStateParams{AccountJID: accountJID, ChatAddress: chatAddress, Focused: focused}, nil)
+}
+
 func (c *ipcClient) ChatUnreadCounts(accountJID string) (map[string]int, error) {
 	var res chatUnreadCountsResult
 	if err := c.conn.Call(rpcChatUnreadCounts, accountJIDParams{AccountJID: accountJID}, &res); err != nil {

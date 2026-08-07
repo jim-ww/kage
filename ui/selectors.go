@@ -125,6 +125,22 @@ func (m *Model) setChatUnread(accountIdx, chatIdx, count int) tea.Cmd {
 	return nil
 }
 
+// activeChatKey returns the account JID and chat address of the chat
+// currently being actively viewed (selectedView == viewChat), or two empty
+// strings if no chat is currently open. Used to report the "currently open
+// chat" identity to the daemon (see FocusReporter) so it can suppress a
+// desktop notification for a message that's already visible on screen.
+func (m Model) activeChatKey() (accountJID, chatAddress string) {
+	if m.selectedView != viewChat || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return "", ""
+	}
+	chat, ok := m.currentChat()
+	if !ok {
+		return "", ""
+	}
+	return m.accounts[m.currentAccount].Name, chat.Address
+}
+
 // isChatFocused reports whether chatIdx within accountIdx is the chat
 // currently being actively viewed — the condition under which an incoming
 // message counts as already read rather than unread.

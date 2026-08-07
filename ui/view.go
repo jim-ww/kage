@@ -13,6 +13,7 @@ func (m Model) View() tea.View {
 	if m.width == 0 {
 		v := tea.NewView("loading...")
 		v.AltScreen = true
+		v.ReportFocus = true
 		return v
 	}
 
@@ -90,6 +91,7 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(rendered)
 	v.AltScreen = true
+	v.ReportFocus = true
 	// Ask Kitty-protocol terminals to report Key.BaseCode (the PC-101 key
 	// regardless of active keyboard layout) alongside the layout-shifted
 	// code. Key.String()/Keystroke() already prefer BaseCode when present,

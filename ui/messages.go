@@ -474,6 +474,17 @@ type LastChatSetter interface {
 	SetLastChat(accountJID, chatAddress string) error
 }
 
+// FocusReporter tells the daemon which chat (if any) is actively being
+// viewed and whether the terminal itself currently has OS focus,
+// implemented outside ui (main.go's adapter) so ui stays decoupled from the
+// notification layer. In-memory only on the daemon side — used to suppress
+// a desktop notification for a message that's already visible on screen.
+// Called inline like Send/SetTyping rather than through a tea.Cmd. An empty
+// chatAddress means no chat is currently open.
+type FocusReporter interface {
+	SetFocusState(accountJID, chatAddress string, focused bool) error
+}
+
 // ChatReadTracker persists local-only unread message counts per chat,
 // implemented outside ui (main.go's adapter, backed by storage) so ui stays
 // decoupled from the storage layer. Called inline like Send/SetTyping

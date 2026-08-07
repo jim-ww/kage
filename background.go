@@ -18,6 +18,31 @@ import (
 // the TUI process never reads it.
 var notifyEnabled atomic.Bool
 
+// tuiFocused and tuiActiveChat mirror the attached TUI client's window
+// focus and currently-open chat (see ui.FocusReporter / adapter.SetFocusState),
+// read by handleIncomingMessage (events.go) to suppress a desktop
+// notification for a message that's already visible on screen. Default to
+// "focused, no chat open" so a client that never reports (or hasn't
+// attached yet) doesn't suppress notifications it never actually saw.
+var (
+	tuiFocused    atomic.Bool
+	tuiActiveChat atomic.Value // string: "accountJID\x00chatAddress", or "" if none
+)
+
+func init() {
+	tuiFocused.Store(true)
+	tuiActiveChat.Store("")
+}
+
+// focusedChatKey packs an account JID and chat address into tuiActiveChat's
+// comparison key.
+func focusedChatKey(accountJID, chatAddress string) string {
+	if chatAddress == "" {
+		return ""
+	}
+	return accountJID + "\x00" + chatAddress
+}
+
 // backend implements daemon.Backend: the daemon's real business logic —
 // owning storage, every account's xmpp.Client (via adapter), and the ipc
 // socket thin TUI clients attach to. daemon.Run constructs one, brings up

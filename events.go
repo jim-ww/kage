@@ -253,7 +253,8 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		},
 	})
 
-	if notifyEnabled.Load() && !decryptFailed {
+	chatIsFocused := tuiFocused.Load() && tuiActiveChat.Load() == focusedChatKey(s.account.JID, from)
+	if notifyEnabled.Load() && !decryptFailed && !chatIsFocused {
 		daemon.Notify(s.rosterName(from), notifyPreview(body, oobURLs))
 	}
 }

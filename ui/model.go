@@ -181,6 +181,13 @@ type Model struct {
 	chatReadTracker        ChatReadTracker
 	draftSaver             DraftSaver
 	storagePasswordChanger StoragePasswordChanger
+	focusReporter          FocusReporter
+
+	// focused tracks whether the terminal currently has OS focus, reported
+	// by tea.FocusMsg/tea.BlurMsg (requires terminal support). Starts true
+	// so a terminal that never sends focus events is treated as focused
+	// rather than permanently suppressing notifications.
+	focused bool
 
 	// loadingOlderHistory marks chat indices with a LoadOlderHistory fetch
 	// currently in flight, so scrolling/MsgUp near the top of a long history
@@ -322,6 +329,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	contactManager, _ := sender.(ContactManager)
 	accountStatusSetter, _ := sender.(AccountStatusSetter)
 	accountRemover, _ := sender.(AccountRemover)
+	focusReporter, _ := sender.(FocusReporter)
 
 	noticeDuration := display.NoticeDuration
 	if noticeDuration <= 0 {
@@ -374,6 +382,8 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		chatReadTracker:        chatReadTracker,
 		draftSaver:             draftSaver,
 		storagePasswordChanger: storagePasswordChanger,
+		focusReporter:          focusReporter,
+		focused:                true,
 		openChatAccountIdx:     -1,
 		loadingOlderHistory:    make(map[int]bool),
 		pendingOpenChatAddress: openLastChatAddress,

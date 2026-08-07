@@ -70,6 +70,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.viewport.GotoBottom()
 		return m, nil, true
 
+	case tea.FocusMsg:
+		m.focused = true
+		return m, nil, true
+
+	case tea.BlurMsg:
+		m.focused = false
+		return m, nil, true
+
 	case tea.MouseClickMsg:
 		if !m.mouseEnabled {
 			return m, nil, true
