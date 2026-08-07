@@ -5,27 +5,23 @@
 - make daemon more lightweight
 - handle extremely large text files pasted in message prompt / sent in chat (lags/slow)
 - filepicker: add mouse support
+- add keyboard navigation to modals (and ways to open them)
 - ctrl+f add sort for files creation date DESC
 - check how local/remote messages timestampt are handled
 - in devices show proper OMEMO fingerprint
 - ^shift+U bind doesnt work (omemo devices)
-- add keyboard navigation to modals (and ways to open them)
 - show more contact info on status line Name press
 - make sure user can paste to all textinputs (e.g. account add JID/password)
 - account manager: fix adding duplicate accounts
 - option to remove specific chat history (on server)
 - implement backups, compatible with conversations
 - omit options from config, that have default values
+- search message content in across chats
 
-- account manager should look like button and show hover indication
-- save message drafts for each chat (encrypted, if encryption enabled), on exit/chat switch
-
+- optimization speed up cursor message selection in chat and for scrolling
 - preview files text contents (in separate viewport?)
 - implement group chat support
 - list group chat participants, ability to see info about them, start chat with them
-- search message content in across chats
-- optimization speed up cursor message selection in chat and for scrolling
-- optimization: load messages history per chat, in batches as needed, instead of fetching full list for all at startup
 - chat view: vim motions for textinput (visual/insert mode emulation)
 - implement go-to specific date in chat history
 - add OTR as encryption method
