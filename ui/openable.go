@@ -104,6 +104,13 @@ func attachmentBaseName(downloadURL string) string {
 	return base
 }
 
+// AttachmentDisplayName is the exported form of attachmentDisplayName, for
+// callers outside ui (e.g. desktop notifications) that need the normalized
+// filename of an attachment URL rather than the raw aesgcm:///https:// link.
+func AttachmentDisplayName(target string) string {
+	return attachmentDisplayName(target)
+}
+
 // attachmentDisplayName returns a human-readable, percent-decoded filename
 // for an attachment URL, e.g. "aesgcm://host/photo%20booth.jpg" -> "photo booth.jpg".
 func attachmentDisplayName(target string) string {

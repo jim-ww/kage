@@ -242,15 +242,25 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	})
 
 	if notifyEnabled.Load() && !decryptFailed {
-		daemon.Notify(s.rosterName(from), notifyPreview(body))
+		daemon.Notify(s.rosterName(from), notifyPreview(body, oobURLs))
 	}
 }
 
 // notifyPreview trims body to a reasonable desktop-notification length —
 // now that the daemon decrypts before notifying, the previous placeholder
 // ("🔒 New encrypted message") is gone; this is real content, so keep it
-// short rather than dumping a whole message into the popup.
-func notifyPreview(body string) string {
+// short rather than dumping a whole message into the popup. When body is
+// (or ends with) an attachment URL, e.g. an OMEMO-encrypted file share whose
+// body is just its aesgcm:// link, show the file's normalized filename
+// instead of the raw ciphertext-bearing URL.
+func notifyPreview(body string, attachments []string) string {
+	if len(attachments) > 0 && strings.TrimSpace(body) == strings.Join(attachments, "\n") {
+		names := make([]string, len(attachments))
+		for i, a := range attachments {
+			names[i] = ui.AttachmentDisplayName(a)
+		}
+		return "📎 " + strings.Join(names, ", ")
+	}
 	const max = 120
 	body = strings.TrimSpace(body)
 	if len(body) <= max {

@@ -1,5 +1,4 @@
 - messages sent from same account on other devices do not appear in chat
-- show normalized file name of omemo encrypted files in notifications
 - send failed, no
 - change drag & drop behavior: add dropped file as attachment, instead of sending right away. ensure multi-file drop is handled too
 - show edited icon, if message was edited
