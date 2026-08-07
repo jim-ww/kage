@@ -1,13 +1,8 @@
 - messages sent from same account on other devices do not appear in chat
 - send failed, no
 - change drag & drop behavior: add dropped file as attachment, instead of sending right away. ensure multi-file drop is handled too
-- show edited icon, if message was edited
 
-- client-server architecture? so any number of clients would talk to daemon? instead of making duplicate connections
-- or only allow one instance at a time?
 - make daemon more lightweight
-- show decrypted message content in notifications
-- daemon tray: open kage client on LMB click
 - handle extremely large text files pasted in message prompt / sent in chat (lags/slow)
 - filepicker: add mouse support
 - ctrl+f add sort for files creation date DESC

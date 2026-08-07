@@ -860,6 +860,7 @@ SELECT
 	archiveID,
 	replyToIdAttr,
 	retracted,
+	edited,
 	delivered,
 	oobURLs
 FROM messages
@@ -884,6 +885,7 @@ type ListAllMessagesRow struct {
 	Archiveid     sql.NullString `db:"archiveid"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
+	Edited        bool           `db:"edited"`
 	Delivered     bool           `db:"delivered"`
 	Ooburls       sql.NullString `db:"ooburls"`
 }
@@ -918,6 +920,7 @@ func (q *Queries) ListAllMessages(ctx context.Context) ([]ListAllMessagesRow, er
 			&i.Archiveid,
 			&i.Replytoidattr,
 			&i.Retracted,
+			&i.Edited,
 			&i.Delivered,
 			&i.Ooburls,
 		); err != nil {
@@ -1066,6 +1069,7 @@ SELECT
 	delay,
 	replyToIdAttr,
 	retracted,
+	edited,
 	delivered,
 	oobURLs
 FROM messages
@@ -1097,6 +1101,7 @@ type ListMessagesByRosterRow struct {
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
+	Edited        bool           `db:"edited"`
 	Delivered     bool           `db:"delivered"`
 	Ooburls       sql.NullString `db:"ooburls"`
 }
@@ -1123,6 +1128,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Delay,
 			&i.Replytoidattr,
 			&i.Retracted,
+			&i.Edited,
 			&i.Delivered,
 			&i.Ooburls,
 		); err != nil {
@@ -1154,6 +1160,7 @@ SELECT
 	delay,
 	replyToIdAttr,
 	retracted,
+	edited,
 	delivered,
 	oobURLs
 FROM messages
@@ -1194,6 +1201,7 @@ type ListMessagesByRosterBeforeRow struct {
 	Delay         int64          `db:"delay"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
+	Edited        bool           `db:"edited"`
 	Delivered     bool           `db:"delivered"`
 	Ooburls       sql.NullString `db:"ooburls"`
 }
@@ -1238,6 +1246,7 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Delay,
 			&i.Replytoidattr,
 			&i.Retracted,
+			&i.Edited,
 			&i.Delivered,
 			&i.Ooburls,
 		); err != nil {
@@ -1425,6 +1434,28 @@ type MarkMessageDeliveredParams struct {
 
 func (q *Queries) MarkMessageDelivered(ctx context.Context, arg MarkMessageDeliveredParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markMessageDelivered, arg.AccountJid, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markMessageEdited = `-- name: MarkMessageEdited :execrows
+UPDATE messages
+SET edited = TRUE
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND rosterJID = ?3
+`
+
+type MarkMessageEditedParams struct {
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+func (q *Queries) MarkMessageEdited(ctx context.Context, arg MarkMessageEditedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markMessageEdited, arg.AccountJid, arg.IDAttr, arg.RosterJid)
 	if err != nil {
 		return 0, err
 	}
@@ -1743,10 +1774,11 @@ SET
 	body = ?1,
 	encrypted = ?2,
 	e2eEncrypted = ?3,
-	e2eeMethod = ?4
-WHERE accountJID = ?5
-	AND idAttr = ?6
-	AND rosterJID = ?7
+	e2eeMethod = ?4,
+	edited = ?5
+WHERE accountJID = ?6
+	AND idAttr = ?7
+	AND rosterJID = ?8
 `
 
 type UpdateMessageBodyByIDParams struct {
@@ -1754,6 +1786,7 @@ type UpdateMessageBodyByIDParams struct {
 	Encrypted    bool           `db:"encrypted"`
 	E2eEncrypted bool           `db:"e2e_encrypted"`
 	E2eeMethod   sql.NullString `db:"e2ee_method"`
+	Edited       bool           `db:"edited"`
 	AccountJid   string         `db:"account_jid"`
 	IDAttr       sql.NullString `db:"id_attr"`
 	RosterJid    sql.NullString `db:"roster_jid"`
@@ -1769,6 +1802,7 @@ func (q *Queries) UpdateMessageBodyByID(ctx context.Context, arg UpdateMessageBo
 		arg.Encrypted,
 		arg.E2eEncrypted,
 		arg.E2eeMethod,
+		arg.Edited,
 		arg.AccountJid,
 		arg.IDAttr,
 		arg.RosterJid,

@@ -303,6 +303,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs[idx].Content = msg.NewContent
 		msgs[idx].Encrypted = msg.Encrypted
 		msgs[idx].EncMethod = msg.EncMethod
+		msgs[idx].Edited = true
 		var cmd tea.Cmd
 		if idx == len(msgs)-1 {
 			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, msg.NewContent)

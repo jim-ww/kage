@@ -43,6 +43,7 @@ type exportMessage struct {
 	ArchiveID    string           `json:"archiveID,omitempty"`
 	ReplyToID    string           `json:"replyToID,omitempty"`
 	Retracted    bool             `json:"retracted"`
+	Edited       bool             `json:"edited"`
 	Reactions    []exportReaction `json:"reactions,omitempty"`
 	OOBURLs      []string         `json:"oobURLs,omitempty"`
 }
@@ -116,6 +117,7 @@ func runExport(args []string) error {
 			ArchiveID:    r.Archiveid.String,
 			ReplyToID:    r.Replytoidattr.String,
 			Retracted:    r.Retracted,
+			Edited:       r.Edited,
 			Reactions:    reactionsByMsg[reactionKey{r.Accountjid, r.Rosterjid.String, r.Idattr.String}],
 			OOBURLs:      splitOOBURLs(r.Ooburls),
 		})
@@ -248,6 +250,13 @@ func runImport(args []string) error {
 				AccountJid: m.AccountJID, IDAttr: nullString(m.ID), RosterJid: nullString(m.RosterJID),
 			}); err != nil {
 				return fmt.Errorf("marking %s/%s retracted: %w", m.AccountJID, m.ID, err)
+			}
+		}
+		if m.Edited {
+			if _, err := queries.MarkMessageEdited(ctx, storage.MarkMessageEditedParams{
+				AccountJid: m.AccountJID, IDAttr: nullString(m.ID), RosterJid: nullString(m.RosterJID),
+			}); err != nil {
+				return fmt.Errorf("marking %s/%s edited: %w", m.AccountJID, m.ID, err)
 			}
 		}
 		// Grouped by reactor and replaced (delete then insert), same as

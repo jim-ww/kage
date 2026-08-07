@@ -809,6 +809,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			Encrypted:    encrypted,
 			E2eEncrypted: e2eEncrypted,
 			E2eeMethod:   nullString(e2eeMethod),
+			Edited:       true,
 			IDAttr:       nullString(am.ReplaceID),
 			RosterJid:    nullString(peerJID),
 		}); err != nil {

@@ -66,6 +66,13 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 		timeLabel += " " + lockIcon
 	}
+	if msg.Edited {
+		editIcon := "edited"
+		if m.icons {
+			editIcon = "✎"
+		}
+		timeLabel += " " + editIcon
+	}
 	dirGlyph := "«"
 	if msg.IsMe {
 		dirGlyph = "»"

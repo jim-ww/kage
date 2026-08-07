@@ -168,6 +168,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			Encrypted:    encrypted,
 			E2eEncrypted: e2eEncrypted,
 			E2eeMethod:   nullString(e2eeMethod),
+			Edited:       true,
 			IDAttr:       nullString(msgEv.ReplaceID),
 			RosterJid:    nullString(from),
 		}); err != nil {

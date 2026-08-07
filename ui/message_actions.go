@@ -82,6 +82,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		msgs := m.currentMessages()
 		if m.editingMsgIdx < len(msgs) {
 			msgs[m.editingMsgIdx].Content = text
+			msgs[m.editingMsgIdx].Edited = true
 			m.setCurrentMessages(msgs)
 			if m.editingMsgIdx == len(msgs)-1 {
 				if chatIdx := m.currentChatIndex(); chatIdx >= 0 {

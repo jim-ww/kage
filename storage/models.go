@@ -82,6 +82,7 @@ type Message struct {
 	Archiveid     sql.NullString `db:"archiveid"`
 	Replytoidattr sql.NullString `db:"replytoidattr"`
 	Retracted     bool           `db:"retracted"`
+	Edited        bool           `db:"edited"`
 	Delivered     bool           `db:"delivered"`
 	Ooburls       sql.NullString `db:"ooburls"`
 }

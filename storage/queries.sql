@@ -112,7 +112,8 @@ SET
 	body = sqlc.arg(body),
 	encrypted = sqlc.arg(encrypted),
 	e2eEncrypted = sqlc.arg(e2e_encrypted),
-	e2eeMethod = sqlc.arg(e2ee_method)
+	e2eeMethod = sqlc.arg(e2ee_method),
+	edited = sqlc.arg(edited)
 WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
@@ -121,6 +122,14 @@ WHERE accountJID = sqlc.arg(account_jid)
 -- name: MarkMessageRetracted :execrows
 UPDATE messages
 SET retracted = TRUE
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid);
+
+
+-- name: MarkMessageEdited :execrows
+UPDATE messages
+SET edited = TRUE
 WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
@@ -148,6 +157,7 @@ SELECT
 	delay,
 	replyToIdAttr,
 	retracted,
+	edited,
 	delivered,
 	oobURLs
 FROM messages
@@ -184,6 +194,7 @@ SELECT
 	delay,
 	replyToIdAttr,
 	retracted,
+	edited,
 	delivered,
 	oobURLs
 FROM messages
@@ -223,6 +234,7 @@ SELECT
 	archiveID,
 	replyToIdAttr,
 	retracted,
+	edited,
 	delivered,
 	oobURLs
 FROM messages

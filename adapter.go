@@ -741,6 +741,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			Encrypted:    encrypted,
 			E2eEncrypted: e2eEncrypted,
 			E2eeMethod:   nullString(e2eeMethod),
+			Edited:       true,
 			IDAttr:       nullString(opts.ReplaceID),
 			RosterJid:    nullString(to),
 		}); err != nil {

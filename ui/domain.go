@@ -32,6 +32,11 @@ type Message struct {
 	// the attempt is visible.
 	Retracted bool
 
+	// Edited is set when this message's body was overwritten by a XEP-0308
+	// correction (ours or the peer's), rather than being the originally sent
+	// content.
+	Edited bool
+
 	// Delivered is set once the peer has acknowledged receipt of this message
 	// (XEP-0184). Only meaningful when IsMe is true — an outgoing message
 	// starts "sent" and flips to "delivered" when the receipt arrives.
