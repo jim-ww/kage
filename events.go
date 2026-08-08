@@ -136,15 +136,18 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			slog.Warn("decrypting omemo message failed", "from", msgEv.From, "err", err)
 			body = "[message could not be decrypted: " + err.Error() + "]"
 			decryptFailed = true
-			if errors.Is(err, omemolib.ErrUnknownSession) {
-				// The message itself is unrecoverable (a plain ratchet
-				// message can't bootstrap a session), but nothing stops
-				// every future message from sender's device failing the
-				// same way forever, since sender has no way to learn their
-				// session with us is broken. Rebuild one now and push it to
-				// them - mirrors Conversations' AxolotlService "healing"
-				// (buildSessionFromPEP + a key-transport reply) - so this is
-				// the last message lost to it, not every one from here on.
+			if errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound) {
+				// Either way the message itself is unrecoverable (a plain
+				// ratchet message can't bootstrap a session; a PreKeyMessage
+				// naming an already-consumed one-time prekey can't either -
+				// typically the sender built it from a stale cached bundle),
+				// but nothing stops every future message from sender's
+				// device failing the same way forever, since sender has no
+				// way to learn their session with us is broken. Rebuild one
+				// now and push it to them - mirrors Conversations'
+				// AxolotlService "healing" (buildSessionFromPEP + a
+				// key-transport reply) - so this is the last message lost to
+				// it, not every one from here on.
 				healBrokenSession(ctx, s, mgr, enc.Sender, bareJID(msgEv.From))
 			}
 		} else if pt == nil {

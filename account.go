@@ -867,6 +867,15 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		} else if err != nil {
 			body = "[message could not be decrypted: " + err.Error() + "]"
 			decryptFailed = true
+			if errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound) {
+				// Same healing as handleIncomingMessage's live path
+				// (events.go) - and just as needed here, arguably more so:
+				// this is exactly the path a peer's messages take while we
+				// were offline, so without this the broken session would
+				// otherwise only ever get fixed by chance, on whatever the
+				// next *live* failure from the same sender happens to be.
+				healBrokenSession(ctx, s, mgr, enc.Sender, bareJID(am.From))
+			}
 		} else if pt == nil {
 			return mamItemOutcome{} // key-transport only: session established/refreshed, no content to show
 		} else {

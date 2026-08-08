@@ -199,6 +199,9 @@ func (s *Store) ConsumePreKey(ctx context.Context, id uint32) (omemolib.PreKeyRe
 		ID:         int64(id),
 	})
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return omemolib.PreKeyRecord{}, fmt.Errorf("consume prekey %d: %w", id, omemolib.ErrPreKeyNotFound)
+		}
 		return omemolib.PreKeyRecord{}, fmt.Errorf("consume prekey %d: %w", id, err)
 	}
 	return omemolib.PreKeyRecord{ID: uint32(row.ID), Public: row.Public, Private: row.Private}, nil
