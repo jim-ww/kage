@@ -1,3 +1,4 @@
+- if tui relaunched, then calling statusbar not shown
 - invalid status? receive or send
 - "kage's background service disconnected; please restart kage" is always printed on quit
 - messages sent from same account on other devices do not appear in chat

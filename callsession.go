@@ -133,20 +133,27 @@ type callSession struct {
 }
 
 // Ringback (outgoing call, peer's device is alerting them) and ringtone
-// (incoming call, we're alerting the user) use distinct pitch/cadence pairs
-// so the two are audibly distinguishable, loosely modeled on familiar
-// telephony patterns without matching any particular country's standard.
-const (
-	ringbackFreqHz          = 440.0
-	ringbackOn, ringbackOff = time.Second, 3 * time.Second
-	ringtoneFreqHz          = 600.0
-	ringtoneOn, ringtoneOff = time.Second, time.Second
+// (incoming call, we're alerting the user) use distinct chords/cadences so
+// the two are audibly distinguishable. Each plays a soft two-note major-third
+// chord rather than one raw sine tone, and ringtone uses a modern
+// double-pulse cadence ("brr-brr ... brr-brr ...") instead of one long
+// buzz - both changes are what make it read as a phone ringing rather than
+// an alarm.
+var (
+	ringbackFreqsHz = []float64{480, 600}
+	ringbackPattern = []time.Duration{time.Second, 3 * time.Second}
+
+	ringtoneFreqsHz = []float64{523.25, 659.25} // C5 + E5
+	ringtonePattern = []time.Duration{
+		400 * time.Millisecond, 200 * time.Millisecond,
+		400 * time.Millisecond, 1800 * time.Millisecond,
+	}
 )
 
 // startRing begins playing a tone pattern for the current ringing state, if
 // one isn't already playing. Runs on its own dedicated speaker (see
 // call.RingTone), never the call's real media speaker.
-func (c *callSession) startRing(freqHz float64, on, off time.Duration) {
+func (c *callSession) startRing(freqsHz []float64, pattern []time.Duration) {
 	c.mu.Lock()
 	if c.ring != nil {
 		c.mu.Unlock()
@@ -154,7 +161,7 @@ func (c *callSession) startRing(freqHz float64, on, off time.Duration) {
 	}
 	c.mu.Unlock()
 
-	r, err := call.NewRingTone(freqHz, on, off)
+	r, err := call.NewRingTone(freqsHz, pattern)
 	if err != nil {
 		slog.Warn("starting ring tone", "sid", c.sid, "err", err)
 		return
@@ -396,7 +403,7 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 			c.state = callRingingRemote
 		}
 		c.mu.Unlock()
-		c.startRing(ringbackFreqHz, ringbackOn, ringbackOff)
+		c.startRing(ringbackFreqsHz, ringbackPattern)
 		c.broadcastState(callRingingRemote, "")
 
 	case xmpp.JMIProceed:
@@ -483,7 +490,7 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 	broadcast(srv, evIncomingCall, incomingCallEvent{
 		AccountIdx: accountIdx, From: from, SID: ev.SID, Media: ev.Media,
 	})
-	c.startRing(ringtoneFreqHz, ringtoneOn, ringtoneOff)
+	c.startRing(ringtoneFreqsHz, ringtonePattern)
 	c.broadcastState(callRingingLocal, "")
 }
 
