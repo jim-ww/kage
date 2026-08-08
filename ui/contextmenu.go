@@ -87,6 +87,34 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 	}
 }
 
+// contactRowContextMenuItems builds the options menu for the contact-manager
+// row at address (already selected by the caller — see contacts.go),
+// opened via Enter or a click on the row.
+func (m *Model) contactRowContextMenuItems(address string) []contextMenuItem {
+	return []contextMenuItem{
+		{label: "Resubscribe", run: func(m *Model) tea.Cmd { return m.actionResubscribeContact(address) }},
+		{label: "Remove", run: func(m *Model) tea.Cmd {
+			if m.contactManagerState != nil {
+				m.contactManagerState.pendingRemove = address
+			}
+			return nil
+		}},
+	}
+}
+
+// actionResubscribeContact re-sends a subscription request for address on
+// the contact manager's current account, run as a tea.Cmd since it's
+// network I/O (see ContactManager.ResubscribeContact).
+func (m *Model) actionResubscribeContact(address string) tea.Cmd {
+	if m.contactManager == nil || m.contactManagerState == nil {
+		return nil
+	}
+	accountIdx := m.contactManagerState.accountIdx
+	manager := m.contactManager
+	m.contactManagerState.busy = true
+	return func() tea.Msg { return manager.ResubscribeContact(accountIdx, address) }
+}
+
 // accountRowContextMenuItems builds the right-click menu for the account at
 // idx (already selected/switched to by the caller).
 func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {

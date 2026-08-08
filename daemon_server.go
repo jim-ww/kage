@@ -205,6 +205,17 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return msg, nil
 
+	case rpcResubscribeContact:
+		p, err := unmarshalParams[contactParams](params)
+		if err != nil {
+			return nil, err
+		}
+		msg := d.a.ResubscribeContact(p.AccountIdx, p.Address).(ui.ContactResubscribedMsg)
+		if msg.Err != nil {
+			return nil, msg.Err
+		}
+		return msg, nil
+
 	case rpcAddAccount:
 		p, err := unmarshalParams[addAccountParams](params)
 		if err != nil {

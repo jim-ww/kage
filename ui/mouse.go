@@ -28,6 +28,7 @@ const (
 	zoneAttachButton          = "attach-button"
 	zoneToggleSidebar         = "toggle-sidebar-button"
 	zoneMsgInfoPopup          = "msg-info-popup"
+	zoneContactManagerPopup   = "contact-manager-popup"
 	zoneCallAnswer            = "call-answer-button"
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
@@ -45,6 +46,7 @@ func zoneMessage(i int) string           { return fmt.Sprintf("msg-%d", i) }
 func zoneEmojiSuggestion(i int) string   { return fmt.Sprintf("emoji-suggest-%d", i) }
 func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove-%d", i) }
 func zoneMsgInfoAttachment(i int) string { return fmt.Sprintf("msg-info-attachment-%d", i) }
+func zoneContactRow(i int) string        { return fmt.Sprintf("contact-row-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
 // (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
@@ -199,6 +201,20 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		return ""
 	}
 
+	if m.contactManagerState != nil {
+		cs := m.contactManagerState
+		if !cs.adding && cs.pendingRemove == "" && cs.err == "" {
+			contacts := cs.contacts(m)
+			start, end := openPageBounds(len(contacts), cs.page)
+			for i := 0; i < end-start; i++ {
+				if m.zone.Get(zoneContactRow(i)).InBounds(mouse) {
+					return zoneContactRow(i)
+				}
+			}
+		}
+		return ""
+	}
+
 	// The call bar's own buttons take priority the same way zoneSendButton
 	// etc. do — it's a fixed status-bar area, so it should win over anything
 	// happening to render underneath it.
@@ -293,6 +309,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+
+	if m.contactManagerState != nil {
+		return m.handleContactManagerClick(msg)
 	}
 
 	if msg.Mouse().Button == tea.MouseLeft {

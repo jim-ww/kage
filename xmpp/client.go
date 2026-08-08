@@ -248,6 +248,18 @@ func (c *Client) ProbePresence(ctx context.Context, addr string) error {
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.ProbePresence, To: j.Bare()}.Wrap(nil))
 }
 
+// ResubscribeContact re-sends a presence subscription request to addr
+// without touching the existing roster item (unlike AddContact, which also
+// upserts the roster name) — for re-requesting a subscription that was
+// never approved or was dropped, on an already-known contact.
+func (c *Client) ResubscribeContact(ctx context.Context, addr string) error {
+	j, err := jid.Parse(addr)
+	if err != nil {
+		return fmt.Errorf("parsing JID %q: %w", addr, err)
+	}
+	return c.session.Send(ctx, stanza.Presence{Type: stanza.SubscribePresence, To: j.Bare()}.Wrap(nil))
+}
+
 // RemoveContact removes addr from the roster and cancels both halves of the
 // subscription: unsubscribe (we stop receiving addr's presence) and
 // unsubscribed (addr stops receiving ours) — a roster delete alone leaves

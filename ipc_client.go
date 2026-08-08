@@ -208,6 +208,14 @@ func (c *ipcClient) RemoveContact(accountIdx int, address string) tea.Msg {
 	return msg
 }
 
+func (c *ipcClient) ResubscribeContact(accountIdx int, address string) tea.Msg {
+	var msg ui.ContactResubscribedMsg
+	if err := c.conn.Call(rpcResubscribeContact, contactParams{AccountIdx: accountIdx, Address: address}, &msg); err != nil {
+		return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+	}
+	return msg
+}
+
 func (c *ipcClient) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	var w wireAccount
 	if err := c.conn.Call(rpcAddAccount, addAccountParams{JID: jid, Password: password, GPGKeyID: gpgKeyID}, &w); err != nil {

@@ -572,6 +572,25 @@ func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
 	return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address}
 }
 
+// ResubscribeContact implements ui.ContactManager: re-sends a subscription
+// request for an existing contact, without touching its roster item.
+func (a *adapter) ResubscribeContact(accountIdx int, address string) tea.Msg {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: fmt.Errorf("unknown account %d", accountIdx)}
+	}
+
+	ctx := context.Background()
+	client, err := s.liveClient()
+	if err != nil {
+		return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+	}
+	if err := client.ResubscribeContact(ctx, address); err != nil {
+		return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+	}
+	return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address}
+}
+
 // RemoveContact implements ui.ContactManager: removes address from the
 // roster and unsubscribes, then mirrors the removal into local storage and
 // the in-memory roster cache.

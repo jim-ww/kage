@@ -30,6 +30,7 @@ const (
 	rpcLoadOlderHistory      = "LoadOlderHistory"
 	rpcAddContact            = "AddContact"
 	rpcRemoveContact         = "RemoveContact"
+	rpcResubscribeContact    = "ResubscribeContact"
 	rpcAddAccount            = "AddAccount"
 	rpcRemoveAccount         = "RemoveAccount"
 	rpcSetAccountStatus      = "SetAccountStatus"

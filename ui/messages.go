@@ -76,6 +76,7 @@ type ContactRenamer interface {
 type ContactManager interface {
 	AddContact(accountIdx int, address string) tea.Msg
 	RemoveContact(accountIdx int, address string) tea.Msg
+	ResubscribeContact(accountIdx int, address string) tea.Msg
 }
 
 // ContactAddedMsg reports the result of ContactManager.AddContact.
@@ -87,6 +88,13 @@ type ContactAddedMsg struct {
 
 // ContactRemovedMsg reports the result of ContactManager.RemoveContact.
 type ContactRemovedMsg struct {
+	AccountIdx int
+	Address    string
+	Err        error
+}
+
+// ContactResubscribedMsg reports the result of ContactManager.ResubscribeContact.
+type ContactResubscribedMsg struct {
 	AccountIdx int
 	Address    string
 	Err        error

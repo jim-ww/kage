@@ -468,6 +468,18 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, m.showNotification("contact removed: " + msg.Address), true
 
+	case ContactResubscribedMsg:
+		cs := m.contactManagerState
+		if cs == nil || cs.accountIdx != msg.AccountIdx {
+			return m, nil, true
+		}
+		cs.busy = false
+		if msg.Err != nil {
+			cs.err = msg.Err.Error()
+			return m, nil, true
+		}
+		return m, m.showNotification("resubscribe sent: " + msg.Address), true
+
 	case AccountConnectedMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {
 			return m, nil, true

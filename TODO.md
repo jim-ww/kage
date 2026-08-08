@@ -1,3 +1,5 @@
+- refactor: create generic ui components and reuse them across repo
+- esc should not de-focus chat when in editing state (only cancel editing)
 - write e2e tests for all features, on local prosody instance, ran with 'integration' build tag
 - implement notes? e.g. writing yourself
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
