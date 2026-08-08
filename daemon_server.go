@@ -372,15 +372,43 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 	return out
 }
 
-// getCallState reports whatever call is currently in progress on any
-// account, if any - see getCallStateResult. There's at most one call per
-// account and the UI only ever shows one call bar app-wide, so the first
-// non-idle, non-terminal call found across all sessions wins.
+// callStatePriority ranks callState for getCallState's cross-account pick:
+// higher wins. An unanswered incoming ring is ranked lowest - it's the call
+// the attaching user is least likely to already be dealing with, whereas a
+// call actively connecting or connected is almost certainly the one they
+// care about (and, if it's their own outgoing call, the one whose account
+// index every call-bar key/mouse action needs to target - see rejectCall's
+// pre-proceed branch for what happens when the wrong one gets picked).
+func callStatePriority(s callState) int {
+	switch s {
+	case callConnected:
+		return 5
+	case callNegotiating:
+		return 4
+	case callRingingRemote:
+		return 3
+	case callProposing:
+		return 2
+	case callRingingLocal:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// getCallState reports whichever call is currently in progress across all
+// accounts, if any - see getCallStateResult. There's at most one call per
+// account, but with more than one account configured, more than one can be
+// active at once (e.g. two of the user's own accounts calling each other) -
+// callStatePriority picks the one most likely to be what the attaching user
+// actually cares about, since the UI only ever shows one call bar app-wide.
 func (d *daemonServer) getCallState() getCallStateResult {
 	d.a.mu.Lock()
 	sessions := append([]*accountSession(nil), d.a.sessions...)
 	d.a.mu.Unlock()
 
+	var best getCallStateResult
+	bestPriority := -1
 	for _, sess := range sessions {
 		if sess == nil {
 			continue
@@ -395,10 +423,13 @@ func (d *daemonServer) getCallState() getCallStateResult {
 		if state == callIdle || state == callEnded {
 			continue
 		}
-		return getCallStateResult{
-			Active: true, AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid,
-			State: state.String(), Muted: muted, Quality: quality, StartedAt: connectedAt,
+		if p := callStatePriority(state); p > bestPriority {
+			bestPriority = p
+			best = getCallStateResult{
+				Active: true, AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid,
+				State: state.String(), Muted: muted, Quality: quality, StartedAt: connectedAt,
+			}
 		}
 	}
-	return getCallStateResult{}
+	return best
 }

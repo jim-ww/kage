@@ -226,7 +226,7 @@ func (m Model) renderCallBar(width int) string {
 		text := "📞 incoming call: " + m.call.peer + "   "
 		answer := m.zone.Mark(zoneCallAnswer, m.styles.renderCallBarButton("[y] answer", m.isHovered(zoneCallAnswer)))
 		reject := m.zone.Mark(zoneCallReject, m.styles.renderCallBarButton("[n] reject", m.isHovered(zoneCallReject)))
-		return m.styles.callBarLine(width, text+answer+"  "+reject)
+		return m.styles.callBarLine(width, text+answer+reject)
 
 	case "proposing", "ringing-remote", "negotiating":
 		verb := "calling"
@@ -255,7 +255,7 @@ func (m Model) renderCallBar(width int) string {
 		text := "📞 " + m.call.peer + "  " + dur + "  " + mic + "  " + quality + "   "
 		muteBtn := m.zone.Mark(zoneCallMute, m.styles.renderCallBarButton(muteLabel, m.isHovered(zoneCallMute)))
 		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
-		return m.styles.callBarLine(width, text+muteBtn+"  "+hangupBtn)
+		return m.styles.callBarLine(width, text+muteBtn+" "+hangupBtn)
 
 	case "ended", "failed":
 		// Terminal state: nothing left to click, just the plain self-clearing
