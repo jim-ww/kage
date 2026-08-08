@@ -707,6 +707,16 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 	ownBare := bareJID(s.account.JID)
 	name := s.rosterName(peerJID)
 
+	// A broken session surfaces as one failure per backfilled message from
+	// the same sender device (the PreKeyMessage that exposed it, then every
+	// ratchet message that followed it before we noticed) - healing on
+	// every single one would fire that many redundant reset+key-transport
+	// round trips for what's really one broken session. healed remembers
+	// which sender devices this sync already healed, across every page of
+	// this contact's backfill, so only the first failure per device
+	// triggers it.
+	healed := make(map[omemolib.Device]bool)
+
 	for page := 0; page < maxPages; page++ {
 		var newMsgs []ui.Message
 		prevAfter := afterArchiveID
@@ -728,7 +738,7 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		for _, am := range items {
 			afterArchiveID = am.ArchiveID
 
-			outcome := s.processMAMItem(ctx, srv, accountIdx, peerJID, ownBare, name, am)
+			outcome := s.processMAMItem(ctx, srv, accountIdx, peerJID, ownBare, name, am, healed)
 			if outcome.stopSync {
 				stop = true
 				break
@@ -759,7 +769,7 @@ type mamItemOutcome struct {
 // MAM archive item. Held under s.omemoMu for its whole body — see that
 // field's doc comment — so it can't decrypt the same OMEMO ciphertext
 // concurrently with the live path in handleIncomingMessage (events.go).
-func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, accountIdx int, peerJID, ownBare, name string, am xmpp.ArchivedMessage) mamItemOutcome {
+func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, accountIdx int, peerJID, ownBare, name string, am xmpp.ArchivedMessage, healed map[omemolib.Device]bool) mamItemOutcome {
 	s.omemoMu.Lock()
 	defer s.omemoMu.Unlock()
 
@@ -867,13 +877,18 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		} else if err != nil {
 			body = "[message could not be decrypted: " + err.Error() + "]"
 			decryptFailed = true
-			if errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound) {
+			if (errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound)) && !healed[enc.Sender] {
 				// Same healing as handleIncomingMessage's live path
 				// (events.go) - and just as needed here, arguably more so:
 				// this is exactly the path a peer's messages take while we
 				// were offline, so without this the broken session would
 				// otherwise only ever get fixed by chance, on whatever the
 				// next *live* failure from the same sender happens to be.
+				// A whole backfill batch from one broken sender device
+				// fails the same way message after message though - healed
+				// caps it at one reset+key-transport round trip per device
+				// per sync instead of one per failed message.
+				healed[enc.Sender] = true
 				healBrokenSession(ctx, s, mgr, enc.Sender, bareJID(am.From))
 			}
 		} else if pt == nil {
