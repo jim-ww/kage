@@ -1113,6 +1113,7 @@ func (c *callSession) applyTransportAccept(jingle xmpp.JingleIQ) {
 // startMedia opens the audio devices and starts pumping mic -> Opus -> RTP.
 // The receive direction is started by OnTrack instead, since it can't begin
 // before the peer's track actually arrives.
+// If the mic is unavailable, the call proceeds without it (send-only disabled).
 func (c *callSession) startMedia() error {
 	enc, err := call.NewEncoder()
 	if err != nil {
@@ -1124,11 +1125,14 @@ func (c *callSession) startMedia() error {
 	}
 	mic, err := call.NewMic()
 	if err != nil {
-		return err
+		slog.Warn("opening capture device, proceeding without mic", "sid", c.sid, "err", err)
+		mic = nil
 	}
 	spk, err := call.NewSpeaker()
 	if err != nil {
-		mic.Close()
+		if mic != nil {
+			mic.Close()
+		}
 		return err
 	}
 
@@ -1137,31 +1141,33 @@ func (c *callSession) startMedia() error {
 	pc := c.pc
 	c.mu.Unlock()
 
-	go recoverAndLog(c.sid, "micPump", func() {
-		const frameDuration = call.FrameMillis * time.Millisecond
-		for {
-			select {
-			case <-c.done:
-				return
-			case frame := <-mic.Frames():
-				c.mu.Lock()
-				muted := c.muted
-				c.mu.Unlock()
-				if muted {
-					continue // drop the frame rather than encode+send while muted
-				}
-				packet, err := enc.Encode(frame)
-				if err != nil {
-					slog.Warn("encoding call audio", "sid", c.sid, "err", err)
-					continue
-				}
-				if err := pc.WriteSample(packet, frameDuration); err != nil {
-					slog.Warn("writing call audio", "sid", c.sid, "err", err)
+	if mic != nil {
+		go recoverAndLog(c.sid, "micPump", func() {
+			const frameDuration = call.FrameMillis * time.Millisecond
+			for {
+				select {
+				case <-c.done:
 					return
+				case frame := <-mic.Frames():
+					c.mu.Lock()
+					muted := c.muted
+					c.mu.Unlock()
+					if muted {
+						continue // drop the frame rather than encode+send while muted
+					}
+					packet, err := enc.Encode(frame)
+					if err != nil {
+						slog.Warn("encoding call audio", "sid", c.sid, "err", err)
+						continue
+					}
+					if err := pc.WriteSample(packet, frameDuration); err != nil {
+						slog.Warn("writing call audio", "sid", c.sid, "err", err)
+						return
+					}
 				}
 			}
-		}
-	})
+		})
+	}
 	return nil
 }
 
