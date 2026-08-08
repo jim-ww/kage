@@ -1,3 +1,5 @@
+- replies to attachments not properly seen on other clients? (e.g. Dino)
+- only allow to send message when client is connected (or add messages to send queue)
 - bind ctrl+~ to quickly open bigger message textinput
 - quick way to erase message while copying it (draft)
 - ui freezing in some cases, CPU usage goes up. on paste, or after editing certain amount of text?

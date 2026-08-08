@@ -438,7 +438,9 @@ func resyncPeerDeviceLists(ctx context.Context, s *accountSession, roster map[st
 		}
 		if s.omemoMgrV1 != nil {
 			if err := s.omemoMgrV1.SyncDevices(ctx, peerJID); err != nil {
-				slog.Debug("resyncing omemo-v1 device list on connect", "peer", peerJID, "jid", s.account.JID, "err", err)
+				slog.Debug("resyncing omemo-v1 device list on connect failed", "peer", peerJID, "jid", s.account.JID, "err", err)
+			} else {
+				slog.Debug("resynced omemo-v1 device list on connect", "peer", peerJID, "jid", s.account.JID)
 			}
 		}
 	}
@@ -612,6 +614,7 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		// here too. Skipping it left our cached self-device list stale,
 		// so messages silently never got a key for that device - it
 		// would never decrypt on that client, with no error anywhere.
+		slog.Debug("received omemo device-list PEP push", "protocol", ev.Protocol, "from", from, "jid", s.account.JID)
 		if from == "" {
 			return
 		}
@@ -630,7 +633,9 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		go func() {
 			if err := mgr.SyncDevices(ctx, from); err != nil {
 				slog.Warn("resyncing omemo device list after PEP push", "protocol", ev.Protocol, "from", from, "err", err)
+				return
 			}
+			slog.Debug("resynced omemo device list after PEP push", "protocol", ev.Protocol, "from", from, "jid", s.account.JID)
 		}()
 	}
 }

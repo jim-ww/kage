@@ -137,10 +137,12 @@ func (c *Client) FetchOmemoDeviceListV1(ctx context.Context, peerJID string) (om
 	}
 	if err := iter.Err(); err != nil {
 		if strings.Contains(err.Error(), "item-not-found") || strings.Contains(err.Error(), "Node not found") {
+			slog.Debug("FetchOmemoDeviceListV1: fetched", "peer", peerJID, "count", 0, "devices", ids)
 			return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
 		}
 		return omemolib.DeviceList{}, fmt.Errorf("fetching legacy omemo device list for %s: %w", peerJID, err)
 	}
+	slog.Debug("FetchOmemoDeviceListV1: fetched", "peer", peerJID, "count", len(ids), "devices", ids)
 	return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
 }
 
