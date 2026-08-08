@@ -33,6 +33,24 @@ type Client struct {
 
 	closed atomic.Bool // set by Close; distinguishes intentional shutdown from a dropped connection
 
+	// evMu/evCond/evBuf/evClosed decouple handleStanza from the pace of
+	// whatever is reading Events(): handleStanza calls enqueue, which only
+	// ever appends to evBuf and returns - it can never block. forwardEvents
+	// is the sole goroutine that ever blocks sending on the (small, fixed
+	// capacity) events channel, so a slow or not-yet-attached consumer never
+	// stalls serve()'s single stream-reading loop. Without this, a burst of
+	// more than cap(events) stanzas arriving before a caller starts reading
+	// Events() - a real window: see account.go's connectAccountLive, which
+	// does GPG/OMEMO setup and a roster fetch before starting its listener -
+	// would permanently wedge handleStanza's blocking channel send, and with
+	// it the entire connection: the same read loop is what delivers
+	// responses to our own outgoing IQs, so nothing-not a reconnect, not
+	// Close()-can recover it once stuck.
+	evMu     sync.Mutex
+	evCond   *sync.Cond
+	evBuf    []Event
+	evClosed bool
+
 	mu           sync.Mutex
 	err          error   // set when serve() returns, e.g. on an unexpected disconnect
 	uploadSvc    jid.JID // cached result of uploadService's disco walk, once found
@@ -76,8 +94,10 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	}
 
 	c := &Client{JID: j, session: session, events: make(chan Event, 32)}
+	c.evCond = sync.NewCond(&c.evMu)
 	c.discoMux = newDiscoMux(c.handleJingleIQ)
 	go c.serve()
+	go c.forwardEvents()
 
 	// Advertise our features via XEP-0115 entity capabilities on the initial
 	// presence - without this, contacts have no signal that we support
@@ -129,12 +149,12 @@ func (c *Client) SetPresence(ctx context.Context, show string) error {
 }
 
 // serve reads the session's stream until it closes, dispatching incoming
-// stanzas to c.events. It must run for the entire lifetime of the session —
-// SendIQ (used by Roster, and internally by presence/message delivery
-// acknowledgement) blocks forever waiting for a response if nothing is
-// reading the stream.
+// stanzas via handleStanza/enqueue. It must run for the entire lifetime of
+// the session — SendIQ (used by Roster, and internally by presence/message
+// delivery acknowledgement) blocks forever waiting for a response if nothing
+// is reading the stream.
 func (c *Client) serve() {
-	defer close(c.events)
+	defer c.closeEventQueue()
 	err := c.session.Serve(xmpp.HandlerFunc(func(t xmlstream.TokenReadEncoder, start *xml.StartElement) error {
 		c.handleStanza(t, start)
 		return nil
@@ -142,6 +162,51 @@ func (c *Client) serve() {
 	c.mu.Lock()
 	c.err = err
 	c.mu.Unlock()
+}
+
+// enqueue appends ev to the pending-events buffer and wakes forwardEvents.
+// Never blocks - see the evMu/evCond/evBuf doc comment on Client for why
+// that matters: this is called directly from serve()'s single stream-reading
+// goroutine.
+func (c *Client) enqueue(ev Event) {
+	c.evMu.Lock()
+	if c.evClosed {
+		c.evMu.Unlock()
+		return
+	}
+	c.evBuf = append(c.evBuf, ev)
+	c.evMu.Unlock()
+	c.evCond.Signal()
+}
+
+// closeEventQueue marks the queue closed; forwardEvents drains whatever's
+// left and then closes c.events.
+func (c *Client) closeEventQueue() {
+	c.evMu.Lock()
+	c.evClosed = true
+	c.evMu.Unlock()
+	c.evCond.Signal()
+}
+
+// forwardEvents is the only goroutine that ever sends on c.events, and so
+// the only one that can ever block waiting for a slow or absent consumer -
+// deliberately isolated from serve()'s stream-reading loop via evBuf.
+func (c *Client) forwardEvents() {
+	defer close(c.events)
+	for {
+		c.evMu.Lock()
+		for len(c.evBuf) == 0 && !c.evClosed {
+			c.evCond.Wait()
+		}
+		if len(c.evBuf) == 0 {
+			c.evMu.Unlock()
+			return
+		}
+		ev := c.evBuf[0]
+		c.evBuf = c.evBuf[1:]
+		c.evMu.Unlock()
+		c.events <- ev
+	}
 }
 
 // Close ends the session and its underlying connection. This unblocks and

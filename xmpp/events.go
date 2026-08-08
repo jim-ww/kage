@@ -140,7 +140,6 @@ func (c *Client) Events() <-chan Event {
 }
 
 func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElement) {
-	events := c.events
 	switch start.Name.Local {
 	case "iq":
 		// Incoming IQ requests - most importantly disco#info/disco#items
@@ -183,7 +182,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		if msg.Received != nil {
-			events <- MessageDeliveredEvent{ID: msg.Received.ID, From: msg.From.String()}
+			c.enqueue(MessageDeliveredEvent{ID: msg.Received.ID, From: msg.From.String()})
 			return
 		}
 
@@ -205,32 +204,32 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		if msg.PubsubEvent != nil && msg.PubsubEvent.Items != nil {
 			switch msg.PubsubEvent.Items.Node {
 			case omemoDevicesNode:
-				events <- DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV2}
+				c.enqueue(DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV2})
 				return
 			case omemoV1DevicesNode:
-				events <- DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV1}
+				c.enqueue(DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV1})
 				return
 			}
 		}
 
 		if ev, ok := msg.jmiEvent(); ok {
-			events <- ev
+			c.enqueue(ev)
 			return
 		}
 
 		if state, ok := msg.chatState(); ok {
-			events <- ChatStateEvent{From: msg.From.String(), State: state}
+			c.enqueue(ChatStateEvent{From: msg.From.String(), State: state})
 		}
 
 		if msg.Retract != nil {
-			events <- MessageEvent{
+			c.enqueue(MessageEvent{
 				ID:        msg.ID,
 				From:      msg.From.String(),
 				SentAt:    time.Now(),
 				RetractID: msg.Retract.ID,
 				Outgoing:  outgoing,
 				To:        msg.To.String(),
-			}
+			})
 			return
 		}
 
@@ -239,7 +238,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			if reactions == nil {
 				reactions = []string{} // distinguish "cleared" from "field absent" for callers
 			}
-			events <- MessageEvent{
+			c.enqueue(MessageEvent{
 				ID:               msg.ID,
 				From:             msg.From.String(),
 				SentAt:           time.Now(),
@@ -247,7 +246,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				Reactions:        reactions,
 				Outgoing:         outgoing,
 				To:               msg.To.String(),
-			}
+			})
 			return
 		}
 
@@ -271,7 +270,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			if msg.Replace != nil {
 				replaceID = msg.Replace.ID
 			}
-			events <- MessageEvent{
+			c.enqueue(MessageEvent{
 				ID:        msg.ID,
 				From:      msg.From.String(),
 				SentAt:    time.Now(),
@@ -280,7 +279,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				ReplaceID: replaceID,
 				Outgoing:  outgoing,
 				To:        msg.To.String(),
-			}
+			})
 			return
 		}
 
@@ -292,7 +291,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			if msg.Replace != nil {
 				replaceID = msg.Replace.ID
 			}
-			events <- MessageEvent{
+			c.enqueue(MessageEvent{
 				ID:          msg.ID,
 				From:        msg.From.String(),
 				SentAt:      time.Now(),
@@ -301,7 +300,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				ReplaceID:   replaceID,
 				Outgoing:    outgoing,
 				To:          msg.To.String(),
-			}
+			})
 			return
 		}
 
@@ -339,7 +338,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			}
 		}
 
-		events <- MessageEvent{
+		c.enqueue(MessageEvent{
 			ID:        msg.ID,
 			From:      msg.From.String(),
 			Body:      body,
@@ -349,25 +348,25 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			OOBURLs:   oobURLs,
 			Outgoing:  outgoing,
 			To:        msg.To.String(),
-		}
+		})
 	case "presence":
 		var p presenceBody
 		d := xml.NewTokenDecoder(t)
 		_ = d.DecodeElement(&p, start)
 		switch p.Type {
 		case stanza.SubscribePresence:
-			events <- SubscriptionRequestEvent{From: p.From.String()}
+			c.enqueue(SubscriptionRequestEvent{From: p.From.String()})
 		case stanza.SubscribedPresence, stanza.UnsubscribePresence, stanza.UnsubscribedPresence, stanza.ErrorPresence, stanza.ProbePresence:
 			// Subscription-management and probe/error presence carry no
 			// availability information - reporting them as PresenceEvent
 			// would misrepresent the contact as offline.
 		default:
-			events <- PresenceEvent{
+			c.enqueue(PresenceEvent{
 				From:      p.From.String(),
 				Available: p.Type == stanza.AvailablePresence,
 				Show:      p.Show,
 				Caps:      p.Caps,
-			}
+			})
 		}
 	}
 }
