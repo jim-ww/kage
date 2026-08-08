@@ -348,7 +348,7 @@ func main() {
 	}
 	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, client, client, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display, initialCallState)
 	p := tea.NewProgram(model)
-	client.program = p
+	client.setProgram(p)
 
 	// If the daemon goes away mid-session (crash, upgrade), don't leave the
 	// TUI sitting on a dead connection — quit cleanly with a message rather

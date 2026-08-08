@@ -14,8 +14,13 @@ import (
 // making an RPC over conn instead of touching xmpp/storage/crypto directly
 // - the TUI process never does either anymore, the daemon does.
 type ipcClient struct {
-	conn    *ipc.Conn
-	program *tea.Program // set once tea.NewProgram exists; nil briefly at startup, so dispatch must tolerate that
+	conn *ipc.Conn
+	// program is only ever read/written from dispatchLoop's own goroutine
+	// (set via programReady, never assigned directly) - the daemon can start
+	// streaming events the moment ipc.Dial returns, well before main has
+	// finished the synchronous listAccounts() call and tea.NewProgram, so
+	// events routinely need to be dispatched before program exists.
+	program *tea.Program
 
 	// events decouples the Conn's read loop from delivery to the program.
 	// program.Send blocks until bubbletea's own Update loop is free to
@@ -25,20 +30,63 @@ type ipcClient struct {
 	// loop (as handleEvent used to) deadlocks in that window. The
 	// dispatcher goroutine is the only thing allowed to call program.Send.
 	events chan ipc.Event
+
+	// programReady hands off the freshly constructed *tea.Program from main
+	// once it exists. Buffered 1: main sends exactly once and never blocks
+	// on dispatchLoop's goroutine scheduling.
+	programReady chan *tea.Program
+
+	// pending buffers events that arrived before program was set - e.g. a
+	// contact's PresenceMsg pushed the instant another account finishes
+	// connecting in the daemon, which can easily land before this process
+	// gets through listAccounts() + ui.New(). Previously these were just
+	// dropped (dispatch no-oped on a nil program), which permanently lost
+	// state a client attaching moments later would otherwise have seen:
+	// a contact could show offline indefinitely, until its presence
+	// happened to change again. Only ever touched by dispatchLoop's
+	// goroutine.
+	pending []ipc.Event
 }
 
 // newIPCClient creates a client with its event-dispatch goroutine already
 // running, so it's ready to be passed to ipc.Dial as the onEvent callback.
 func newIPCClient() *ipcClient {
-	c := &ipcClient{events: make(chan ipc.Event, 256)}
+	c := &ipcClient{events: make(chan ipc.Event, 256), programReady: make(chan *tea.Program, 1)}
 	go c.dispatchLoop()
 	return c
 }
 
 func (c *ipcClient) dispatchLoop() {
-	for ev := range c.events {
-		c.dispatch(ev)
+	for {
+		select {
+		case ev, ok := <-c.events:
+			if !ok {
+				return
+			}
+			if c.program == nil {
+				c.pending = append(c.pending, ev)
+				continue
+			}
+			c.dispatch(ev)
+		case p, ok := <-c.programReady:
+			if !ok {
+				continue
+			}
+			c.program = p
+			pending := c.pending
+			c.pending = nil
+			for _, ev := range pending {
+				c.dispatch(ev)
+			}
+		}
 	}
+}
+
+// setProgram hands the running program to dispatchLoop, which flushes any
+// events buffered while program didn't exist yet before processing anything
+// new - see programReady and pending.
+func (c *ipcClient) setProgram(p *tea.Program) {
+	c.programReady <- p
 }
 
 func (c *ipcClient) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
@@ -294,11 +342,9 @@ func (c *ipcClient) handleEvent(ev ipc.Event) {
 }
 
 // dispatch unmarshals and forwards one event to the program. Runs only on
-// dispatchLoop's goroutine, never on the read loop.
+// dispatchLoop's goroutine, never on the read loop, and only ever once
+// c.program is known to be set - see pending.
 func (c *ipcClient) dispatch(ev ipc.Event) {
-	if c.program == nil {
-		return // events received in the brief window before tea.NewProgram exists are dropped, matching the pre-daemon behavior of nothing existing to send them to yet
-	}
 	switch ev.Kind {
 	case evIncomingMessage:
 		sendEvent[ui.IncomingMessageMsg](c, ev.Data)

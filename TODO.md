@@ -1,3 +1,4 @@
+- write e2e tests for all features, on local prosody instance, ran with 'integration' build tag
 - implement notes? e.g. writing yourself
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - add KAGE_DEBUG variable instead/in addition of/to flag?
