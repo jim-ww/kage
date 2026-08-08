@@ -1,3 +1,5 @@
+- implement notes? e.g. writing yourself
+- improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - add KAGE_DEBUG variable instead/in addition of/to flag?
 - sometimes status shows as offline, when other client is online. could be either status send/receive problem
 - on error during call, should hang up the call (send event to other peer)

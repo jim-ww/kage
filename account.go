@@ -345,6 +345,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 
 	var newChats []list.Item
+	newChatIdx := make(map[string]int)
 	newMessages := make(map[int][]ui.Message)
 	newHistoryMore := make(map[int]bool)
 	for _, c := range contacts {
@@ -364,13 +365,37 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 		idx := existingChatCount + len(newChats)
 		hist, hasMore := loadHistoryPage(ctx, sess, c.JID, name)
-		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID]}
+		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence}
 		if len(hist) > 0 {
 			newMessages[idx] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
 		}
+		newChatIdx[c.JID] = len(newChats)
 		newChats = append(newChats, chat)
 		newHistoryMore[idx] = hasMore
+	}
+	// The roster IQ fetch above (and loadHistoryPage's DB round-trips) can
+	// take long enough for this account's own event-loop goroutine to
+	// process a live PresenceEvent for one of these contacts concurrently,
+	// via setRosterPresence - which updates sess.roster in place. Blindly
+	// storing merged (built from a Load() taken before the fetch started)
+	// would silently discard that update, leaving the contact stuck at
+	// whatever stale/zero Presence merged captured until its presence
+	// happens to change again. Reconcile with the latest snapshot first.
+	if latest := sess.roster.Load(); latest != nil {
+		for jid, entry := range *latest {
+			m, ok := merged[jid]
+			if !ok || m.Presence == entry.Presence {
+				continue
+			}
+			m.Presence = entry.Presence
+			merged[jid] = m
+			if idx, ok := newChatIdx[jid]; ok {
+				chat := newChats[idx].(ui.Chat)
+				chat.Presence = entry.Presence
+				newChats[idx] = chat
+			}
+		}
 	}
 	sess.roster.Store(&merged)
 
