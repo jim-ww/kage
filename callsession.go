@@ -358,11 +358,21 @@ func (s *accountSession) rejectCall(ctx context.Context) error {
 	remote, state := c.remoteJID, c.state
 	c.mu.Unlock()
 
-	if state == callRingingLocal {
+	switch {
+	case state == callRingingLocal:
 		if err := c.client.RejectCall(ctx, remote, c.sid); err != nil {
 			slog.Warn("rejecting call", "sid", c.sid, "err", err)
 		}
-	} else if remote != "" {
+	case state == callProposing || state == callRingingRemote:
+		// Our own outgoing call, not yet proceeded to a Jingle session - same
+		// wire action as hangupCall's equivalent branch (there's no
+		// session-terminate to send yet, and remoteJID isn't even known
+		// until the callee proceeds). Without this case, calling rejectCall
+		// on an outgoing call silently sent nothing at all.
+		if err := c.client.RetractCall(ctx, c.peer, c.sid); err != nil {
+			slog.Warn("retracting call", "sid", c.sid, "err", err)
+		}
+	case remote != "":
 		if err := c.client.SendSessionTerminate(ctx, remote, c.sid, &xmpp.JingleReason{Decline: &struct{}{}}); err != nil {
 			slog.Warn("declining call", "sid", c.sid, "err", err)
 		}

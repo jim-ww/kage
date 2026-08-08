@@ -59,6 +59,16 @@ func (m Model) callInProgress() bool {
 // A second incoming proposal while one is already showing replaces it (the
 // daemon only tracks one call per account, same simplification).
 func (m Model) handleIncomingCallMsg(msg IncomingCallMsg) (Model, tea.Cmd) {
+	if m.call != nil && m.call.accountIdx != msg.AccountIdx && m.callInProgress() {
+		// This UI has exactly one call bar for the whole app, but the daemon
+		// tracks one call per account - a second account can start ringing
+		// while the first account's call bar is already up (e.g. two
+		// configured accounts calling each other). Silently replacing the
+		// visible call would point every key/mouse action at the wrong
+		// account's call from then on (see rejectCall's dead branch for what
+		// that looks like on the wire). Surface it as a toast instead.
+		return m, m.showNotification(fmt.Sprintf("incoming call from %s (another call is in progress)", msg.From))
+	}
 	gen := 0
 	if m.call != nil {
 		gen = m.call.gen + 1
@@ -81,6 +91,13 @@ func (m Model) handleIncomingCallMsg(msg IncomingCallMsg) (Model, tea.Cmd) {
 // call. On a terminal state ("ended"/"failed") the banner stays up briefly
 // (callEndedDisplay) showing Reason, then self-clears via callClearMsg.
 func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
+	if m.call != nil && m.call.accountIdx != msg.AccountIdx && m.callInProgress() {
+		// Same guard as handleIncomingCallMsg: don't let a different
+		// account's call transitions clobber the one already showing. Once
+		// the visible call reaches a terminal state, callInProgress() goes
+		// false and the next message for any account is free to take over.
+		return m, nil
+	}
 	gen := 0
 	startedAt := time.Time{}
 	// A CallStateMsg for the same call (same gen) that's already connected
