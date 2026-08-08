@@ -56,6 +56,18 @@ type MessageEvent struct {
 	// path (a sender that encrypts its body has no reason to also leak
 	// these in the clear - see xmpp.SendOptions.OOBURLs).
 	OOBURLs []string
+
+	// Outgoing is true when this arrived as a XEP-0280 "sent" carbon: a copy
+	// of a message one of our OTHER resources sent, forwarded to us so this
+	// resource's chat stays in sync. From is that other resource's (i.e.
+	// our own account's) JID in this case - the actual conversation is with
+	// To instead.
+	Outgoing bool
+
+	// To is the stanza's original recipient. Only meaningful (and only set)
+	// when Outgoing is true; a normal inbound message is always addressed
+	// to us, so callers key ordinary messages off From instead.
+	To string
 }
 
 func (MessageEvent) isEvent() {}
@@ -153,11 +165,16 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		// XEP-0280: unwrap a carbon-copied message and process the original
 		// as if it arrived directly - this is what lets another resource on
 		// this account see messages the server delivered to a different one.
+		// A "sent" carbon is a copy of a message WE sent from another
+		// resource: its <from/> is our own JID and <to/> is the actual
+		// conversation partner, so callers must route it by To, not From.
+		outgoing := false
 		switch {
 		case msg.CarbonReceived != nil:
 			msg = msg.CarbonReceived.Forwarded.Message
 		case msg.CarbonSent != nil:
 			msg = msg.CarbonSent.Forwarded.Message
+			outgoing = true
 		}
 
 		if msg.MAMResult != nil {
@@ -211,6 +228,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				From:      msg.From.String(),
 				SentAt:    time.Now(),
 				RetractID: msg.Retract.ID,
+				Outgoing:  outgoing,
+				To:        msg.To.String(),
 			}
 			return
 		}
@@ -226,6 +245,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				SentAt:           time.Now(),
 				ReactionTargetID: msg.Reactions.ID,
 				Reactions:        reactions,
+				Outgoing:         outgoing,
+				To:               msg.To.String(),
 			}
 			return
 		}
@@ -257,6 +278,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				Encrypted: msg.Encrypted,
 				ReplyToID: replyToID,
 				ReplaceID: replaceID,
+				Outgoing:  outgoing,
+				To:        msg.To.String(),
 			}
 			return
 		}
@@ -276,6 +299,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				EncryptedV1: msg.EncryptedV1,
 				ReplyToID:   replyToID,
 				ReplaceID:   replaceID,
+				Outgoing:    outgoing,
+				To:          msg.To.String(),
 			}
 			return
 		}
@@ -322,6 +347,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			ReplaceID: replaceID,
 			ReplyToID: replyToID,
 			OOBURLs:   oobURLs,
+			Outgoing:  outgoing,
+			To:        msg.To.String(),
 		}
 	case "presence":
 		var p presenceBody

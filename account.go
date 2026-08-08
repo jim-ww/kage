@@ -577,12 +577,17 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		})
 	case xmpp.DeviceListChangedEvent:
 		from := bareJID(ev.From)
-		// A self-notification about our own just-published device list
-		// (some servers omit the from attribute entirely on these,
-		// others set it to our own bare JID) needs no action - we
-		// already know our own device list, having just written it -
-		// and an empty from can't be resolved to a peer JID at all.
-		if from == "" || from == s.account.JID {
+		// An empty from (some servers omit the attribute on self-pushes)
+		// can't be resolved to any JID at all, so there's nothing to
+		// resync. But from == our own bare JID must NOT be skipped: this
+		// same push fires on every connected resource of the account, not
+		// just the one that just published, so another one of our own
+		// clients (a second kage instance, a reinstalled Conversations,
+		// ...) adding or rotating a device shows up as a self-JID push
+		// here too. Skipping it left our cached self-device list stale,
+		// so messages silently never got a key for that device - it
+		// would never decrypt on that client, with no error anywhere.
+		if from == "" {
 			return
 		}
 		mgr := s.omemoMgrV2

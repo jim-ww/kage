@@ -1,8 +1,8 @@
-- start call without mic (e.g. for video sharing only)
+- add KAGE_DEBUG variable instead/in addition of/to flag?
+- sometimes status shows as offline, when other client is online. could be either status send/receive problem
 - on error during call, should hang up the call (send event to other peer)
 - log in single file
 - if tui relaunched, then calling statusbar not shown
-- invalid status? receive or send
 - "kage's background service disconnected; please restart kage" is always printed on quit
 - messages sent from same account on other devices do not appear in chat
 - send failed, no

@@ -21,8 +21,18 @@ import (
 // and a MessageCorrectedMsg instead of appending a new message, and XEP-0424
 // retractions to a flag (never an actual delete — see ui.Message.Retracted).
 func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
+	// A XEP-0280 "sent" carbon (msgEv.Outgoing) is a copy of a message one of
+	// OUR OTHER resources sent: its From is our own JID, so the conversation
+	// it belongs to is keyed by To (the actual recipient) instead - using
+	// From here would file it under a "chat with myself" that never matches
+	// the real roster entry, and it would silently never show up.
+	peer := bareJID(msgEv.From)
+	if msgEv.Outgoing {
+		peer = bareJID(msgEv.To)
+	}
+
 	if msgEv.ReactionTargetID != "" {
-		from := bareJID(msgEv.From)
+		from := peer
 		if err := replaceReactions(ctx, s, from, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
 			slog.Warn("persisting reactions", "from", from, "err", err)
 		}
@@ -36,7 +46,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	}
 
 	if msgEv.RetractID != "" {
-		from := bareJID(msgEv.From)
+		from := peer
 		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
 			AccountJid: s.account.JID,
 			IDAttr:     nullString(msgEv.RetractID),
@@ -80,11 +90,10 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		// decrypt re-run on it here: wasteful at best, and for a message key
 		// already consumed out of the double ratchet's skip buffer, not
 		// guaranteed to fail cleanly the second time. Check storage first.
-		from := bareJID(msgEv.From)
 		if msgEv.ID != "" {
 			if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
 				AccountJid: s.account.JID,
-				RosterJid:  nullString(from),
+				RosterJid:  nullString(peer),
 				IDAttr:     nullString(msgEv.ID),
 			}); err == nil && exists {
 				slog.Debug("omemo message already stored, skipping re-decrypt", "id", msgEv.ID, "from", msgEv.From)
@@ -136,7 +145,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 				// them - mirrors Conversations' AxolotlService "healing"
 				// (buildSessionFromPEP + a key-transport reply) - so this is
 				// the last message lost to it, not every one from here on.
-				healBrokenSession(ctx, s, mgr, enc.Sender, from)
+				healBrokenSession(ctx, s, mgr, enc.Sender, bareJID(msgEv.From))
 			}
 		} else if pt == nil {
 			slog.Debug("omemo message was key-transport only (no content)", "from", msgEv.From)
@@ -169,7 +178,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		oobURLs = aesgcmURLsInBody(body)
 	}
 
-	from := bareJID(msgEv.From) // chats are keyed by bare JID (roster entries); From with a resource never matches
+	from := peer // chats are keyed by bare JID (roster entries); From with a resource never matches
 
 	if msgEv.ReplaceID != "" {
 		sealedBody, encrypted := encryptForStorage(s, body)
@@ -216,7 +225,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:    s.account.JID,
-		Sent:          false,
+		Sent:          msgEv.Outgoing,
 		FromAttr:      nullString(msgEv.From),
 		IDAttr:        nullString(msgEv.ID),
 		Body:          sealedBody,
@@ -245,7 +254,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			Author:        s.rosterName(from),
 			Content:       body,
 			SentAt:        msgEv.SentAt,
-			IsMe:          false,
+			IsMe:          msgEv.Outgoing,
 			Encrypted:     e2eEncrypted,
 			EncMethod:     e2eeMethod,
 			Attachments:   oobURLs,
@@ -254,7 +263,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	})
 
 	chatIsFocused := tuiFocused.Load() && tuiActiveChat.Load() == focusedChatKey(s.account.JID, from)
-	if notifyEnabled.Load() && !decryptFailed && !chatIsFocused {
+	if notifyEnabled.Load() && !decryptFailed && !chatIsFocused && !msgEv.Outgoing {
 		daemon.Notify(s.rosterName(from), notifyPreview(body, oobURLs))
 	}
 }

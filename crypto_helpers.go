@@ -210,6 +210,22 @@ func setupOmemoProtocol(
 	if err := publishDeviceList(ctx, devices); err != nil {
 		slog.Warn("publishing omemo device list", "protocol", protocol, "jid", s.account.JID, "err", err)
 	}
+
+	// The fetch above went straight through the raw transport (only to
+	// decide whether this device needed appending/republishing) and never
+	// touched mgr's own device cache - the one EncryptMessage's
+	// recipientDevices actually reads to know which of our other devices
+	// to include. Without this, a device another of our own clients
+	// added/rotated while we were offline stays invisible to us until a
+	// live DeviceListChangedEvent push happens to arrive post-connect (it
+	// won't, if nothing else changes the list again), so messages we send
+	// would silently never carry a key for it. resyncPeerDeviceLists
+	// (account.go) does this same SyncDevices call for every roster peer
+	// on connect; this is that same treatment for our own JID, which isn't
+	// a roster entry so that loop never reaches it.
+	if err := mgr.SyncDevices(ctx, s.account.JID); err != nil {
+		slog.Warn("resyncing own omemo device list on connect", "protocol", protocol, "jid", s.account.JID, "err", err)
+	}
 	return mgr
 }
 
