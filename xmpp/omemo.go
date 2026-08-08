@@ -71,6 +71,10 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 	iter := pubsub.FetchIQ(ctx, stanza.IQ{To: peer}, c.session, pubsub.Query{Node: omemoDevicesNode})
 	defer iter.Close()
 
+	// See FetchOmemoDeviceListV1's comment: this is a PEP singleton node, so
+	// keep only the last item iterated instead of merging every item's
+	// devices together - a service that ever hands back more than the one
+	// true-current item must not resurrect long-dead device IDs.
 	var ids []omemolib.DeviceID
 	for iter.Next() {
 		_, r := iter.Item()
@@ -79,6 +83,7 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 			slog.Warn("FetchOmemoDeviceList: failed to decode device-list item", "peer", peerJID, "err", err)
 			continue
 		}
+		ids = ids[:0]
 		for _, d := range devices.Devices {
 			ids = append(ids, omemolib.DeviceID(d.ID))
 		}

@@ -113,6 +113,15 @@ func (c *Client) FetchOmemoDeviceListV1(ctx context.Context, peerJID string) (om
 	iter := pubsub.FetchIQ(ctx, stanza.IQ{To: peer}, c.session, pubsub.Query{Node: omemoV1DevicesNode})
 	defer iter.Close()
 
+	// This is a PEP node: XEP-0163 mandates a singleton item (the service is
+	// supposed to enforce max_items=1), so there is exactly one *current*
+	// device list, ever. A well-behaved service like Prosody only ever
+	// returns one item regardless of how many item IDs were published under,
+	// but a service that doesn't enforce that (or has leftover items from
+	// before a max_items config change) could return several - keep only the
+	// last one iterated rather than merging every item's devices together,
+	// or a single stale leftover item reintroduces long-dead device IDs
+	// forever.
 	var ids []omemolib.DeviceID
 	for iter.Next() {
 		_, r := iter.Item()
@@ -121,6 +130,7 @@ func (c *Client) FetchOmemoDeviceListV1(ctx context.Context, peerJID string) (om
 			slog.Warn("FetchOmemoDeviceListV1: failed to decode device-list item", "peer", peerJID, "err", err)
 			continue
 		}
+		ids = ids[:0]
 		for _, d := range list.Devices {
 			ids = append(ids, omemolib.DeviceID(d.ID))
 		}
