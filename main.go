@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"database/sql"
 	"flag"
@@ -268,7 +269,7 @@ func main() {
 		return
 	}
 
-	setupLog(*debug)
+	setupLog(cmp.Or(*debug, os.Getenv("KAGE_DEBUG") != ""))
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -335,13 +336,13 @@ func main() {
 		startAccountIdx = cfg.LastChatAccountIdx
 	}
 	display := ui.DisplayOptions{
-		Icons:               cfg.UI.Icons,
-		UseGPG:              cfg.UseGPG,
-		ShowNames:           cfg.UI.ShowNames,
-		TimeLayout:          cfg.UI.TimeLayout,
-		TimeOnlyToday:       cfg.UI.TimeOnlyToday,
-		MaxMessagesPerChat:  cfg.MaxMessagesPerChat,
-		NoticeDuration:      cfg.UI.NoticeDuration,
+		Icons:                   cfg.UI.Icons,
+		UseGPG:                  cfg.UseGPG,
+		ShowNames:               cfg.UI.ShowNames,
+		TimeLayout:              cfg.UI.TimeLayout,
+		TimeOnlyToday:           cfg.UI.TimeOnlyToday,
+		MaxMessagesPerChat:      cfg.MaxMessagesPerChat,
+		NoticeDuration:          cfg.UI.NoticeDuration,
 		FilePickerDirsFirst:     cfg.UI.FilePickerDirsFirst,
 		FilePickerSortField:     cfg.UI.FilePickerSortField,
 		FilePickerSortAscending: cfg.UI.FilePickerSortAscending,

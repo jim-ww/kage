@@ -1,3 +1,10 @@
+- bind ctrl+~ to quickly open bigger message textinput
+- quick way to erase message while copying it (draft)
+- ui freezing in some cases, CPU usage goes up. on paste, or after editing certain amount of text?
+- textinput long message reaching limit, cannot break on new line
+- uploading your own files must not download them from server (must be downloaded)
+- send notifications, even if chat is focused, but window is not (e.g. on separate screen). add timer on last input?
+- ctrl+e should automatically select last message for edit (as no other can be edited)
 - config: add attachmentsDir cfg
 - add proper login/register modal
 - reattaching(mapping) messages from json exports to separate accounts
