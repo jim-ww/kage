@@ -1,3 +1,7 @@
+- config: add attachmentsDir cfg
+- add proper login/register modal
+- reattaching(mapping) messages from json exports to separate accounts
+- resubscribe action does nothing?
 - filepicker: make binds as buttons at bottom clickable
 - speed up moving cursor on textinput, based on how long is held
 - speed up filepicker: add cursor pagination (e.g. limited max items displayed)
