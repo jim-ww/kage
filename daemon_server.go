@@ -313,6 +313,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.MuteCall(p.AccountIdx, p.Muted)
 
+	case rpcScreenShare:
+		p, err := unmarshalParams[screenShareParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.ScreenShare(p.AccountIdx, p.Sharing)
+
 	case rpcListAccounts:
 		return d.listAccounts(context.Background()), nil
 
@@ -418,7 +425,7 @@ func (d *daemonServer) getCallState() getCallStateResult {
 			continue
 		}
 		c.mu.Lock()
-		state, muted, quality, connectedAt := c.state, c.muted, c.quality, c.connectedAt
+		state, muted, quality, sharing, connectedAt := c.state, c.muted, c.quality, c.sharing, c.connectedAt
 		c.mu.Unlock()
 		if state == callIdle || state == callEnded {
 			continue
@@ -427,7 +434,7 @@ func (d *daemonServer) getCallState() getCallStateResult {
 			bestPriority = p
 			best = getCallStateResult{
 				Active: true, AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid,
-				State: state.String(), Muted: muted, Quality: quality, StartedAt: connectedAt,
+				State: state.String(), Muted: muted, Quality: quality, Sharing: sharing, StartedAt: connectedAt,
 			}
 		}
 	}

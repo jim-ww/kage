@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -518,82 +519,89 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 // out from under it, e.g. by a reconnect, or the client was closed).
 func listen(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
 	for ev := range s.client.Load().Events() {
-		switch ev := ev.(type) {
-		case xmpp.PresenceEvent:
-			from := bareJID(ev.From)
-			presence := mapPresence(ev)
-			s.setRosterPresence(from, presence)
-			broadcast(srv, evPresence, ui.PresenceMsg{
-				AccountIdx: accountIdx,
-				From:       from,
-				Presence:   presence,
-			})
-			continue
-		case xmpp.SubscriptionRequestEvent:
-			from := bareJID(ev.From)
-			if err := s.client.Load().ApproveSubscription(ctx, from); err != nil {
-				slog.Warn("approving subscription request", "from", from, "jid", s.account.JID, "err", err)
-			}
-			continue
-		case xmpp.MessageEvent:
-			handleIncomingMessage(ctx, srv, accountIdx, s, ev)
-		case xmpp.JingleMessageEvent:
-			s.handleJingleMessage(ctx, srv, accountIdx, ev)
-			continue
-		case xmpp.JingleEvent:
-			s.handleJingle(ctx, srv, accountIdx, ev)
-			continue
-		case xmpp.ChatStateEvent:
-			broadcast(srv, evTyping, ui.TypingMsg{
-				AccountIdx: accountIdx,
-				From:       bareJID(ev.From),
-				Typing:     ev.State == xmpp.ChatStateComposing,
-			})
-			continue
-		case xmpp.MessageDeliveredEvent:
-			from := bareJID(ev.From)
-			if _, err := s.db.MarkMessageDelivered(ctx, storage.MarkMessageDeliveredParams{
-				AccountJid: s.account.JID,
-				IDAttr:     nullString(ev.ID),
-				RosterJid:  nullString(from),
-			}); err != nil {
-				slog.Warn("persisting delivery receipt", "err", err)
-			}
-			broadcast(srv, evMessageDelivered, ui.MessageDeliveredMsg{
-				AccountIdx: accountIdx,
-				From:       from,
-				MessageID:  ev.ID,
-			})
-			continue
-		case xmpp.DeviceListChangedEvent:
-			from := bareJID(ev.From)
-			// A self-notification about our own just-published device list
-			// (some servers omit the from attribute entirely on these,
-			// others set it to our own bare JID) needs no action - we
-			// already know our own device list, having just written it -
-			// and an empty from can't be resolved to a peer JID at all.
-			if from == "" || from == s.account.JID {
-				continue
-			}
-			mgr := s.omemoMgrV2
-			if ev.Protocol == omemolib.ProtocolV1 {
-				mgr = s.omemoMgrV1
-			}
-			if mgr == nil {
-				continue
-			}
-			// SyncDevices does a network round-trip (an IQ fetch) - run it
-			// off to the side rather than blocking this loop, which is the
-			// same serial dispatch path every other event for this account
-			// (chat messages included) goes through. A slow or hanging
-			// fetch here must never stall message delivery.
-			go func() {
-				if err := mgr.SyncDevices(ctx, from); err != nil {
-					slog.Warn("resyncing omemo device list after PEP push", "protocol", ev.Protocol, "from", from, "err", err)
-				}
-			}()
-			continue
+		dispatchEvent(ctx, srv, accountIdx, s, ev)
+	}
+}
+
+// dispatchEvent handles one xmpp.Event under a recover, so a bug in any one
+// handler (e.g. the call/Jingle plumbing) logs a full stack trace and drops
+// that one event instead of taking down the whole daemon - listen's for
+// range loop has no other panic boundary, and an unrecovered panic in any
+// goroutine kills the entire process.
+func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, ev xmpp.Event) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic handling xmpp event", "jid", s.account.JID, "event_type", fmt.Sprintf("%T", ev), "panic", r, "stack", string(debug.Stack()))
 		}
+	}()
+	switch ev := ev.(type) {
+	case xmpp.PresenceEvent:
+		from := bareJID(ev.From)
+		presence := mapPresence(ev)
+		s.setRosterPresence(from, presence)
+		broadcast(srv, evPresence, ui.PresenceMsg{
+			AccountIdx: accountIdx,
+			From:       from,
+			Presence:   presence,
+		})
+	case xmpp.SubscriptionRequestEvent:
+		from := bareJID(ev.From)
+		if err := s.client.Load().ApproveSubscription(ctx, from); err != nil {
+			slog.Warn("approving subscription request", "from", from, "jid", s.account.JID, "err", err)
+		}
+	case xmpp.MessageEvent:
+		handleIncomingMessage(ctx, srv, accountIdx, s, ev)
+	case xmpp.JingleMessageEvent:
+		s.handleJingleMessage(ctx, srv, accountIdx, ev)
+	case xmpp.JingleEvent:
+		s.handleJingle(ctx, srv, accountIdx, ev)
+	case xmpp.ChatStateEvent:
+		broadcast(srv, evTyping, ui.TypingMsg{
+			AccountIdx: accountIdx,
+			From:       bareJID(ev.From),
+			Typing:     ev.State == xmpp.ChatStateComposing,
+		})
+	case xmpp.MessageDeliveredEvent:
+		from := bareJID(ev.From)
+		if _, err := s.db.MarkMessageDelivered(ctx, storage.MarkMessageDeliveredParams{
+			AccountJid: s.account.JID,
+			IDAttr:     nullString(ev.ID),
+			RosterJid:  nullString(from),
+		}); err != nil {
+			slog.Warn("persisting delivery receipt", "err", err)
+		}
+		broadcast(srv, evMessageDelivered, ui.MessageDeliveredMsg{
+			AccountIdx: accountIdx,
+			From:       from,
+			MessageID:  ev.ID,
+		})
+	case xmpp.DeviceListChangedEvent:
+		from := bareJID(ev.From)
+		// A self-notification about our own just-published device list
+		// (some servers omit the from attribute entirely on these,
+		// others set it to our own bare JID) needs no action - we
+		// already know our own device list, having just written it -
+		// and an empty from can't be resolved to a peer JID at all.
+		if from == "" || from == s.account.JID {
+			return
+		}
+		mgr := s.omemoMgrV2
+		if ev.Protocol == omemolib.ProtocolV1 {
+			mgr = s.omemoMgrV1
+		}
+		if mgr == nil {
+			return
+		}
+		// SyncDevices does a network round-trip (an IQ fetch) - run it
+		// off to the side rather than blocking this loop, which is the
+		// same serial dispatch path every other event for this account
+		// (chat messages included) goes through. A slow or hanging
+		// fetch here must never stall message delivery.
+		go func() {
+			if err := mgr.SyncDevices(ctx, from); err != nil {
+				slog.Warn("resyncing omemo device list after PEP push", "protocol", ev.Protocol, "from", from, "err", err)
+			}
+		}()
 	}
 }
 

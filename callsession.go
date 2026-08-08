@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -15,8 +16,25 @@ import (
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media/samplebuilder"
 )
+
+// recoverAndLog runs f under a recover, logging a full stack trace on panic
+// instead of crashing the whole daemon - every call-related goroutine below
+// (media pumps, screen-share capture/playback, connection-state handling)
+// runs detached from any request that could otherwise catch it, so this is
+// their only panic boundary. what identifies which goroutine paniced in the
+// log, since a stack trace alone doesn't say which call site started it.
+func recoverAndLog(sid, what string, f func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in call goroutine", "sid", sid, "what", what, "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+	f()
+}
 
 // callState is the lifecycle of the one voice call an account can have in
 // flight. Kept deliberately flat: there's no call waiting, no hold, and no
@@ -125,6 +143,29 @@ type callSession struct {
 	quality       string
 	qualityTicker *time.Ticker
 	qualityDone   chan struct{}
+
+	// sharing is true while we're actively capturing and sending our own
+	// screen; screenShare is the wf-recorder subprocess driving it, nil
+	// whenever sharing is false. The peer's incoming screen share (if any)
+	// has no session-level flag here - it's just whatever video arrives on
+	// OnTrack, played via playRemoteVideo/ScreenViewer independently.
+	// pendingShare is true from the moment a content-add offering video is
+	// sent until the peer's content-accept lands - startScreenShare only
+	// actually starts wf-recorder once negotiation completes (see
+	// applyContentAccept), so an idle-forever video m-line never gets
+	// negotiated in the first place (see call.PeerConnection.AddVideoTrack).
+	sharing      bool
+	pendingShare bool
+	screenShare  *call.ScreenShare
+
+	// remoteContents is the peer's description of every Jingle content
+	// established so far (initially just audio, from session-initiate/
+	// -accept). A later content-add/content-accept only carries the new
+	// content, so this is the base it gets merged onto to reconstruct a full
+	// SDP for pion's SetRemoteDescription (see applyContentAdd/
+	// applyContentAccept) - a partial SDP would look like every other m-line
+	// got removed.
+	remoteContents []xmpp.JingleContent
 
 	// ring plays the ringback/ringtone while this call sits in
 	// callRingingRemote/callRingingLocal - see startRing/stopRing. Always nil
@@ -391,6 +432,21 @@ func (s *accountSession) muteCall(muted bool) error {
 	return nil
 }
 
+// setScreenShare starts or stops capturing and sending our own screen on
+// the current call's (always-negotiated, see call.NewPeerConnection) video
+// track.
+func (s *accountSession) setScreenShare(sharing bool) error {
+	c := s.currentCall()
+	if c == nil {
+		return fmt.Errorf("no call in progress")
+	}
+	if sharing {
+		return c.startScreenShare()
+	}
+	c.stopScreenShare()
+	return nil
+}
+
 // --- incoming signaling -------------------------------------------------
 
 // handleJingleMessage drives the XEP-0353 half of the flow: the ring-before-
@@ -546,6 +602,12 @@ func (s *accountSession) handleJingle(ctx context.Context, srv *ipc.Server, acco
 	case xmpp.JingleActionTransportReject:
 		c.end(ctx, "ended", "peer rejected connection restart")
 
+	case xmpp.JingleActionContentAdd:
+		c.applyContentAdd(ctx, ev.Jingle)
+
+	case xmpp.JingleActionContentAccept:
+		c.applyContentAccept(ctx, ev.Jingle)
+
 	case xmpp.JingleActionSessionTerminate:
 		c.end(ctx, "ended", terminateReason(ev.Jingle.Reason))
 	}
@@ -583,11 +645,17 @@ func (c *callSession) setupPeer(ctx context.Context) error {
 	c.pc = pc
 	c.mu.Unlock()
 
-	pc.OnTrack(func(track *webrtc.TrackRemote) { go c.playRemote(track) })
+	pc.OnTrack(func(track *webrtc.TrackRemote) {
+		if track.Kind() == webrtc.RTPCodecTypeVideo {
+			go recoverAndLog(c.sid, "playRemoteVideo", func() { c.playRemoteVideo(track) })
+			return
+		}
+		go recoverAndLog(c.sid, "playRemote", func() { c.playRemote(track) })
+	})
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		// Run off pion's own goroutine: both branches take c.mu and one of
 		// them tears the connection down.
-		go c.onConnectionState(ctx, state)
+		go recoverAndLog(c.sid, "onConnectionState", func() { c.onConnectionState(ctx, state) })
 	})
 	pc.OnICECandidate(func(cand *webrtc.ICECandidate) {
 		if cand == nil {
@@ -654,6 +722,13 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	c.rememberTransport(contents)
 
 	c.mu.Lock()
+	// The peer's description of every content established so far - the base
+	// a later content-add (e.g. video for screen sharing) gets merged onto
+	// to reconstruct the full remote SDP (see applyContentAdd).
+	c.remoteContents = jingle.Contents
+	c.mu.Unlock()
+
+	c.mu.Lock()
 	c.state = callNegotiating
 	remote := c.remoteJID
 	c.mu.Unlock()
@@ -682,6 +757,10 @@ func (c *callSession) applyAnswer(ctx context.Context, jingle xmpp.JingleIQ) err
 		return err
 	}
 	c.markRemoteSet()
+
+	c.mu.Lock()
+	c.remoteContents = jingle.Contents
+	c.mu.Unlock()
 	return nil
 }
 
@@ -1058,7 +1137,7 @@ func (c *callSession) startMedia() error {
 	pc := c.pc
 	c.mu.Unlock()
 
-	go func() {
+	go recoverAndLog(c.sid, "micPump", func() {
 		const frameDuration = call.FrameMillis * time.Millisecond
 		for {
 			select {
@@ -1082,7 +1161,7 @@ func (c *callSession) startMedia() error {
 				}
 			}
 		}
-	}()
+	})
 	return nil
 }
 
@@ -1129,6 +1208,242 @@ func (c *callSession) playRemote(track *webrtc.TrackRemote) {
 	}
 }
 
+// currentState returns c.state under lock, for broadcastState calls made
+// from places (like startScreenShare) that changed something other than the
+// lifecycle state and just want to re-broadcast the unchanged one.
+func (c *callSession) currentState() callState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.state
+}
+
+// startScreenShare adds the video track and sends a XEP-0166 content-add
+// offering it - wf-recorder only actually starts once the peer's
+// content-accept lands (see applyContentAccept), so the video m-line only
+// ever gets negotiated with real media about to flow, never idle from the
+// start (see call.NewPeerConnection's doc comment for why that matters).
+// No-op if already sharing or a content-add is already in flight.
+func (c *callSession) startScreenShare() error {
+	c.mu.Lock()
+	if c.sharing || c.pendingShare {
+		c.mu.Unlock()
+		return nil
+	}
+	pc, state, remote := c.pc, c.state, c.remoteJID
+	c.mu.Unlock()
+	if pc == nil || state != callConnected {
+		return fmt.Errorf("call is not connected")
+	}
+
+	if err := pc.AddVideoTrack(); err != nil {
+		return fmt.Errorf("adding video track: %w", err)
+	}
+	offer, err := pc.CreateOffer()
+	if err != nil {
+		return fmt.Errorf("creating content-add offer: %w", err)
+	}
+	contents, err := jingleContentsFromSDP(offer)
+	if err != nil {
+		return fmt.Errorf("building content-add: %w", err)
+	}
+	videoContent, ok := firstContentOfKind(contents, "video")
+	if !ok {
+		return fmt.Errorf("no video content in renegotiation offer")
+	}
+
+	c.mu.Lock()
+	c.pendingShare = true
+	c.mu.Unlock()
+
+	if err := c.client.SendContentAdd(context.Background(), remote, c.sid, videoContent); err != nil {
+		c.mu.Lock()
+		c.pendingShare = false
+		c.mu.Unlock()
+		return fmt.Errorf("sending content-add: %w", err)
+	}
+	return nil
+}
+
+// applyContentAdd is the responder side of a peer starting a screen share:
+// merge the new video content onto what's already established, apply the
+// resulting full offer, and answer with content-accept. We don't add our
+// own video track here - only the side that called startScreenShare sends;
+// this side just receives (pion's CreateAnswer sets recvonly for a
+// transceiver with no local track).
+func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ) {
+	c.mu.Lock()
+	pc, remote, merged := c.pc, c.remoteJID, append(append([]xmpp.JingleContent(nil), c.remoteContents...), jingle.Contents...)
+	c.mu.Unlock()
+	if pc == nil {
+		return
+	}
+
+	offer, err := sdpFromJingleContents(merged, webrtc.SDPTypeOffer)
+	if err != nil {
+		slog.Warn("parsing content-add", "sid", c.sid, "err", err)
+		return
+	}
+	if err := pc.SetRemoteDescription(offer); err != nil {
+		slog.Warn("applying content-add", "sid", c.sid, "err", err)
+		return
+	}
+
+	c.mu.Lock()
+	c.remoteContents = merged
+	c.mu.Unlock()
+
+	answer, err := pc.CreateAnswer()
+	if err != nil {
+		slog.Warn("answering content-add", "sid", c.sid, "err", err)
+		return
+	}
+	answerContents, err := jingleContentsFromSDP(answer)
+	if err != nil {
+		slog.Warn("building content-accept", "sid", c.sid, "err", err)
+		return
+	}
+	videoAnswer, ok := firstContentOfKind(answerContents, "video")
+	if !ok {
+		slog.Warn("no video content in content-add answer", "sid", c.sid)
+		return
+	}
+	// Echo the peer's content name so both ends agree on the mid.
+	if in, ok := firstContentOfKind(jingle.Contents, "video"); ok && in.Name != "" {
+		videoAnswer.Name = in.Name
+	}
+	if err := c.client.SendContentAccept(ctx, remote, c.sid, videoAnswer); err != nil {
+		slog.Warn("sending content-accept", "sid", c.sid, "err", err)
+	}
+}
+
+// applyContentAccept is the sharer's side: the peer's answer to our
+// content-add completes the renegotiation, at which point it's finally safe
+// to actually start capturing and sending frames (see beginScreenShareCapture).
+func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.JingleIQ) {
+	c.mu.Lock()
+	if !c.pendingShare {
+		c.mu.Unlock()
+		return
+	}
+	pc, merged := c.pc, append(append([]xmpp.JingleContent(nil), c.remoteContents...), jingle.Contents...)
+	c.mu.Unlock()
+	if pc == nil {
+		return
+	}
+
+	answer, err := sdpFromJingleContents(merged, webrtc.SDPTypeAnswer)
+	if err != nil {
+		slog.Warn("parsing content-accept", "sid", c.sid, "err", err)
+		return
+	}
+	if err := pc.SetRemoteDescription(answer); err != nil {
+		slog.Warn("applying content-accept", "sid", c.sid, "err", err)
+		return
+	}
+
+	c.mu.Lock()
+	c.remoteContents = merged
+	c.pendingShare = false
+	c.mu.Unlock()
+
+	c.beginScreenShareCapture(pc)
+}
+
+// beginScreenShareCapture launches wf-recorder and starts pumping captured
+// frames onto the now-fully-negotiated video track.
+func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
+	share, err := call.NewScreenShare()
+	if err != nil {
+		slog.Warn("starting screen share capture", "sid", c.sid, "err", err)
+		return
+	}
+
+	c.mu.Lock()
+	c.screenShare = share
+	c.sharing = true
+	c.mu.Unlock()
+
+	go recoverAndLog(c.sid, "screenShareCapture", func() {
+		if err := share.Run(func(nal []byte, sinceLast time.Duration) error {
+			return pc.WriteVideoSample(nal, sinceLast)
+		}); err != nil {
+			slog.Warn("screen share capture ended", "sid", c.sid, "err", err)
+		}
+		c.mu.Lock()
+		stillOurs := c.screenShare == share
+		if stillOurs {
+			c.screenShare = nil
+			c.sharing = false
+		}
+		c.mu.Unlock()
+		if stillOurs {
+			c.broadcastState(c.currentState(), "")
+		}
+	})
+
+	c.broadcastState(c.currentState(), "")
+}
+
+// stopScreenShare tears down wf-recorder, if it's running.
+func (c *callSession) stopScreenShare() {
+	c.mu.Lock()
+	share := c.screenShare
+	c.screenShare = nil
+	c.sharing = false
+	c.mu.Unlock()
+	if share != nil {
+		share.Stop()
+	}
+	c.broadcastState(c.currentState(), "")
+}
+
+// playRemoteVideo pipes a peer's shared-screen video track into mpv,
+// mirroring playRemote's role for audio - reassembled via pion's H.264
+// depacketizer/samplebuilder rather than decoded ourselves; mpv does the
+// actual H.264 decode (see call.ScreenViewer). The viewer window is only
+// spawned once the first complete frame arrives, so a video track that's
+// negotiated but never actually sends anything (the common case: the peer
+// isn't sharing) never pops up an empty mpv window.
+func (c *callSession) playRemoteVideo(track *webrtc.TrackRemote) {
+	sb := samplebuilder.New(50, &codecs.H264Packet{}, 90000)
+	var viewer *call.ScreenViewer
+	defer func() {
+		if viewer != nil {
+			viewer.Close()
+		}
+	}()
+	for {
+		select {
+		case <-c.done:
+			return
+		default:
+		}
+
+		packet, _, err := track.ReadRTP()
+		if err != nil {
+			return // track ended, or the connection went away
+		}
+		sb.Push(packet)
+		for {
+			sample := sb.Pop()
+			if sample == nil {
+				break
+			}
+			if viewer == nil {
+				v, err := call.NewScreenViewer(c.peer + " — screen share")
+				if err != nil {
+					slog.Warn("starting screen share viewer", "sid", c.sid, "err", err)
+					return
+				}
+				viewer = v
+			}
+			if err := viewer.WriteNAL(sample.Data); err != nil {
+				return
+			}
+		}
+	}
+}
+
 // --- teardown -----------------------------------------------------------
 
 // end tears the call down exactly once and tells the TUI why. It does not
@@ -1141,8 +1456,9 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 
 		c.mu.Lock()
 		c.state = callEnded
-		pc, mic, spk := c.pc, c.mic, c.spk
+		pc, mic, spk, share := c.pc, c.mic, c.spk, c.screenShare
 		c.pc, c.mic, c.spk, c.enc, c.dec = nil, nil, nil, nil, nil
+		c.screenShare, c.sharing = nil, false
 		if c.disconnectTimer != nil {
 			c.disconnectTimer.Stop()
 			c.disconnectTimer = nil
@@ -1151,6 +1467,9 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 
 		c.stopQualitySampler()
 
+		if share != nil {
+			share.Stop()
+		}
 		if mic != nil {
 			mic.Close()
 		}
@@ -1260,11 +1579,11 @@ func (c *callSession) logCall(state, reason string) {
 
 func (c *callSession) broadcastState(state callState, reason string) {
 	c.mu.Lock()
-	muted, quality := c.muted, c.quality
+	muted, quality, sharing := c.muted, c.quality, c.sharing
 	c.mu.Unlock()
 	broadcast(c.srv, evCallState, callStateEvent{
 		AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid, State: state.String(), Reason: reason,
-		Muted: muted, Quality: quality,
+		Muted: muted, Quality: quality, Sharing: sharing,
 	})
 }
 

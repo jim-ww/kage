@@ -30,6 +30,7 @@ type callUIState struct {
 
 	muted     bool
 	quality   string    // "", "good", "fair", "poor"
+	sharing   bool      // true while we're actively sending our own screen
 	startedAt time.Time // set the first time state becomes "connected"
 }
 
@@ -127,6 +128,7 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		gen:        gen,
 		muted:      msg.Muted,
 		quality:    msg.Quality,
+		sharing:    msg.Sharing,
 		startedAt:  startedAt,
 	}
 	if !wasActive {
@@ -177,7 +179,11 @@ func (m Model) callBarLine() string {
 		if m.call.quality != "" {
 			quality = "📶 " + m.call.quality
 		}
-		return "📞 " + who + "  " + dur + "  " + mic + "  " + quality + "   [m] mute  [h] hang up"
+		share := "[s] share screen"
+		if m.call.sharing {
+			share = "🖥 sharing  [s] stop"
+		}
+		return "📞 " + who + "  " + dur + "  " + mic + "  " + quality + "   [m] mute  " + share + "  [h] hang up"
 	case "ended":
 		if m.call.reason != "" {
 			return "call ended: " + m.call.reason
@@ -264,4 +270,14 @@ func (m Model) toggleMuteCall() tea.Cmd {
 	}
 	accountIdx, muted := m.call.accountIdx, !m.call.muted
 	return func() tea.Msg { return m.callController.MuteCall(accountIdx, muted) }
+}
+
+// toggleScreenShare flips whether we're sending our own screen on the
+// current (connected) call.
+func (m Model) toggleScreenShare() tea.Cmd {
+	if m.callController == nil || m.call == nil {
+		return nil
+	}
+	accountIdx, sharing := m.call.accountIdx, !m.call.sharing
+	return func() tea.Msg { return m.callController.ScreenShare(accountIdx, sharing) }
 }

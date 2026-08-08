@@ -16,20 +16,38 @@ import (
 // main (jingle_sdp.go, callsession.go), which is the only place allowed to
 // know about both this package and xmpp.
 type PeerConnection struct {
-	pc    *webrtc.PeerConnection
-	track *webrtc.TrackLocalStaticSample
+	pc         *webrtc.PeerConnection
+	track      *webrtc.TrackLocalStaticSample
+	videoTrack *webrtc.TrackLocalStaticSample
 }
 
 // NewPeerConnection creates a PeerConnection with a single outbound Opus
 // audio track already added, using Google's public STUN server for NAT
 // traversal (fine for this slice; a production deployment would want this
-// configurable, and likely a TURN fallback).
+// configurable, and likely a TURN fallback). A video track for screen
+// sharing is added later, on demand, via AddVideoTrack - a permanently
+// negotiated-but-idle video m-line was tried first and found to reliably
+// crash pion's receiver goroutine (see git history), so video is only ever
+// added right before it's actually about to carry real samples.
 func NewPeerConnection() (*PeerConnection, error) {
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
 	}
 
-	pc, err := webrtc.NewPeerConnection(config)
+	// pion's default receiver setup spawns a background goroutine that peeks
+	// the first RTP packet to auto-detect its codec (PeerConnection.
+	// startReceiver, called from startReceiver.func1) - for a track added by
+	// a mid-call renegotiation (our screen-share content-add) this races
+	// with the receiver's own interceptor setup closely enough to panic on a
+	// nil rtpInterceptor (observed live, reproducibly, on every content-add).
+	// SetFireOnTrackBeforeFirstRTP skips that goroutine entirely and fires
+	// OnTrack immediately instead - codec detection then happens the normal
+	// way, from the SDP, which every content-add already carries.
+	settingEngine := webrtc.SettingEngine{}
+	settingEngine.SetFireOnTrackBeforeFirstRTP(true)
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
+
+	pc, err := api.NewPeerConnection(config)
 	if err != nil {
 		return nil, fmt.Errorf("creating peer connection: %w", err)
 	}
@@ -55,6 +73,33 @@ func NewPeerConnection() (*PeerConnection, error) {
 	}
 
 	return &PeerConnection{pc: pc, track: track}, nil
+}
+
+// AddVideoTrack adds the outbound H.264 video track (for screen sharing) to
+// an already-established connection. The caller must then renegotiate (see
+// CreateOffer/AddVideoTrack's caller in callsession.go's startScreenShare,
+// which sends the resulting offer as a XEP-0166 content-add) before writing
+// any samples to it.
+func (p *PeerConnection) AddVideoTrack() error {
+	if p.videoTrack != nil {
+		return nil
+	}
+	track, err := webrtc.NewTrackLocalStaticSample(
+		webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeH264,
+			ClockRate:   90000,
+			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+		},
+		"video", "kage",
+	)
+	if err != nil {
+		return fmt.Errorf("creating local video track: %w", err)
+	}
+	if _, err := p.pc.AddTrack(track); err != nil {
+		return fmt.Errorf("adding local video track: %w", err)
+	}
+	p.videoTrack = track
+	return nil
 }
 
 // CreateOffer generates a local SDP offer (as the Jingle initiator) and sets
@@ -145,9 +190,19 @@ func (p *PeerConnection) WriteSample(data []byte, duration time.Duration) error 
 	return p.track.WriteSample(media.Sample{Data: data, Duration: duration})
 }
 
-// OnTrack registers f to be called when the peer's audio track starts
-// arriving. The caller reads RTP packets off the track and feeds their
-// payloads to a Decoder and then a Speaker.
+// WriteVideoSample pushes one H.264 NAL unit onto the outbound video track.
+// Returns an error if AddVideoTrack hasn't been called yet.
+func (p *PeerConnection) WriteVideoSample(data []byte, duration time.Duration) error {
+	if p.videoTrack == nil {
+		return fmt.Errorf("no video track added yet")
+	}
+	return p.videoTrack.WriteSample(media.Sample{Data: data, Duration: duration})
+}
+
+// OnTrack registers f to be called when one of the peer's tracks (audio or
+// video) starts arriving. The caller checks TrackRemote.Kind() to tell them
+// apart - audio payloads go to a Decoder and then a Speaker, video payloads
+// get depacketized and piped into a ScreenViewer (mpv).
 func (p *PeerConnection) OnTrack(f func(*webrtc.TrackRemote)) {
 	p.pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) { f(track) })
 }

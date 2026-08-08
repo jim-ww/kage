@@ -28,7 +28,7 @@
           pname = "kage";
           version = "0.0.4";
           src = pkgs.lib.cleanSource ./.;
-          vendorHash = "sha256-A85FCZ0cQSt8gAepBrz/7o5VEaDJ5cxHOI5cE1F3+QI=";
+          vendorHash = "sha256-39wzM59CWoylPcg3A7WEZVOUU48Tto6yS7adGvIxOWk=";
 
           env.CGO_ENABLED = 1;
 
@@ -61,7 +61,7 @@
           '';
 
           postFixup = ''
-            wrapProgram $out/bin/kage --prefix PATH : ${pkgs.lib.makeBinPath [pkgs.libnotify pkgs.wl-clipboard pkgs.xclip]}
+            wrapProgram $out/bin/kage --prefix PATH : ${pkgs.lib.makeBinPath [pkgs.libnotify pkgs.wl-clipboard pkgs.xclip pkgs.wf-recorder pkgs.mpv]}
           '';
         };
 
@@ -69,7 +69,7 @@
         # devtest/prosody/ (a throwaway local XMPP server used to exercise
         # the xmpp/ package against a real server — see devtest/prosody/README.md).
         devShells.default = pkgs.mkShell {
-          packages = [pkgs.go pkgs.prosody pkgs.openssl pkgs.libnotify pkgs.alsa-lib pkgs.pkg-config];
+          packages = [pkgs.go pkgs.prosody pkgs.openssl pkgs.libnotify pkgs.alsa-lib pkgs.pkg-config pkgs.wf-recorder pkgs.mpv];
         };
       };
     };

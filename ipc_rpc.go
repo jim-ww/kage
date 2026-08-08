@@ -42,6 +42,7 @@ const (
 	rpcHangupCall            = "HangupCall"
 	rpcRejectCall            = "RejectCall"
 	rpcMuteCall              = "MuteCall"
+	rpcScreenShare           = "ScreenShare"
 	rpcGetCallState          = "GetCallState"
 )
 
@@ -155,6 +156,10 @@ type muteCallParams struct {
 	AccountIdx int
 	Muted      bool
 }
+type screenShareParams struct {
+	AccountIdx int
+	Sharing    bool
+}
 
 // getCallStateResult reports whatever call is currently in progress on any
 // account, if any - queried once by a freshly-(re)attached client so it can
@@ -170,6 +175,7 @@ type getCallStateResult struct {
 	Reason     string
 	Muted      bool
 	Quality    string
+	Sharing    bool
 	StartedAt  time.Time
 }
 
@@ -197,6 +203,7 @@ type callStateEvent struct {
 	Reason     string
 	Muted      bool
 	Quality    string // "", "good", "fair", "poor" - "" until the first sample lands
+	Sharing    bool   // true while we're actively sending our own screen
 }
 
 // missedCallEvent tells attached clients that a peer proposed a call while

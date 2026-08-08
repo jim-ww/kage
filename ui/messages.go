@@ -518,6 +518,7 @@ type CallController interface {
 	HangupCall(accountIdx int) tea.Msg
 	RejectCall(accountIdx int) tea.Msg
 	MuteCall(accountIdx int, muted bool) tea.Msg
+	ScreenShare(accountIdx int, sharing bool) tea.Msg
 }
 
 // CallActionResultMsg reports the result of a CallController method call
@@ -557,6 +558,7 @@ type CallStateMsg struct {
 	Reason     string
 	Muted      bool
 	Quality    string // "", "good", "fair", "poor"
+	Sharing    bool   // true while we're actively sending our own screen
 	// StartedAt is normally left zero - handleCallStateMsg fills it in the
 	// moment State first becomes "connected". A daemon-provided sync (a TUI
 	// attaching to a call already in progress) sets it explicitly so the

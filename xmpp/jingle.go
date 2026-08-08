@@ -44,6 +44,14 @@ const (
 	JingleActionTransportReplace = "transport-replace"
 	JingleActionTransportAccept  = "transport-accept"
 	JingleActionTransportReject  = "transport-reject"
+
+	// Content-add actions (XEP-0166 §7.2.4/§7.2.5): adding a new content
+	// (e.g. a video track for screen sharing) to an already-established
+	// session, without touching the content(s) already flowing. content-add
+	// carries only the new content's description+transport; content-accept
+	// is the peer's answer to it, same shape.
+	JingleActionContentAdd    = "content-add"
+	JingleActionContentAccept = "content-accept"
 )
 
 // JingleIQ is the <jingle/> payload of a Jingle IQ (XEP-0166). SID is the
@@ -274,6 +282,28 @@ func (c *Client) SendTransportReject(ctx context.Context, to, sid string) error 
 	})
 }
 
+// SendContentAdd sends a XEP-0166 content-add: a new content (description +
+// transport) being added to an already-established session, e.g. a video
+// track for screen sharing - the existing content(s) are untouched and not
+// repeated here.
+func (c *Client) SendContentAdd(ctx context.Context, to, sid string, content JingleContent) error {
+	return c.sendJingleIQ(ctx, to, JingleIQ{
+		Action:   JingleActionContentAdd,
+		SID:      sid,
+		Contents: []JingleContent{content},
+	})
+}
+
+// SendContentAccept sends a XEP-0166 content-accept: our answer to a peer's
+// content-add, naming our own description+transport for that content.
+func (c *Client) SendContentAccept(ctx context.Context, to, sid string, content JingleContent) error {
+	return c.sendJingleIQ(ctx, to, JingleIQ{
+		Action:   JingleActionContentAccept,
+		SID:      sid,
+		Contents: []JingleContent{content},
+	})
+}
+
 // jmiIDElem is the shape shared by every XEP-0353 element that carries
 // nothing but the Jingle session ID.
 type jmiIDElem struct {
@@ -325,6 +355,11 @@ func (c *Client) sendJMI(ctx context.Context, to string, build func(*jmiMessage)
 // device proceeds) will use.
 func (c *Client) ProposeCall(ctx context.Context, to, sid string) error {
 	return c.sendJMI(ctx, to, func(m *jmiMessage) {
+		// Video (for screen sharing) is negotiated later via a XEP-0166
+		// content-add once the session is already established, not upfront -
+		// the propose only needs to list what session-initiate will actually
+		// offer immediately (audio), which is all a compliant peer checks
+		// against.
 		m.Propose = &jmiProposeElem{ID: sid, Descriptions: []jmiDescription{{Media: "audio"}}}
 	})
 }

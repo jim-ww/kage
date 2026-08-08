@@ -3,7 +3,9 @@ package ipc
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
+	"runtime/debug"
 	"sync"
 )
 
@@ -74,7 +76,7 @@ func (s *Server) serve(sc *serverConn, handler Handler) {
 }
 
 func (s *Server) handle(sc *serverConn, req Request, handler Handler) {
-	result, err := handler(req.Method, req.Params)
+	result, err := s.callHandler(req, handler)
 	resp := Response{ID: req.ID}
 	if err != nil {
 		resp.Err = err.Error()
@@ -90,6 +92,21 @@ func (s *Server) handle(sc *serverConn, req Request, handler Handler) {
 	sc.writeMu.Lock()
 	writeResponse(sc.nc, resp)
 	sc.writeMu.Unlock()
+}
+
+// callHandler runs handler with a recover, so a panic deep in a single RPC
+// (e.g. a bug in a new call/screen-share code path) logs a full stack trace
+// and fails that one request instead of taking down the whole daemon - each
+// request already runs on its own goroutine (see serve), and an unrecovered
+// panic in any goroutine kills the entire process, not just that goroutine.
+func (s *Server) callHandler(req Request, handler Handler) (result any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("ipc: panic handling request", "method", req.Method, "panic", r, "stack", string(debug.Stack()))
+			err = fmt.Errorf("internal error handling %s: %v", req.Method, r)
+		}
+	}()
+	return handler(req.Method, req.Params)
 }
 
 // Broadcast sends ev to every currently-connected client. A client that

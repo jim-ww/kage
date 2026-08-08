@@ -263,6 +263,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.hangupCurrentCall(), true
 		case matchesLetter(msg, 'm') && m.call.state == "connected":
 			return m, m.toggleMuteCall(), true
+		case matchesLetter(msg, 's') && m.call.state == "connected":
+			return m, m.toggleScreenShare(), true
 		}
 	}
 

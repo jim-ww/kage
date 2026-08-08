@@ -232,6 +232,11 @@ func (c *ipcClient) MuteCall(accountIdx int, muted bool) tea.Msg {
 	return ui.CallActionResultMsg{Action: "mute", AccountIdx: accountIdx, Err: err}
 }
 
+func (c *ipcClient) ScreenShare(accountIdx int, sharing bool) tea.Msg {
+	err := c.conn.Call(rpcScreenShare, screenShareParams{AccountIdx: accountIdx, Sharing: sharing}, nil)
+	return ui.CallActionResultMsg{Action: "screenshare", AccountIdx: accountIdx, Err: err}
+}
+
 // listAccounts is the bootstrap call used once at startup, before ui.New,
 // to get every configured account's current state (not part of any ui
 // interface - main calls it directly).
@@ -261,7 +266,7 @@ func (c *ipcClient) getCallState() (*ui.CallStateMsg, error) {
 	}
 	return &ui.CallStateMsg{
 		AccountIdx: res.AccountIdx, Peer: res.Peer, SID: res.SID, State: res.State,
-		Reason: res.Reason, Muted: res.Muted, Quality: res.Quality, StartedAt: res.StartedAt,
+		Reason: res.Reason, Muted: res.Muted, Quality: res.Quality, Sharing: res.Sharing, StartedAt: res.StartedAt,
 	}, nil
 }
 

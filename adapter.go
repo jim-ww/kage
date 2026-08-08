@@ -998,3 +998,13 @@ func (a *adapter) MuteCall(accountIdx int, muted bool) error {
 	}
 	return sess.muteCall(muted)
 }
+
+// ScreenShare starts or stops sending our own screen on accountIdx's current
+// call.
+func (a *adapter) ScreenShare(accountIdx int, sharing bool) error {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return sess.setScreenShare(sharing)
+}
