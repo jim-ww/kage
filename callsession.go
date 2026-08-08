@@ -125,6 +125,61 @@ type callSession struct {
 	quality       string
 	qualityTicker *time.Ticker
 	qualityDone   chan struct{}
+
+	// ring plays the ringback/ringtone while this call sits in
+	// callRingingRemote/callRingingLocal - see startRing/stopRing. Always nil
+	// once past the ringing states.
+	ring *call.RingTone
+}
+
+// Ringback (outgoing call, peer's device is alerting them) and ringtone
+// (incoming call, we're alerting the user) use distinct pitch/cadence pairs
+// so the two are audibly distinguishable, loosely modeled on familiar
+// telephony patterns without matching any particular country's standard.
+const (
+	ringbackFreqHz          = 440.0
+	ringbackOn, ringbackOff = time.Second, 3 * time.Second
+	ringtoneFreqHz          = 600.0
+	ringtoneOn, ringtoneOff = time.Second, time.Second
+)
+
+// startRing begins playing a tone pattern for the current ringing state, if
+// one isn't already playing. Runs on its own dedicated speaker (see
+// call.RingTone), never the call's real media speaker.
+func (c *callSession) startRing(freqHz float64, on, off time.Duration) {
+	c.mu.Lock()
+	if c.ring != nil {
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+
+	r, err := call.NewRingTone(freqHz, on, off)
+	if err != nil {
+		slog.Warn("starting ring tone", "sid", c.sid, "err", err)
+		return
+	}
+
+	c.mu.Lock()
+	if c.ring != nil || c.state == callEnded {
+		c.mu.Unlock()
+		r.Stop()
+		return
+	}
+	c.ring = r
+	c.mu.Unlock()
+}
+
+// stopRing halts the ring tone, if one is playing - called on every
+// transition out of the ringing states (answered, negotiating, ended).
+func (c *callSession) stopRing() {
+	c.mu.Lock()
+	r := c.ring
+	c.ring = nil
+	c.mu.Unlock()
+	if r != nil {
+		r.Stop()
+	}
 }
 
 // qualitySampleInterval is how often the connected call's ICE/RTP stats are
@@ -237,6 +292,7 @@ func (s *accountSession) answerCall(ctx context.Context) error {
 	c.state = callNegotiating
 	remote := c.remoteJID
 	c.mu.Unlock()
+	c.stopRing()
 
 	if err := c.client.ProceedCall(ctx, remote, c.sid); err != nil {
 		c.end(ctx, "failed", err.Error())
@@ -340,6 +396,7 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 			c.state = callRingingRemote
 		}
 		c.mu.Unlock()
+		c.startRing(ringbackFreqHz, ringbackOn, ringbackOff)
 		c.broadcastState(callRingingRemote, "")
 
 	case xmpp.JMIProceed:
@@ -353,6 +410,7 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 		c.remoteJID = ev.From
 		c.state = callNegotiating
 		c.mu.Unlock()
+		c.stopRing()
 		c.broadcastState(callNegotiating, "")
 		if err := c.initiateSession(ctx); err != nil {
 			slog.Warn("starting jingle session", "sid", c.sid, "err", err)
@@ -425,6 +483,7 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 	broadcast(srv, evIncomingCall, incomingCallEvent{
 		AccountIdx: accountIdx, From: from, SID: ev.SID, Media: ev.Media,
 	})
+	c.startRing(ringtoneFreqHz, ringtoneOn, ringtoneOff)
 	c.broadcastState(callRingingLocal, "")
 }
 
@@ -1061,6 +1120,7 @@ func (c *callSession) playRemote(track *webrtc.TrackRemote) {
 func (c *callSession) end(ctx context.Context, state, reason string) {
 	c.closeOnce.Do(func() {
 		close(c.done)
+		c.stopRing()
 
 		c.mu.Lock()
 		c.state = callEnded
