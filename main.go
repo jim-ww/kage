@@ -320,6 +320,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	// Best-effort: a call already in progress on the daemon just means the
+	// status bar shows up a moment later, via the next live transition,
+	// rather than not launching at all.
+	initialCallState, err := client.getCallState()
+	if err != nil {
+		initialCallState = nil
+	}
 
 	openLastChatAddress := ""
 	startAccountIdx := cfg.DefaultAccountIdx
@@ -339,7 +346,7 @@ func main() {
 		FilePickerSortField:     cfg.UI.FilePickerSortField,
 		FilePickerSortAscending: cfg.UI.FilePickerSortAscending,
 	}
-	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, client, client, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display)
+	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, client, client, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display, initialCallState)
 	p := tea.NewProgram(model)
 	client.program = p
 

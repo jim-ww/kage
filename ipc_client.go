@@ -247,6 +247,24 @@ func (c *ipcClient) listAccounts() ([]ui.Account, error) {
 	return out, nil
 }
 
+// getCallState queries whatever call is currently in progress on any
+// account, if any - called once right after connecting so a (re)launched TUI
+// can show the persistent call bar immediately instead of waiting for the
+// next live transition. Returns nil, nil when no call is up.
+func (c *ipcClient) getCallState() (*ui.CallStateMsg, error) {
+	var res getCallStateResult
+	if err := c.conn.Call(rpcGetCallState, nil, &res); err != nil {
+		return nil, err
+	}
+	if !res.Active {
+		return nil, nil
+	}
+	return &ui.CallStateMsg{
+		AccountIdx: res.AccountIdx, Peer: res.Peer, SID: res.SID, State: res.State,
+		Reason: res.Reason, Muted: res.Muted, Quality: res.Quality, StartedAt: res.StartedAt,
+	}, nil
+}
+
 // sendEvent unmarshals ev's payload as T and forwards it to the program
 // unchanged - the direct replacement for every p.Send(ui.SomeMsg{...}) call
 // that used to live in this process when it dialed xmpp itself.

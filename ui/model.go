@@ -269,7 +269,11 @@ type DisplayOptions struct {
 	FilePickerSortAscending bool
 }
 
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, display DisplayOptions) Model {
+// initialCallState, if non-nil, seeds the persistent call bar immediately -
+// used when the TUI (re)attaches to a daemon that already has a call in
+// progress, so the bar shows up without waiting for the next live
+// CallStateMsg transition.
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, display DisplayOptions, initialCallState *CallStateMsg) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
@@ -343,7 +347,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		noticeDuration = DefaultNoticeDuration
 	}
 
-	return Model{
+	m := Model{
 		selectedView:           viewChat,
 		keys:                   keys,
 		theme:                  theme,
@@ -400,6 +404,10 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		inputHeightOverride:    initialInputHeight,
 		filePicker:             picker,
 	}
+	if initialCallState != nil {
+		m, _ = m.handleCallStateMsg(*initialCallState)
+	}
+	return m
 }
 
 // newAddAccountForm builds fresh, empty textinput.Model fields for the

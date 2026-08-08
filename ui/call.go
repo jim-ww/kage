@@ -95,7 +95,9 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 			gen = m.call.gen // same logical call state stream, not a new call
 		}
 	}
-	if msg.State == "connected" && startedAt.IsZero() {
+	if !msg.StartedAt.IsZero() {
+		startedAt = msg.StartedAt
+	} else if msg.State == "connected" && startedAt.IsZero() {
 		startedAt = time.Now()
 	}
 	wasActive := m.callBarActive()

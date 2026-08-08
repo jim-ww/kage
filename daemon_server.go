@@ -315,6 +315,9 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 
 	case rpcListAccounts:
 		return d.listAccounts(context.Background()), nil
+
+	case rpcGetCallState:
+		return d.getCallState(), nil
 	}
 	return nil, fmt.Errorf("unknown rpc method %q", method)
 }
@@ -367,4 +370,35 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 		out[i] = toWireAccount(uiAcct)
 	}
 	return out
+}
+
+// getCallState reports whatever call is currently in progress on any
+// account, if any - see getCallStateResult. There's at most one call per
+// account and the UI only ever shows one call bar app-wide, so the first
+// non-idle, non-terminal call found across all sessions wins.
+func (d *daemonServer) getCallState() getCallStateResult {
+	d.a.mu.Lock()
+	sessions := append([]*accountSession(nil), d.a.sessions...)
+	d.a.mu.Unlock()
+
+	for _, sess := range sessions {
+		if sess == nil {
+			continue
+		}
+		c := sess.currentCall()
+		if c == nil {
+			continue
+		}
+		c.mu.Lock()
+		state, muted, quality, connectedAt := c.state, c.muted, c.quality, c.connectedAt
+		c.mu.Unlock()
+		if state == callIdle || state == callEnded {
+			continue
+		}
+		return getCallStateResult{
+			Active: true, AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid,
+			State: state.String(), Muted: muted, Quality: quality, StartedAt: connectedAt,
+		}
+	}
+	return getCallStateResult{}
 }

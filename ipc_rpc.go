@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"charm.land/bubbles/v2/list"
 	"github.com/jim-ww/kage/ui"
 )
@@ -40,6 +42,7 @@ const (
 	rpcHangupCall            = "HangupCall"
 	rpcRejectCall            = "RejectCall"
 	rpcMuteCall              = "MuteCall"
+	rpcGetCallState          = "GetCallState"
 )
 
 // Event kinds (daemon -> client broadcast, see account.go/events.go/adapter.go's
@@ -151,6 +154,23 @@ type startCallParams struct {
 type muteCallParams struct {
 	AccountIdx int
 	Muted      bool
+}
+
+// getCallStateResult reports whatever call is currently in progress on any
+// account, if any - queried once by a freshly-(re)attached client so it can
+// show the persistent call bar immediately instead of waiting for the next
+// live transition (see daemonServer.getCallState/ipcClient.GetCallState).
+// Active is false and the rest of the fields are zero when no call is up.
+type getCallStateResult struct {
+	Active     bool
+	AccountIdx int
+	Peer       string // bare JID
+	SID        string
+	State      string
+	Reason     string
+	Muted      bool
+	Quality    string
+	StartedAt  time.Time
 }
 
 // incomingCallEvent tells attached clients that a peer is ringing us
