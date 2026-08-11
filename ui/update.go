@@ -228,6 +228,11 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		m.renameInput, cmd = m.renameInput.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
+	if m.searchingChat {
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
 	if m.savingAs {
 		var cmd tea.Cmd
 		m.saveAsInput, cmd = m.saveAsInput.Update(msg)

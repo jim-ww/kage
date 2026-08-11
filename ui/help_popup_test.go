@@ -4,14 +4,40 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
 
-// TestHelpPopupOpensAndCloses guards the ctrl+? full-keybindings modal. The
-// binding covers several real key encodings (see KeyMap.Help's comment) since
-// no terminal actually reports the literal string "ctrl+?" — this exercises
-// the ones an actual ctrl+/ (with or without shift) keypress produces.
+// TestHelpPopupOpensAndCloses guards the ctrl+h full-keybindings modal.
 func TestHelpPopupOpensAndCloses(t *testing.T) {
+	open := keyText("ctrl+h")
+	m := newTestModel(nil)
+	m.selectedView = viewChat
+
+	next, cmd := m.Update(open)
+	nm := next.(Model)
+	if !nm.showHelp {
+		t.Fatalf("%q: showHelp = false after pressing it, want true", open.String())
+	}
+	if msg := nonIdleCmd(cmd); msg != nil {
+		t.Fatalf("%q: expected no cmd while opening help, got %T", open.String(), msg)
+	}
+	if !nm.popupActive() {
+		t.Fatalf("%q: popupActive() = false while help is open, want true", open.String())
+	}
+
+	next, _ = nm.Update(keyText("esc"))
+	nm = next.(Model)
+	if nm.showHelp {
+		t.Fatalf("%q: showHelp still true after esc, want false", open.String())
+	}
+}
+
+// TestSearchChatOpensOnAllCtrlSlashVariants guards KeyMap.SearchChat, which
+// covers several real key encodings (see its comment) since no terminal
+// actually reports the literal string "ctrl+?" — this exercises the ones an
+// actual ctrl+/ (with or without shift) keypress produces.
+func TestSearchChatOpensOnAllCtrlSlashVariants(t *testing.T) {
 	variants := []tea.KeyMsg{
 		tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl},
 		tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl | tea.ModShift},
@@ -20,23 +46,23 @@ func TestHelpPopupOpensAndCloses(t *testing.T) {
 	for _, open := range variants {
 		m := newTestModel(nil)
 		m.selectedView = viewChat
+		chat := Chat{Address: "bob@example.test"}
+		m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+		if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+			_ = cmd()
+		}
+		m.chats.Select(0)
 
-		next, cmd := m.Update(open)
+		next, _ := m.Update(open)
 		nm := next.(Model)
-		if !nm.showHelp {
-			t.Fatalf("%q: showHelp = false after pressing it, want true", open.String())
-		}
-		if msg := nonIdleCmd(cmd); msg != nil {
-			t.Fatalf("%q: expected no cmd while opening help, got %T", open.String(), msg)
-		}
-		if !nm.popupActive() {
-			t.Fatalf("%q: popupActive() = false while help is open, want true", open.String())
+		if !nm.searchingChat {
+			t.Fatalf("%q: searchingChat = false after pressing it, want true", open.String())
 		}
 
 		next, _ = nm.Update(keyText("esc"))
 		nm = next.(Model)
-		if nm.showHelp {
-			t.Fatalf("%q: showHelp still true after esc, want false", open.String())
+		if nm.searchingChat {
+			t.Fatalf("%q: searchingChat still true after esc, want false", open.String())
 		}
 	}
 }
@@ -76,6 +102,6 @@ func TestFooterHintIsAlwaysOneLine(t *testing.T) {
 		}
 	}
 	if !strings.Contains(DefaultKeyMap.helpHint(viewChat, false), "help") {
-		t.Fatal(`viewChat footer hint should mention "help" (ctrl+?)`)
+		t.Fatal(`viewChat footer hint should mention "help" (ctrl+h)`)
 	}
 }

@@ -49,7 +49,8 @@ type KeyMap struct {
 	ChangeStoragePassword key.Binding // Ctrl+Shift+P — change the local message/draft storage encryption password (accounts panel)
 	CallToggle            key.Binding // Ctrl+G — start a voice call to the open chat, or hang up the current call
 	ToggleComposeExpand   key.Binding // Ctrl+` — grow the compose box to ~half the chat pane, or shrink it back
-	Help                  key.Binding // Ctrl+? — open the full-keybindings help popup
+	Help                  key.Binding // Ctrl+H — open the full-keybindings help popup
+	SearchChat            key.Binding // Ctrl+/ — search messages in the open chat
 	ListKeys              list.KeyMap
 	TextInputKeys         textinput.KeyMap
 	InputAreaKeys         textarea.KeyMap
@@ -98,7 +99,7 @@ var DefaultKeyMap = KeyMap{
 	Quit:         NewBinding([]string{"q", "ctrl+c"}, "quit"),
 	Back:         NewBinding([]string{"esc"}, "back to chats"),
 	Switch:       NewBinding([]string{"tab"}, "switch focus"),
-	FocusChats:   NewBinding([]string{"\\"}, "focus chats"),
+	FocusChats:   NewBinding([]string{"ctrl+\\"}, "focus chats"),
 	ChatOpen:     NewBinding([]string{"l", "right"}, "open chat"),
 	SelectSend:   NewBinding([]string{"enter"}, "select/send"),
 	MsgUp:        NewBinding([]string{"ctrl+k", "up"}, "prev msg"),
@@ -129,7 +130,7 @@ var DefaultKeyMap = KeyMap{
 	SortFilePicker:        NewBinding([]string{"ctrl+s"}, "cycle sort"),
 	PasteImage:            NewBinding([]string{"ctrl+p"}, "paste image"),
 	RenameChat:            NewBinding([]string{"r"}, "rename chat"),
-	ToggleSidebar:         NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
+	ToggleSidebar:         NewBinding([]string{"ctrl+shift+\\"}, "toggle chat list"),
 	DeviceList:            NewBinding([]string{"u"}, "omemo devices"),
 	ContactManager:        NewBinding([]string{"c"}, "manage contacts"),
 	RemoveAttachment:      NewBinding([]string{"backspace"}, "remove attachment"),
@@ -139,6 +140,7 @@ var DefaultKeyMap = KeyMap{
 	ToggleComposeExpand:   NewBinding([]string{"ctrl+`"}, "expand input"),
 	UndoDraft:             NewBinding([]string{"ctrl+z"}, "undo"),
 	RedoDraft:             NewBinding([]string{"ctrl+shift+z"}, "redo"),
+	Help: NewBinding([]string{"ctrl+h"}, "help"),
 	// "ctrl+?" is the intended gesture (ctrl + the "?" that shares the "/"
 	// key on a US layout), but no terminal actually reports that literal
 	// string: legacy encoding sends the raw ctrl+/ control byte as
@@ -147,10 +149,10 @@ var DefaultKeyMap = KeyMap{
 	// in view.go) Key.String() prefers the shifted "?" text over the
 	// ctrl-prefixed keystroke, so it plainly reports "ctrl+/" (no shift in
 	// the string) or occasionally "ctrl+shift+/". Bind every variant; list
-	// "ctrl+?" first purely so it's what the footer/help-popup label shows.
-	Help: key.NewBinding(
-		key.WithKeys("ctrl+?", "ctrl+/", "ctrl+_", "ctrl+shift+/"),
-		key.WithHelp("ctrl+?", "help"),
+	// "ctrl+/" first purely so it's what the footer/help-popup label shows.
+	SearchChat: key.NewBinding(
+		key.WithKeys("ctrl+/", "ctrl+_", "ctrl+shift+/"),
+		key.WithHelp("ctrl+/", "search"),
 	),
 
 	ListKeys:      list.DefaultKeyMap(),
@@ -261,6 +263,7 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.EditMsg, "edit"},
 			{k.DeleteMsg, "delete"},
 			{k.ReactMsg, "react"},
+			{k.SearchChat, "search"},
 			{k.YankMsg, "yank"},
 			{k.InfoMsg, "info"},
 			{k.OpenMsg, "open"},

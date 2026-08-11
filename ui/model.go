@@ -151,7 +151,7 @@ type Model struct {
 	confirmTarget        confirmTarget
 	contextMenu          *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
 	showMsgInfo          bool         // true while the message-info popup is open
-	showHelp             bool         // true while the full-keybindings help popup (ctrl+?) is open
+	showHelp             bool         // true while the full-keybindings help popup (ctrl+h) is open
 	openItems            []string     // non-empty while the open-link/attachment picker is open
 	openItemsAttachCount int          // how many leading entries of openItems are real attachments (vs. a plain link found in Content) - openableItems always puts attachments first
 	openPage             int          // current page (of openItemsPerPage items) in the open picker
@@ -234,6 +234,19 @@ type Model struct {
 	renamingChat  bool
 	renameChatIdx int
 	renameInput   textinput.Model
+
+	// search-in-chat prompt state, active while searchingChat is true.
+	// Opened by SearchChat (Ctrl+/) while viewChat is focused. Unlike the
+	// other prompts here it isn't modal — it replaces the chat status bar
+	// row while the viewport underneath keeps rendering normally, so matches
+	// stay visible as the query changes. Live: every keystroke recomputes
+	// searchMatches (case-insensitive substring over each message's Content)
+	// and jumps the selection to the nearest one; enter cycles to the next
+	// match; esc closes the prompt, leaving the selection where it landed.
+	searchingChat  bool
+	searchInput    textinput.Model
+	searchMatches  []int // indices into currentMessages() that match searchInput's value
+	searchMatchPos int   // index into searchMatches of the current match; -1 when there are none
 
 	// save-as prompt state, active while savingAs is true. Opened by
 	// SaveMsgAs (Ctrl+Shift+S) or picking an item from the open/save popup

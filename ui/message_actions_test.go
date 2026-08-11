@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 )
 
 type fakeSuccessSender struct{}
@@ -59,5 +60,65 @@ func TestSendCurrentInputMarksLocalEchoEncrypted(t *testing.T) {
 				t.Errorf("EncMethod = %q, want %q", got.EncMethod, tt.wantMethod)
 			}
 		})
+	}
+}
+
+// newTestModelWithMessages builds a model with a single open chat containing
+// msgs, for tests exercising selection/search over message content.
+func newTestModelWithMessages(msgs []Message) Model {
+	m := newTestModelWithSender(nil, nil)
+	chat := Chat{Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+	m.selectedView = viewChat
+	m.refreshViewport()
+	return m
+}
+
+// TestSearchChatFindsAndCyclesMatches guards actionSearchChat/
+// updateSearchMatches: typing a query selects the nearest match at/after the
+// current selection, and enter cycles forward through the rest, wrapping
+// back to the first after the last.
+func TestSearchChatFindsAndCyclesMatches(t *testing.T) {
+	m := newTestModelWithMessages([]Message{
+		{Content: "hello there"},
+		{Content: "nothing to see"},
+		{Content: "hello again"},
+	})
+	m.selectedMsg = 1
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl})
+	m = next.(Model)
+	if !m.searchingChat {
+		t.Fatal("searchingChat = false after Ctrl+/, want true")
+	}
+
+	for _, r := range "hello" {
+		next, _ := m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+	if len(m.searchMatches) != 2 {
+		t.Fatalf("searchMatches = %v, want 2 matches", m.searchMatches)
+	}
+	if m.selectedMsg != 2 {
+		t.Fatalf("selectedMsg = %d, want 2 (nearest match at/after selectedMsg=1)", m.selectedMsg)
+	}
+
+	next, _ = m.Update(keyText("enter"))
+	m = next.(Model)
+	if m.selectedMsg != 0 {
+		t.Fatalf("selectedMsg after enter = %d, want 0 (wrapped to first match)", m.selectedMsg)
+	}
+
+	next, _ = m.Update(keyText("esc"))
+	m = next.(Model)
+	if m.searchingChat {
+		t.Fatal("searchingChat still true after esc, want false")
+	}
+	if m.selectedMsg != 0 {
+		t.Fatalf("selectedMsg after esc = %d, want unchanged at 0", m.selectedMsg)
 	}
 }

@@ -204,10 +204,14 @@ func (m Model) renderChatArea(colors uiColors) string {
 	listHidden := m.sidebarHidden || m.narrow()
 	toggleBtn := m.zone.Mark(zoneToggleSidebar, m.styles.renderSidebarToggleButton(listHidden, m.isHovered(zoneToggleSidebar)))
 	statusWidth := max(0, m.chatAreaWidth()-lipgloss.Width(toggleBtn))
+	statusContent := m.renderChatStatusBar(statusWidth)
+	if m.searchingChat {
+		statusContent = m.renderSearchChatBar(statusWidth)
+	}
 	chatStatus := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		toggleBtn,
-		m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))),
+		m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, statusContent)),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 }
@@ -818,4 +822,16 @@ func (m Model) renderChatStatusBar(width int) string {
 	label = m.styles.messageNickMe.Render(label)
 
 	return ansi.Truncate(label, max(1, width-2), "…")
+}
+
+// renderSearchChatBar shows the live search-in-chat prompt in place of the
+// chat status bar row while searchingChat is true: the text input plus a
+// running "match N/M" (or "no matches") count.
+func (m Model) renderSearchChatBar(width int) string {
+	status := "no matches"
+	if len(m.searchMatches) > 0 {
+		status = fmt.Sprintf("%d/%d", m.searchMatchPos+1, len(m.searchMatches))
+	}
+	line := m.searchInput.View() + "  " + status
+	return ansi.Truncate(line, max(1, width-2), "…")
 }
