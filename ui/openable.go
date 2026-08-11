@@ -22,6 +22,11 @@ import (
 
 var urlPattern = regexp.MustCompile(`https?://\S+|aesgcm://\S+`)
 
+// AttachmentsDir overrides where decrypted/downloaded attachments are cached
+// for viewing (see attachmentCacheDir) — set once at startup from config.
+// Empty means the os.UserCacheDir()-based default.
+var AttachmentsDir string
+
 // openItemsPerPage caps how many open-picker entries are shown at once,
 // since only digits 1-9 are used to pick one; extra items page with left/right.
 const openItemsPerPage = 9
@@ -185,13 +190,17 @@ func isAttachmentDownloaded(target string) bool {
 	base := attachmentBaseName(downloadURL)
 
 	if strings.HasPrefix(target, "aesgcm://") {
-		cacheBase, err := os.UserCacheDir()
-		if err != nil {
-			return false
+		dir := AttachmentsDir
+		if dir == "" {
+			cacheBase, err := os.UserCacheDir()
+			if err != nil {
+				return false
+			}
+			dir = filepath.Join(cacheBase, "kage", "attachments")
 		}
 		sum := sha256.Sum256([]byte(target))
-		dest := filepath.Join(cacheBase, "kage", "attachments", hex.EncodeToString(sum[:8])+"-"+base)
-		_, err = os.Stat(dest)
+		dest := filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
+		_, err := os.Stat(dest)
 		return err == nil
 	}
 
@@ -386,11 +395,14 @@ func downloadsDir() (string, error) {
 // cached for viewing (as opposed to downloadsDir, which is for explicit
 // "Save As"), creating it if it doesn't exist yet.
 func attachmentCacheDir() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("finding cache directory: %w", err)
+	dir := AttachmentsDir
+	if dir == "" {
+		base, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("finding cache directory: %w", err)
+		}
+		dir = filepath.Join(base, "kage", "attachments")
 	}
-	dir := filepath.Join(base, "kage", "attachments")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}

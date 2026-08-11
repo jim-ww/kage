@@ -321,6 +321,7 @@ func runTUI(cfgPath string, debug bool) error {
 		openLastChatAddress = cfg.LastChatAddress
 		startAccountIdx = cfg.LastChatAccountIdx
 	}
+	ui.AttachmentsDir = cfg.AttachmentsDir
 	display := ui.DisplayOptions{
 		Icons:                   cfg.UI.Icons,
 		UseGPG:                  cfg.UseGPG,

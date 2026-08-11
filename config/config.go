@@ -32,6 +32,7 @@ type fileConfig struct {
 	LastChatAddress         string         `toml:"last_chat_address,omitempty"`          // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
 	Notifications           *bool          `toml:"notifications"`                        // nil (unset) means the default: on; whether a decrypted incoming message fires a desktop notification (the background daemon itself always runs)
 	TerminalCmd             string         `toml:"terminal_cmd,omitempty"`               // terminal emulator to launch from the tray icon; unset means fall back to $TERMINAL, then xdg-terminal-exec, then a hardcoded list
+	AttachmentsDir          string         `toml:"attachments_dir,omitempty"`            // directory decrypted/downloaded attachments are cached in for viewing; unset means $XDG_CACHE_HOME/kage/attachments (see os.UserCacheDir)
 	UseGPG                  *bool          `toml:"use_gpg"`                              // nil (unset) means the default: on; whether gpg encryption is available at all
 	UseKeyring              *bool          `toml:"use_keyring"`                          // nil (unset) means the default: on; whether the OS keyring is tried at all
 	HistoryPageSize         int            `toml:"history_page_size,omitempty"`          // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
@@ -81,6 +82,11 @@ type Config struct {
 	// launches a new kage TUI in. Empty means fall back to $TERMINAL, then
 	// xdg-terminal-exec, then a hardcoded list of common terminals.
 	TerminalCmd string
+	// AttachmentsDir is where decrypted/downloaded attachments are cached
+	// for viewing (opening a message attachment, not an explicit "Save
+	// As" — that always goes to the downloads directory). Empty means
+	// $XDG_CACHE_HOME/kage/attachments (see os.UserCacheDir).
+	AttachmentsDir string
 	// UseGPG controls whether gpg encryption is available at all: when off,
 	// kage never shells out to gpg (no gpg-agent/keyring prompts) and "gpg"
 	// is hidden from the per-chat encryption picker. On by default.
@@ -207,6 +213,7 @@ func Load(path string) (Config, error) {
 				cfgOut.UI.NoticeDuration = time.Duration(cfg.NoticeDuration) * time.Second
 			}
 			cfgOut.TerminalCmd = cfg.TerminalCmd
+			cfgOut.AttachmentsDir = cfg.AttachmentsDir
 			cfgOut.Storage = cfg.Storage
 			cfgOut.Accounts = cfg.Accounts
 			cfgOut.Path = path
