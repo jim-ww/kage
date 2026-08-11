@@ -5,9 +5,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"flag"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -23,6 +21,7 @@ import (
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/version"
+	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"mellium.im/xmpp/jid"
 )
@@ -225,77 +224,67 @@ func runSetupWizard(useKeyring bool) error {
 }
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "export":
-			if err := runExport(os.Args[2:]); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			return
-		case "import":
-			if err := runImport(os.Args[2:]); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			return
-		case "version":
-			fmt.Println(version.Version)
-			return
-		}
-	}
-
-	cfgPath := flag.String("c", "", "path to config")
-	debug := flag.Bool("debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise)")
-	runBackground := flag.Bool("background", false, "internal: run as the background service that owns XMPP connections/storage/decryption and fires notifications (spawned automatically, not meant to be passed by hand)")
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage:\n  %s [flags]\n  %s version\n  %s export [-c config] <output.json>\n  %s import [-c config] <input.json>\n\nFlags:\n", os.Args[0], os.Args[0], os.Args[0], os.Args[0])
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-
-	if *runBackground {
-		cfg, err := config.Load(*cfgPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		setupLog(*debug)
-		if cfg.HistoryPageSize > 0 {
-			historyPageSize = cfg.HistoryPageSize
-		}
-		if err := daemon.Run(cfg, newBackend()); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-
-	setupLog(cmp.Or(*debug, os.Getenv("KAGE_DEBUG") != ""))
-
-	cfg, err := config.Load(*cfgPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if err := newRootCmd().Execute(); err != nil {
 		os.Exit(1)
+	}
+}
+
+// newRootCmd builds kage's whole command tree: the bare TUI (default, no
+// subcommand), export/import, version, and the daemon group (see
+// cmd_daemon.go). Built fresh rather than package-level vars so nothing
+// leaks state between invocations.
+func newRootCmd() *cobra.Command {
+	var cfgPath string
+	var debug bool
+
+	root := &cobra.Command{
+		Use:           "kage",
+		Short:         "kage — a TUI XMPP client",
+		Version:       version.Version,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTUI(cfgPath, debug)
+		},
+	}
+	root.PersistentFlags().StringVarP(&cfgPath, "config", "c", "", "path to config")
+	root.PersistentFlags().BoolVar(&debug, "debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise)")
+
+	root.AddCommand(newExportCmd(&cfgPath))
+	root.AddCommand(newImportCmd(&cfgPath))
+	root.AddCommand(newDaemonCmd(&cfgPath, &debug))
+
+	return root
+}
+
+// runTUI is what kage does with no subcommand: load config, run the setup
+// wizard if no accounts exist yet, make sure the background daemon is up,
+// and launch the Bubble Tea program.
+func runTUI(cfgPath string, debug bool) error {
+	setupLog(cmp.Or(debug, os.Getenv("KAGE_DEBUG") != ""))
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
 	}
 	if len(cfg.Accounts) == 0 {
 		if err := runSetupWizard(cfg.UseKeyring); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
-		cfg, err = config.Load(*cfgPath)
+		cfg, err = config.Load(cfgPath)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 		if len(cfg.Accounts) == 0 {
-			fmt.Fprintln(os.Stderr, "no accounts configured; add an [[accounts]] entry to config.toml")
-			os.Exit(1)
+			return fmt.Errorf("no accounts configured; add an [[accounts]] entry to config.toml")
 		}
 	}
 
 	// The background daemon always runs now — cfg.Notifications only gates
 	// whether it fires a desktop notification, not whether it starts at all
 	// (see events.go's handleIncomingMessage).
-	if err := daemon.EnsureRunning(cfg.Path, *debug); err != nil {
+	if err := daemon.EnsureRunning(cfg.Path, debug); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: starting kage's background service: %v\n", err)
 	}
 	if cfg.HistoryPageSize > 0 {
@@ -304,22 +293,19 @@ func main() {
 
 	sockPath, err := ipc.SocketPath()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	client := newIPCClient()
 	conn, err := ipc.Dial(sockPath, client.handleEvent)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "connecting to kage's background service: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("connecting to kage's background service: %w", err)
 	}
 	client.conn = conn
 	defer conn.Close()
 
 	uiAccounts, err := client.listAccounts()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	// Best-effort: a call already in progress on the daemon just means the
 	// status bar shows up a moment later, via the next live transition,
@@ -368,10 +354,7 @@ func main() {
 	if fm, ok := finalModel.(ui.Model); ok {
 		fm.FlushDraft()
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	return err
 }
 
 // loadLocalKey resolves the local storage password (config.ResolveStoragePassword:

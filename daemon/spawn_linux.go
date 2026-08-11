@@ -145,12 +145,12 @@ func EnsureRunning(cfgPath string, debug bool) error {
 	}
 	defer logFile.Close()
 
-	args := []string{"-background"}
+	args := []string{"daemon", "run"}
 	if cfgPath != "" {
 		args = append(args, "-c", cfgPath)
 	}
 	if debug {
-		args = append(args, "-debug")
+		args = append(args, "--debug")
 	}
 	cmd := exec.Command(exe, args...)
 	cmd.Stdin = nil
@@ -201,4 +201,48 @@ func stalePID() (int, bool) {
 		return 0, false
 	}
 	return pid, true
+}
+
+// Status reports whether a kage background service is currently reachable
+// on the ipc socket, and its PID if the lock file names one (which may be
+// stale if the process died without releasing its flock).
+func Status() (running bool, pid int) {
+	sockPath, err := ipc.SocketPath()
+	if err != nil {
+		return false, 0
+	}
+	running = probeSocket(sockPath)
+	pid, _ = stalePID()
+	return running, pid
+}
+
+// Stop asks the running kage background service (identified by the PID
+// recorded in its lock file) to shut down gracefully via SIGTERM — see
+// tray_linux.go's signal handling, which treats SIGTERM the same as "Quit"
+// from the tray menu. Returns ok=false (no error) if no daemon appears to
+// be running.
+func Stop() (ok bool, err error) {
+	pid, has := stalePID()
+	if !has {
+		return false, nil
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		if err == syscall.ESRCH {
+			return false, nil
+		}
+		return false, err
+	}
+
+	sockPath, err := ipc.SocketPath()
+	if err != nil {
+		return true, nil
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !probeSocket(sockPath) {
+			return true, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return true, fmt.Errorf("service (pid %d) did not stop within 5s", pid)
 }

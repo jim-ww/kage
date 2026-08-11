@@ -64,6 +64,9 @@ func Run(cfg config.Config, backend Backend) error {
 	sighup := make(chan os.Signal, 1)
 	signal.Notify(sighup, syscall.SIGHUP)
 	defer signal.Stop(sighup)
+	sigterm := make(chan os.Signal, 1)
+	signal.Notify(sigterm, syscall.SIGTERM)
+	defer signal.Stop(sigterm)
 	go func() {
 		for {
 			select {
@@ -74,6 +77,12 @@ func Run(cfg config.Config, backend Backend) error {
 					log.Printf("kage background service: reload: re-read config (%d accounts)", len(c.Accounts))
 					backend.Reload(c)
 				}
+			case <-sigterm:
+				log.Println("kage background service: SIGTERM received, shutting down")
+				backend.Shutdown()
+				cancel()
+				systray.Quit()
+				return
 			case <-ctx.Done():
 				return
 			}

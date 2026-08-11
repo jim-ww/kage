@@ -1,3 +1,4 @@
+- '/' button doesnt correctly open chat list if window is not small enough (when chat list collapsed).
 - add command controls over daemon (e.g. close)
 - replies to attachments not properly seen on other clients? (e.g. Dino)
 - bind ctrl+~ to quickly toggle open bigger message textinput

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -12,7 +11,34 @@ import (
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/localstore"
 	"github.com/jim-ww/kage/storage"
+	"github.com/spf13/cobra"
 )
+
+// newExportCmd wires the "export" subcommand to runExport. cfgPath is a
+// pointer to the root command's persistent -c/--config flag value, shared
+// across every subcommand.
+func newExportCmd(cfgPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "export <output.json>",
+		Short: "Export every account's message history to a JSON file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runExport(*cfgPath, args[0])
+		},
+	}
+}
+
+// newImportCmd wires the "import" subcommand to runImport.
+func newImportCmd(cfgPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "import <input.json>",
+		Short: "Import a previously exported message history",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runImport(*cfgPath, args[0])
+		},
+	}
+}
 
 // exportFormatVersion identifies the JSON schema of export files, so a
 // future importer can tell an old export apart from a reshaped one.
@@ -56,17 +82,9 @@ type exportFile struct {
 }
 
 // runExport writes every account's message history (decrypted to
-// plaintext, regardless of how it's sealed at rest) to path as JSON.
-func runExport(args []string) error {
-	fs := flag.NewFlagSet("export", flag.ExitOnError)
-	cfgPath := fs.String("c", "", "path to config")
-	fs.Parse(args)
-	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: kage export [-c config] <output.json>")
-	}
-	outPath := fs.Arg(0)
-
-	_, queries, localKey, closeDB, err := openStorageForCLI(*cfgPath)
+// plaintext, regardless of how it's sealed at rest) to outPath as JSON.
+func runExport(cfgPath, outPath string) error {
+	_, queries, localKey, closeDB, err := openStorageForCLI(cfgPath)
 	if err != nil {
 		return err
 	}
@@ -167,15 +185,7 @@ func decryptedBody(localKey []byte, body sql.NullString, encrypted bool) (string
 // dedup keys a MAM history sync checks in account.go) are skipped rather
 // than inserted again, so re-running import, or running it before or after
 // a MAM backfill of the same history, never produces duplicate rows.
-func runImport(args []string) error {
-	fs := flag.NewFlagSet("import", flag.ExitOnError)
-	cfgPath := fs.String("c", "", "path to config")
-	fs.Parse(args)
-	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: kage import [-c config] <input.json>")
-	}
-	inPath := fs.Arg(0)
-
+func runImport(cfgPath, inPath string) error {
 	f, err := os.Open(inPath)
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", inPath, err)
@@ -186,7 +196,7 @@ func runImport(args []string) error {
 		return fmt.Errorf("parsing %s: %w", inPath, err)
 	}
 
-	_, queries, localKey, closeDB, err := openStorageForCLI(*cfgPath)
+	_, queries, localKey, closeDB, err := openStorageForCLI(cfgPath)
 	if err != nil {
 		return err
 	}

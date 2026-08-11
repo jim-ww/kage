@@ -28,5 +28,15 @@ func SignalReload() error {
 	return nil
 }
 
+// Status is a no-op outside Linux; see EnsureRunning.
+func Status() (running bool, pid int) {
+	return false, 0
+}
+
+// Stop is a no-op outside Linux; see EnsureRunning.
+func Stop() (ok bool, err error) {
+	return false, nil
+}
+
 // Notify is a no-op outside Linux; see EnsureRunning.
 func Notify(title, body string) {}
