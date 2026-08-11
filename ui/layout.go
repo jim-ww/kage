@@ -195,6 +195,11 @@ func (m Model) sidebarContentWidth() int { return max(0, m.sidebarWidth()-1) }
 // still push it taller than this, up to inputHeightMaxDrag.
 const inputMaxHeight = 6
 
+// inputPrompt is the compose box's textarea.Prompt, shared with the
+// click-to-position-cursor math in mouse.go (positionInputCursorAt) which
+// needs to know how many screen columns the prompt occupies on every line.
+const inputPrompt = "› "
+
 // clamp restricts v to [lo, hi]. hi < lo (a degenerate/negative available
 // space) collapses to lo, same as min/max composed the naive way would.
 func clamp(v, lo, hi int) int {

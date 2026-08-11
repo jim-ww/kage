@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -285,5 +286,52 @@ func TestComposeMouseWheelScrollsOverflowingInput(t *testing.T) {
 	m = next.(Model)
 	if m.input.Line() != startLine {
 		t.Fatalf("input cursor line after wheel-down = %d, want back to %d", m.input.Line(), startLine)
+	}
+}
+
+// TestComposeClickPositionsCursor checks that a left click inside the
+// compose box places the cursor under the clicked character, not just
+// focuses the box — mirroring native terminal apps' click-to-place-caret.
+func TestComposeClickPositionsCursor(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	chat := Chat{Address: "bob@example.com"}
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+	m.termHeight = 40
+	m.updateSizes()
+	// Open the chat first, same as a real click on the chat list would —
+	// swapComposeDraft only skips its draft swap (which would wipe whatever
+	// is typed below) once openChatAccountIdx/openChatAddress already match.
+	tm, _ := m.openCurrentChat()
+	m = tm.(Model)
+
+	next, _ := m.Update(keyText("hello world"))
+	m = next.(Model)
+
+	_ = m.View()
+	var z *zone.ZoneInfo
+	deadline := time.Now().Add(time.Second)
+	for {
+		z = m.zone.Get(zoneInputTextarea)
+		if !z.IsZero() || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if z.IsZero() {
+		t.Fatal("zoneInputTextarea has no bounds after View()")
+	}
+
+	// Click on the "w" of "world" (index 6 in "hello world"), accounting for
+	// the "› " prompt drawn before the text on screen.
+	click := tea.MouseClickMsg{X: z.StartX + lipgloss.Width(inputPrompt) + 6, Y: z.StartY, Button: tea.MouseLeft}
+	next, _ = m.Update(click)
+	m = next.(Model)
+
+	if got, want := m.input.Column(), 6; got != want {
+		t.Fatalf("cursor column after click = %d, want %d", got, want)
 	}
 }

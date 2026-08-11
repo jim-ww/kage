@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
@@ -20,6 +21,7 @@ const (
 	zonePaneSidebar           = "pane-sidebar"
 	zonePaneViewport          = "pane-viewport"
 	zonePaneInput             = "pane-input"
+	zoneInputTextarea         = "input-textarea"
 	zoneAccountBarName        = "account-bar-name"
 	zoneAccountBarStatus      = "account-bar-status"
 	zoneStoragePasswordButton = "storage-password-button"
@@ -510,6 +512,15 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, m.filePicker.Init()
 	}
 
+	if z := m.zone.Get(zoneInputTextarea); !z.IsZero() && z.InBounds(msg) {
+		tm, cmd := m.openCurrentChat()
+		if mm, ok := tm.(Model); ok {
+			mm.positionInputCursorAt(msg, z)
+			return mm, cmd
+		}
+		return tm, cmd
+	}
+
 	if m.zone.Get(zonePaneInput).InBounds(msg) {
 		// Clicking the input box should focus it even when a different pane
 		// currently has focus (e.g. the sidebar) — not just when already in
@@ -536,6 +547,39 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// positionInputCursorAt moves the compose box's cursor to the character
+// under a click inside zoneInputTextarea, mirroring native terminal apps'
+// click-to-place-caret behavior. The textarea only exposes cursor movement
+// in terms of (visual-line, logical-column) deltas, not "row/col at screen
+// position", so the target visual line (line-wrap-aware, via
+// ScrollYOffset()+clickRow) is reached by walking there from the top with
+// MoveToBegin()+CursorDown() — same trick handleMouseWheel already uses to
+// scroll the box by moving the cursor — and then the column is nudged right
+// from that line's start by the click's X offset past the prompt.
+func (m *Model) positionInputCursorAt(msg tea.MouseClickMsg, z *zone.ZoneInfo) {
+	mouse := msg.Mouse()
+	clickRow := mouse.Y - z.StartY
+	clickCol := mouse.X - z.StartX
+	if clickRow < 0 || clickCol < 0 {
+		return
+	}
+
+	targetRow := m.input.ScrollYOffset() + clickRow
+	m.input.MoveToBegin()
+	for range targetRow {
+		before := m.input.Line()
+		beforeCol := m.input.Column()
+		m.input.CursorDown()
+		if m.input.Line() == before && m.input.Column() == beforeCol {
+			break // already on the last visual line
+		}
+	}
+
+	rowStart := m.input.Column()
+	rowWidth := m.input.LineInfo().Width
+	m.input.SetCursorColumn(rowStart + max(0, min(clickCol-lipgloss.Width(inputPrompt), rowWidth)))
 }
 
 // handleRightClick opens a context menu of actions for whatever was

@@ -311,7 +311,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 
 	ti := textarea.New()
 	ti.Placeholder = "message..."
-	ti.Prompt = "› "
+	ti.Prompt = inputPrompt
 	ti.ShowLineNumbers = false
 	ti.KeyMap = keys.InputAreaKeys
 	ti.DynamicHeight = true

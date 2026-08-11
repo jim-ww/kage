@@ -145,7 +145,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 	}
 
 	inputWidth := m.chatAreaWidth() - 2
-	inputLine := m.styles.inputInnerBox(m.inputFieldWidth(), m.input.View())
+	inputLine := m.styles.inputInnerBox(m.inputFieldWidth(), m.zone.Mark(zoneInputTextarea, m.input.View()))
 	if m.mouseEnabled {
 		attachBtn := m.zone.Mark(zoneAttachButton, m.styles.renderAttachButton(m.icons, m.isHovered(zoneAttachButton)))
 		sendBtn := m.zone.Mark(zoneSendButton, m.styles.renderSendButton(m.isHovered(zoneSendButton)))
