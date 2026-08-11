@@ -812,6 +812,9 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		if m.viewport.YOffset() == 0 {
 			cmd = tea.Batch(cmd, m.maybeLoadOlderHistory())
 		}
+		if m.viewport.AtBottom() {
+			cmd = tea.Batch(cmd, m.maybeLoadNewerHistory())
+		}
 		return m, cmd
 	}
 

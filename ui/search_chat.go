@@ -353,7 +353,10 @@ func newSearchResultsFilterInput(m Model, value string) textinput.Model {
 // dumping all of it into the in-memory window regardless of how large that
 // chat is would make every render/scroll walk however many thousand
 // messages it has, ignoring the same maxMessagesPerChat cap every other
-// load path respects (see trimMessagesAround).
+// load path respects (see trimMessagesAround). sr.messages itself (the full
+// decrypted history the search already had to scan) is retained as
+// PinnedHistory so paging further up/down from this window doesn't need a
+// "load newer" storage query that doesn't exist — see growPinnedWindow.
 func (m *Model) loadSearchResult(msgIdx int) {
 	sr := m.searchResults
 	chatIdx := m.chatIndexByAddress(sr.accountIdx, sr.chatAddress)
@@ -362,6 +365,7 @@ func (m *Model) loadSearchResult(msgIdx int) {
 	}
 
 	windowed, newIdx, front := trimMessagesAround(sr.messages, msgIdx, m.maxMessagesPerChat)
+	end := front + len(windowed)
 
 	if m.accounts[sr.accountIdx].Messages == nil {
 		m.accounts[sr.accountIdx].Messages = make(map[int][]Message)
@@ -371,6 +375,15 @@ func (m *Model) loadSearchResult(msgIdx int) {
 		m.accounts[sr.accountIdx].HistoryMore = make(map[int]bool)
 	}
 	m.accounts[sr.accountIdx].HistoryMore[chatIdx] = front > 0
+
+	if front > 0 || end < len(sr.messages) {
+		if m.accounts[sr.accountIdx].PinnedHistory == nil {
+			m.accounts[sr.accountIdx].PinnedHistory = make(map[int][]Message)
+			m.accounts[sr.accountIdx].PinnedWindow = make(map[int][2]int)
+		}
+		m.accounts[sr.accountIdx].PinnedHistory[chatIdx] = sr.messages
+		m.accounts[sr.accountIdx].PinnedWindow[chatIdx] = [2]int{front, end}
+	}
 
 	if sr.accountIdx != m.currentAccount || chatIdx != m.currentChatIndex() {
 		return

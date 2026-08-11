@@ -68,12 +68,22 @@ func (m Model) chatIndexByAddress(accountIdx int, address string) int {
 // next older page, if one is configured, more history is known to exist,
 // and a fetch isn't already in flight for this chat. Called when the
 // message selection/viewport reaches the top of what's currently loaded.
+//
+// If the window currently loaded came from a search-result jump
+// (Account.PinnedHistory is set for this chat — see loadSearchResult), the
+// next older page is already sitting in memory: growPinnedWindow slides the
+// window across it directly instead of going out to a HistoryLoader fetch,
+// which would use the wrong (unrelated) storage cursor for a chat opened at
+// an arbitrary point in its history rather than from the live tail.
 func (m *Model) maybeLoadOlderHistory() tea.Cmd {
-	if m.historyLoader == nil {
-		return nil
-	}
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return nil
+	}
+	if m.growPinnedWindow(m.currentAccount, chatIdx, true) {
+		return nil
+	}
+	if m.historyLoader == nil {
 		return nil
 	}
 	if !m.accounts[m.currentAccount].HistoryMore[chatIdx] || m.loadingOlderHistory[chatIdx] {
@@ -85,6 +95,22 @@ func (m *Model) maybeLoadOlderHistory() tea.Cmd {
 	}
 	m.loadingOlderHistory[chatIdx] = true
 	return m.historyLoader.LoadOlderHistory(m.currentAccount, chat.Address)
+}
+
+// maybeLoadNewerHistory slides the loaded window forward across the current
+// chat's PinnedHistory (see growPinnedWindow), if one exists — the only
+// case where "load newer" is possible at all, since storage-backed paging
+// only ever loads older messages from the live tail (there's nothing to
+// fetch newer than "whatever's already streaming in live"). A no-op
+// otherwise. Called when the message selection/viewport reaches the bottom
+// of what's currently loaded.
+func (m *Model) maybeLoadNewerHistory() tea.Cmd {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return nil
+	}
+	m.growPinnedWindow(m.currentAccount, chatIdx, false)
+	return nil
 }
 
 // setChatLastMessage updates the chat list preview text for the chat at

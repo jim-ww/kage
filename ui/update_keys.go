@@ -451,6 +451,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			if newOffset == 0 {
 				cmds = append(cmds, m.maybeLoadOlderHistory())
 			}
+			if m.viewport.AtBottom() {
+				cmds = append(cmds, m.maybeLoadNewerHistory())
+			}
 			return m, tea.Batch(cmds...), true
 		}
 
@@ -502,6 +505,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				m.refreshViewportScrollTo(old, m.selectedMsg)
 				return m, nil, true
 			}
+			return m, m.maybeLoadNewerHistory(), true
 		}
 
 	// HalfPageUp/HalfPageDown jump by half the currently visible message
@@ -532,6 +536,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				m.refreshViewportScrollTo(old, m.selectedMsg)
 				return m, nil, true
 			}
+			return m, m.maybeLoadNewerHistory(), true
 		}
 
 	// ── Message actions ────────────────────────────────────────────────

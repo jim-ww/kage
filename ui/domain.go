@@ -97,6 +97,22 @@ type Account struct {
 	// nothing is known yet (treated the same: no further fetch attempted).
 	HistoryMore map[int]bool
 
+	// PinnedHistory holds, per chat index, the full decrypted history behind
+	// a window loaded via a search-result jump (see loadSearchResult) —
+	// storage-backed paging only ever loads older messages from the live
+	// tail, so a jump into the middle of a long chat's history has no way to
+	// page further in either direction from storage alone. Since a search
+	// already had to decrypt the whole chat to find matches, PinnedHistory
+	// keeps that result around just long enough to slide the loaded window
+	// across it locally (see growPinnedWindow); it's removed once the
+	// window has grown to touch both of its edges, handing back off to
+	// ordinary storage-backed older-history fetches / live-tail appending.
+	PinnedHistory map[int][]Message
+	// PinnedWindow is [start, end) — Messages[chatIdx]'s current position
+	// within PinnedHistory[chatIdx], meaningful only while that entry
+	// exists.
+	PinnedWindow map[int][2]int
+
 	// Connecting is true from New()/AddAccount until the account's dial,
 	// roster fetch, and local history load complete asynchronously in the
 	// background — see AccountConnectedMsg/AccountConnectErrorMsg.

@@ -259,6 +259,20 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if chatIdx < 0 {
 			return m, nil, true
 		}
+		if _, pinned := m.accounts[msg.AccountIdx].PinnedHistory[chatIdx]; pinned {
+			// Currently browsing an old part of this chat via a search-result
+			// jump (see loadSearchResult) — the loaded window isn't anchored
+			// to the live tail, so splicing a just-arrived message onto its
+			// end would show it next to unrelated old messages instead of
+			// where it belongs. Just count it unread rather than force the
+			// pinned browse closed out from under the user; it'll show up
+			// normally once growPinnedWindow reaches the true tail again.
+			var cmd tea.Cmd
+			if !msg.Message.IsMe && !msg.Message.DecryptFailed {
+				cmd = m.incrementChatUnread(msg.AccountIdx, chatIdx, 1)
+			}
+			return m, cmd, true
+		}
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}

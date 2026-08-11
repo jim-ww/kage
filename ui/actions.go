@@ -47,6 +47,16 @@ func (m Model) scrolledPastFirstPage() bool {
 // latest" button shown whenever the viewport has scrolled away from the
 // bottom (via message navigation, paging, or landing on a search result).
 func (m *Model) jumpToLatestMessage() {
+	// If the loaded window came from a search-result jump (PinnedHistory
+	// set for this chat), its tail isn't necessarily the chat's true latest
+	// message — unwind the pinned window all the way to its newer edge
+	// first so "latest" actually means latest, not just "however far a
+	// previous growPinnedWindow(..., false) call happened to reach".
+	if chatIdx := m.currentChatIndex(); chatIdx >= 0 && m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
+		for m.growPinnedWindow(m.currentAccount, chatIdx, false) {
+		}
+	}
+
 	msgs := m.currentMessages()
 	if len(msgs) == 0 {
 		m.viewport.GotoBottom()
