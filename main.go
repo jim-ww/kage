@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
@@ -250,7 +249,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVarP(&cfgPath, "config", "c", "", "path to config")
-	root.PersistentFlags().BoolVar(&debug, "debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise)")
+	root.PersistentFlags().BoolVar(&debug, "debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise); also settable via KAGE_DEBUG env var or config.yaml's debug: true")
 	root.PersistentFlags().BoolVar(&debugXML, "debug-xml", false, "log every decoded incoming/outgoing XMPP stanza to <config dir>/kage/xml.log — verbose, includes message content, for diagnosing interop issues with other clients")
 
 	root.AddCommand(newExportCmd(&cfgPath))
@@ -264,13 +263,13 @@ func newRootCmd() *cobra.Command {
 // wizard if no accounts exist yet, make sure the background daemon is up,
 // and launch the Bubble Tea program.
 func runTUI(cfgPath string, debug bool, debugXML bool) error {
-	debug = cmp.Or(debug, os.Getenv("KAGE_DEBUG") != "")
-	setupLog(debug)
-
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
 	}
+	debug = debug || os.Getenv("KAGE_DEBUG") != "" || cfg.Debug
+	setupLog(debug)
+
 	if len(cfg.Accounts) == 0 {
 		if err := runSetupWizard(!cfg.KeyringDisabled); err != nil {
 			return err

@@ -104,6 +104,10 @@ type Config struct {
 	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
 	// off by default.
 	ShowEncryptedIcon bool `yaml:"show_encrypted_icon,omitempty"`
+	// Debug logs at debug level to <config dir>/kage/debug.log instead of
+	// warn; overridden by the -debug flag or KAGE_DEBUG env var if either
+	// is set. Off by default.
+	Debug bool `yaml:"debug,omitempty"`
 	// HistoryPageSize is the number of messages loaded per chat at a
 	// time (initial load + each "load older"); DefaultHistoryPageSize
 	// when unset.
