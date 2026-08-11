@@ -7,6 +7,38 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// TestLoadSearchResultWindowsLargeHistory guards loadSearchResult against
+// dumping a search's entire (possibly huge) decrypted history into the
+// chat's in-memory window: with maxMessagesPerChat set, the loaded window
+// must be capped and centered on the picked match, not the full history.
+func TestLoadSearchResultWindowsLargeHistory(t *testing.T) {
+	fullHistory := make([]Message, 1000)
+	for i := range fullHistory {
+		fullHistory[i] = Message{Content: "msg"}
+	}
+	fullHistory[500].Content = "needle"
+
+	m := newTestModelWithMessages(fullHistory[:1], &fakeHistorySearcher{})
+	m.maxMessagesPerChat = 100
+	m.searchResults = &searchResultsState{
+		accountIdx: 0, chatAddress: "bob@example.test",
+		messages: fullHistory, matches: []int{500},
+	}
+
+	m.loadSearchResult(500)
+
+	got := m.accounts[0].Messages[0]
+	if len(got) != 100 {
+		t.Fatalf("loaded window has %d messages, want capped to maxMessagesPerChat=100", len(got))
+	}
+	if got[m.selectedMsg].Content != "needle" {
+		t.Fatalf("selectedMsg = %d does not point at the matched message: %+v", m.selectedMsg, got[m.selectedMsg])
+	}
+	if !m.accounts[0].HistoryMore[0] {
+		t.Fatal("HistoryMore should be true — older history exists beyond the windowed load")
+	}
+}
+
 // TestSearchResultsAuthorFilterCycles guards the 'a' keybind in the
 // search-results popup: it cycles all -> me -> them -> all, narrowing which
 // matches are shown/paginated/selectable without touching the underlying

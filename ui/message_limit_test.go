@@ -45,6 +45,58 @@ func TestTrimMessagesFront(t *testing.T) {
 	}
 }
 
+func TestTrimMessagesAround(t *testing.T) {
+	msgs := make([]Message, 20)
+	for i := range msgs {
+		msgs[i] = Message{ID: string(rune('a' + i))}
+	}
+	replyToOutside := 0
+	msgs[10].ReplyTo = &replyToOutside // points well before the window, should drop
+	replyToInside := 9
+	msgs[10].ReplyTo = &replyToInside // survives (index 9 is inside the window), should shift
+
+	// target=10, limit=5 -> window centered on 10: [8,13)
+	trimmed, newTarget, front := trimMessagesAround(msgs, 10, 5)
+	if front != 8 {
+		t.Fatalf("front = %d, want 8", front)
+	}
+	if len(trimmed) != 5 || trimmed[0].ID != "i" || trimmed[4].ID != "m" {
+		t.Fatalf("unexpected trimmed slice: %+v", trimmed)
+	}
+	if newTarget != 2 || trimmed[newTarget].ID != "k" {
+		t.Fatalf("newTarget = %d (%q), want 2 (%q)", newTarget, trimmed[newTarget].ID, "k")
+	}
+	if trimmed[newTarget].ReplyTo == nil || *trimmed[newTarget].ReplyTo != 1 { // "j" (idx 9) shifted to idx 1
+		t.Fatalf("ReplyTo should have shifted to 1, got %v", trimmed[newTarget].ReplyTo)
+	}
+
+	// target near the start clamps the window to [0, limit) rather than
+	// going negative.
+	trimmed, newTarget, front = trimMessagesAround(msgs, 1, 5)
+	if front != 0 || newTarget != 1 || trimmed[0].ID != "a" {
+		t.Fatalf("start-clamped window: newTarget=%d front=%d trimmed[0]=%q, want 1/0/%q", newTarget, front, trimmed[0].ID, "a")
+	}
+
+	// target near the end clamps the window to [len-limit, len) rather than
+	// running off the end.
+	trimmed, newTarget, front = trimMessagesAround(msgs, 19, 5)
+	if front != 15 || trimmed[len(trimmed)-1].ID != "t" || trimmed[newTarget].ID != "t" {
+		t.Fatalf("end-clamped window: front=%d newTarget=%d trimmed=%+v", front, newTarget, trimmed)
+	}
+
+	// no-op when under the limit
+	same, newTarget, front := trimMessagesAround(msgs, 10, 30)
+	if front != 0 || newTarget != 10 || len(same) != 20 {
+		t.Fatalf("expected no trimming under the limit, got front=%d newTarget=%d len=%d", front, newTarget, len(same))
+	}
+
+	// disabled
+	same, newTarget, front = trimMessagesAround(msgs, 10, 0)
+	if front != 0 || newTarget != 10 || len(same) != 20 {
+		t.Fatalf("limit <= 0 should disable trimming, got front=%d newTarget=%d len=%d", front, newTarget, len(same))
+	}
+}
+
 // newLimitTestModel builds a Model with a single chat holding n messages and
 // maxMessagesPerChat set to limit.
 func newLimitTestModel(t *testing.T, n, limit int) *Model {

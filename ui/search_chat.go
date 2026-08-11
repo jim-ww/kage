@@ -346,10 +346,14 @@ func newSearchResultsFilterInput(m Model, value string) textinput.Model {
 	return ti
 }
 
-// loadSearchResult loads sr's full (already-fetched) history as the current
-// chat's in-memory window — it's already the entire persisted history, so no
-// further "load older" fetch is needed for this chat — and moves the
-// selection/viewport to msgIdx.
+// loadSearchResult loads a window of sr's (already-fetched) history around
+// msgIdx as the current chat's in-memory window, and moves the
+// selection/viewport there. Windowed rather than loading sr.messages
+// wholesale — a search scans the chat's entire persisted history, but
+// dumping all of it into the in-memory window regardless of how large that
+// chat is would make every render/scroll walk however many thousand
+// messages it has, ignoring the same maxMessagesPerChat cap every other
+// load path respects (see trimMessagesAround).
 func (m *Model) loadSearchResult(msgIdx int) {
 	sr := m.searchResults
 	chatIdx := m.chatIndexByAddress(sr.accountIdx, sr.chatAddress)
@@ -357,20 +361,22 @@ func (m *Model) loadSearchResult(msgIdx int) {
 		return
 	}
 
+	windowed, newIdx, front := trimMessagesAround(sr.messages, msgIdx, m.maxMessagesPerChat)
+
 	if m.accounts[sr.accountIdx].Messages == nil {
 		m.accounts[sr.accountIdx].Messages = make(map[int][]Message)
 	}
-	m.accounts[sr.accountIdx].Messages[chatIdx] = sr.messages
+	m.accounts[sr.accountIdx].Messages[chatIdx] = windowed
 	if m.accounts[sr.accountIdx].HistoryMore == nil {
 		m.accounts[sr.accountIdx].HistoryMore = make(map[int]bool)
 	}
-	m.accounts[sr.accountIdx].HistoryMore[chatIdx] = false
+	m.accounts[sr.accountIdx].HistoryMore[chatIdx] = front > 0
 
 	if sr.accountIdx != m.currentAccount || chatIdx != m.currentChatIndex() {
 		return
 	}
-	m.selectedMsg = msgIdx
-	m.refreshViewportFullScrollTo(msgIdx)
+	m.selectedMsg = newIdx
+	m.refreshViewportFullScrollTo(newIdx)
 }
 
 // handleSearchResultsClick handles mouse clicks while the search-results

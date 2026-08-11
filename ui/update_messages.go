@@ -36,6 +36,43 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	return trimmed, drop
 }
 
+// trimMessagesAround keeps at most limit messages from msgs, centered on
+// target — unlike trimMessagesFront (which always keeps the newest tail),
+// used when target itself is what matters (a search-result jump into
+// possibly very old history) rather than "whatever's most recent". Without
+// this, jumping to a match loads the chat's entire persisted history into
+// the in-memory window regardless of how far back it is, which is what
+// makes the message list sluggish (every render/scroll walks/wraps however
+// many thousand messages that chat has, not the same bounded window every
+// other load path already respects via trimMessagesFront). Returns the
+// trimmed slice, target's new index within it, and how many messages were
+// dropped off the front (so the caller knows older history still exists
+// beyond the window). limit <= 0 or len(msgs) <= limit disables trimming.
+func trimMessagesAround(msgs []Message, target, limit int) (trimmed []Message, newTarget, front int) {
+	if limit <= 0 || len(msgs) <= limit {
+		return msgs, target, 0
+	}
+	start := target - limit/2
+	start = max(0, min(start, len(msgs)-limit))
+	end := start + limit
+
+	trimmed = make([]Message, limit)
+	copy(trimmed, msgs[start:end])
+	for i := range trimmed {
+		if trimmed[i].ReplyTo == nil {
+			continue
+		}
+		rt := *trimmed[i].ReplyTo
+		if rt < start || rt >= end {
+			trimmed[i].ReplyTo = nil
+		} else {
+			shifted := rt - start
+			trimmed[i].ReplyTo = &shifted
+		}
+	}
+	return trimmed, target - start, start
+}
+
 // handleEventMsg handles every non-key message Update can receive (window
 // resizes, mouse events, and all the async network/timer messages). handled
 // is false only when msg isn't one of these — Update then falls through to
