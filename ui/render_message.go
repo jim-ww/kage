@@ -95,7 +95,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	prefix := m.styles.renderMessagePrefix(isSelected, m.isHovered(zoneMessage(msgIdx)))
 
 	timeLabel := m.formatMessageTime(msg.SentAt)
-	if msg.Encrypted {
+	if msg.Encrypted && m.showEncryptedIcon {
 		lockIcon := "enc"
 		if m.icons {
 			lockIcon = "🔒"

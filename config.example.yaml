@@ -31,6 +31,7 @@ accounts:
 # attachments_dir: "" # directory decrypted/downloaded attachments are cached in for viewing; empty means $XDG_CACHE_HOME/kage/attachments
 # gpg_disabled: false # disables gpg encryption entirely (never shells out to gpg; "gpg" hidden from the per-chat encryption picker)
 # keyring_disabled: false # disables ever consulting the OS keyring
+# show_encrypted_icon: false # shows a lock icon/tag next to encrypted messages
 # history_page_size: 200 # messages loaded per chat at a time (initial load + each "load older")
 # max_messages_per_chat: 1000 # cap on messages kept in memory/view per chat
 # notice_duration: 3 # seconds an in-app notification toast stays visible before auto-dismissing

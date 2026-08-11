@@ -332,6 +332,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	display := ui.DisplayOptions{
 		Icons:                   !cfg.IconsDisabled,
 		UseGPG:                  !cfg.GPGDisabled,
+		ShowEncryptedIcon:       cfg.ShowEncryptedIcon,
 		ShowNames:               cfg.ShowNames,
 		TimeLayout:              cfg.TimeLayout,
 		TimeOnlyToday:           !cfg.AlwaysShowFullDate,

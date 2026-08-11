@@ -41,6 +41,10 @@ type Model struct {
 	// plain-text [tag] fallback — on only when the user's config opts in.
 	icons bool
 
+	// showEncryptedIcon shows a lock icon/tag next to encrypted messages —
+	// off unless the user's config opts in.
+	showEncryptedIcon bool
+
 	// useGPG mirrors config's use_gpg: whether gpg encryption is available
 	// at all. When off, "gpg" is hidden from the per-chat encryption picker.
 	useGPG bool
@@ -279,6 +283,7 @@ type DisplayOptions struct {
 	TimeOnlyToday       bool          // with the default time layout, show time-only for messages sent today instead of a full date
 	MaxMessagesPerChat  int           // cap on messages kept per chat in memory/view; <= 0 means no cap
 	UseGPG              bool          // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
+	ShowEncryptedIcon   bool          // show a lock icon/tag next to encrypted messages
 	NoticeDuration      time.Duration // how long an in-app notification toast stays visible; <= 0 means the default
 	FilePickerDirsFirst bool          // group directories before files in the attach-file picker regardless of sort order
 	// FilePickerSortField/FilePickerSortAscending seed the attach-file
@@ -377,6 +382,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		mouseEnabled:           mouseEnabled,
 		maxMessagesPerChat:     display.MaxMessagesPerChat,
 		icons:                  display.Icons,
+		showEncryptedIcon:      display.ShowEncryptedIcon,
 		useGPG:                 display.UseGPG,
 		noticeDuration:         noticeDuration,
 		showNames:              display.ShowNames,

@@ -1,9 +1,9 @@
 - add proper login/register modal
 - uploading your own files must not download them from server (must be downloaded)
-- add show_encrypted_icon config option
 - notification appears sooner then message
 - notifications appear when chat is focused?
 - make smaller message limit (in chat)
+- message in chat appear 2 times. race?
 
 - ui freezing in some cases, CPU usage goes up. on paste, or after editing certain amount of text?
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever

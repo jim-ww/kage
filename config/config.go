@@ -101,6 +101,9 @@ type Config struct {
 	// KeyringDisabled disables ever consulting the OS keyring; off by
 	// default.
 	KeyringDisabled bool `yaml:"keyring_disabled,omitempty"`
+	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
+	// off by default.
+	ShowEncryptedIcon bool `yaml:"show_encrypted_icon,omitempty"`
 	// HistoryPageSize is the number of messages loaded per chat at a
 	// time (initial load + each "load older"); DefaultHistoryPageSize
 	// when unset.
