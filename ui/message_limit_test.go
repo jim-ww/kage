@@ -45,38 +45,6 @@ func TestTrimMessagesFront(t *testing.T) {
 	}
 }
 
-func TestTrimMessagesBack(t *testing.T) {
-	msgs := make([]Message, 5)
-	for i := range msgs {
-		msgs[i] = Message{ID: string(rune('a' + i))}
-	}
-	replyToSurvives := 0
-	msgs[1].ReplyTo = &replyToSurvives
-	replyToDropped := 3
-	msgs[2].ReplyTo = &replyToDropped // points at a message that will be dropped
-
-	trimmed := trimMessagesBack(msgs, 3)
-	if len(trimmed) != 3 || trimmed[0].ID != "a" || trimmed[2].ID != "c" {
-		t.Fatalf("unexpected trimmed slice: %+v", trimmed)
-	}
-	if trimmed[1].ReplyTo == nil || *trimmed[1].ReplyTo != 0 {
-		t.Fatalf("ReplyTo within range should be unchanged, got %v", trimmed[1].ReplyTo)
-	}
-	if trimmed[2].ReplyTo != nil {
-		t.Fatalf("ReplyTo to a dropped message should be nil, got %v", *trimmed[2].ReplyTo)
-	}
-
-	same := trimMessagesBack(msgs, 10)
-	if len(same) != 5 {
-		t.Fatalf("expected no trimming under the limit, got len=%d", len(same))
-	}
-
-	same = trimMessagesBack(msgs, 0)
-	if len(same) != 5 {
-		t.Fatalf("limit <= 0 should disable trimming, got len=%d", len(same))
-	}
-}
-
 // newLimitTestModel builds a Model with a single chat holding n messages and
 // maxMessagesPerChat set to limit.
 func newLimitTestModel(t *testing.T, n, limit int) *Model {
@@ -144,10 +112,12 @@ func TestIncomingMessageTrimsToLimit(t *testing.T) {
 	}
 }
 
-// TestOlderHistoryTrimsToLimit verifies that prepending an older-history page
-// past the cap drops the newest (already-viewed) messages rather than the
-// just-loaded older ones.
-func TestOlderHistoryTrimsToLimit(t *testing.T) {
+// TestOlderHistoryNotTrimmed verifies that prepending an older-history page
+// past the cap keeps every message (older and already-viewed) rather than
+// dropping the newest ones - the cap only bounds unbounded growth from live
+// incoming traffic (trimMessagesFront), never a page the user deliberately
+// scrolled up to load, since there's no way to re-fetch a dropped page.
+func TestOlderHistoryNotTrimmed(t *testing.T) {
 	m := newLimitTestModel(t, 3, 3)
 	m.selectedMsg = 0
 
@@ -163,10 +133,13 @@ func TestOlderHistoryTrimsToLimit(t *testing.T) {
 	}
 
 	got := updated.accounts[0].Messages[0]
-	if len(got) != 3 {
-		t.Fatalf("len(Messages) = %d, want 3 (capped)", len(got))
+	if len(got) != 5 {
+		t.Fatalf("len(Messages) = %d, want 5 (uncapped)", len(got))
 	}
-	if got[0].ID != "x" || got[1].ID != "y" || got[2].ID != "a" {
-		t.Fatalf("expected newest messages dropped, got IDs %q, %q, %q", got[0].ID, got[1].ID, got[2].ID)
+	wantIDs := []string{"x", "y", "a", "b", "c"}
+	for i, want := range wantIDs {
+		if got[i].ID != want {
+			t.Fatalf("got[%d].ID = %q, want %q (full IDs: %v)", i, got[i].ID, want, got)
+		}
 	}
 }

@@ -36,25 +36,6 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	return trimmed, drop
 }
 
-// trimMessagesBack drops the newest messages from msgs so at most limit
-// remain, used after prepending an older-history page ("load older") pushes
-// the chat past the configured cap — the messages dropped here are the ones
-// furthest from what the user just scrolled to. limit <= 0 disables
-// trimming.
-func trimMessagesBack(msgs []Message, limit int) []Message {
-	if limit <= 0 || len(msgs) <= limit {
-		return msgs
-	}
-	trimmed := make([]Message, limit)
-	copy(trimmed, msgs[:limit])
-	for i := range trimmed {
-		if trimmed[i].ReplyTo != nil && *trimmed[i].ReplyTo >= limit {
-			trimmed[i].ReplyTo = nil
-		}
-	}
-	return trimmed
-}
-
 // handleEventMsg handles every non-key message Update can receive (window
 // resizes, mouse events, and all the async network/timer messages). handled
 // is false only when msg isn't one of these — Update then falls through to
@@ -289,8 +270,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				existing[i].ReplyTo = &shifted
 			}
 		}
+		// Unlike live/MAM-tail growth (trimMessagesFront), an older-history
+		// page prepended here is never trimmed off the newest end - doing so
+		// used to silently drop already-viewed messages with no way to
+		// re-fetch them (no "load newer" path exists), leaving a permanent
+		// gap the moment the user scrolled back down. The cap only bounds
+		// unbounded growth from incoming traffic; deliberately scrolling up
+		// through history is self-limiting (one page per user action).
 		combined := append(msg.Messages, existing...)
-		combined = trimMessagesBack(combined, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = combined
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			// Prepended messages shift every existing index up by
