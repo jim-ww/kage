@@ -367,8 +367,10 @@ func idleTimer(gen int) tea.Cmd {
 // ui (main.go's adapter) so ui stays decoupled from the network/config
 // layers. Runs on the Bubble Tea event loop's goroutine via a tea.Cmd, so it
 // may block on network I/O — ui always calls it that way, never inline.
+// register requests XEP-0077 in-band registration of a brand new account on
+// the server before logging in, instead of logging into an existing one.
 type AccountAdder interface {
-	AddAccount(jid, password, gpgKeyID string) tea.Msg
+	AddAccount(jid, password, gpgKeyID string, register bool) tea.Msg
 }
 
 // AccountAddedMsg is sent into the Bubble Tea loop once AccountAdder.AddAccount

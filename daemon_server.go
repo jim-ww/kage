@@ -232,7 +232,7 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		if err != nil {
 			return nil, err
 		}
-		switch msg := d.a.AddAccount(p.JID, p.Password, p.GPGKeyID).(type) {
+		switch msg := d.a.AddAccount(p.JID, p.Password, p.GPGKeyID, p.Register).(type) {
 		case ui.AccountAddErrorMsg:
 			return nil, msg.Err
 		case ui.AccountAddedMsg:

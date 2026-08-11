@@ -14,13 +14,15 @@ import (
 // last call and returns whatever msg/err was configured.
 type fakeAccountAdder struct {
 	lastJID, lastPassword, lastGPGKeyID string
+	lastRegister                        bool
 	calls                               int
 	err                                 error
 }
 
-func (f *fakeAccountAdder) AddAccount(jid, password, gpgKeyID string) tea.Msg {
+func (f *fakeAccountAdder) AddAccount(jid, password, gpgKeyID string, register bool) tea.Msg {
 	f.calls++
 	f.lastJID, f.lastPassword, f.lastGPGKeyID = jid, password, gpgKeyID
+	f.lastRegister = register
 	if f.err != nil {
 		return AccountAddErrorMsg{Err: f.err}
 	}
@@ -98,8 +100,8 @@ func TestAddAccountFormFieldNavigationAndSubmit(t *testing.T) {
 
 	next, _ = m.Update(keyCode(tea.KeyTab))
 	m = next.(Model)
-	if m.addAccountFocus != 2 {
-		t.Fatalf("expected focus on gpg key field (2), got %d", m.addAccountFocus)
+	if m.addAccountFocus != 3 {
+		t.Fatalf("expected focus on gpg key field (3, confirm-password skipped in login mode), got %d", m.addAccountFocus)
 	}
 	for _, r := range "ABCD1234" {
 		next, _ = m.Update(keyText(string(r)))
@@ -243,6 +245,85 @@ func TestAddAccountFormPaste(t *testing.T) {
 	m = next.(Model)
 	if got := m.addAccountInputs[1].Value(); got != "hunter2" {
 		t.Fatalf("password field after paste = %q, want %q", got, "hunter2")
+	}
+}
+
+// TestAddAccountFormRegisterToggle checks ctrl+r switches the form into
+// register mode (exposing the confirm-password field in the tab order),
+// that a mismatched confirmation is rejected locally, and that a matching
+// one submits with register=true.
+func TestAddAccountFormRegisterToggle(t *testing.T) {
+	adder := &fakeAccountAdder{}
+	m := newTestModel(adder)
+	m.selectedView = viewAccounts
+
+	next, _ := m.Update(keyText("a"))
+	m = next.(Model)
+
+	next, _ = m.Update(keyText("ctrl+r"))
+	m = next.(Model)
+	if !m.addAccountRegister {
+		t.Fatal("expected ctrl+r to switch to register mode")
+	}
+
+	for _, r := range "carol@example.com" {
+		next, _ = m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+	next, _ = m.Update(keyCode(tea.KeyTab))
+	m = next.(Model)
+	if m.addAccountFocus != 1 {
+		t.Fatalf("expected focus on password field (1), got %d", m.addAccountFocus)
+	}
+	for _, r := range "hunter2" {
+		next, _ = m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+	next, _ = m.Update(keyCode(tea.KeyTab))
+	m = next.(Model)
+	if m.addAccountFocus != 2 {
+		t.Fatalf("expected focus on confirm-password field (2) in register mode, got %d", m.addAccountFocus)
+	}
+	for _, r := range "different" {
+		next, _ = m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+
+	next, cmd := m.Update(keyCode(tea.KeyEnter))
+	m = next.(Model)
+	if msg := nonIdleCmd(cmd); msg != nil {
+		t.Fatalf("expected no cmd on mismatched confirmation, got %T", msg)
+	}
+	if adder.calls != 0 {
+		t.Fatalf("expected no AddAccount calls on mismatched confirmation, got %d", adder.calls)
+	}
+	if m.addAccountErr == "" {
+		t.Fatal("expected a validation error for mismatched passwords")
+	}
+
+	// Fix the confirmation to match and resubmit.
+	for range "different" {
+		next, _ = m.Update(keyCode(tea.KeyBackspace))
+		m = next.(Model)
+	}
+	for _, r := range "hunter2" {
+		next, _ = m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+	next, cmd = m.Update(keyCode(tea.KeyEnter))
+	m = next.(Model)
+	msg := nonIdleCmd(cmd)
+	if msg == nil {
+		t.Fatal("expected a cmd once confirmation matches")
+	}
+	next, _ = m.Update(msg)
+	m = next.(Model)
+
+	if adder.calls != 1 || !adder.lastRegister {
+		t.Fatalf("expected 1 AddAccount call with register=true, got calls=%d register=%v", adder.calls, adder.lastRegister)
+	}
+	if adder.lastJID != "carol@example.com" || adder.lastPassword != "hunter2" {
+		t.Fatalf("got jid=%q password=%q", adder.lastJID, adder.lastPassword)
 	}
 }
 

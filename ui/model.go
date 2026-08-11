@@ -276,12 +276,17 @@ type Model struct {
 	typingActiveTo string
 	typingGen      int
 
-	// add-account form state, active while addingAccount is true
-	addingAccount    bool
-	addAccountInputs [3]textinput.Model // JID, password, gpg key ID (optional)
-	addAccountFocus  int
-	addAccountErr    string
-	addAccountBusy   bool
+	// add-account form state, active while addingAccount is true.
+	// addAccountRegister toggles the form between logging into an existing
+	// account and registering a new one (XEP-0077) on the server before
+	// logging in — addAccountInputs[2] (confirm password) is only shown/used
+	// in register mode, and skipped when cycling focus in login mode.
+	addingAccount      bool
+	addAccountRegister bool
+	addAccountInputs   [4]textinput.Model // JID, password, confirm password (register only), gpg key ID (optional)
+	addAccountFocus    int
+	addAccountErr      string
+	addAccountBusy     bool
 
 	// deviceList is non-nil while the OMEMO device-list popup is open — see
 	// ui/omemo_devices.go.
@@ -474,8 +479,8 @@ const addAccountFieldWidth = 42
 // visible before auto-dismissing when DisplayOptions.NoticeDuration is unset.
 const DefaultNoticeDuration = 3 * time.Second
 
-func (m Model) newAddAccountForm() [3]textinput.Model {
-	var fields [3]textinput.Model
+func (m Model) newAddAccountForm() [4]textinput.Model {
+	var fields [4]textinput.Model
 
 	jidInput := textinput.New()
 	jidInput.Placeholder = "user@server"
@@ -495,15 +500,38 @@ func (m Model) newAddAccountForm() [3]textinput.Model {
 	applyTextInputStyles(&passInput, m.styles.colors)
 	fields[1] = passInput
 
+	confirmInput := textinput.New()
+	confirmInput.Placeholder = "confirm password"
+	confirmInput.Prompt = "Confirm:  "
+	confirmInput.EchoMode = textinput.EchoPassword
+	confirmInput.KeyMap = m.keys.TextInputKeys
+	confirmInput.SetWidth(addAccountFieldWidth)
+	applyTextInputStyles(&confirmInput, m.styles.colors)
+	fields[2] = confirmInput
+
 	gpgInput := textinput.New()
 	gpgInput.Placeholder = "(optional) own gpg key fingerprint"
 	gpgInput.Prompt = "GPG key:  "
 	gpgInput.KeyMap = m.keys.TextInputKeys
 	gpgInput.SetWidth(addAccountFieldWidth)
 	applyTextInputStyles(&gpgInput, m.styles.colors)
-	fields[2] = gpgInput
+	fields[3] = gpgInput
 
 	return fields
+}
+
+// OpenAddAccountForm switches to the accounts panel and opens the
+// add-account modal, same as pressing "a" there — used by main.go to land
+// directly in it on a fresh install with zero accounts configured, since an
+// empty sidebar with no visible way to add one would otherwise be a dead end.
+func (m Model) OpenAddAccountForm() Model {
+	m.setSelectedView(viewAccounts)
+	m.addingAccount = true
+	m.addAccountRegister = false
+	m.addAccountFocus = 0
+	m.addAccountErr = ""
+	m.addAccountInputs = m.newAddAccountForm()
+	return m
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

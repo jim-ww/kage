@@ -317,6 +317,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	case matchesKey(msg, m.keys.AddAccount):
 		if m.selectedView == viewAccounts {
 			m.addingAccount = true
+			m.addAccountRegister = false
 			m.addAccountFocus = 0
 			m.addAccountErr = ""
 			m.addAccountInputs = m.newAddAccountForm()
@@ -666,9 +667,29 @@ func (m Model) updateSaveAsForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// addAccountFieldCount returns how many of addAccountInputs are active for
+// the current mode — the confirm-password field (index 2) only applies to
+// register mode.
+func (m Model) addAccountFieldCount() int {
+	if m.addAccountRegister {
+		return len(m.addAccountInputs)
+	}
+	return len(m.addAccountInputs) - 1
+}
+
+// addAccountFieldIndex maps a logical position (0..addAccountFieldCount-1)
+// to its slot in addAccountInputs, skipping the confirm-password field in
+// login mode.
+func (m Model) addAccountFieldIndex(pos int) int {
+	if !m.addAccountRegister && pos >= 2 {
+		return pos + 1
+	}
+	return pos
+}
+
 // updateAddAccountForm handles all key input while the add-account popup is
-// open: tab/shift+tab cycles the three fields, enter on any field submits
-// (password/gpg key are optional), esc cancels.
+// open: ctrl+r toggles login/register mode, tab/shift+tab cycles the active
+// fields, enter on any field submits, esc cancels.
 func (m Model) updateAddAccountForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	// Only esc cancels — not the full Back/ConfirmNo bindings, since those
@@ -681,15 +702,46 @@ func (m Model) updateAddAccountForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case msg.String() == "ctrl+r":
+		if m.addAccountBusy {
+			return m, nil
+		}
+		m.addAccountRegister = !m.addAccountRegister
+		m.addAccountErr = ""
+		// A field that only exists in register mode may have been focused;
+		// clamp back onto the JID field rather than landing somewhere hidden.
+		if !m.addAccountRegister && m.addAccountFocus == 2 {
+			m.addAccountInputs[m.addAccountFocus].Blur()
+			m.addAccountFocus = 0
+			m.addAccountInputs[m.addAccountFocus].Focus()
+		}
+		return m, nil
+
 	case msg.String() == "tab", msg.String() == "down":
+		count := m.addAccountFieldCount()
+		pos := 0
+		for i := 0; i < count; i++ {
+			if m.addAccountFieldIndex(i) == m.addAccountFocus {
+				pos = i
+				break
+			}
+		}
 		m.addAccountInputs[m.addAccountFocus].Blur()
-		m.addAccountFocus = (m.addAccountFocus + 1) % len(m.addAccountInputs)
+		m.addAccountFocus = m.addAccountFieldIndex((pos + 1) % count)
 		m.addAccountInputs[m.addAccountFocus].Focus()
 		return m, textinput.Blink
 
 	case msg.String() == "shift+tab", msg.String() == "up":
+		count := m.addAccountFieldCount()
+		pos := 0
+		for i := 0; i < count; i++ {
+			if m.addAccountFieldIndex(i) == m.addAccountFocus {
+				pos = i
+				break
+			}
+		}
 		m.addAccountInputs[m.addAccountFocus].Blur()
-		m.addAccountFocus = (m.addAccountFocus - 1 + len(m.addAccountInputs)) % len(m.addAccountInputs)
+		m.addAccountFocus = m.addAccountFieldIndex((pos - 1 + count) % count)
 		m.addAccountInputs[m.addAccountFocus].Focus()
 		return m, textinput.Blink
 
@@ -707,11 +759,22 @@ func (m Model) updateAddAccountForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		password := m.addAccountInputs[1].Value()
-		gpgKeyID := strings.TrimSpace(m.addAccountInputs[2].Value())
+		if m.addAccountRegister {
+			if password == "" {
+				m.addAccountErr = "password is required to register"
+				return m, nil
+			}
+			if password != m.addAccountInputs[2].Value() {
+				m.addAccountErr = "passwords don't match"
+				return m, nil
+			}
+		}
+		gpgKeyID := strings.TrimSpace(m.addAccountInputs[3].Value())
 		m.addAccountBusy = true
 		m.addAccountErr = ""
 		adder := m.accountAdder
-		return m, func() tea.Msg { return adder.AddAccount(jid, password, gpgKeyID) }
+		register := m.addAccountRegister
+		return m, func() tea.Msg { return adder.AddAccount(jid, password, gpgKeyID, register) }
 
 	default:
 		var cmd tea.Cmd

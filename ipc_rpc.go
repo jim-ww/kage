@@ -142,7 +142,10 @@ type contactParams struct {
 	AccountIdx int
 	Address    string
 }
-type addAccountParams struct{ JID, Password, GPGKeyID string }
+type addAccountParams struct {
+	JID, Password, GPGKeyID string
+	Register                bool
+}
 type accountIdxParams struct{ AccountIdx int }
 type setAccountStatusParams struct {
 	AccountIdx int

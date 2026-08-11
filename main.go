@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"fmt"
@@ -21,8 +20,6 @@ import (
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/version"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
-	"mellium.im/xmpp/jid"
 )
 
 func nullString(s string) sql.NullString {
@@ -130,98 +127,6 @@ func primeGPGAgent(ctx context.Context, queries *storage.Queries, accounts []con
 	}
 }
 
-// runSetupWizard interactively prompts for a JID and password on the
-// terminal and writes a new account into the config file, so a first-time
-// user doesn't have to hand-edit YAML. Tries the OS keyring first; if that
-// fails (no Secret Service, etc.) it asks whether to fall back to a
-// password_cmd or a plaintext password in the config file.
-func runSetupWizard(useKeyring bool) error {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fmt.Errorf("no accounts configured and not running interactively; add an \"accounts:\" entry to config.yaml yourself")
-	}
-
-	fmt.Println("No accounts configured yet — let's set one up.")
-
-	reader := bufio.NewReader(os.Stdin)
-	var addr string
-	for {
-		fmt.Print("XMPP address (e.g. user@example.com): ")
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("reading input: %w", err)
-		}
-		addr = strings.TrimSpace(line)
-		if _, err := jid.Parse(addr); err != nil {
-			fmt.Printf("  %q doesn't look like a valid JID: %v\n", addr, err)
-			continue
-		}
-		break
-	}
-
-	fmt.Print("Password: ")
-	passBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
-	if err != nil {
-		return fmt.Errorf("reading password: %w", err)
-	}
-	password := string(passBytes)
-	if password == "" {
-		return fmt.Errorf("password cannot be empty")
-	}
-
-	acct := config.Account{JID: addr}
-
-	keyringErr := fmt.Errorf("use_keyring is disabled")
-	if useKeyring {
-		keyringErr = config.SetKeyringPassword(addr, password)
-	}
-	if keyringErr == nil {
-		fmt.Println("Password stored in the OS keyring.")
-	} else {
-		if useKeyring {
-			fmt.Printf("Couldn't store the password in the OS keyring (%v).\n", keyringErr)
-		}
-		fmt.Println("Fall back to: (1) a command that prints the password (password_cmd), or (2) storing it in plaintext in config.yaml?")
-		for {
-			fmt.Print("[1/2]: ")
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				return fmt.Errorf("reading input: %w", err)
-			}
-			switch strings.TrimSpace(line) {
-			case "1":
-				fmt.Print("Command to print the password on stdout (e.g. `pass show xmpp/me`): ")
-				cmdLine, err := reader.ReadString('\n')
-				if err != nil {
-					return fmt.Errorf("reading input: %w", err)
-				}
-				acct.PasswordCmd = strings.TrimSpace(cmdLine)
-				if acct.PasswordCmd == "" {
-					fmt.Println("  command cannot be empty")
-					continue
-				}
-			case "2":
-				fmt.Println("Warning: the password will be stored in plaintext in config.yaml.")
-				acct.Password = password
-			default:
-				fmt.Println("  please enter 1 or 2")
-				continue
-			}
-			break
-		}
-	}
-
-	path, err := config.DefaultWritePath()
-	if err != nil {
-		return fmt.Errorf("determining config path: %w", err)
-	}
-	if err := config.WriteAccount(path, acct); err != nil {
-		return fmt.Errorf("writing config: %w", err)
-	}
-	fmt.Printf("Account %s saved to %s.\n", addr, path)
-	return nil
-}
-
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
 		os.Exit(1)
@@ -270,18 +175,10 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	debug = debug || os.Getenv("KAGE_DEBUG") != "" || cfg.Debug
 	setupLog(debug)
 
-	if len(cfg.Accounts) == 0 {
-		if err := runSetupWizard(!cfg.KeyringDisabled); err != nil {
-			return err
-		}
-		cfg, err = config.Load(cfgPath)
-		if err != nil {
-			return err
-		}
-		if len(cfg.Accounts) == 0 {
-			return fmt.Errorf("no accounts configured; add an \"accounts:\" entry to config.yaml")
-		}
-	}
+	// No CLI setup wizard: with zero accounts configured, the TUI itself
+	// opens straight into the add-account modal (login or register) so a
+	// first-time user can set one up without ever leaving the app — see
+	// startAddAccount below.
 
 	// The background daemon always runs now — cfg.NotificationsDisabled only
 	// gates whether it fires a desktop notification, not whether it starts at
@@ -343,6 +240,12 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		FilePickerSortAscending: cfg.FilePickerSortAscending,
 	}
 	model := ui.New(uiAccounts, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.SidebarWidth, cfg.SidebarHidden, openLastChatAddress, cfg.InputHeight, display, initialCallState)
+	if len(uiAccounts) == 0 {
+		// First run, or every account was removed: open straight into the
+		// add-account modal (defaults to login mode; ctrl+r switches to
+		// register) instead of a dead empty sidebar with no obvious way in.
+		model = model.OpenAddAccountForm()
+	}
 	p := tea.NewProgram(model)
 	client.setProgram(p)
 

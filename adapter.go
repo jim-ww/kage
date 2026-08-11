@@ -46,8 +46,16 @@ type adapter struct {
 // AddAccount implements ui.AccountAdder: resolves and stores the password in
 // the OS keyring, persists the account to config.yaml, connects it live, and
 // starts its supervisor goroutine — mirroring what main does for accounts
-// configured at startup, just for one account added mid-session.
-func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
+// configured at startup, just for one account added mid-session. When
+// register is true, it first creates the account on the server via XEP-0077
+// in-band registration, then proceeds identically to logging in.
+func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) tea.Msg {
+	if register {
+		if err := xmpp.Register(context.Background(), jid, password, nil); err != nil {
+			return ui.AccountAddErrorMsg{Err: fmt.Errorf("registering account: %w", err)}
+		}
+	}
+
 	acct := config.Account{JID: jid, GPGKeyID: gpgKeyID}
 	if password != "" {
 		// Prefer the OS keyring (unless use_keyring is off); if that's

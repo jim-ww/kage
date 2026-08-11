@@ -704,28 +704,46 @@ func (m Model) renderFilePickerPopup() string {
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
-// renderAddAccountPopup shows the add-account form: one line per field
-// (JID, password, GPG key ID), the focused field highlighted by its own
-// textinput cursor, plus an error line if the last attempt failed.
+// renderAddAccountPopup shows the add-account form: one line per active
+// field (JID, password, confirm password when registering, GPG key ID), the
+// focused field highlighted by its own textinput cursor, plus an error line
+// if the last attempt failed.
 func (m Model) renderAddAccountPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	rows := make([]string, len(m.addAccountInputs))
-	for i, field := range m.addAccountInputs {
-		rows[i] = field.View()
+	title := "Log in"
+	verb := "log in"
+	if m.addAccountRegister {
+		title = "Register"
+		verb = "register"
+	}
+
+	count := m.addAccountFieldCount()
+	rows := make([]string, count)
+	for pos := 0; pos < count; pos++ {
+		rows[pos] = m.addAccountInputs[m.addAccountFieldIndex(pos)].View()
 	}
 	if m.addAccountBusy {
-		rows = append(rows, "", "connecting...")
+		rows = append(rows, "", verb+"...")
 	} else if m.addAccountErr != "" {
 		rows = append(rows, "", m.styles.popupDanger.Render(m.addAccountErr))
 	}
 
-	footer := "[tab] next field  ·  [enter] add  ·  [esc] cancel"
-	body := m.styles.listPopup("Add account", rows, footer)
+	footer := fmt.Sprintf("[tab] next field  ·  [ctrl+r] switch to %s  ·  [enter] %s  ·  [esc] cancel", altMode(m.addAccountRegister), verb)
+	body := m.styles.listPopup(title, rows, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+// altMode returns the label for the mode ctrl+r switches to, opposite the
+// current one.
+func altMode(register bool) string {
+	if register {
+		return "log in"
+	}
+	return "register"
 }
 
 // renderChangePasswordPopup shows the "change local storage password"

@@ -226,9 +226,9 @@ func (c *ipcClient) ResubscribeContact(accountIdx int, address string) tea.Msg {
 	return msg
 }
 
-func (c *ipcClient) AddAccount(jid, password, gpgKeyID string) tea.Msg {
+func (c *ipcClient) AddAccount(jid, password, gpgKeyID string, register bool) tea.Msg {
 	var w wireAccount
-	if err := c.conn.Call(rpcAddAccount, addAccountParams{JID: jid, Password: password, GPGKeyID: gpgKeyID}, &w); err != nil {
+	if err := c.conn.Call(rpcAddAccount, addAccountParams{JID: jid, Password: password, GPGKeyID: gpgKeyID, Register: register}, &w); err != nil {
 		return ui.AccountAddErrorMsg{Err: err}
 	}
 	return ui.AccountAddedMsg{Account: w.toAccount()}
