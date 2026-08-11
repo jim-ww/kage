@@ -1,4 +1,3 @@
-- '/' button doesnt correctly open chat list if window is not small enough (when chat list collapsed).
 - replies to attachments not properly seen on other clients? (e.g. Dino)
 - bind ctrl+~ to quickly toggle open bigger message textinput
 - quick way to erase message while copying it (draft)

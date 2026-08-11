@@ -86,9 +86,24 @@ func (m Model) popupActive() bool {
 
 // narrowShowChat reports, in narrow mode, whether the single visible pane
 // should be the chat (true) or the chat list (false). Meaningless outside
-// narrow mode, where both panes are shown together.
+// narrow mode, where both panes can be shown together.
 func (m Model) narrowShowChat() bool {
 	return m.selectedView == viewChat || m.popupActive()
+}
+
+// sidebarPeeking reports whether, at normal (non-narrow) width, a
+// manually-hidden sidebar should render anyway as an ordinary left-hand
+// panel alongside the chat pane — i.e. the user pressed FocusChats/Back/Tab
+// to look at the list or accounts panel without leaving the sidebar
+// permanently un-hidden. It only "peeks" while one of those is actually
+// focused; opening a chat (setSelectedView(viewChat)) drops back to fully
+// hidden, matching the persisted sidebarHidden setting, without touching
+// that setting itself.
+func (m Model) sidebarPeeking() bool {
+	if m.narrow() || !m.sidebarHidden {
+		return false
+	}
+	return m.selectedView == viewChats || m.selectedView == viewAccounts
 }
 
 // sidebarMaxWidth caps how wide a user-drag can push the sidebar, leaving
@@ -104,7 +119,7 @@ func (m Model) sidebarWidth() int {
 		}
 		return m.width
 	}
-	if m.sidebarHidden {
+	if m.sidebarHidden && !m.sidebarPeeking() {
 		return 0
 	}
 	if m.sidebarWidthOverride > 0 {
@@ -160,7 +175,7 @@ func (m Model) chatAreaWidth() int {
 		}
 		return 0
 	}
-	if m.sidebarHidden {
+	if m.sidebarHidden && !m.sidebarPeeking() {
 		return m.width
 	}
 	return m.width - m.sidebarWidth() - 1
