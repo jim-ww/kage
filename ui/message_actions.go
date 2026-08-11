@@ -68,6 +68,9 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			}
 			m.replyToIdx = -1
 		}
+		for _, a := range m.pendingAttachments {
+			delete(m.finishedTransfers, a.path)
+		}
 		cmds = append(cmds, m.startAttachedSend(text, chat.Address, sendOpts))
 		m.pendingAttachments = nil
 		m.selectedAttachment = -1

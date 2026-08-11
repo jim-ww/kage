@@ -43,6 +43,29 @@ func TestFormatTransferLineShowsBytesWhenTotalUnknown(t *testing.T) {
 	}
 }
 
+func TestClearTransferBlocksLateProgressFromResurrectingIt(t *testing.T) {
+	m := newTestModel(nil)
+	m.setTransferProgress(FileTransferProgressMsg{ID: "a", Label: "uploading a", Sent: 5, Total: 10})
+	m.clearTransfer("a") // terminal result msg arrives before the final progress msg
+
+	// A late 100% progress event for the same ID, delivered after
+	// clearTransfer, must not resurrect the entry - it would never be
+	// cleared again since the terminal message already fired.
+	m.setTransferProgress(FileTransferProgressMsg{ID: "a", Label: "uploading a", Sent: 10, Total: 10})
+
+	if lines := m.renderTransferLines(); len(lines) != 0 {
+		t.Fatalf("renderTransferLines = %v, want none - late progress after clearTransfer must be ignored", lines)
+	}
+
+	// Once genuinely restarted (e.g. re-sending the same file), progress
+	// for the same ID must work again.
+	delete(m.finishedTransfers, "a")
+	m.setTransferProgress(FileTransferProgressMsg{ID: "a", Label: "uploading a", Sent: 1, Total: 10})
+	if lines := m.renderTransferLines(); len(lines) != 1 {
+		t.Fatalf("renderTransferLines = %v, want 1 after restart", lines)
+	}
+}
+
 func TestModelTracksMultipleTransfersInStartOrder(t *testing.T) {
 	m := newTestModel(nil)
 	m.setTransferProgress(FileTransferProgressMsg{ID: "a", Label: "uploading a", Sent: 1, Total: 10})

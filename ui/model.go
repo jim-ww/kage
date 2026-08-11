@@ -167,6 +167,7 @@ type Model struct {
 	noticeDuration       time.Duration                      // how long a notification toast stays visible before auto-dismissing
 	transferOrder        []string                           // insertion order of transfers keys, for stable multi-line rendering
 	transfers            map[string]FileTransferProgressMsg // active uploads/downloads, keyed by ID (local path for an upload, URL for a download); removed once the transfer's terminal result msg arrives
+	finishedTransfers    map[string]bool                    // IDs whose terminal result msg already arrived, so a progress msg racing in afterward (e.g. a final 100% event arriving after the result) doesn't resurrect the entry
 	downloadsInFlight    map[string]bool                    // URLs currently being downloaded (open or save), so mashing the open/save key doesn't start a duplicate download of the same file; cleared once the terminal openResultMsg/saveResultMsg for that URL arrives
 
 	// double-click detection for messages

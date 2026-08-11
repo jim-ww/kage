@@ -94,6 +94,7 @@ func (m *Model) startOpen(target string, isAttachment bool) tea.Cmd {
 		m.downloadsInFlight = make(map[string]bool)
 	}
 	m.downloadsInFlight[target] = true
+	delete(m.finishedTransfers, target)
 	return openWithXDGOpen(target, isAttachment)
 }
 
@@ -107,6 +108,7 @@ func (m *Model) startSave(target string) tea.Cmd {
 		m.downloadsInFlight = make(map[string]bool)
 	}
 	m.downloadsInFlight[target] = true
+	delete(m.finishedTransfers, target)
 	return saveURLToDownloads(target)
 }
 
@@ -121,13 +123,22 @@ func (m *Model) startSaveAs(target, dest string) tea.Cmd {
 		m.downloadsInFlight = make(map[string]bool)
 	}
 	m.downloadsInFlight[target] = true
+	delete(m.finishedTransfers, target)
 	return saveURLToPath(target, dest)
 }
 
 // setTransferProgress upserts a transfer's progress, tracking insertion
 // order (transferOrder) separately so renderTransferLines has a stable,
-// start-order rendering instead of Go's randomized map iteration.
+// start-order rendering instead of Go's randomized map iteration. A no-op if
+// the transfer's terminal result message already arrived - progress and the
+// terminal message travel over separate channels (IPC broadcast vs. direct
+// RPC return) with no ordering guarantee, so a late progress event (e.g. the
+// final 100%) can otherwise arrive after clearTransfer and resurrect an
+// entry that will never be cleared again.
 func (m *Model) setTransferProgress(msg FileTransferProgressMsg) {
+	if m.finishedTransfers[msg.ID] {
+		return
+	}
 	if m.transfers == nil {
 		m.transfers = make(map[string]FileTransferProgressMsg)
 	}
@@ -138,8 +149,13 @@ func (m *Model) setTransferProgress(msg FileTransferProgressMsg) {
 }
 
 // clearTransfer removes a finished transfer (its terminal result message
-// arrived) so it stops being rendered.
+// arrived) so it stops being rendered, and marks its ID as finished so a
+// late-arriving progress message can't resurrect it - see setTransferProgress.
 func (m *Model) clearTransfer(id string) {
+	if m.finishedTransfers == nil {
+		m.finishedTransfers = make(map[string]bool)
+	}
+	m.finishedTransfers[id] = true
 	if _, ok := m.transfers[id]; !ok {
 		return
 	}
