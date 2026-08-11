@@ -36,6 +36,33 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	return trimmed, drop
 }
 
+// trimMessagesBack drops the newest messages from msgs so at most limit
+// remain, used when an older-history page is prepended (see OlderHistoryMsg
+// handling) and the chat has grown past the configured cap — the mirror
+// image of trimMessagesFront: scrolling up to see older content means the
+// oldest end (what was just fetched) is what the caller wants to keep, and
+// the newest end (now furthest from where the user's looking) is what's
+// safe to give up. Returns the trimmed slice and how many messages were
+// dropped so the caller can adjust any index (selectedMsg) that pointed
+// into the old slice. limit <= 0 disables trimming.
+func trimMessagesBack(msgs []Message, limit int) ([]Message, int) {
+	if limit <= 0 || len(msgs) <= limit {
+		return msgs, 0
+	}
+	drop := len(msgs) - limit
+	trimmed := make([]Message, limit)
+	copy(trimmed, msgs[:limit])
+	for i := range trimmed {
+		if trimmed[i].ReplyTo == nil {
+			continue
+		}
+		if *trimmed[i].ReplyTo >= limit {
+			trimmed[i].ReplyTo = nil
+		}
+	}
+	return trimmed, drop
+}
+
 // trimMessagesAround keeps at most limit messages from msgs, centered on
 // target — unlike trimMessagesFront (which always keeps the newest tail),
 // used when target itself is what matters (a search-result jump into
@@ -321,23 +348,22 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				existing[i].ReplyTo = &shifted
 			}
 		}
-		// Unlike live/MAM-tail growth (trimMessagesFront), an older-history
-		// page prepended here is never trimmed off the newest end - doing so
-		// used to silently drop already-viewed messages with no way to
-		// re-fetch them (no "load newer" path exists), leaving a permanent
-		// gap the moment the user scrolled back down. The cap only bounds
-		// unbounded growth from incoming traffic; deliberately scrolling up
-		// through history is self-limiting (one page per user action).
 		combined := append(msg.Messages, existing...)
+		// Trimmed off the *newest* end (trimMessagesBack), not the oldest —
+		// the whole point of scrolling up was to see this older content, so
+		// keeping it and dropping what's now furthest from view is the
+		// right end to give up. Search (now that it exists and is fast —
+		// see loadSearchResult/growPinnedWindow) is the way back to
+		// anything this drops, which is why this no longer needs to stay
+		// unbounded the way it used to before search could jump back in.
+		combined, _ = trimMessagesBack(combined, m.maxMessagesPerChat)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = combined
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			// Prepended messages shift every existing index up by
 			// len(msg.Messages) — keep the selection on the same message
-			// rather than letting it silently jump.
-			m.selectedMsg += len(msg.Messages)
-			if m.selectedMsg >= len(combined) {
-				m.selectedMsg = len(combined) - 1
-			}
+			// rather than letting it silently jump, clamped in case it (or
+			// the message it pointed at) was itself trimmed off the end.
+			m.selectedMsg = min(m.selectedMsg+len(msg.Messages), len(combined)-1)
 			m.refreshViewportFullScrollTo(m.selectedMsg)
 		}
 		return m, nil, true

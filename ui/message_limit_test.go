@@ -45,6 +45,43 @@ func TestTrimMessagesFront(t *testing.T) {
 	}
 }
 
+func TestTrimMessagesBack(t *testing.T) {
+	msgs := make([]Message, 5)
+	for i := range msgs {
+		msgs[i] = Message{ID: string(rune('a' + i))}
+	}
+	replyToFirst := 0
+	msgs[1].ReplyTo = &replyToFirst // survives (both within the kept front), index unchanged
+	replyToLast := 4
+	msgs[2].ReplyTo = &replyToLast // points at a message that will be dropped
+
+	trimmed, dropped := trimMessagesBack(msgs, 3)
+	if dropped != 2 {
+		t.Fatalf("dropped = %d, want 2", dropped)
+	}
+	if len(trimmed) != 3 || trimmed[0].ID != "a" || trimmed[2].ID != "c" {
+		t.Fatalf("unexpected trimmed slice: %+v", trimmed)
+	}
+	if trimmed[1].ReplyTo == nil || *trimmed[1].ReplyTo != 0 {
+		t.Fatalf("ReplyTo within the kept front should be unchanged, got %v", trimmed[1].ReplyTo)
+	}
+	if trimmed[2].ReplyTo != nil { // was "c", pointed at dropped "e"
+		t.Fatalf("ReplyTo to a dropped message should be nil, got %v", *trimmed[2].ReplyTo)
+	}
+
+	// no-op when under the limit
+	same, dropped := trimMessagesBack(msgs, 10)
+	if dropped != 0 || len(same) != 5 {
+		t.Fatalf("expected no trimming under the limit, got dropped=%d len=%d", dropped, len(same))
+	}
+
+	// disabled
+	same, dropped = trimMessagesBack(msgs, 0)
+	if dropped != 0 || len(same) != 5 {
+		t.Fatalf("limit <= 0 should disable trimming, got dropped=%d len=%d", dropped, len(same))
+	}
+}
+
 func TestTrimMessagesAround(t *testing.T) {
 	msgs := make([]Message, 20)
 	for i := range msgs {
@@ -164,12 +201,14 @@ func TestIncomingMessageTrimsToLimit(t *testing.T) {
 	}
 }
 
-// TestOlderHistoryNotTrimmed verifies that prepending an older-history page
-// past the cap keeps every message (older and already-viewed) rather than
-// dropping the newest ones - the cap only bounds unbounded growth from live
-// incoming traffic (trimMessagesFront), never a page the user deliberately
-// scrolled up to load, since there's no way to re-fetch a dropped page.
-func TestOlderHistoryNotTrimmed(t *testing.T) {
+// TestOlderHistoryTrimmedFromNewestEnd guards OlderHistoryMsg's own cap:
+// prepending a fetched older page keeps the oldest end (what scrolling up
+// was trying to reveal) and drops from the newest end once the chat exceeds
+// maxMessagesPerChat, the mirror image of trimMessagesFront's live-tail-growth
+// cap. Search (loadSearchResult/growPinnedWindow) is what makes this safe to
+// do unconditionally now — anything dropped here is still reachable by
+// jumping back to it via search.
+func TestOlderHistoryTrimmedFromNewestEnd(t *testing.T) {
 	m := newLimitTestModel(t, 3, 3)
 	m.selectedMsg = 0
 
@@ -185,13 +224,44 @@ func TestOlderHistoryNotTrimmed(t *testing.T) {
 	}
 
 	got := updated.accounts[0].Messages[0]
-	if len(got) != 5 {
-		t.Fatalf("len(Messages) = %d, want 5 (uncapped)", len(got))
+	if len(got) != 3 {
+		t.Fatalf("len(Messages) = %d, want 3 (capped at maxMessagesPerChat)", len(got))
 	}
-	wantIDs := []string{"x", "y", "a", "b", "c"}
+	wantIDs := []string{"x", "y", "a"}
 	for i, want := range wantIDs {
 		if got[i].ID != want {
 			t.Fatalf("got[%d].ID = %q, want %q (full IDs: %v)", i, got[i].ID, want, got)
+		}
+	}
+}
+
+// TestOlderHistoryStaysCappedAcrossManyPages guards the actual reported
+// symptom: repeatedly scrolling all the way up through a long chat (each
+// older-history fetch its own OlderHistoryMsg, same as real paginated
+// scrolling) must keep the loaded window bounded at maxMessagesPerChat the
+// whole way, not grow with every page — that unbounded growth was what made
+// rendering/scrolling get progressively slower the further back you went.
+func TestOlderHistoryStaysCappedAcrossManyPages(t *testing.T) {
+	m := newLimitTestModel(t, 50, 200)
+	cur := *m
+
+	for page := 0; page < 100; page++ {
+		older := make([]Message, 50)
+		for i := range older {
+			older[i] = Message{ID: "p"}
+		}
+		updated, _, handled := cur.handleEventMsg(OlderHistoryMsg{
+			AccountIdx: 0,
+			From:       "bob@example.com",
+			Messages:   older,
+			HasMore:    true,
+		})
+		if !handled {
+			t.Fatalf("page %d: OlderHistoryMsg was not handled", page)
+		}
+		cur = updated
+		if got := len(cur.accounts[0].Messages[0]); got > 200 {
+			t.Fatalf("page %d: len(Messages) = %d, want capped at 200", page, got)
 		}
 	}
 }

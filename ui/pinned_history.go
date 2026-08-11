@@ -3,14 +3,14 @@ package ui
 // growPinnedWindow slides chatIdx's loaded window across
 // accounts[accountIdx].PinnedHistory by up to half of maxMessagesPerChat in
 // the given direction (older == true: toward the start; false: toward the
-// end), keeping the window capped at maxMessagesPerChat throughout — unlike
-// normal (non-search) older-history scrolling, which never trims what it's
-// already loaded, letting the window here grow unboundedly made paging all
-// the way to the start of a long history (or jumpToLatestMessage unwinding
-// back to the tail) render/re-render an ever-larger message set on every
-// step, visibly worse the further it went. The already-decrypted
-// PinnedHistory means nothing already-viewed is lost by re-trimming — it's
-// just a slice away the next time this direction is paged again.
+// end), keeping the window capped at maxMessagesPerChat throughout (the
+// same cap ordinary older-history scrolling enforces via trimMessagesBack —
+// letting either grow unboundedly made paging far into a long history, or
+// jumpToLatestMessage unwinding back to the tail, render/re-render an
+// ever-larger message set on every step, visibly worse the further it
+// went). The already-decrypted PinnedHistory means nothing already-viewed
+// is lost by re-trimming here — it's just a slice away the next time this
+// direction is paged again.
 //
 // Stepping by half the window (not a full window's worth) guarantees the
 // message that triggered the grow (always at the loaded window's near edge
