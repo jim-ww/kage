@@ -87,12 +87,66 @@ func TestSearchResultsPopupFixedFootprint(t *testing.T) {
 		query: "q", messages: fullHistory, matches: []int{0, 1, 2}, peerName: "bob",
 	})
 
-	if busyLines != errLines || errLines != emptyLines || emptyLines != resultsLines {
-		t.Fatalf("line counts differ across states: busy=%d err=%d empty=%d results=%d",
-			busyLines, errLines, emptyLines, resultsLines)
+	filteringSr := &searchResultsState{query: "q", messages: fullHistory, matches: []int{0, 1, 2}, peerName: "bob"}
+	filteringSr.filterInput = newSearchResultsFilterInput(m, "a much much longer filter query than any of the others")
+	filteringSr.filtering = true
+	filterLines, filterWidth := dims(filteringSr)
+
+	if busyLines != errLines || errLines != emptyLines || emptyLines != resultsLines || resultsLines != filterLines {
+		t.Fatalf("line counts differ across states: busy=%d err=%d empty=%d results=%d filtering=%d",
+			busyLines, errLines, emptyLines, resultsLines, filterLines)
 	}
-	if busyWidth != errWidth || errWidth != emptyWidth || emptyWidth != resultsWidth {
-		t.Fatalf("max widths differ across states: busy=%d err=%d empty=%d results=%d",
-			busyWidth, errWidth, emptyWidth, resultsWidth)
+	if busyWidth != errWidth || errWidth != emptyWidth || emptyWidth != resultsWidth || resultsWidth != filterWidth {
+		t.Fatalf("max widths differ across states: busy=%d err=%d empty=%d results=%d filtering=%d",
+			busyWidth, errWidth, emptyWidth, resultsWidth, filterWidth)
+	}
+}
+
+// TestSearchResultsFuzzyFilter guards the '/' sub-mode: it opens a text
+// input, typing live-narrows the visible matches via typo-tolerant
+// (Levenshtein) matching against message content, and esc/enter stop
+// editing without closing the whole results popup.
+func TestSearchResultsFuzzyFilter(t *testing.T) {
+	fullHistory := []Message{
+		{Content: "I will receive the package tomorrow"},
+		{Content: "completely unrelated message"},
+		{Content: "another receive notice"},
+	}
+	m := newTestModelWithMessages(fullHistory[:1], &fakeHistorySearcher{})
+	m.searchResults = &searchResultsState{
+		accountIdx: 0, chatAddress: "bob@example.test", query: "e",
+		messages: fullHistory, matches: []int{0, 1, 2},
+	}
+
+	next, _ := m.Update(keyText("/"))
+	m = next.(Model)
+	if !m.searchResults.filtering {
+		t.Fatal("filtering = false after '/', want true")
+	}
+
+	for _, r := range "recieve" { // deliberate typo, should still fuzzy-match "receive"
+		next, _ := m.Update(keyText(string(r)))
+		m = next.(Model)
+	}
+	if got := m.searchResults.filteredMatches(); len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Fatalf("filteredMatches() after typo-query = %v, want [0 2]", got)
+	}
+
+	next, _ = m.Update(keyText("esc"))
+	m = next.(Model)
+	if m.searchResults.filtering {
+		t.Fatal("filtering still true after esc, want false")
+	}
+	if m.searchResults == nil {
+		t.Fatal("esc while filtering closed the whole popup, want only filtering mode to close")
+	}
+	if m.searchResults.filterQuery != "recieve" {
+		t.Fatalf("filterQuery after esc = %q, want it preserved as %q", m.searchResults.filterQuery, "recieve")
+	}
+
+	next, _ = m.Update(keyText("esc"))
+	m = next.(Model)
+	if m.searchResults != nil {
+		t.Fatal("second esc (not filtering) should close the whole popup")
 	}
 }

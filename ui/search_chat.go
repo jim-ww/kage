@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -44,6 +45,14 @@ type searchResultsState struct {
 	messages []Message
 	matches  []int
 	author   authorFilter
+
+	// fuzzy-filter sub-mode, entered/exited with '/' while browsing results
+	// (not while busy/erroring). filterQuery persists across toggling
+	// filtering off and back on, so reopening it keeps whatever was typed;
+	// filtering only controls whether filterInput currently has focus.
+	filtering   bool
+	filterInput textinput.Model
+	filterQuery string
 }
 
 // authorFilter narrows the search-results popup to messages from one
@@ -77,17 +86,29 @@ func (f authorFilter) next() authorFilter {
 	return (f + 1) % 3
 }
 
-// filteredMatches returns sr.matches narrowed to sr.author.
+// filteredMatches returns sr.matches narrowed by sr.author and then by
+// sr.filterQuery (typo-tolerant, see fuzzyContains) — author first since
+// it's the cheaper, exact filter.
 func (sr *searchResultsState) filteredMatches() []int {
-	if sr.author == authorFilterAll {
-		return sr.matches
-	}
-	wantMe := sr.author == authorFilterMe
-	out := make([]int, 0, len(sr.matches))
-	for _, idx := range sr.matches {
-		if sr.messages[idx].IsMe == wantMe {
-			out = append(out, idx)
+	out := sr.matches
+	if sr.author != authorFilterAll {
+		wantMe := sr.author == authorFilterMe
+		narrowed := make([]int, 0, len(out))
+		for _, idx := range out {
+			if sr.messages[idx].IsMe == wantMe {
+				narrowed = append(narrowed, idx)
+			}
 		}
+		out = narrowed
+	}
+	if strings.TrimSpace(sr.filterQuery) != "" {
+		narrowed := make([]int, 0, len(out))
+		for _, idx := range out {
+			if fuzzyContains(sr.messages[idx].Content, sr.filterQuery) {
+				narrowed = append(narrowed, idx)
+			}
+		}
+		out = narrowed
 	}
 	return out
 }
@@ -128,6 +149,20 @@ func (m Model) searchResultsPrompt() string {
 	width := m.searchResultsPopupWidth()
 	title := ansi.Truncate(fmt.Sprintf("Search: %s", sr.query), width, "…")
 	footer := "[esc/" + closeKey + "] close"
+
+	// filterLine is always rendered (even while busy/erroring, as a
+	// placeholder) so toggling the '/' filter on/off never changes the
+	// popup's line count, matching every other state here.
+	var filterLine string
+	switch {
+	case sr.filtering:
+		filterLine = "Filter: " + sr.filterInput.View()
+	case sr.filterQuery != "":
+		filterLine = fmt.Sprintf("Filter: %s  (/ to edit)", sr.filterQuery)
+	default:
+		filterLine = "(/ to filter)"
+	}
+	filterLine = ansi.Truncate(filterLine, width, "…")
 
 	// content holds each state's rows, always truncated (not just padded) to
 	// width before rows pads it out to searchResultsPopupRows below — a long
@@ -170,11 +205,14 @@ func (m Model) searchResultsPrompt() string {
 			content[i] = m.renderRow(zoneSearchResultRow(i), i, sr.cursor, label)
 		}
 
-		hint := fmt.Sprintf("a: author (%s) · enter: jump", sr.author.label(sr.peerName))
+		hint := fmt.Sprintf("/: filter · a: author (%s) · enter: jump", sr.author.label(sr.peerName))
 		if pages := openPageCount(len(matches)); pages > 1 {
 			hint = fmt.Sprintf("page %d/%d · left/right: page · %s", sr.page+1, pages, hint)
 		}
 		footer = hint + "  ·  [esc/" + closeKey + "] close"
+	}
+	if sr.filtering {
+		footer = "[enter/esc] stop editing filter"
 	}
 
 	// Pad every state up to the same fixed row count/width so the popup's
@@ -184,15 +222,19 @@ func (m Model) searchResultsPrompt() string {
 	// here, since content[i] may already carry renderRow's zone marks and
 	// truncating those post-hoc risks cutting a mark's start/end pair.
 	blankRow := strings.Repeat(" ", width)
-	rows := make([]string, searchResultsPopupRows)
-	for i := range rows {
-		if i < len(content) {
-			rows[i] = padLinesToWidth(content[i], width)
+	rows := make([]string, 1+searchResultsPopupRows)
+	rows[0] = filterLine
+	for i := 1; i < len(rows); i++ {
+		if i-1 < len(content) {
+			rows[i] = padLinesToWidth(content[i-1], width)
 		} else {
 			rows[i] = blankRow
 		}
 	}
-	footer = ansi.Truncate(footer, width, "…")
+	// listPopup indents the footer by 2 spaces ("\n\n  " + footer), so it
+	// must be truncated 2 narrower than width, not to width itself, or a
+	// long hint would push the popup 2 cells wider than every other state.
+	footer = ansi.Truncate(footer, max(1, width-2), "…")
 
 	return m.styles.listPopup(title, rows, footer)
 }
@@ -234,10 +276,29 @@ func (m Model) updateSearchResultsKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
+	if sr.filtering {
+		switch {
+		case msg.String() == "esc", matchesKey(msg, m.keys.SelectSend):
+			sr.filtering = false
+		default:
+			var cmd tea.Cmd
+			sr.filterInput, cmd = sr.filterInput.Update(msg)
+			sr.filterQuery = sr.filterInput.Value()
+			sr.cursor, sr.page = 0, 0
+			return m, cmd, true
+		}
+		return m, nil, true
+	}
+
 	if matchesLetter(msg, 'a') {
 		sr.author = sr.author.next()
 		sr.cursor, sr.page = 0, 0
 		return m, nil, true
+	}
+	if matchesLetter(msg, '/') {
+		sr.filterInput = newSearchResultsFilterInput(m, sr.filterQuery)
+		sr.filtering = true
+		return m, textinput.Blink, true
 	}
 
 	matches := sr.filteredMatches()
@@ -266,6 +327,23 @@ func (m Model) updateSearchResultsKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		m.searchResults = nil
 	}
 	return m, nil, true
+}
+
+// newSearchResultsFilterInput builds the '/' filter's text input, prefilled
+// with value (whatever was typed the last time filtering was active, if
+// any) and focused/cursor-at-end so reopening it continues editing rather
+// than starting over.
+func newSearchResultsFilterInput(m Model, value string) textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = "/ "
+	ti.Placeholder = "filter results"
+	ti.KeyMap = m.keys.TextInputKeys
+	ti.SetWidth(addAccountFieldWidth)
+	applyTextInputStyles(&ti, m.styles.colors)
+	ti.SetValue(value)
+	ti.CursorEnd()
+	ti.Focus()
+	return ti
 }
 
 // loadSearchResult loads sr's full (already-fetched) history as the current
@@ -300,7 +378,7 @@ func (m *Model) loadSearchResult(msgIdx int) {
 // jumps to it); clicking outside the popup closes it.
 func (m Model) handleSearchResultsClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	sr := m.searchResults
-	if sr.busy || sr.err != "" {
+	if sr.busy || sr.err != "" || sr.filtering {
 		return m, nil
 	}
 

@@ -223,7 +223,7 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 
 	if m.searchResults != nil {
 		sr := m.searchResults
-		if matches := sr.filteredMatches(); !sr.busy && sr.err == "" && len(matches) > 0 {
+		if matches := sr.filteredMatches(); !sr.busy && sr.err == "" && !sr.filtering && len(matches) > 0 {
 			start, end := sr.bounds(len(matches))
 			for i := 0; i < end-start; i++ {
 				if m.zone.Get(zoneSearchResultRow(i)).InBounds(mouse) {
