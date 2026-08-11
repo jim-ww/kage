@@ -102,6 +102,9 @@ func (m Model) View() tea.View {
 	if len(toastLines) > 0 {
 		rendered = overlayBottomRight(rendered, m.styles.noticeToast(m.width, strings.Join(toastLines, "\n")))
 	}
+	if popup, x, y, ok := m.renderDeviceHoverPopup(); ok {
+		rendered = overlayAt(rendered, popup, x, y)
+	}
 
 	v := tea.NewView(rendered)
 	v.AltScreen = true
@@ -293,6 +296,82 @@ func overlayBottomCenter(base, content string, marginBottom int) string {
 	x := max(0, (lipgloss.Width(base)-lipgloss.Width(content))/2)
 	y := max(0, len(baseLines)-len(contentLines)-marginBottom)
 	return overlayAt(base, content, x, y)
+}
+
+// renderDeviceHoverPopup builds the floating "online devices" box for the
+// currently hovered chat row, once hoverDevicesDelay has revealed it (see
+// hoverDevicesTimer/hoverState.devicesID) — a real overlay composited on
+// top of the fully rendered frame (via overlayAt in View()), not squeezed
+// into the row's own two-line height, so it isn't clipped by the sidebar
+// column width or cut off by neighboring rows. ok is false whenever there's
+// nothing to show: no row is in its post-delay hover state, or that
+// contact has no online resources.
+func (m Model) renderDeviceHoverPopup() (popup string, x, y int, ok bool) {
+	if m.hover == nil || m.hover.devicesID == "" || m.hover.id != m.hover.devicesID {
+		return "", 0, 0, false
+	}
+	idx, isChatZone := chatIndexFromZone(m.hover.devicesID)
+	if !isChatZone {
+		return "", 0, 0, false
+	}
+	items := m.chats.Items()
+	if idx < 0 || idx >= len(items) {
+		return "", 0, 0, false
+	}
+	chat, isChat := items[idx].(Chat)
+	if !isChat {
+		return "", 0, 0, false
+	}
+
+	var lines []string
+	switch {
+	case len(chat.Resources) > 0:
+		lines = make([]string, len(chat.Resources))
+		for i, r := range chat.Resources {
+			name := r.Name
+			if name == "" {
+				name = resourceDisplayName(r.Resource)
+			}
+			lines[i] = deviceGlyph(r.Presence) + " " + name
+		}
+	case chat.Presence == PresenceOffline:
+		lines = []string{deviceGlyph(PresenceOffline) + " offline"}
+	default:
+		// Roster says this contact is online/away/etc, but no live
+		// per-resource presence has arrived yet for it — nothing accurate
+		// to show either way, so stay silent rather than guess.
+		return "", 0, 0, false
+	}
+
+	z := m.zone.Get(m.hover.devicesID)
+	if z.IsZero() {
+		return "", 0, 0, false
+	}
+
+	// Deliberately no Background/Foreground on this box style: every
+	// fragment above (deviceGlyph, plain resource/label text) is already
+	// fully rendered with its own color and no background set, so
+	// wrapping it in a style that added a background here would just
+	// leave the border/padding cells filled while the already-rendered
+	// text cells underneath keep showing through the terminal's own
+	// background — the two-tone/transparent-patchwork bug. Leaving the
+	// box's own style bare keeps the whole popup uniformly on the
+	// terminal's background.
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.styles.colors.accentCyan).
+		Padding(0, 1)
+	popup = box.Render(strings.Join(lines, "\n"))
+
+	x = z.EndX + 1
+	if popupWidth := lipgloss.Width(popup); x+popupWidth > m.width {
+		x = max(0, m.width-popupWidth)
+	}
+	y = z.StartY
+	if popupHeight := len(lines) + 2; y+popupHeight > m.height {
+		y = max(0, m.height-popupHeight)
+	}
+	return popup, x, y, true
 }
 
 // overlayAt splices content on top of base at cell position (x, y). base is

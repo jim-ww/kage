@@ -72,6 +72,12 @@ type Model struct {
 	// visible everywhere without threading it through render call chains.
 	hover *hoverState
 
+	// hoverGen increments every time the hovered zone changes, so a
+	// pending hoverDevicesRevealMsg (scheduled hoverDevicesDelay out) can
+	// tell whether it's stale — the hover already moved on — or should
+	// actually reveal its row's devices. Mirrors typingGen.
+	hoverGen int
+
 	// sidebarWidthOverride is the user-dragged sidebar width (see
 	// zonePaneSidebarBorder in ui/mouse.go); 0 means "not set yet, use the
 	// width/4-based default computed by sidebarWidth".

@@ -57,6 +57,7 @@ const (
 	evMessageDelivered     = "MessageDelivered"
 	evMessageReactions     = "MessageReactions"
 	evPresence             = "Presence"
+	evDeviceName           = "DeviceName"
 	evTyping               = "Typing"
 	evFileTransferProgress = "FileTransferProgress"
 	evAccountConnected     = "AccountConnected"

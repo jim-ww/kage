@@ -71,6 +71,18 @@ func presenceGlyphOn(p Presence, bg color.Color) string {
 	return g.style.Background(bg).Render(g.symbol)
 }
 
+// deviceGlyph renders a resource's presence as a colored device icon,
+// mirroring presenceGlyph but with a square "device" symbol instead of the
+// round per-chat presence dot — visually distinct so the device-list popup
+// doesn't read as another presence-dot row.
+func deviceGlyph(p Presence) string {
+	g, ok := presenceGlyphs[p]
+	if !ok {
+		g = presenceGlyphs[PresenceOffline]
+	}
+	return g.style.Render("■")
+}
+
 type uiColors struct {
 	appBg color.Color
 	// panelBg     color.Color

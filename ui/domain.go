@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/list"
 )
@@ -186,6 +188,49 @@ const (
 	PresenceChat                    // <show>chat</show>: actively free to chat
 )
 
+// resourceDisplayName turns a raw XMPP resource string into a short,
+// human-readable device label. Clients commonly suffix their resource with
+// a random per-session ID after a separator — "." (e.g.
+// "Conversations.aB3dE9kL"), or "-" (e.g. a server disambiguating a
+// requested resource that collided with another session of the same name,
+// producing "kage-aB3dE9kLm1n2"). That suffix is never meaningful to a
+// human, so everything from the first non-letter character on is dropped,
+// keeping just the client name. A resource that's nothing *but* an opaque
+// generated ID (no letters-only prefix at all, e.g. a bare hex/random
+// string) falls back to a generic label instead of dumping the raw ID in
+// the UI.
+func resourceDisplayName(resource string) string {
+	end := len(resource)
+	for i, r := range resource {
+		if !unicode.IsLetter(r) {
+			end = i
+			break
+		}
+	}
+	if end > 0 {
+		return resource[:end]
+	}
+	if len(resource) > 16 {
+		return "device"
+	}
+	return resource
+}
+
+// ResourcePresence is one online device (full-JID resource) of a contact,
+// with that resource's own <show/> state — distinct from Chat.Presence,
+// which is just the bare-JID roster's last-known presence.
+type ResourcePresence struct {
+	Resource string
+	Presence Presence
+
+	// Name is the human-readable client name this resource advertises via
+	// XEP-0030 disco#info (e.g. "kage", "Conversations", "Gajim") - resolved
+	// asynchronously after the resource is first seen online (see
+	// DeviceNameMsg) since it takes a round trip, so this starts "" and the
+	// UI falls back to resourceDisplayName(Resource) until it arrives.
+	Name string
+}
+
 // Chat is one roster entry / conversation.
 type Chat struct {
 	Name        string
@@ -193,6 +238,13 @@ type Chat struct {
 	LastMessage string
 	Presence    Presence
 	Typing      bool // true while the peer has an active XEP-0085 "composing" state
+
+	// Resources lists this contact's currently online devices (full-JID
+	// resources), sorted by resource name. Populated from live
+	// xmpp.PresenceEvents (see PresenceMsg.Resource) — a resource is added
+	// on becoming available and removed on an unavailable presence for that
+	// same resource. Shown on chat-list row hover (see renderHoverChatRow).
+	Resources []ResourcePresence
 
 	// EncryptionMode is this chat's outgoing message encryption:
 	// "omemo-v1" (default), "omemo-v2", "gpg", or "none". Set by
@@ -232,6 +284,47 @@ func (c Chat) Description() string {
 
 // FilterValue implements list.Item.
 func (c Chat) FilterValue() string { return c.Name }
+
+// withResource returns c with its Resources list updated for one contact
+// device: added/updated (kept sorted by resource name) if presence is
+// anything but offline, removed if the resource just went unavailable.
+// resource == "" (a presence stanza with no resource part) is a no-op —
+// nothing to key a device entry by.
+func (c Chat) withResource(resource string, presence Presence) Chat {
+	if resource == "" {
+		return c
+	}
+	updated := make([]ResourcePresence, 0, len(c.Resources)+1)
+	for _, r := range c.Resources {
+		if r.Resource != resource {
+			updated = append(updated, r)
+		}
+	}
+	if presence != PresenceOffline {
+		updated = append(updated, ResourcePresence{Resource: resource, Presence: presence})
+		sort.Slice(updated, func(i, j int) bool { return updated[i].Resource < updated[j].Resource })
+	}
+	c.Resources = updated
+	return c
+}
+
+// withResourceName sets the disco#info-resolved display name for one of
+// c's already-known online resources (see DeviceNameMsg). A no-op if that
+// resource isn't (or is no longer) in c.Resources - e.g. the resolution
+// arrived after the resource already went offline.
+func (c Chat) withResourceName(resource, name string) Chat {
+	for i := range c.Resources {
+		if c.Resources[i].Resource != resource {
+			continue
+		}
+		updated := make([]ResourcePresence, len(c.Resources))
+		copy(updated, c.Resources)
+		updated[i].Name = name
+		c.Resources = updated
+		break
+	}
+	return c
+}
 
 // ── Focus state ───────────────────────────────────────────────────────────────
 

@@ -376,6 +376,8 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.MessageReactionsMsg](c, ev.Data)
 	case evPresence:
 		sendEvent[ui.PresenceMsg](c, ev.Data)
+	case evDeviceName:
+		sendEvent[ui.DeviceNameMsg](c, ev.Data)
 	case evTyping:
 		sendEvent[ui.TypingMsg](c, ev.Data)
 	case evFileTransferProgress:

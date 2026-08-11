@@ -252,6 +252,17 @@ type PresenceMsg struct {
 	AccountIdx int
 	From       string // bare JID
 	Presence   Presence
+	Resource   string // resource part of the full JID the presence stanza came from; "" if it had none
+}
+
+// DeviceNameMsg reports a contact resource's disco#info-resolved client
+// name (see xmpp.Client.DeviceName), arriving asynchronously sometime after
+// the PresenceMsg that first reported that resource online.
+type DeviceNameMsg struct {
+	AccountIdx int
+	From       string // bare JID
+	Resource   string
+	Name       string
 }
 
 // TypingMsg is sent into the Bubble Tea loop when a contact's XEP-0085 chat
@@ -280,6 +291,28 @@ type typingPauseMsg struct {
 func typingPauseTimer(addr string, gen int) tea.Cmd {
 	return tea.Tick(typingPauseTimeout, func(time.Time) tea.Msg {
 		return typingPauseMsg{addr: addr, gen: gen}
+	})
+}
+
+// hoverDevicesDelay is how long the mouse must sit still over a chat-list
+// row before that contact's online devices are shown in place of its
+// normal description — long enough that a mouse just passing over the list
+// on its way elsewhere doesn't flash the device list on every row it
+// crosses.
+const hoverDevicesDelay = time.Second
+
+// hoverDevicesRevealMsg fires hoverDevicesDelay after a chat row became the
+// hovered one. gen must still match Model.hoverGen when it arrives —
+// otherwise the hover already moved to a different row (or off the list
+// entirely) since this timer was scheduled, and this message is stale.
+type hoverDevicesRevealMsg struct {
+	id  string
+	gen int
+}
+
+func hoverDevicesTimer(id string, gen int) tea.Cmd {
+	return tea.Tick(hoverDevicesDelay, func(time.Time) tea.Msg {
+		return hoverDevicesRevealMsg{id: id, gen: gen}
 	})
 }
 

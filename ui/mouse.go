@@ -70,6 +70,21 @@ func messageIndexFromZone(id string) (int, bool) {
 	return i, true
 }
 
+// chatIndexFromZone extracts i back out of a zoneChatItem(i) ID, for
+// handleMouseMotion to tell whether the newly hovered zone is a chat row
+// without re-scanning the list.
+func chatIndexFromZone(id string) (int, bool) {
+	rest, ok := strings.CutPrefix(id, "chat-item-")
+	if !ok {
+		return 0, false
+	}
+	i, err := strconv.Atoi(rest)
+	if err != nil {
+		return 0, false
+	}
+	return i, true
+}
+
 // filePickerRowFromZone extracts i back out of a zoneFilePickerRow(i) ID,
 // for handleMouseMotion to follow the mouse without re-scanning every row's
 // zone bounds.
@@ -108,6 +123,12 @@ func zoneRowContains(z *zone.ZoneInfo, mouse tea.MouseMsg, maxX int) bool {
 // not the full ui.Model.
 type hoverState struct {
 	id string
+
+	// devicesID is the chat-item zone ID currently showing its online-device
+	// list in place of the row's normal description (see
+	// renderHoverChatRow), or "" if none is. Set by hoverDevicesRevealMsg
+	// once hoverDevicesDelay has passed without the hovered row changing.
+	devicesID string
 }
 
 // isHovered reports whether zoneID is the one currently under the pointer.
@@ -152,7 +173,16 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		return m, filePickerMoveCmd(cursorRow, row)
 	}
 
-	m.hover.id = m.zoneUnderMouse(msg)
+	newHoverID := m.zoneUnderMouse(msg)
+	var hoverCmd tea.Cmd
+	if newHoverID != m.hover.id {
+		m.hover.id = newHoverID
+		m.hover.devicesID = ""
+		m.hoverGen++
+		if _, ok := chatIndexFromZone(newHoverID); ok {
+			hoverCmd = hoverDevicesTimer(newHoverID, m.hoverGen)
+		}
+	}
 
 	if m.contextMenu == nil {
 		if m.zone.Get(zonePaneSidebar).InBounds(msg) {
@@ -180,7 +210,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return m, nil
+	return m, hoverCmd
 }
 
 // zoneUnderMouse returns the most specific zone ID containing mouse, or ""

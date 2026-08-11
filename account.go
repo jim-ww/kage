@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -127,17 +129,20 @@ func (s *accountSession) drainOutbox() []queuedSend {
 // rosterEntry is a contact's cached roster state, refreshed at connect time
 // and kept in sync locally by RenameContact.
 type rosterEntry struct {
-	Name     string
-	Subs     string
-	Presence ui.Presence // last known live presence; zero value (PresenceOffline) until a PresenceEvent arrives
+	Name      string
+	Subs      string
+	Presence  ui.Presence           // last known live presence; zero value (PresenceOffline) until a PresenceEvent arrives
+	Resources []ui.ResourcePresence // currently online devices (full-JID resources), sorted by resource name
 }
 
 // setRosterPresence records bareJID's live presence into the cached roster
 // so a client that attaches (or re-attaches) after this account's initial
 // presence burst still sees current status via listAccounts, instead of
 // only ever learning it from a live PresenceEvent it happened to be
-// connected in time to receive.
-func (s *accountSession) setRosterPresence(bareJID string, presence ui.Presence) {
+// connected in time to receive. resource (the full JID's resource part,
+// "" if it had none) is folded into Resources the same way ui.Chat's own
+// copy is - see Chat.withResource.
+func (s *accountSession) setRosterPresence(bareJID, resource string, presence ui.Presence) {
 	entries := s.roster.Load()
 	updated := make(map[string]rosterEntry, len(derefRoster(entries))+1)
 	for k, v := range derefRoster(entries) {
@@ -145,8 +150,76 @@ func (s *accountSession) setRosterPresence(bareJID string, presence ui.Presence)
 	}
 	e := updated[bareJID]
 	e.Presence = presence
+	e.Resources = withResource(e.Resources, resource, presence)
 	updated[bareJID] = e
 	s.roster.Store(&updated)
+}
+
+// resolveDeviceName looks up (via XEP-0030 disco#info) and caches the
+// human-readable client name for one contact's freshly-online resource,
+// then broadcasts it to any attached UI once known. Runs detached from the
+// PresenceEvent that triggered it, on its own goroutine and a bounded
+// timeout: many clients answer disco#info slowly or not at all, and
+// presence handling shouldn't wait on it - the UI just shows a
+// resourcepart-derived fallback name until (if ever) this arrives.
+func (s *accountSession) resolveDeviceName(ctx context.Context, srv *ipc.Server, accountIdx int, bareJID, resource string) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic resolving device name", "jid", s.account.JID, "peer", bareJID, "resource", resource, "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	client := s.client.Load()
+	if client == nil {
+		return
+	}
+	name, err := client.DeviceName(ctx, bareJID+"/"+resource)
+	if err != nil || name == "" {
+		return
+	}
+
+	entries := s.roster.Load()
+	updated := make(map[string]rosterEntry, len(derefRoster(entries)))
+	for k, v := range derefRoster(entries) {
+		updated[k] = v
+	}
+	e := updated[bareJID]
+	for i := range e.Resources {
+		if e.Resources[i].Resource == resource {
+			e.Resources[i].Name = name
+		}
+	}
+	updated[bareJID] = e
+	s.roster.Store(&updated)
+
+	broadcast(srv, evDeviceName, ui.DeviceNameMsg{
+		AccountIdx: accountIdx,
+		From:       bareJID,
+		Resource:   resource,
+		Name:       name,
+	})
+}
+
+// withResource is rosterEntry's version of ui.Chat.withResource - kept
+// separate since account.go can't depend on ui's unexported helper, but the
+// two must behave identically or the daemon's cache and a freshly-attached
+// UI's initial snapshot would disagree about which devices are online.
+func withResource(resources []ui.ResourcePresence, resource string, presence ui.Presence) []ui.ResourcePresence {
+	if resource == "" {
+		return resources
+	}
+	updated := make([]ui.ResourcePresence, 0, len(resources)+1)
+	for _, r := range resources {
+		if r.Resource != resource {
+			updated = append(updated, r)
+		}
+	}
+	if presence != ui.PresenceOffline {
+		updated = append(updated, ui.ResourcePresence{Resource: resource, Presence: presence})
+		sort.Slice(updated, func(i, j int) bool { return updated[i].Resource < updated[j].Resource })
+	}
+	return updated
 }
 
 func derefRoster(m *map[string]rosterEntry) map[string]rosterEntry {
@@ -449,7 +522,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 			name = c.JID
 		}
 		prior, known := merged[c.JID]
-		merged[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription, Presence: prior.Presence}
+		merged[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription, Presence: prior.Presence, Resources: prior.Resources}
 		if err := sess.db.UpsertRoster(ctx, storage.UpsertRosterParams{
 			AccountJid: sess.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
 		}); err != nil {
@@ -460,7 +533,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 		idx := existingChatCount + len(newChats)
 		hist, hasMore := loadHistoryPage(ctx, sess, c.JID, name)
-		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence}
+		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources}
 		if len(hist) > 0 {
 			newMessages[idx] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
@@ -480,14 +553,16 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	if latest := sess.roster.Load(); latest != nil {
 		for jid, entry := range *latest {
 			m, ok := merged[jid]
-			if !ok || m.Presence == entry.Presence {
+			if !ok || (m.Presence == entry.Presence && slices.Equal(m.Resources, entry.Resources)) {
 				continue
 			}
 			m.Presence = entry.Presence
+			m.Resources = entry.Resources
 			merged[jid] = m
 			if idx, ok := newChatIdx[jid]; ok {
 				chat := newChats[idx].(ui.Chat)
 				chat.Presence = entry.Presence
+				chat.Resources = entry.Resources
 				newChats[idx] = chat
 			}
 		}
@@ -661,13 +736,18 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 	switch ev := ev.(type) {
 	case xmpp.PresenceEvent:
 		from := bareJID(ev.From)
+		resource := resourcePart(ev.From)
 		presence := mapPresence(ev)
-		s.setRosterPresence(from, presence)
+		s.setRosterPresence(from, resource, presence)
 		broadcast(srv, evPresence, ui.PresenceMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			Presence:   presence,
+			Resource:   resource,
 		})
+		if presence != ui.PresenceOffline && resource != "" {
+			go s.resolveDeviceName(ctx, srv, accountIdx, from, resource)
+		}
 	case xmpp.SubscriptionRequestEvent:
 		from := bareJID(ev.From)
 		if err := s.client.Load().ApproveSubscription(ctx, from); err != nil {
@@ -1115,4 +1195,13 @@ func bareJID(addr string) string {
 		return addr[:i]
 	}
 	return addr
+}
+
+// resourcePart returns the resource part (after "/") of a full JID, or ""
+// if addr has none.
+func resourcePart(addr string) string {
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		return addr[i+1:]
+	}
+	return ""
 }

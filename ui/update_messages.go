@@ -776,6 +776,29 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case MissedCallMsg:
 		return m, m.showNotification("missed call from " + msg.From + " (busy)"), true
 
+	case hoverDevicesRevealMsg:
+		if msg.gen == m.hoverGen && m.hover != nil && m.hover.id == msg.id {
+			m.hover.devicesID = msg.id
+		}
+		return m, nil, true
+
+	case DeviceNameMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		chat, ok := m.accounts[msg.AccountIdx].Chats[chatIdx].(Chat)
+		if !ok {
+			return m, nil, true
+		}
+		chat = chat.withResourceName(msg.Resource, msg.Name)
+		m.accounts[msg.AccountIdx].Chats[chatIdx] = chat
+		if msg.AccountIdx == m.currentAccount {
+			cmd := m.chats.SetItem(chatIdx, chat)
+			return m, cmd, true
+		}
+		return m, nil, true
+
 	case PresenceMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
@@ -786,6 +809,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		chat.Presence = msg.Presence
+		chat = chat.withResource(msg.Resource, msg.Presence)
 		m.accounts[msg.AccountIdx].Chats[chatIdx] = chat
 		if msg.AccountIdx == m.currentAccount {
 			cmd := m.chats.SetItem(chatIdx, chat)

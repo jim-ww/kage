@@ -15,6 +15,7 @@ import (
 	"mellium.im/sasl"
 	"mellium.im/xmlstream"
 	"mellium.im/xmpp"
+	"mellium.im/xmpp/disco"
 	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/mux"
 	"mellium.im/xmpp/roster"
@@ -311,6 +312,29 @@ func (c *Client) ProbePresence(ctx context.Context, addr string) error {
 		return fmt.Errorf("parsing JID %q: %w", addr, err)
 	}
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.ProbePresence, To: j.Bare()}.Wrap(nil))
+}
+
+// DeviceName returns the human-readable client name a full JID (bare JID +
+// resource) advertises via its XEP-0030 disco#info identity - e.g. "kage",
+// "Conversations", "Gajim" - the same name most clients show a contact's
+// device as, rather than that device's raw (and often randomly-suffixed)
+// resourcepart. Returns "" if the response has no client identity, without
+// treating that as an error - some clients simply don't advertise one.
+func (c *Client) DeviceName(ctx context.Context, fullJID string) (string, error) {
+	j, err := jid.Parse(fullJID)
+	if err != nil {
+		return "", fmt.Errorf("parsing JID %q: %w", fullJID, err)
+	}
+	info, err := disco.GetInfo(ctx, "", j, c.session)
+	if err != nil {
+		return "", err
+	}
+	for _, id := range info.Identity {
+		if id.Category == "client" && id.Name != "" {
+			return id.Name, nil
+		}
+	}
+	return "", nil
 }
 
 // ResubscribeContact re-sends a presence subscription request to addr
