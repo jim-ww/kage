@@ -213,6 +213,35 @@ func (m Model) inputHeightMaxDrag() int {
 	return max(1, m.height-chatStatusHeight-3)
 }
 
+// expandedComposeHeight is the compose box's height while
+// composeExpanded — roughly half the chat pane, minus a little so the
+// viewport above it never fully disappears, clamped to inputHeightMaxDrag
+// like an ordinary drag would be.
+func (m Model) expandedComposeHeight() int {
+	return clamp(m.height/2-1, 1, m.inputHeightMaxDrag())
+}
+
+// toggleComposeExpand is bound to ToggleComposeExpand (ctrl+`): a quick way
+// to grow the compose box to expandedComposeHeight for pasting/editing a
+// longer message, and shrink it back on a second press. It reuses
+// inputHeightOverride (the same field a mouse-drag on the box's top border
+// sets) but, unlike a drag, never calls inputHeightSetter.SetInputHeight —
+// this is a transient view state, not a persisted preference, so
+// composeHeightBeforeExpand remembers whatever override (if any) was in
+// place before expanding rather than always reverting to the default.
+func (m Model) toggleComposeExpand() Model {
+	if m.composeExpanded {
+		m.inputHeightOverride = m.composeHeightBeforeExpand
+		m.composeExpanded = false
+	} else {
+		m.composeHeightBeforeExpand = m.inputHeightOverride
+		m.inputHeightOverride = m.expandedComposeHeight()
+		m.composeExpanded = true
+	}
+	m.updateSizes()
+	return m
+}
+
 // composeMultiline reports whether the compose box currently renders on more
 // than one row — used to let the up/down arrows move the textarea's cursor
 // instead of the selected message while there's more than one row to move

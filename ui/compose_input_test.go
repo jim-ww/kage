@@ -232,6 +232,52 @@ func TestComposeInputHeightOverride(t *testing.T) {
 	}
 }
 
+func ctrlBacktickKey() tea.KeyMsg { return tea.KeyPressMsg{Code: '`', Mod: tea.ModCtrl} }
+
+// TestComposeToggleExpand checks ctrl+` grows the compose box to roughly
+// half the chat pane and a second press shrinks it back — and that it
+// restores a pre-existing user drag (inputHeightOverride) rather than always
+// dropping to the default, without ever calling inputHeightSetter (this is
+// transient view state, not a persisted config value).
+func TestComposeToggleExpand(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.termHeight = 40
+	m.updateSizes()
+
+	next, _ := m.Update(ctrlBacktickKey())
+	m = next.(Model)
+	if !m.composeExpanded {
+		t.Fatal("composeExpanded should be true after ctrl+~")
+	}
+	if got, want := m.input.Height(), m.expandedComposeHeight(); got != want {
+		t.Fatalf("input Height() after expand = %d, want %d", got, want)
+	}
+	if want := m.height / 2; m.input.Height() < want-2 || m.input.Height() > want {
+		t.Fatalf("expanded input Height() = %d, want roughly half of m.height (%d)", m.input.Height(), m.height)
+	}
+
+	next, _ = m.Update(ctrlBacktickKey())
+	m = next.(Model)
+	if m.composeExpanded {
+		t.Fatal("composeExpanded should be false after a second ctrl+~")
+	}
+	if got := m.input.Height(); got != 1 {
+		t.Fatalf("input Height() after collapsing = %d, want 1 (back to default)", got)
+	}
+
+	// A prior drag is restored, not clobbered by the default.
+	m.inputHeightOverride = 3
+	m.updateSizes()
+	next, _ = m.Update(ctrlBacktickKey())
+	m = next.(Model)
+	next, _ = m.Update(ctrlBacktickKey())
+	m = next.(Model)
+	if got, want := m.inputHeightOverride, 3; got != want {
+		t.Fatalf("inputHeightOverride after expand+collapse = %d, want restored to %d", got, want)
+	}
+}
+
 // TestComposeMouseWheelScrollsOverflowingInput checks that a wheel event
 // over the compose box moves its cursor (and so its internal viewport, per
 // textarea's DynamicHeight/MaxHeight-clamped scrolling) once the message is

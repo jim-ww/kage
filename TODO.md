@@ -1,4 +1,3 @@
-- bind ctrl+~ to quickly toggle open bigger message textinput
 - change add ctrl+shift+y to copy draft message?
 - change drag & drop behavior: add dropped file as attachment, instead of sending right away. ensure multi-file drop is handled too
 - textinput long message reaching limit, cannot break on new line

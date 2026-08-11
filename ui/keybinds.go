@@ -46,6 +46,7 @@ type KeyMap struct {
 	RedoDraft             key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
 	ChangeStoragePassword key.Binding // Ctrl+Shift+P — change the local message/draft storage encryption password (accounts panel)
 	CallToggle            key.Binding // Ctrl+G — start a voice call to the open chat, or hang up the current call
+	ToggleComposeExpand   key.Binding // Ctrl+` — grow the compose box to ~half the chat pane, or shrink it back
 	Help                  key.Binding // Ctrl+? — open the full-keybindings help popup
 	ListKeys              list.KeyMap
 	TextInputKeys         textinput.KeyMap
@@ -130,6 +131,7 @@ var DefaultKeyMap = KeyMap{
 	ClearDraft:            NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
 	ChangeStoragePassword: NewBinding([]string{"ctrl+shift+p"}, "change storage password"),
 	CallToggle:            NewBinding([]string{"ctrl+g"}, "call"),
+	ToggleComposeExpand:   NewBinding([]string{"ctrl+`"}, "expand input"),
 	UndoDraft:             NewBinding([]string{"ctrl+z"}, "undo"),
 	RedoDraft:             NewBinding([]string{"ctrl+shift+z"}, "redo"),
 	// "ctrl+?" is the intended gesture (ctrl + the "?" that shares the "/"
@@ -265,6 +267,7 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.ClearDraft, "erase draft"},
 			{k.UndoDraft, "undo"},
 			{k.RedoDraft, "redo"},
+			{k.ToggleComposeExpand, "expand input"},
 		}
 		if hasPendingAttachments {
 			entries = append(entries, helpEntry{k.RemoveAttachment, "remove attachment"})

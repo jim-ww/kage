@@ -414,6 +414,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 
+	case matchesKey(msg, m.keys.ToggleComposeExpand):
+		if m.selectedView == viewChat {
+			return m.toggleComposeExpand(), nil, true
+		}
+
 	case matchesKey(msg, m.keys.ClearDraft):
 		if m.selectedView == viewChat && m.input.Value() != "" {
 			m.input.SetValue("")

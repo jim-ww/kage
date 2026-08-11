@@ -91,6 +91,16 @@ type Model struct {
 	// even if the pointer drifts off the border row mid-drag.
 	resizingInput bool
 
+	// composeExpanded is true while ToggleComposeExpand (ctrl+~) has grown
+	// the compose box to expandedComposeHeight(). It stashes whatever
+	// inputHeightOverride held before expanding (0 if the box was at its
+	// default size, or a user drag) in composeHeightBeforeExpand so toggling
+	// back restores exactly that instead of always dropping to the default —
+	// unlike a drag, this never calls inputHeightSetter.SetInputHeight, so
+	// it never touches the persisted config value.
+	composeExpanded           bool
+	composeHeightBeforeExpand int
+
 	accounts       []Account
 	currentAccount int
 	chats          list.Model
