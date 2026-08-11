@@ -115,7 +115,7 @@ func TestAddAccountFormFieldNavigationAndSubmit(t *testing.T) {
 		t.Fatal("expected a tea.Cmd to run AddAccount")
 	}
 
-	msg := cmd()
+	msg := nonIdleCmd(cmd)
 	next, _ = m.Update(msg)
 	m = next.(Model)
 
@@ -150,7 +150,7 @@ func TestAddAccountFormSubmitErrorKeepsFormOpen(t *testing.T) {
 
 	next, cmd := m.Update(keyCode(tea.KeyEnter))
 	m = next.(Model)
-	msg := cmd()
+	msg := nonIdleCmd(cmd)
 	next, _ = m.Update(msg)
 	m = next.(Model)
 
@@ -180,8 +180,8 @@ func TestAddAccountFormRequiresJID(t *testing.T) {
 
 	next, cmd := m.Update(keyCode(tea.KeyEnter))
 	m = next.(Model)
-	if cmd != nil {
-		t.Fatal("expected no cmd when JID is empty")
+	if msg := nonIdleCmd(cmd); msg != nil {
+		t.Fatalf("expected no cmd when JID is empty, got %T", msg)
 	}
 	if adder.calls != 0 {
 		t.Fatalf("expected no AddAccount calls, got %d", adder.calls)

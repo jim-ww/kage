@@ -120,8 +120,8 @@ func TestFilePickerEnterStagesAttachmentWithoutUploading(t *testing.T) {
 	// Select the file, then select it again — should toggle off.
 	next, cmd := m.Update(keyCode(tea.KeyEnter))
 	m = next.(Model)
-	if cmd != nil {
-		t.Fatal("staging a file must not start any command — nothing uploads until send")
+	if msg := nonIdleCmd(cmd); msg != nil {
+		t.Fatalf("staging a file must not start any command — nothing uploads until send, got %T", msg)
 	}
 	if !m.pickingFile {
 		t.Fatal("picker closed after selecting a file, want it to stay open for attaching more")
@@ -132,8 +132,8 @@ func TestFilePickerEnterStagesAttachmentWithoutUploading(t *testing.T) {
 
 	next, cmd = m.Update(keyCode(tea.KeyEnter))
 	m = next.(Model)
-	if cmd != nil {
-		t.Fatal("staging a file must not start any command — nothing uploads until send")
+	if msg := nonIdleCmd(cmd); msg != nil {
+		t.Fatalf("staging a file must not start any command — nothing uploads until send, got %T", msg)
 	}
 	if len(m.pendingAttachments) != 0 {
 		t.Fatalf("pendingAttachments = %#v, want re-selecting the same file to deselect it", m.pendingAttachments)

@@ -99,7 +99,7 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("submitting a valid new+confirm pair should return a cmd")
 	}
-	msg := cmd()
+	msg := nonIdleCmd(cmd)
 	result, ok := msg.(StoragePasswordChangedMsg)
 	if !ok {
 		t.Fatalf("cmd produced %T, want StoragePasswordChangedMsg", msg)

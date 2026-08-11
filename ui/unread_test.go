@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/list"
@@ -22,6 +25,39 @@ func runCmd(cmd tea.Cmd) {
 			runCmd(c)
 		}
 	}
+}
+
+// isIdleTimerCmd reports whether cmd is the idle-activity tea.Tick command
+// that Model.Update batches onto every keyboard/mouse message (see
+// isActivityMsg in update.go). Tests asserting "no cmd" after a keypress
+// need to exclude it, since invoking it would block on notifyIdleTimeout's
+// real 10-minute timer.
+func isIdleTimerCmd(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	name := runtime.FuncForPC(reflect.ValueOf(cmd).Pointer()).Name()
+	return strings.Contains(name, "bubbletea/v2.Tick.func1")
+}
+
+// nonIdleCmd runs cmd, unwrapping any tea.BatchMsg, and returns the first
+// resulting message that isn't the idle-activity timer — or nil if that
+// timer was the only thing batched. Sub-commands identified as the idle
+// timer are never invoked.
+func nonIdleCmd(cmd tea.Cmd) tea.Msg {
+	if cmd == nil || isIdleTimerCmd(cmd) {
+		return nil
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			if m := nonIdleCmd(c); m != nil {
+				return m
+			}
+		}
+		return nil
+	}
+	return msg
 }
 
 // fakeReadTrackerSender combines fakeSuccessSender with ChatReadTracker so

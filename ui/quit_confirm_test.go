@@ -19,8 +19,8 @@ func TestQuitAsksForConfirmation(t *testing.T) {
 	if nm.confirmTarget != confirmQuit {
 		t.Fatalf("confirmTarget = %v, want confirmQuit", nm.confirmTarget)
 	}
-	if cmd != nil {
-		t.Fatalf("expected no cmd while opening the quit popup, got one")
+	if msg := nonIdleCmd(cmd); msg != nil {
+		t.Fatalf("expected no cmd while opening the quit popup, got %T", msg)
 	}
 
 	// 'n' dismisses without quitting.
@@ -29,8 +29,8 @@ func TestQuitAsksForConfirmation(t *testing.T) {
 	if nm.confirmTarget != confirmNone {
 		t.Fatalf("confirmTarget = %v after 'n', want confirmNone", nm.confirmTarget)
 	}
-	if cmd != nil {
-		t.Fatalf("expected no cmd after cancelling quit, got one")
+	if msg := nonIdleCmd(cmd); msg != nil {
+		t.Fatalf("expected no cmd after cancelling quit, got %T", msg)
 	}
 
 	// Re-open and confirm with 'y': must yield tea.Quit.
@@ -40,8 +40,8 @@ func TestQuitAsksForConfirmation(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected a tea.Quit cmd after confirming quit, got nil")
 	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatalf("expected cmd to produce tea.QuitMsg, got %T", cmd())
+	if _, ok := nonIdleCmd(cmd).(tea.QuitMsg); !ok {
+		t.Fatalf("expected cmd to produce tea.QuitMsg, got %T", nonIdleCmd(cmd))
 	}
 }
 
@@ -55,7 +55,7 @@ func TestCtrlCQuitsWithoutConfirmation(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected a tea.Quit cmd from ctrl+c, got nil")
 	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatalf("expected cmd to produce tea.QuitMsg, got %T", cmd())
+	if _, ok := nonIdleCmd(cmd).(tea.QuitMsg); !ok {
+		t.Fatalf("expected cmd to produce tea.QuitMsg, got %T", nonIdleCmd(cmd))
 	}
 }
