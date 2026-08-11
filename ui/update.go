@@ -58,16 +58,53 @@ func writePasteAsFile(content string) (string, error) {
 	return path, nil
 }
 
-// droppedFilePath recognizes bracketed-paste content that is actually a
-// dragged-and-dropped file rather than typed/pasted text: terminals deliver a
-// drop as the file's absolute path (some as a file:// URI), pasted as a
-// single line. Multi-line content, or content that isn't an existing regular
-// file, is left alone so it reaches the compose input as normal paste text.
-func droppedFilePath(content string) (string, bool) {
+// droppedFilePaths recognizes bracketed-paste content that is actually one
+// or more dragged-and-dropped files rather than typed/pasted text: terminals
+// deliver a drop as the file's absolute path (some as a file:// URI); a
+// multi-file drop is delivered either as one path per line, or as several
+// paths space-separated (quoted individually if they contain spaces) on a
+// single line, depending on the terminal. Content that doesn't fully resolve
+// to existing regular files is left alone so it reaches the compose input as
+// normal paste text.
+func droppedFilePaths(content string) ([]string, bool) {
 	content = strings.TrimSpace(content)
-	if content == "" || strings.ContainsAny(content, "\n\r") {
-		return "", false
+	if content == "" {
+		return nil, false
 	}
+	if !strings.ContainsAny(content, "\n\r") {
+		if path, ok := resolveDroppedPath(content); ok {
+			return []string{path}, true
+		}
+		return resolveDroppedPaths(splitQuotedTokens(content))
+	}
+	return resolveDroppedPaths(strings.Split(content, "\n"))
+}
+
+// resolveDroppedPaths resolves every token to an existing regular file,
+// failing the whole batch (rather than a partial one) if any token doesn't
+// resolve.
+func resolveDroppedPaths(tokens []string) ([]string, bool) {
+	paths := make([]string, 0, len(tokens))
+	for _, t := range tokens {
+		t = strings.TrimSpace(strings.TrimRight(t, "\r"))
+		if t == "" {
+			continue
+		}
+		path, ok := resolveDroppedPath(t)
+		if !ok {
+			return nil, false
+		}
+		paths = append(paths, path)
+	}
+	if len(paths) == 0 {
+		return nil, false
+	}
+	return paths, true
+}
+
+// resolveDroppedPath resolves a single bracketed-paste token to an existing
+// regular file's path, or reports false if it isn't one.
+func resolveDroppedPath(content string) (string, bool) {
 	path := content
 	if u, err := url.Parse(content); err == nil && u.Scheme == "file" && u.Path != "" {
 		path = u.Path
@@ -78,6 +115,40 @@ func droppedFilePath(content string) (string, bool) {
 		return "", false
 	}
 	return path, true
+}
+
+// splitQuotedTokens splits a single-line paste on whitespace, treating a
+// '"'- or '\''-quoted run as one token — the shape some terminals use to
+// deliver several dropped file paths (individually quoted if they contain
+// spaces) on one line.
+func splitQuotedTokens(s string) []string {
+	var tokens []string
+	var cur strings.Builder
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else {
+				cur.WriteByte(c)
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == ' ':
+			if cur.Len() > 0 {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens
 }
 
 // isActivityMsg reports whether msg represents real keyboard/mouse input,
@@ -197,15 +268,17 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		}
 	case viewChat:
 		// Dragging a file onto most terminal emulators isn't a distinct
-		// bubbletea event — the terminal just bracketed-pastes the file's
-		// absolute path as text. Treat a paste that resolves to a single
-		// existing file, rather than typed/pasted prose, as a drop and
-		// upload it instead of inserting the path into the compose box.
+		// bubbletea event — the terminal just bracketed-pastes the dropped
+		// file's absolute path(s) as text. Treat a paste that resolves
+		// entirely to existing files, rather than typed/pasted prose, as a
+		// drop and stage them as pending attachments instead of inserting
+		// the path into the compose box.
 		if pasteMsg, ok := msg.(tea.PasteMsg); ok {
-			if path, ok := droppedFilePath(pasteMsg.Content); ok {
-				chat, _ := m.currentChat()
-				model, cmd := m.startFileUpload(chat.Address, path)
-				return model, cmd
+			if paths, ok := droppedFilePaths(pasteMsg.Content); ok {
+				for _, path := range paths {
+					m.stageAttachment(path)
+				}
+				return m, nil
 			}
 			// A long paste (log dump, code, config) or a binary one (e.g.
 			// an image copied in a browser landing here as raw bytes) is

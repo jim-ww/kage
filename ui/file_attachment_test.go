@@ -758,7 +758,11 @@ func TestIncomingMessageInitializesMissingMessageMap(t *testing.T) {
 	}
 }
 
-func TestDraggedFilePastedIntoChatStartsFileSend(t *testing.T) {
+// TestDraggedFilePastedIntoChatStagesAttachment verifies a single-file drop
+// stages it as a pending attachment (like the file picker) instead of
+// uploading and sending it immediately - nothing touches the network until
+// the message is actually sent.
+func TestDraggedFilePastedIntoChatStagesAttachment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.pdf")
 	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
@@ -775,19 +779,74 @@ func TestDraggedFilePastedIntoChatStartsFileSend(t *testing.T) {
 
 	next, cmd := m.Update(tea.PasteMsg{Content: path})
 	m = next.(Model)
-	if m.noticeText != "uploading report.pdf..." {
-		t.Fatalf("notice = %q, want upload progress", m.noticeText)
+	if cmd != nil {
+		t.Fatal("dropping a file must not start any command — nothing uploads until send")
 	}
-	if cmd == nil {
-		t.Fatal("dropping a file did not start a send command")
+	if len(m.pendingAttachments) != 1 || m.pendingAttachments[0].path != path {
+		t.Fatalf("pendingAttachments = %#v, want %q staged", m.pendingAttachments, path)
 	}
-	_ = cmd()
-	if sender.path != path {
-		t.Fatalf("sent path = %q, want %q", sender.path, path)
+	if sender.path != "" {
+		t.Fatalf("UploadFile/SendFile was called on drop (path=%q), want no upload before send", sender.path)
 	}
 	if strings.Contains(m.input.Value(), path) {
 		t.Fatal("dropped file path leaked into the compose input")
 	}
+}
+
+// TestMultiFileDroppedIntoChatStagesEachAttachment verifies a multi-file drop
+// (delivered as either newline-separated paths, or space-separated
+// individually-quoted paths on one line, depending on the terminal) stages
+// every file rather than only the first.
+func TestMultiFileDroppedIntoChatStagesEachAttachment(t *testing.T) {
+	dir := t.TempDir()
+	pathA := filepath.Join(dir, "a.jpg")
+	pathB := filepath.Join(dir, "b png.png") // exercises the quoted-token split
+	for _, p := range []string{pathA, pathB} {
+		if err := os.WriteFile(p, []byte("contents"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	newModel := func() Model {
+		m := newTestModelWithSender(&fakeFileSender{}, nil)
+		m.selectedView = viewChat
+		chat := Chat{Name: "Bob", Address: "bob@example.test"}
+		m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+		if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+			_ = cmd()
+		}
+		return m
+	}
+
+	assertBothStaged := func(t *testing.T, m Model) {
+		t.Helper()
+		if len(m.pendingAttachments) != 2 {
+			t.Fatalf("pendingAttachments = %#v, want 2 staged", m.pendingAttachments)
+		}
+		if m.pendingAttachments[0].path != pathA || m.pendingAttachments[1].path != pathB {
+			t.Fatalf("pendingAttachments = %#v, want %q then %q", m.pendingAttachments, pathA, pathB)
+		}
+	}
+
+	t.Run("newline separated", func(t *testing.T) {
+		m := newModel()
+		next, cmd := m.Update(tea.PasteMsg{Content: pathA + "\n" + pathB})
+		m = next.(Model)
+		if cmd != nil {
+			t.Fatal("multi-file drop must not start any command — nothing uploads until send")
+		}
+		assertBothStaged(t, m)
+	})
+
+	t.Run("space separated, quoted", func(t *testing.T) {
+		m := newModel()
+		next, cmd := m.Update(tea.PasteMsg{Content: pathA + " '" + pathB + "'"})
+		m = next.(Model)
+		if cmd != nil {
+			t.Fatal("multi-file drop must not start any command — nothing uploads until send")
+		}
+		assertBothStaged(t, m)
+	})
 }
 
 func TestPastedTextThatIsNotAFilePathGoesToInput(t *testing.T) {

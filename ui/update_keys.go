@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -9,41 +8,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
-
-// startFileUpload kicks off an asynchronous upload+send of the local file at
-// path to the given chat address, shared by both the file-picker's
-// DidSelectFile path and drag-and-drop.
-func (m Model) startFileUpload(to, path string) (Model, tea.Cmd) {
-	if m.fileSender == nil {
-		return m, m.showNotification("file sending unavailable")
-	}
-	if to == "" {
-		return m, m.showNotification("no chat selected")
-	}
-	accountIdx := m.currentAccount
-
-	// An attachment can be sent in reply, same as a text message: carry
-	// whatever m.replyToIdx points at and clear it, mirroring the text-send
-	// path in message_actions.go.
-	var opts SendOptions
-	if m.replyToIdx >= 0 {
-		if msgs := m.currentMessages(); m.replyToIdx < len(msgs) && msgs[m.replyToIdx].ID != "" {
-			opts = SendOptions{
-				ReplyToID:    msgs[m.replyToIdx].ID,
-				QuotedAuthor: msgs[m.replyToIdx].Author,
-				QuotedBody:   MessagePreviewContent(msgs[m.replyToIdx]),
-			}
-		}
-		m.replyToIdx = -1
-	}
-
-	// Uploading can take a while and runs asynchronously; make the
-	// accepted selection visible immediately instead of leaving the
-	// user looking at an unchanged chat.
-	m.noticeID++
-	m.noticeText = "uploading " + filepath.Base(path) + "..."
-	return m, func() tea.Msg { return m.fileSender.SendFile(accountIdx, to, path, opts) }
-}
 
 // updateKeyMsg handles every tea.KeyMsg. handled is false only when the key
 // didn't match anything and should fall through to Update's focused-component
