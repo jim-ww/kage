@@ -47,6 +47,10 @@ func lockFilePath() (string, error) {
 	return filepath.Join(dir, "daemon.lock"), nil
 }
 
+// logFilePath returns the daemon's stdio-redirect log destination, the same
+// debug.log file main.go's setupLog wires slog to — so daemon stdout/stderr
+// (panics, third-party library output, anything not going through slog) ends
+// up interleaved with the daemon's own slog lines in one file.
 func logFilePath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -56,7 +60,7 @@ func logFilePath() (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "daemon.log"), nil
+	return filepath.Join(dir, "debug.log"), nil
 }
 
 // acquireLock takes a non-blocking exclusive flock on path. ok is false
@@ -117,7 +121,7 @@ func probeSocket(sockPath string) bool {
 
 // EnsureRunning makes sure a kage background service is listening on the
 // ipc socket for cfgPath's config, spawning one (detached, own session,
-// stdio redirected to daemon.log) if none answers yet, and returns once
+// stdio redirected to debug.log) if none answers yet, and returns once
 // it's confirmed reachable or a short retry budget is exhausted.
 // Best-effort: any failure here is logged by the caller, never fatal to
 // starting the TUI.
@@ -137,7 +141,7 @@ func EnsureRunning(cfgPath string, debug bool, debugXML bool) error {
 
 	logPath, err := logFilePath()
 	if err != nil {
-		return fmt.Errorf("locating daemon log file: %w", err)
+		return fmt.Errorf("locating log file: %w", err)
 	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
