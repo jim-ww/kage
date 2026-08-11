@@ -34,6 +34,7 @@ func (m Model) renderSearchChatPopup() string {
 type searchResultsState struct {
 	accountIdx  int
 	chatAddress string
+	peerName    string // the chat's display name, for authorFilter's label
 	query       string
 	pagedCursor
 
@@ -45,7 +46,7 @@ type searchResultsState struct {
 }
 
 // authorFilter narrows the search-results popup to messages from one
-// participant, cycled with the 'a' key. Only "all"/"me"/"them" for now,
+// participant, cycled with the 'a' key. Only "all"/"me"/<peer> for now,
 // matching kage's current 1:1-chat-only model — a chat with more than two
 // participants (group chat) would need a picker instead of a 3-way cycle,
 // but that's a change local to this filter, not the search itself.
@@ -57,12 +58,15 @@ const (
 	authorFilterThem
 )
 
-func (f authorFilter) label() string {
+// label names f, using peerName (the chat's display name) for
+// authorFilterThem rather than a generic "them" — in a 1:1 chat "them" is
+// always one specific, already-known person.
+func (f authorFilter) label(peerName string) string {
 	switch f {
 	case authorFilterMe:
 		return "me"
 	case authorFilterThem:
-		return "them"
+		return peerName
 	default:
 		return "all"
 	}
@@ -115,7 +119,7 @@ func (m Model) searchResultsPrompt() string {
 	}
 	matches := sr.filteredMatches()
 	if len(matches) == 0 {
-		return m.styles.infoPopup(title, []string{fmt.Sprintf("No matches (author: %s)", sr.author.label())}, closeKey)
+		return m.styles.infoPopup(title, []string{fmt.Sprintf("No matches (author: %s)", sr.author.label(sr.peerName))}, closeKey)
 	}
 
 	start, end := sr.bounds(len(matches))
@@ -141,7 +145,7 @@ func (m Model) searchResultsPrompt() string {
 		rows = append(rows, m.renderRow(zoneSearchResultRow(i), i, sr.cursor, label))
 	}
 
-	hint := fmt.Sprintf("a: author (%s) · enter: jump to message", sr.author.label())
+	hint := fmt.Sprintf("a: author (%s) · enter: jump to message", sr.author.label(sr.peerName))
 	if pages := openPageCount(len(matches)); pages > 1 {
 		hint = fmt.Sprintf("page %d/%d · left/right: page · %s", sr.page+1, pages, hint)
 	}

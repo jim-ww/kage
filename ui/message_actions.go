@@ -318,7 +318,7 @@ func (m *Model) submitSearchChat() tea.Cmd {
 
 	accountIdx := m.currentAccount
 	to := chat.Address
-	m.searchResults = &searchResultsState{accountIdx: accountIdx, chatAddress: to, query: query, busy: true}
+	m.searchResults = &searchResultsState{accountIdx: accountIdx, chatAddress: to, peerName: chat.Name, query: query, busy: true}
 	return m.historySearcher.SearchHistory(accountIdx, to, query)
 }
 
