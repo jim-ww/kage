@@ -190,6 +190,16 @@ type Model struct {
 	// rather than permanently suppressing notifications.
 	focused bool
 
+	// idle tracks whether notifyIdleTimeout has elapsed since the last
+	// keyboard/mouse activity — reported to the daemon alongside focused
+	// (see FocusReporter) so a chat left open and untouched for a long
+	// stretch doesn't permanently blackhole notifications for whichever
+	// chat happened to be on screen when the user actually stepped away.
+	// idleGen is bumped on every activity so a stale idleMsg from before
+	// the latest keystroke/click is ignored (mirrors typingGen).
+	idle    bool
+	idleGen int
+
 	// loadingOlderHistory marks chat indices with a LoadOlderHistory fetch
 	// currently in flight, so scrolling/MsgUp near the top of a long history
 	// doesn't fire duplicate requests while the first is still pending.
@@ -458,5 +468,20 @@ func (m Model) newAddAccountForm() [3]textinput.Model {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, func() tea.Msg { return openPendingChatMsg{} })
+	cmds := []tea.Cmd{textinput.Blink, func() tea.Msg { return openPendingChatMsg{} }, idleTimer(m.idleGen)}
+	// Report the model's real starting state right away - it's constructed
+	// already in viewChat (see New), so the diff-based reporting in Update
+	// would otherwise never notice this as a "change" and the daemon would
+	// keep assuming no chat is open (its post-disconnect default) until the
+	// user does something that actually changes focus/chat.
+	if m.focusReporter != nil {
+		accountJID, chatAddress := m.activeChatKey()
+		focused := m.focused && !m.idle
+		reporter := m.focusReporter
+		cmds = append(cmds, func() tea.Msg {
+			_ = reporter.SetFocusState(accountJID, chatAddress, focused)
+			return nil
+		})
+	}
+	return tea.Batch(cmds...)
 }

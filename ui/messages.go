@@ -285,6 +285,25 @@ func draftSaveTimer(accountIdx int, addr string, gen int) tea.Cmd {
 	})
 }
 
+// notifyIdleTimeout is how long the UI can sit with no keyboard/mouse
+// activity before we tell the daemon the user probably isn't actually
+// looking anymore, even if the terminal still has OS focus and a chat is
+// still open — see Model.idle.
+const notifyIdleTimeout = 10 * time.Minute
+
+// idleMsg fires notifyIdleTimeout after the last detected activity. gen
+// must still match Model.idleGen when it arrives — otherwise activity since
+// then already rearmed the timer and this one is stale.
+type idleMsg struct {
+	gen int
+}
+
+func idleTimer(gen int) tea.Cmd {
+	return tea.Tick(notifyIdleTimeout, func(time.Time) tea.Msg {
+		return idleMsg{gen: gen}
+	})
+}
+
 // AccountAdder connects and persists a new XMPP account, implemented outside
 // ui (main.go's adapter) so ui stays decoupled from the network/config
 // layers. Runs on the Bubble Tea event loop's goroutine via a tea.Cmd, so it
