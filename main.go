@@ -264,7 +264,8 @@ func newRootCmd() *cobra.Command {
 // wizard if no accounts exist yet, make sure the background daemon is up,
 // and launch the Bubble Tea program.
 func runTUI(cfgPath string, debug bool, debugXML bool) error {
-	setupLog(cmp.Or(debug, os.Getenv("KAGE_DEBUG") != ""))
+	debug = cmp.Or(debug, os.Getenv("KAGE_DEBUG") != "")
+	setupLog(debug)
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {

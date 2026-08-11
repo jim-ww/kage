@@ -1,4 +1,3 @@
-- add KAGE_DEBUG variable instead/in addition of/to flag?
 - combine debug.log and daemon.log into one
 - add proper login/register modal
 - uploading your own files must not download them from server (must be downloaded)
