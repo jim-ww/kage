@@ -36,19 +36,29 @@ func levenshtein(a, b string) int {
 	return prev[len(br)]
 }
 
-// fuzzyContains reports whether content has a word within typo-tolerant
-// Levenshtein distance of query — used by the search-results popup's '/'
-// filter, so e.g. "recieve" still matches a message containing "receive".
-// The threshold scales with query length (a third of its rune count,
-// minimum 1) so short queries still require a close match rather than
-// matching almost anything.
+// fuzzyContains reports whether content contains query as a plain substring
+// or, failing that, has a word within typo-tolerant Levenshtein distance of
+// it — used by the search-results popup's '/' filter. The substring check
+// comes first and is what makes live-as-you-type filtering work at all: a
+// short/partial query like "m" is a plain prefix of "message", but
+// Levenshtein distance alone rejects it (word/query length mismatch
+// dominates the score long before the word is fully typed) — plain
+// substring containment has no such bias against short queries, so it
+// always wins when it applies. Levenshtein only kicks in as a fallback,
+// for a genuine typo like "recieve" that isn't a substring of "receive" at
+// all. Its threshold scales with query length (a third of its rune count,
+// minimum 1) so short queries still require a close match.
 func fuzzyContains(content, query string) bool {
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
 		return true
 	}
+	lowerContent := strings.ToLower(content)
+	if strings.Contains(lowerContent, query) {
+		return true
+	}
 	threshold := max(1, len([]rune(query))/3)
-	for _, word := range strings.FieldsFunc(strings.ToLower(content), func(r rune) bool {
+	for _, word := range strings.FieldsFunc(lowerContent, func(r rune) bool {
 		return !isWordRune(r)
 	}) {
 		if levenshtein(word, query) <= threshold {

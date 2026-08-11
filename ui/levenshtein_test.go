@@ -31,6 +31,14 @@ func TestFuzzyContains(t *testing.T) {
 		{"exact match here", "match", true},
 		{"", "match", false},
 		{"anything", "", true},
+		// Regression: a short/partial query (as typed live, one keystroke at
+		// a time) must match as a plain prefix/substring, not get rejected
+		// by Levenshtein distance just because "m" and "message" are very
+		// different lengths.
+		{"Test message", "m", true},
+		{"Test message", "me", true},
+		{"Test message", "mes", true},
+		{"Test message", "message", true},
 	}
 	for _, tt := range tests {
 		if got := fuzzyContains(tt.content, tt.query); got != tt.want {
