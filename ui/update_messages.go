@@ -287,7 +287,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			if m.selectedMsg >= len(combined) {
 				m.selectedMsg = len(combined) - 1
 			}
-			m.refreshViewportScrollTo(m.selectedMsg)
+			m.refreshViewportFullScrollTo(m.selectedMsg)
 		}
 		return m, nil, true
 

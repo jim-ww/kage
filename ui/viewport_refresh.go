@@ -77,15 +77,37 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 	m.viewport.SetContentLines(m.viewportLines)
 }
 
-// refreshViewportScrollTo re-renders and, like vim's scrolloff, keeps the
-// selected message at least scrollMargin lines away from whichever edge of
-// the viewport it's approaching — once it gets that close, the viewport
-// scrolls in lockstep so the message holds that same distance from the edge
-// on every subsequent move, instead of sitting still until it hits the edge
-// and then snapping back. If the message is already further than the margin
-// from both edges, the viewport doesn't move at all.
-func (m *Model) refreshViewportScrollTo(msgIdx int) {
+// refreshViewportScrollTo re-renders only the messages at oldIdx and msgIdx
+// (like refreshViewportSelection — see its doc comment) and, like vim's
+// scrolloff, keeps the selected message at least scrollMargin lines away
+// from whichever edge of the viewport it's approaching — once it gets that
+// close, the viewport scrolls in lockstep so the message holds that same
+// distance from the edge on every subsequent move, instead of sitting still
+// until it hits the edge and then snapping back. If the message is already
+// further than the margin from both edges, the viewport doesn't move at
+// all. Used for keyboard navigation (MsgUp/MsgDown/HalfPageUp/HalfPageDown):
+// a full refreshViewport() there made the selection visibly lag behind rapid
+// key presses in chats with many messages, the same issue
+// refreshViewportSelection already fixed for mouse motion.
+func (m *Model) refreshViewportScrollTo(oldIdx, msgIdx int) {
+	m.refreshViewportSelection(oldIdx, msgIdx)
+	m.applyScrollMargin(msgIdx)
+}
+
+// refreshViewportFullScrollTo is refreshViewportScrollTo's full-re-render
+// counterpart, for callers where every message's offset may have shifted
+// (e.g. OlderHistoryMsg prepending a page) so the incremental
+// refreshViewportSelection patch — which assumes only oldIdx/msgIdx's own
+// lines changed — cannot be used.
+func (m *Model) refreshViewportFullScrollTo(msgIdx int) {
 	m.refreshViewport()
+	m.applyScrollMargin(msgIdx)
+}
+
+// applyScrollMargin is the scrolloff logic shared by
+// refreshViewportScrollTo/refreshViewportFullScrollTo — see
+// refreshViewportScrollTo's doc comment.
+func (m *Model) applyScrollMargin(msgIdx int) {
 	if msgIdx < 0 || msgIdx >= len(m.msgOffsets) {
 		return
 	}

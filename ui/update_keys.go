@@ -459,10 +459,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, tea.Batch(cmds...), true
 		}
 		if m.selectedView == viewChat && m.selectedMsg > 0 {
+			old := m.selectedMsg
 			m.selectedMsg--
 			m.lastClickedMsgIdx = -1
 			m.lastClickTime = time.Time{}
-			m.refreshViewportScrollTo(m.selectedMsg)
+			m.refreshViewportScrollTo(old, m.selectedMsg)
 			return m, nil, true
 		}
 		if m.selectedView == viewChat && m.selectedMsg == 0 {
@@ -483,10 +484,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				return m, nil, true
 			}
 			if m.selectedMsg < len(m.currentMessages())-1 {
+				old := m.selectedMsg
 				m.selectedMsg++
 				m.lastClickedMsgIdx = -1
 				m.lastClickTime = time.Time{}
-				m.refreshViewportScrollTo(m.selectedMsg)
+				m.refreshViewportScrollTo(old, m.selectedMsg)
 				return m, nil, true
 			}
 		}
@@ -498,10 +500,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if m.selectedView == viewChat && m.currentChatIndex() >= 0 {
 			step := max(1, m.visibleMessageCount()/2)
 			if m.selectedMsg > 0 {
+				old := m.selectedMsg
 				m.selectedMsg = max(0, m.selectedMsg-step)
 				m.lastClickedMsgIdx = -1
 				m.lastClickTime = time.Time{}
-				m.refreshViewportScrollTo(m.selectedMsg)
+				m.refreshViewportScrollTo(old, m.selectedMsg)
 				return m, nil, true
 			}
 			return m, m.maybeLoadOlderHistory(), true
@@ -511,10 +514,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if m.selectedView == viewChat && m.currentChatIndex() >= 0 {
 			step := max(1, m.visibleMessageCount()/2)
 			if last := len(m.currentMessages()) - 1; m.selectedMsg < last {
+				old := m.selectedMsg
 				m.selectedMsg = min(last, m.selectedMsg+step)
 				m.lastClickedMsgIdx = -1
 				m.lastClickTime = time.Time{}
-				m.refreshViewportScrollTo(m.selectedMsg)
+				m.refreshViewportScrollTo(old, m.selectedMsg)
 				return m, nil, true
 			}
 		}

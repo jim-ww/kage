@@ -481,8 +481,9 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				clickTime := time.Now()
 				isDoubleClick := m.lastClickedMsgIdx == i && !m.lastClickTime.IsZero() && clickTime.Sub(m.lastClickTime) < 500*time.Millisecond
 
+				old := m.selectedMsg
 				m.selectedMsg = i
-				m.refreshViewportScrollTo(i)
+				m.refreshViewportScrollTo(old, i)
 
 				if isDoubleClick {
 					// Double-click: open the message
@@ -608,8 +609,9 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		msgs := m.currentMessages()
 		for i := range msgs {
 			if m.zone.Get(zoneMessage(i)).InBounds(msg) {
+				old := m.selectedMsg
 				m.selectedMsg = i
-				m.refreshViewportScrollTo(i)
+				m.refreshViewportScrollTo(old, i)
 				m.lastClickedMsgIdx = -1
 				m.lastClickTime = time.Time{}
 				m.openContextMenu(m.messageContextMenuItems(i))

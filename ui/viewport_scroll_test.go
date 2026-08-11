@@ -58,8 +58,9 @@ func TestRefreshViewportScrollToLeavesMargin(t *testing.T) {
 
 	// Scroll down past the bottom edge: selection lands with margin lines
 	// still below it, not flush against the last visible row.
+	old := m.selectedMsg
 	m.selectedMsg = 30
-	m.refreshViewportScrollTo(m.selectedMsg)
+	m.refreshViewportScrollTo(old, m.selectedMsg)
 
 	top := m.viewport.YOffset()
 	bottom := top + viewportHeight - 1
@@ -73,8 +74,9 @@ func TestRefreshViewportScrollToLeavesMargin(t *testing.T) {
 
 	// Now scroll back up past the top edge: should land with margin above
 	// it, not flush against the first visible row.
+	old = m.selectedMsg
 	m.selectedMsg = 2
-	m.refreshViewportScrollTo(m.selectedMsg)
+	m.refreshViewportScrollTo(old, m.selectedMsg)
 
 	top = m.viewport.YOffset()
 	bottom = top + viewportHeight - 1
@@ -99,13 +101,15 @@ func TestRefreshViewportScrollToPinsCursorNearEdge(t *testing.T) {
 	m := newScrollTestModel(t, 40, viewportHeight)
 
 	// Get near the bottom edge first.
+	old := m.selectedMsg
 	m.selectedMsg = 20
-	m.refreshViewportScrollTo(m.selectedMsg)
+	m.refreshViewportScrollTo(old, m.selectedMsg)
 	row := m.msgOffsets[m.selectedMsg] - m.viewport.YOffset()
 
 	for i := 0; i < 5; i++ {
+		old = m.selectedMsg
 		m.selectedMsg++
-		m.refreshViewportScrollTo(m.selectedMsg)
+		m.refreshViewportScrollTo(old, m.selectedMsg)
 		gotRow := m.msgOffsets[m.selectedMsg] - m.viewport.YOffset()
 		if gotRow != row {
 			t.Fatalf("step %d: message row within viewport changed from %d to %d, want it pinned", i, row, gotRow)
@@ -113,13 +117,15 @@ func TestRefreshViewportScrollToPinsCursorNearEdge(t *testing.T) {
 	}
 
 	// Same check moving up toward the top edge.
+	old = m.selectedMsg
 	m.selectedMsg = 10
-	m.refreshViewportScrollTo(m.selectedMsg)
+	m.refreshViewportScrollTo(old, m.selectedMsg)
 	row = m.msgOffsets[m.selectedMsg] - m.viewport.YOffset()
 
 	for i := 0; i < 5; i++ {
+		old = m.selectedMsg
 		m.selectedMsg--
-		m.refreshViewportScrollTo(m.selectedMsg)
+		m.refreshViewportScrollTo(old, m.selectedMsg)
 		gotRow := m.msgOffsets[m.selectedMsg] - m.viewport.YOffset()
 		if gotRow != row {
 			t.Fatalf("step %d: message row within viewport changed from %d to %d, want it pinned", i, row, gotRow)
@@ -135,12 +141,14 @@ func TestRefreshViewportScrollToNoopWhenAlreadyVisible(t *testing.T) {
 	const viewportHeight = 20
 	m := newScrollTestModel(t, 5, viewportHeight)
 
+	old := m.selectedMsg
 	m.selectedMsg = 2
-	m.refreshViewportScrollTo(m.selectedMsg)
+	m.refreshViewportScrollTo(old, m.selectedMsg)
 	before := m.viewport.YOffset()
 
+	old = m.selectedMsg
 	m.selectedMsg = 3
-	m.refreshViewportScrollTo(m.selectedMsg)
+	m.refreshViewportScrollTo(old, m.selectedMsg)
 	after := m.viewport.YOffset()
 
 	if before != after {

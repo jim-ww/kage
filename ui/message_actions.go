@@ -310,8 +310,9 @@ func (m *Model) actionEditMessage() tea.Cmd {
 	if len(msgs[idx].Attachments) > 0 {
 		return m.showNotification("can't edit attachments")
 	}
+	old := m.selectedMsg
 	m.selectedMsg = idx
-	m.refreshViewportScrollTo(idx)
+	m.refreshViewportScrollTo(old, idx)
 	m.stashDraftForCompose()
 	m.editingMsgIdx = idx
 	m.input.SetValue(msgs[idx].Content)
