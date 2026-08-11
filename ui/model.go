@@ -325,6 +325,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	ti.ShowLineNumbers = false
 	ti.KeyMap = keys.InputAreaKeys
 	ti.DynamicHeight = true
+	ti.MaxContentHeight = composeMaxContentHeight
 	ti.MinHeight = 1
 	ti.MaxHeight = inputMaxHeight
 	if initialInputHeight > 0 {

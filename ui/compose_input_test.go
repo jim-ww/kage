@@ -94,6 +94,32 @@ func TestComposeShiftEnterInsertsNewline(t *testing.T) {
 	}
 }
 
+// TestComposeManyNewlinesNotBlocked checks that alt+enter keeps inserting
+// newlines well past inputMaxHeight logical lines. The compose box's
+// MaxContentHeight must be set (see composeMaxContentHeight in layout.go):
+// left at 0, textarea.Model falls back to blocking InsertNewline once the
+// logical line count reaches MaxHeight (inputMaxHeight, the *visible*
+// viewport cap) — alt+enter would silently stop working after a handful of
+// manual newlines even though a single long line keeps soft-wrapping and
+// scrolling forever.
+func TestComposeManyNewlinesNotBlocked(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.accounts = []Account{{Name: "me", Chats: nil, Messages: map[int][]Message{}}}
+
+	const lines = inputMaxHeight * 3
+	for i := 0; i < lines; i++ {
+		next, _ := m.Update(altEnterKey())
+		m = next.(Model)
+	}
+	next, _ := m.Update(keyText("x"))
+	m = next.(Model)
+
+	if got, want := m.input.LineCount(), lines+1; got != want {
+		t.Fatalf("input LineCount() after %d alt+enter = %d, want %d (newlines must not be blocked past inputMaxHeight)", lines, got, want)
+	}
+}
+
 // TestComposeUpDownCursorVsMessageNav checks that plain up/down move the
 // compose textarea's cursor while it holds more than one line, but fall
 // back to their usual job of moving the selected-message highlight once the

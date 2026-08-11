@@ -195,6 +195,16 @@ func (m Model) sidebarContentWidth() int { return max(0, m.sidebarWidth()-1) }
 // still push it taller than this, up to inputHeightMaxDrag.
 const inputMaxHeight = 6
 
+// composeMaxContentHeight is textarea.Model.MaxContentHeight: the cap on
+// total *visual* (soft-wrap-aware) lines before further input is refused,
+// decoupled from inputMaxHeight (the visible viewport height, which the box
+// scrolls past instead of blocking). Left at 0 (unset), the textarea falls
+// back to blocking once the *logical* line count hits MaxHeight — i.e.
+// alt+enter stops working after inputMaxHeight manual newlines, even though
+// a single long line keeps soft-wrapping and scrolling forever. This just
+// needs to be generous enough that no real chat message hits it.
+const composeMaxContentHeight = 500
+
 // inputPrompt is the compose box's textarea.Prompt, shared with the
 // click-to-position-cursor math in mouse.go (positionInputCursorAt) which
 // needs to know how many screen columns the prompt occupies on every line.
