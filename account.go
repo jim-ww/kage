@@ -28,6 +28,7 @@ import (
 // and the reconnect supervisor (its own goroutine) touch it concurrently.
 type accountSession struct {
 	account    config.Account
+	accountIdx int // index into adapter.sessions; set once at connect time, needed to replay queued sends via adapter.send
 	client     atomic.Pointer[xmpp.Client]
 	tlsConfig  *tls.Config      // reused on reconnect; nil means Dial's default verified config
 	db         *storage.Queries // shared across every account: one database, rows scoped by account.JID
@@ -73,6 +74,54 @@ type accountSession struct {
 	// (see callsession.go). One at a time is enough: there's no call waiting.
 	callMu sync.Mutex
 	call   *callSession
+
+	// outboxMu guards outbox: sends (messages, reactions, retractions,
+	// corrections) attempted while this account is offline (adapter.send hit
+	// a dead/nil client), held here instead of erroring so they go out
+	// automatically once reconnectWithBackoff reconnects and calls
+	// adapter.flushOutbox. Reactions/retractions/corrections carry a target
+	// ID from an earlier send, so replaying them verbatim is safe *unless*
+	// that target message was itself still queued (empty ID) when the user
+	// reacted/retracted/corrected it - see adapter.send's early return for
+	// queued sends, which is the source of that gap.
+	outboxMu sync.Mutex
+	outbox   []queuedSend
+}
+
+// queuedSend is one send held in accountSession.outbox while its account is
+// offline, replayed once reconnected. filePath is empty for a plain
+// message/reaction/retraction/correction (replayed through adapter.send
+// verbatim); non-empty for a staged attachment (replayed through
+// adapter.flushOutbox's upload-then-send, body used as the message text).
+type queuedSend struct {
+	to, body string
+	opts     ui.SendOptions
+	filePath string
+}
+
+// enqueueOutbox appends a send to s.outbox for later replay by
+// adapter.flushOutbox.
+func (s *accountSession) enqueueOutbox(to, body string, opts ui.SendOptions) {
+	s.outboxMu.Lock()
+	s.outbox = append(s.outbox, queuedSend{to: to, body: body, opts: opts})
+	s.outboxMu.Unlock()
+}
+
+// enqueueOutboxFile appends a staged attachment's upload+send to s.outbox
+// for later replay by adapter.flushOutbox.
+func (s *accountSession) enqueueOutboxFile(to, text, path string, opts ui.SendOptions) {
+	s.outboxMu.Lock()
+	s.outbox = append(s.outbox, queuedSend{to: to, body: text, opts: opts, filePath: path})
+	s.outboxMu.Unlock()
+}
+
+// drainOutbox atomically empties s.outbox and returns what was in it.
+func (s *accountSession) drainOutbox() []queuedSend {
+	s.outboxMu.Lock()
+	queued := s.outbox
+	s.outbox = nil
+	s.outboxMu.Unlock()
+	return queued
 }
 
 // rosterEntry is a contact's cached roster state, refreshed at connect time
@@ -148,18 +197,26 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 		broadcast(srv, evAccountConnectError, wireAccountConnectErrorMsg{Index: idx, Err: err.Error()})
 		return
 	}
+	sess.accountIdx = idx
 	sess.useGPG = a.useGPG
 	sess.useKeyring = a.useKeyring
 	slog.Debug("connectAccountLocal done", "jid", acct.JID, "elapsed", time.Since(start), "chats", len(uiAcct.Chats))
+
+	// Register the session as soon as local (no-network) state is loaded,
+	// not after connectAccountLive resolves below - that dial can sit for a
+	// long time waiting on a DNS/connect timeout while genuinely offline,
+	// and a.session(idx) must already succeed during that whole window so
+	// a send attempted meanwhile queues onto sess.outbox instead of failing
+	// with "unknown account" (there was nothing to look up yet).
+	a.mu.Lock()
+	a.sessions[idx] = sess
+	a.mu.Unlock()
 
 	if uiAcct.Status == ui.PresenceOffline {
 		// Configured offline: never dial at all - not even to fetch a live
 		// roster - so nothing about this account touches the network until
 		// AccountStatusSetter switches it back on.
 		uiAcct.Connecting = false
-		a.mu.Lock()
-		a.sessions[idx] = sess
-		a.mu.Unlock()
 		broadcast(srv, evAccountConnected, wireAccountConnectedMsg{Index: idx, Account: toWireAccount(uiAcct)})
 		return
 	}
@@ -171,13 +228,10 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	if err != nil {
 		slog.Debug("connectAccountLive failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
 		broadcast(srv, evAccountConnectError, wireAccountConnectErrorMsg{Index: idx, Err: err.Error()})
+		go retryInitialConnect(ctx, srv, a, idx, sess, len(uiAcct.Chats), presenceShow(uiAcct.Status))
 		return
 	}
 	slog.Debug("connectAccountLive done", "jid", acct.JID, "elapsed", time.Since(start), "new_chats", len(newChats))
-
-	a.mu.Lock()
-	a.sessions[idx] = sess
-	a.mu.Unlock()
 
 	broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore})
 
@@ -188,7 +242,7 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	// on Client.events; running listen sequentially after syncArchive just
 	// left them sitting there unprocessed (roster presence looked stuck
 	// offline) until the backfill finished, sometimes tens of seconds later.
-	go superviseAccount(ctx, srv, idx, sess)
+	go superviseAccount(ctx, srv, a, idx, sess)
 
 	slog.Debug("syncArchive starting", "jid", acct.JID)
 	start = time.Now()
@@ -196,6 +250,47 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	syncArchive(ctx, srv, idx, sess)
 	broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: idx})
 	slog.Debug("syncArchive done", "jid", acct.JID, "elapsed", time.Since(start))
+}
+
+// retryInitialConnect keeps retrying connectAccountLive with exponential
+// backoff (capped at 60s) after the very first attempt failed - e.g. the app
+// started with no network yet, or the user flipped an offline account back
+// online while still offline. Unlike reconnectWithBackoff, which only
+// redials a client that was live before, this repeats the full first-time
+// setup (publish key, OMEMO, roster diff) since none of it ran yet. Once it
+// succeeds, this mirrors the rest of connectAndSuperviseAccount: broadcast
+// the new chats, flush anything queued via the outbox while offline, start
+// the normal supervisor, and backfill via MAM.
+func retryInitialConnect(ctx context.Context, srv *ipc.Server, a *adapter, idx int, sess *accountSession, existingChatCount int, show string) {
+	const maxBackoff = 60 * time.Second
+	backoff := time.Second
+	for {
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return
+		}
+
+		newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, existingChatCount, show)
+		if err != nil {
+			slog.Warn("retrying initial connect failed", "jid", sess.account.JID, "err", err, "backoff", backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
+		}
+
+		slog.Debug("initial connect succeeded on retry", "jid", sess.account.JID)
+		broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore})
+		go superviseAccount(ctx, srv, a, idx, sess)
+		a.flushOutbox(ctx, sess)
+
+		broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: idx})
+		syncArchive(ctx, srv, idx, sess)
+		broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: idx})
+		return
+	}
 }
 
 // connectAccountLocal loads acct's cached roster + history from the shared
@@ -487,7 +582,7 @@ func connectAccount(ctx context.Context, acct config.Account, queries *storage.Q
 // Events channel closing without Close having been called), reconnects with
 // exponential backoff and resumes. Returns once the client is intentionally
 // closed (app shutdown).
-func superviseAccount(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
+func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountIdx int, s *accountSession) {
 	for {
 		listen(ctx, srv, accountIdx, s)
 
@@ -496,13 +591,14 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, accountIdx int, s *a
 			return
 		}
 		slog.Warn("account disconnected; reconnecting", "jid", s.account.JID, "err", client.Err())
-		reconnectWithBackoff(ctx, s)
+		reconnectWithBackoff(ctx, a, s)
 	}
 }
 
 // reconnectWithBackoff retries Dial with exponential backoff (capped at 60s)
-// until it succeeds or ctx is done, then stores the new client on s.
-func reconnectWithBackoff(ctx context.Context, s *accountSession) {
+// until it succeeds or ctx is done, then stores the new client on s and
+// flushes any messages queued while it was offline.
+func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 	const maxBackoff = 60 * time.Second
 	backoff := time.Second
 
@@ -524,6 +620,7 @@ func reconnectWithBackoff(ctx context.Context, s *accountSession) {
 				s.client.Store(client)
 				probeRosterPresence(ctx, client, derefRoster(s.roster.Load()))
 				slog.Debug("account reconnected", "jid", s.account.JID)
+				a.flushOutbox(ctx, s)
 				return
 			}
 		}

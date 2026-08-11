@@ -99,9 +99,25 @@ func (m *Model) startAttachedSend(text string, to string, reply SendOptions) tea
 	return func() tea.Msg {
 		result := ComposedSendResultMsg{AccountIdx: accountIdx, To: to, ReplyToID: reply.ReplyToID, Paths: paths}
 		for i, path := range paths {
-			upload, ok := fileSender.UploadFile(accountIdx, to, path).(FileUploadResultMsg)
+			msgText := ""
+			if i == 0 {
+				msgText = text
+			}
+			sendOpts := reply
+			// upload+send is one atomic unit if the account is offline
+			// (fileSender.UploadFile queues both together, see its
+			// docstring) - pass msgText/sendOpts through so it has
+			// everything needed to replay this file's message later.
+			upload, ok := fileSender.UploadFile(accountIdx, to, path, msgText, sendOpts).(FileUploadResultMsg)
 			if !ok {
 				result.Err = fmt.Errorf("uploading %s: unexpected result", filepath.Base(path))
+				return result
+			}
+			if upload.Queued {
+				// Nothing to send yet - no URL. The rest of the batch would
+				// hit the same offline account, so stop here rather than
+				// queuing files one at a time across separate flush passes.
+				result.Queued = true
 				return result
 			}
 			if upload.Err != nil {
@@ -109,12 +125,7 @@ func (m *Model) startAttachedSend(text string, to string, reply SendOptions) tea
 				return result
 			}
 
-			msgText := ""
-			if i == 0 {
-				msgText = text
-			}
 			body := composeBodyWithAttachments(msgText, upload.URL)
-			sendOpts := reply
 			sendOpts.OOBURLs = []string{upload.URL}
 			id, err := sender.Send(accountIdx, to, body, sendOpts)
 			if err != nil {

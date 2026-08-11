@@ -124,6 +124,8 @@ type sendFileParams struct {
 type uploadFileParams struct {
 	AccountIdx int
 	To, Path   string
+	Text       string
+	Opts       ui.SendOptions
 }
 type loadOlderHistoryParams struct {
 	AccountIdx int

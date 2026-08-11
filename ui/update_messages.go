@@ -158,6 +158,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			if msg.Err != nil {
 				return m, m.showNotification("send failed: " + msg.Err.Error()), true
 			}
+			if msg.Queued {
+				return m, m.showNotification("offline — attachment(s) queued, will send on reconnect"), true
+			}
 			return m, nil, true
 		}
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)

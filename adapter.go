@@ -75,11 +75,12 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 
 	a.mu.Lock()
 	accountIdx := len(a.sessions)
+	sess.accountIdx = accountIdx
 	a.sessions = append(a.sessions, sess)
 	a.cfgAccounts = append(a.cfgAccounts, acct)
 	a.mu.Unlock()
 
-	go superviseAccount(ctx, a.srv, accountIdx, sess)
+	go superviseAccount(ctx, a.srv, a, accountIdx, sess)
 
 	return ui.AccountAddedMsg{Account: uiAcct}
 }
@@ -154,9 +155,14 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	}
 	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, existing, show)
 	if err != nil {
+		// Don't just give up: the account stays valid for queuing sends
+		// (see accountSession.outbox), and this keeps retrying with
+		// backoff until it actually gets online, same as a failed initial
+		// connect at startup.
+		go retryInitialConnect(ctx, a.srv, a, accountIdx, sess, existing, show)
 		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
 	}
-	go superviseAccount(ctx, a.srv, accountIdx, sess)
+	go superviseAccount(ctx, a.srv, a, accountIdx, sess)
 	return ui.AccountStatusSetMsg{
 		Index: accountIdx, Status: status,
 		NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore,
@@ -646,6 +652,66 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 	return a.send(context.Background(), accountIdx, to, body, opts)
 }
 
+// flushOutbox replays every send s.enqueueOutbox/enqueueOutboxFile held
+// while s was offline, in the order they were made. Plain sends (messages,
+// reactions, retractions, corrections) go straight through a.send, the same
+// path a live send would take, so encryption is (re)resolved against the
+// fresh connection. Attachments were never uploaded, so those go through the
+// same upload-then-send steps SendFile/UploadFile+Send would - the result
+// wasn't the return value of a Bubble Tea command the UI is waiting on (that
+// call already returned "queued" and moved on), so it's pushed into the UI
+// via the same live-event broadcast path an incoming message uses. Called by
+// reconnectWithBackoff right after it restores s's client.
+func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
+	queued := s.drainOutbox()
+	for _, q := range queued {
+		if q.filePath == "" {
+			if _, err := a.send(ctx, s.accountIdx, q.to, q.body, q.opts); err != nil {
+				slog.Warn("sending queued message failed", "jid", s.account.JID, "to", q.to, "err", err)
+			}
+			continue
+		}
+
+		client, err := s.liveClient()
+		if err != nil {
+			// Still offline (flush was called speculatively, or dropped
+			// again immediately after reconnecting) - put it back rather
+			// than losing it.
+			s.enqueueOutboxFile(q.to, q.body, q.filePath, q.opts)
+			continue
+		}
+		url, err := a.uploadFile(ctx, s, client, q.to, q.filePath, nil)
+		if err != nil {
+			slog.Warn("uploading queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", err)
+			continue
+		}
+		body := url
+		if q.body != "" {
+			body = q.body + "\n" + url
+		}
+		sendOpts := q.opts
+		sendOpts.OOBURLs = []string{url}
+		id, err := a.send(ctx, s.accountIdx, q.to, body, sendOpts)
+		if err != nil {
+			slog.Warn("sending queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", err)
+			continue
+		}
+		broadcast(a.srv, evIncomingMessage, ui.IncomingMessageMsg{
+			AccountIdx: s.accountIdx,
+			From:       q.to,
+			ReplyToID:  q.opts.ReplyToID,
+			Message: ui.Message{
+				ID:          id,
+				Author:      "me",
+				Content:     body,
+				SentAt:      time.Now(),
+				IsMe:        true,
+				Attachments: []string{url},
+			},
+		})
+	}
+}
+
 // send is the context-aware implementation behind Send. File uploads use it
 // with their deadline so a subsequent peer-key lookup or stanza send cannot
 // outlive the operation that initiated it. opts.OOBURLs, if given, marks
@@ -659,7 +725,13 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	}
 	client, err := s.liveClient()
 	if err != nil {
-		return "", err
+		// Queue and replay verbatim once reconnected. Reactions/retractions/
+		// corrections reference a target ID from an earlier, already-sent
+		// message, so replaying them later is safe as long as that target
+		// wasn't itself still queued (see enqueueOutbox).
+		s.enqueueOutbox(to, body, opts)
+		slog.Debug("account offline; message queued", "jid", s.account.JID, "to", to)
+		return "", nil
 	}
 
 	if opts.ReactionTargetID != "" {
@@ -939,10 +1011,12 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 }
 
 // UploadFile implements ui.FileSender. Unlike SendFile it only uploads —
-// used to stage a local file as a pending attachment (shown above the
-// compose box) before the user actually sends the message, so several
-// files can be attached to one outgoing message.
-func (a *adapter) UploadFile(accountIdx int, to, path string) tea.Msg {
+// used by startAttachedSend to upload+send each staged attachment as its own
+// message. text/opts are only consulted when the account is offline: rather
+// than fail (upload needs a live connection, unlike a plain text send),
+// upload+send is queued as one unit and replayed together by
+// adapter.flushOutbox once reconnected.
+func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.SendOptions) tea.Msg {
 	result := ui.FileUploadResultMsg{Path: path}
 	s, ok := a.session(accountIdx)
 	if !ok {
@@ -951,7 +1025,9 @@ func (a *adapter) UploadFile(accountIdx int, to, path string) tea.Msg {
 	}
 	client, err := s.liveClient()
 	if err != nil {
-		result.Err = err
+		s.enqueueOutboxFile(to, text, path, opts)
+		slog.Debug("account offline; attachment queued", "jid", s.account.JID, "to", to, "path", path)
+		result.Queued = true
 		return result
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

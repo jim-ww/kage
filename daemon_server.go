@@ -166,7 +166,7 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		if err != nil {
 			return nil, err
 		}
-		msg := d.a.UploadFile(p.AccountIdx, p.To, p.Path).(ui.FileUploadResultMsg)
+		msg := d.a.UploadFile(p.AccountIdx, p.To, p.Path, p.Text, p.Opts).(ui.FileUploadResultMsg)
 		if msg.Err != nil {
 			return nil, msg.Err
 		}

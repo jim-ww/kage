@@ -25,6 +25,12 @@ type fakeFileSender struct {
 	// uploadErr is set, in which case it's returned as the error instead.
 	uploadURL string
 	uploadErr error
+	// uploadQueued, if true, makes UploadFile report the account as offline
+	// (Queued: true, no URL/Err) instead of actually uploading.
+	uploadQueued   bool
+	uploadCalls    int
+	lastUploadText string
+	lastUploadOpts SendOptions
 
 	// sendCalls records every Send call, in order, for tests that need to
 	// verify per-message behavior (e.g. one Send per staged attachment).
@@ -46,8 +52,14 @@ func (f *fakeFileSender) SendFile(_ int, to, path string, opts SendOptions) tea.
 	f.opts = opts
 	return FileSendResultMsg{To: to, Path: path, URL: "https://upload.example.test/report.pdf", ID: "file-id", ReplyToID: opts.ReplyToID}
 }
-func (f *fakeFileSender) UploadFile(_ int, to, path string) tea.Msg {
+func (f *fakeFileSender) UploadFile(_ int, to, path, text string, opts SendOptions) tea.Msg {
 	f.path = path
+	f.uploadCalls++
+	f.lastUploadText = text
+	f.lastUploadOpts = opts
+	if f.uploadQueued {
+		return FileUploadResultMsg{Path: path, Queued: true}
+	}
 	if f.uploadErr != nil {
 		return FileUploadResultMsg{Path: path, Err: f.uploadErr}
 	}
@@ -364,6 +376,63 @@ func TestMultiAttachmentSendSplitsIntoSeparateMessages(t *testing.T) {
 		if len(sent.Attachments) != 1 {
 			t.Fatalf("sent message Attachments = %#v, want exactly one", sent.Attachments)
 		}
+	}
+}
+
+// TestAttachedSendQueuesWhenOffline verifies that when the account is
+// offline, startAttachedSend stops after the first UploadFile reports
+// Queued (rather than trying every staged file and calling Send with no
+// URL), never calls Send, and the resulting ComposedSendResultMsg surfaces a
+// distinct "queued" notification instead of "send failed".
+func TestAttachedSendQueuesWhenOffline(t *testing.T) {
+	dir := t.TempDir()
+	pathA := filepath.Join(dir, "a.jpg")
+	pathB := filepath.Join(dir, "b.png")
+	for _, p := range []string{pathA, pathB} {
+		if err := os.WriteFile(p, []byte("contents"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sender := &fakeFileSender{uploadQueued: true}
+	m := newTestModelWithSender(sender, nil)
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: nil}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.stageAttachment(pathA)
+	m.stageAttachment(pathB)
+
+	m.input.SetValue("check these out")
+	sendCmd := m.sendCurrentInput()
+	if sendCmd == nil {
+		t.Fatal("sendCurrentInput returned nil, want the async upload+send command")
+	}
+
+	result := sendCmd().(ComposedSendResultMsg)
+	if !result.Queued {
+		t.Fatal("ComposedSendResultMsg.Queued = false, want true")
+	}
+	if result.Err != nil {
+		t.Fatalf("ComposedSendResultMsg.Err = %v, want nil", result.Err)
+	}
+	if len(sender.sendCalls) != 0 {
+		t.Fatalf("got %d Send calls, want 0 (nothing uploaded, nothing to send)", len(sender.sendCalls))
+	}
+	if sender.uploadCalls != 1 {
+		t.Fatalf("got %d UploadFile calls, want 1 (stop at the first offline result)", sender.uploadCalls)
+	}
+	if sender.lastUploadText != "check these out" {
+		t.Fatalf("first UploadFile text = %q, want the typed text", sender.lastUploadText)
+	}
+
+	next, cmd := m.Update(result)
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("Update(ComposedSendResultMsg{Queued: true}) returned nil cmd, want a notification")
+	}
+	if len(m.accounts[0].Messages[0]) != 0 {
+		t.Fatalf("got %d messages, want 0 (nothing shown until the queued attachment actually sends)", len(m.accounts[0].Messages[0]))
 	}
 }
 

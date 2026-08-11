@@ -173,9 +173,9 @@ func (c *ipcClient) SendFile(accountIdx int, to, path string, opts ui.SendOption
 	return msg
 }
 
-func (c *ipcClient) UploadFile(accountIdx int, to, path string) tea.Msg {
+func (c *ipcClient) UploadFile(accountIdx int, to, path, text string, opts ui.SendOptions) tea.Msg {
 	var msg ui.FileUploadResultMsg
-	if err := c.conn.Call(rpcUploadFile, uploadFileParams{AccountIdx: accountIdx, To: to, Path: path}, &msg); err != nil {
+	if err := c.conn.Call(rpcUploadFile, uploadFileParams{AccountIdx: accountIdx, To: to, Path: path, Text: text, Opts: opts}, &msg); err != nil {
 		return ui.FileUploadResultMsg{Path: path, Err: err}
 	}
 	return msg

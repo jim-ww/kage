@@ -38,7 +38,14 @@ type FileSender interface {
 	// pending attachment above the compose box, so several files can be
 	// attached to a single outgoing message. to is the peer JID the
 	// eventual message will go to, needed to resolve the encryption policy.
-	UploadFile(accountIdx int, to, path string) tea.Msg
+	// text/opts carry what the follow-up message for this file would say if
+	// the account were online (only meaningful for the offline case below):
+	// if the account has no live connection, the upload+send is queued
+	// whole (text, opts and all) instead of failing outright, and the
+	// result comes back with Queued set rather than an error - the caller
+	// must not also call MessageSender.Send for this file, since there's no
+	// URL yet to send.
+	UploadFile(accountIdx int, to, path, text string, opts SendOptions) tea.Msg
 }
 
 // HistoryLoader fetches the next older page of a chat's persisted history —
@@ -132,6 +139,7 @@ type FileUploadResultMsg struct {
 	AttachID int
 	Path     string
 	URL      string
+	Queued   bool // true: account was offline, upload+send was queued instead of attempted - URL/Err are both zero
 	Err      error
 }
 
@@ -151,6 +159,7 @@ type ComposedSendResultMsg struct {
 	ReplyToID  string   // non-empty if this was sent in reply to a message
 	Paths      []string // every staged local path this batch attempted, for clearing their transfer-progress entries regardless of how far the batch got
 	Messages   []SentMessage
+	Queued     bool // true: account was offline, every not-yet-sent file in this batch was queued rather than attempted
 	Err        error
 }
 
