@@ -40,6 +40,7 @@ func NewStore(db *storage.Queries, accountJID string, protocol omemolib.Protocol
 
 var _ omemolib.Store = (*Store)(nil)
 
+// IdentityKeyPair returns the stored identity key pair.
 func (s *Store) IdentityKeyPair(ctx context.Context) ([]byte, error) {
 	row, err := s.db.GetOmemoIdentity(ctx, storage.GetOmemoIdentityParams{AccountJid: s.accountJID, Protocol: s.protocol})
 	if err != nil {
@@ -48,6 +49,7 @@ func (s *Store) IdentityKeyPair(ctx context.Context) ([]byte, error) {
 	return row.Privatekey, nil
 }
 
+// SetIdentityKeyPair persists the identity key pair.
 func (s *Store) SetIdentityKeyPair(ctx context.Context, priv []byte) error {
 	existingDeviceID, err := s.currentDeviceID(ctx)
 	if err != nil {
@@ -75,6 +77,7 @@ func (s *Store) currentDeviceID(ctx context.Context) (int64, error) {
 	return row.Deviceid, nil
 }
 
+// LocalDevice returns the local device.
 func (s *Store) LocalDevice(ctx context.Context) (omemolib.Device, error) {
 	row, err := s.db.GetOmemoIdentity(ctx, storage.GetOmemoIdentityParams{AccountJid: s.accountJID, Protocol: s.protocol})
 	if err != nil {
@@ -83,6 +86,7 @@ func (s *Store) LocalDevice(ctx context.Context) (omemolib.Device, error) {
 	return omemolib.Device{JID: s.accountJID, ID: omemolib.DeviceID(row.Deviceid)}, nil
 }
 
+// SetLocalDevice persists the local device.
 func (s *Store) SetLocalDevice(ctx context.Context, dev omemolib.Device) error {
 	priv, err := s.IdentityKeyPair(ctx)
 	if err != nil {
@@ -96,6 +100,7 @@ func (s *Store) SetLocalDevice(ctx context.Context, dev omemolib.Device) error {
 	})
 }
 
+// CurrentSignedPreKey returns the current signed prekey.
 func (s *Store) CurrentSignedPreKey(ctx context.Context) (omemolib.SignedPreKeyRecord, error) {
 	row, err := s.db.GetOmemoCurrentSignedPreKey(ctx, storage.GetOmemoCurrentSignedPreKeyParams{AccountJid: s.accountJID, Protocol: s.protocol})
 	if err != nil {
@@ -109,6 +114,7 @@ func (s *Store) CurrentSignedPreKey(ctx context.Context) (omemolib.SignedPreKeyR
 	}, nil
 }
 
+// StaleSignedPreKey returns the stale signed prekey, if any.
 func (s *Store) StaleSignedPreKey(ctx context.Context) (omemolib.SignedPreKeyRecord, bool, error) {
 	row, err := s.db.GetOmemoStaleSignedPreKey(ctx, storage.GetOmemoStaleSignedPreKeyParams{AccountJid: s.accountJID, Protocol: s.protocol})
 	if err != nil {
@@ -125,6 +131,7 @@ func (s *Store) StaleSignedPreKey(ctx context.Context) (omemolib.SignedPreKeyRec
 	}, true, nil
 }
 
+// RotateSignedPreKey marks the current signed prekey stale and installs next.
 func (s *Store) RotateSignedPreKey(ctx context.Context, next omemolib.SignedPreKeyRecord) error {
 	if err := s.db.DeleteOmemoStaleSignedPreKey(ctx, storage.DeleteOmemoStaleSignedPreKeyParams{AccountJid: s.accountJID, Protocol: s.protocol}); err != nil {
 		return err
@@ -142,11 +149,13 @@ func (s *Store) RotateSignedPreKey(ctx context.Context, next omemolib.SignedPreK
 	})
 }
 
+// PreKeyCount returns the number of unused prekeys.
 func (s *Store) PreKeyCount(ctx context.Context) (int, error) {
 	n, err := s.db.CountOmemoPreKeys(ctx, storage.CountOmemoPreKeysParams{AccountJid: s.accountJID, Protocol: s.protocol})
 	return int(n), err
 }
 
+// PreKeys returns all stored prekeys.
 func (s *Store) PreKeys(ctx context.Context) ([]omemolib.PreKeyRecord, error) {
 	rows, err := s.db.ListOmemoPreKeys(ctx, storage.ListOmemoPreKeysParams{AccountJid: s.accountJID, Protocol: s.protocol})
 	if err != nil {
@@ -159,6 +168,7 @@ func (s *Store) PreKeys(ctx context.Context) ([]omemolib.PreKeyRecord, error) {
 	return recs, nil
 }
 
+// NextPreKeyID returns and reserves the next prekey ID.
 func (s *Store) NextPreKeyID(ctx context.Context) (uint32, error) {
 	row, err := s.db.GetOmemoNextPreKeyID(ctx, storage.GetOmemoNextPreKeyIDParams{AccountJid: s.accountJID, Protocol: s.protocol})
 	next := int64(1)
@@ -177,6 +187,7 @@ func (s *Store) NextPreKeyID(ctx context.Context) (uint32, error) {
 	return uint32(next), nil
 }
 
+// PutPreKeys stores the given prekeys.
 func (s *Store) PutPreKeys(ctx context.Context, recs []omemolib.PreKeyRecord) error {
 	for _, r := range recs {
 		if err := s.db.InsertOmemoPreKey(ctx, storage.InsertOmemoPreKeyParams{
@@ -192,6 +203,7 @@ func (s *Store) PutPreKeys(ctx context.Context, recs []omemolib.PreKeyRecord) er
 	return nil
 }
 
+// ConsumePreKey removes and returns the prekey with id.
 func (s *Store) ConsumePreKey(ctx context.Context, id uint32) (omemolib.PreKeyRecord, error) {
 	row, err := s.db.ConsumeOmemoPreKey(ctx, storage.ConsumeOmemoPreKeyParams{
 		AccountJid: s.accountJID,
@@ -207,6 +219,7 @@ func (s *Store) ConsumePreKey(ctx context.Context, id uint32) (omemolib.PreKeyRe
 	return omemolib.PreKeyRecord{ID: uint32(row.ID), Public: row.Public, Private: row.Private}, nil
 }
 
+// Session returns the stored session data for dev.
 func (s *Store) Session(ctx context.Context, dev omemolib.Device) ([]byte, bool, error) {
 	data, err := s.db.GetOmemoSession(ctx, storage.GetOmemoSessionParams{
 		AccountJid: s.accountJID,
@@ -223,6 +236,7 @@ func (s *Store) Session(ctx context.Context, dev omemolib.Device) ([]byte, bool,
 	return data, true, nil
 }
 
+// PutSession stores session data for dev.
 func (s *Store) PutSession(ctx context.Context, dev omemolib.Device, data []byte) error {
 	return s.db.PutOmemoSession(ctx, storage.PutOmemoSessionParams{
 		AccountJid: s.accountJID,
@@ -233,6 +247,7 @@ func (s *Store) PutSession(ctx context.Context, dev omemolib.Device, data []byte
 	})
 }
 
+// DeleteSession removes the stored session for dev.
 func (s *Store) DeleteSession(ctx context.Context, dev omemolib.Device) error {
 	return s.db.DeleteOmemoSession(ctx, storage.DeleteOmemoSessionParams{
 		AccountJid: s.accountJID,
@@ -242,6 +257,7 @@ func (s *Store) DeleteSession(ctx context.Context, dev omemolib.Device) error {
 	})
 }
 
+// Trust returns the trust state for identityKey.
 func (s *Store) Trust(ctx context.Context, identityKey []byte) (omemolib.TrustState, error) {
 	state, err := s.db.GetOmemoTrust(ctx, storage.GetOmemoTrustParams{
 		AccountJid:  s.accountJID,
@@ -257,6 +273,7 @@ func (s *Store) Trust(ctx context.Context, identityKey []byte) (omemolib.TrustSt
 	return omemolib.TrustState(state), nil
 }
 
+// SetTrust sets the trust state for identityKey.
 func (s *Store) SetTrust(ctx context.Context, identityKey []byte, state omemolib.TrustState) error {
 	return s.db.SetOmemoTrust(ctx, storage.SetOmemoTrustParams{
 		AccountJid:  s.accountJID,
@@ -266,6 +283,7 @@ func (s *Store) SetTrust(ctx context.Context, identityKey []byte, state omemolib
 	})
 }
 
+// Devices returns the known device IDs for jid.
 func (s *Store) Devices(ctx context.Context, jid string) ([]omemolib.DeviceID, error) {
 	rows, err := s.db.ListOmemoDevices(ctx, storage.ListOmemoDevicesParams{
 		AccountJid: s.accountJID,
@@ -282,6 +300,7 @@ func (s *Store) Devices(ctx context.Context, jid string) ([]omemolib.DeviceID, e
 	return ids, nil
 }
 
+// SetDevices replaces the known device IDs for jid.
 func (s *Store) SetDevices(ctx context.Context, jid string, devices []omemolib.DeviceID) error {
 	if err := s.db.DeleteOmemoDevices(ctx, storage.DeleteOmemoDevicesParams{
 		AccountJid: s.accountJID,
@@ -303,6 +322,7 @@ func (s *Store) SetDevices(ctx context.Context, jid string, devices []omemolib.D
 	return nil
 }
 
+// RemoteIdentityKey returns the stored identity key for dev.
 func (s *Store) RemoteIdentityKey(ctx context.Context, dev omemolib.Device) ([]byte, bool, error) {
 	key, err := s.db.GetOmemoRemoteIdentity(ctx, storage.GetOmemoRemoteIdentityParams{
 		AccountJid: s.accountJID,
@@ -319,6 +339,7 @@ func (s *Store) RemoteIdentityKey(ctx context.Context, dev omemolib.Device) ([]b
 	return key, true, nil
 }
 
+// PutRemoteIdentityKey stores the identity key for dev.
 func (s *Store) PutRemoteIdentityKey(ctx context.Context, dev omemolib.Device, key []byte) error {
 	return s.db.PutOmemoRemoteIdentity(ctx, storage.PutOmemoRemoteIdentityParams{
 		AccountJid:  s.accountJID,

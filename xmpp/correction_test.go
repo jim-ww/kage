@@ -32,7 +32,7 @@ func TestReplaceIDSurvivesEncryptedMessage(t *testing.T) {
 	// <replace/> happens before any decryption is attempted, so an empty
 	// envelope is enough to exercise the code path under test.
 	if _, err := alice.Send(ctx, "bob@localhost", "", SendOptions{
-		Encrypted: &omemoEncryptedElem{},
+		Encrypted: &OmemoEncryptedElem{},
 		ReplaceID: "original-msg-id",
 	}); err != nil {
 		t.Fatalf("Send: %v", err)

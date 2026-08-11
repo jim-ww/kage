@@ -29,6 +29,7 @@ type Encrypter struct {
 	Timeout time.Duration
 }
 
+// Name returns the encrypter identifier.
 func (Encrypter) Name() string { return "gpg" }
 
 func (e Encrypter) timeout() time.Duration {

@@ -240,8 +240,8 @@ type omemoHeaderElem struct {
 	Keys []omemoKeyElem `xml:"urn:xmpp:omemo:2 key"`
 }
 
-// omemoEncryptedElem is our wire encoding of an omemolib.EncryptedMessage.
-type omemoEncryptedElem struct {
+// OmemoEncryptedElem is our wire encoding of an omemolib.EncryptedMessage.
+type OmemoEncryptedElem struct {
 	XMLName xml.Name        `xml:"urn:xmpp:omemo:2 encrypted"`
 	Header  omemoHeaderElem `xml:"urn:xmpp:omemo:2 header"`
 	Payload string          `xml:"urn:xmpp:omemo:2 payload,omitempty"`
@@ -249,8 +249,8 @@ type omemoEncryptedElem struct {
 
 // EncodeOmemoMessage converts msg into its wire element for embedding in an
 // outgoing <message/> stanza.
-func EncodeOmemoMessage(msg *omemolib.EncryptedMessage) *omemoEncryptedElem {
-	elem := &omemoEncryptedElem{
+func EncodeOmemoMessage(msg *omemolib.EncryptedMessage) *OmemoEncryptedElem {
+	elem := &OmemoEncryptedElem{
 		Header: omemoHeaderElem{SID: uint32(msg.Sender.ID)},
 	}
 	if msg.Payload != nil {
@@ -276,7 +276,7 @@ func EncodeOmemoMessage(msg *omemolib.EncryptedMessage) *omemoEncryptedElem {
 // DecodeOmemoMessage converts a received wire element (sender is the bare/
 // full JID the enclosing <message/> came from) back into an
 // omemolib.EncryptedMessage for Manager.DecryptMessage.
-func DecodeOmemoMessage(elem *omemoEncryptedElem, senderJID string) (*omemolib.EncryptedMessage, error) {
+func DecodeOmemoMessage(elem *OmemoEncryptedElem, senderJID string) (*omemolib.EncryptedMessage, error) {
 	msg := &omemolib.EncryptedMessage{
 		Sender: omemolib.Device{JID: senderJID, ID: omemolib.DeviceID(elem.Header.SID)},
 	}

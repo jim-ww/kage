@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// View implements tea.Model.
 func (m Model) View() tea.View {
 	if m.width == 0 {
 		v := tea.NewView("loading...")

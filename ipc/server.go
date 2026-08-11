@@ -34,6 +34,7 @@ type serverConn struct {
 	writeMu sync.Mutex
 }
 
+// NewServer returns a new Server.
 func NewServer() *Server {
 	return &Server{conns: make(map[*serverConn]struct{})}
 }

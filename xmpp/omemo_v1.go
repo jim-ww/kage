@@ -299,10 +299,10 @@ type omemoV1HeaderElem struct {
 	IV   string           `xml:"eu.siacs.conversations.axolotl iv,omitempty"`
 }
 
-// omemoEncryptedElemV1 is our wire encoding of an omemolib.EncryptedMessage
+// OmemoEncryptedElemV1 is our wire encoding of an omemolib.EncryptedMessage
 // under the legacy protocol - the eu.siacs.conversations.axolotl
-// counterpart to omemoEncryptedElem.
-type omemoEncryptedElemV1 struct {
+// counterpart to OmemoEncryptedElem.
+type OmemoEncryptedElemV1 struct {
 	XMLName xml.Name          `xml:"eu.siacs.conversations.axolotl encrypted"`
 	Header  omemoV1HeaderElem `xml:"eu.siacs.conversations.axolotl header"`
 	Payload string            `xml:"eu.siacs.conversations.axolotl payload,omitempty"`
@@ -313,8 +313,8 @@ type omemoEncryptedElemV1 struct {
 // complete wire blob (PreKeyWhisperMessage or WhisperMessage, produced by
 // internal/signal.Session.Encrypt) for either case - k.KeyExchange being
 // non-nil only tells us which one, for the "prekey" attribute.
-func EncodeOmemoMessageV1(msg *omemolib.EncryptedMessage) *omemoEncryptedElemV1 {
-	elem := &omemoEncryptedElemV1{
+func EncodeOmemoMessageV1(msg *omemolib.EncryptedMessage) *OmemoEncryptedElemV1 {
+	elem := &OmemoEncryptedElemV1{
 		Header: omemoV1HeaderElem{SID: uint32(msg.Sender.ID)},
 	}
 	if msg.Payload != nil {
@@ -338,7 +338,7 @@ func EncodeOmemoMessageV1(msg *omemolib.EncryptedMessage) *omemoEncryptedElemV1 
 // message, KeyExchange is set to a non-nil empty marker only - the actual
 // key-exchange parameters live inside Data itself and are extracted by
 // internal/signal.PeekLegacyPreKeyIDs/NewPassiveSessionFromPreKeyBlob.
-func DecodeOmemoMessageV1(elem *omemoEncryptedElemV1, senderJID string) (*omemolib.EncryptedMessage, error) {
+func DecodeOmemoMessageV1(elem *OmemoEncryptedElemV1, senderJID string) (*omemolib.EncryptedMessage, error) {
 	msg := &omemolib.EncryptedMessage{
 		Sender: omemolib.Device{JID: senderJID, ID: omemolib.DeviceID(elem.Header.SID)},
 	}

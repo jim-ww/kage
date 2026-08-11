@@ -3,10 +3,10 @@ package storage
 import (
 	"context"
 	"database/sql"
-	_ "embed"
+	_ "embed" // for go:embed schema.sql below
 	"fmt"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the sqlite database/sql driver
 )
 
 //go:embed schema.sql

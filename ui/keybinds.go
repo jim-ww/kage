@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// KeyMap holds all configurable key bindings.
 type KeyMap struct {
 	Quit                  key.Binding
 	Back                  key.Binding
@@ -87,10 +88,12 @@ func caretKey(k string) string {
 	return "^" + strings.ToUpper(rest)
 }
 
+// NewBinding builds a key.Binding bound to keys, described by desc.
 func NewBinding(keys []string, desc string) key.Binding {
 	return key.NewBinding(key.WithKeys(keys...), key.WithHelp(strings.Join(keys, "/"), desc))
 }
 
+// DefaultKeyMap is the default set of key bindings.
 var DefaultKeyMap = KeyMap{
 	Quit:         NewBinding([]string{"q", "ctrl+c"}, "quit"),
 	Back:         NewBinding([]string{"esc"}, "back to chats"),

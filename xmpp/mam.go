@@ -30,12 +30,12 @@ type ArchivedMessage struct {
 	// Encrypted is non-nil if the archived message is a XEP-0384 OMEMO
 	// message; Body carries no meaningful content and the caller must
 	// decrypt this (crypto/omemo, via DecodeOmemoMessage) to get the text.
-	Encrypted *omemoEncryptedElem
+	Encrypted *OmemoEncryptedElem
 
 	// EncryptedV1 is non-nil if the archived message is a legacy
 	// (eu.siacs.conversations.axolotl) OMEMO message; same shape as
 	// Encrypted otherwise.
-	EncryptedV1 *omemoEncryptedElemV1
+	EncryptedV1 *OmemoEncryptedElemV1
 
 	// RetractID is non-empty if this archived item is a XEP-0424 retraction
 	// of an earlier message with this ID. Other fields besides

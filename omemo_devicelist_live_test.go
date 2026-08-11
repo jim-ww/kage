@@ -17,7 +17,7 @@ import (
 // runs it through the same setupOmemo the real app uses, backed by a fresh
 // on-disk database (so each call gets its own OMEMO identity/device, exactly
 // like a fresh install would).
-func newOmemoTestSession(t *testing.T, ctx context.Context, jid, pass string, tlsConfig *tls.Config) *accountSession {
+func newOmemoTestSession(ctx context.Context, t *testing.T, jid, pass string, tlsConfig *tls.Config) *accountSession {
 	t.Helper()
 
 	client, err := xmpp.Dial(ctx, jid, pass, tlsConfig)
@@ -59,9 +59,9 @@ func TestOmemoV1DeviceRotationWhilePeerOffline(t *testing.T) {
 	tlsConfig := devtestTLSConfig(t)
 	ctx := context.Background()
 
-	alice := newOmemoTestSession(t, ctx, "alice@localhost", "alicepw", tlsConfig)
+	alice := newOmemoTestSession(ctx, t, "alice@localhost", "alicepw", tlsConfig)
 
-	bobGen1 := newOmemoTestSession(t, ctx, "bob@localhost", "bobpw", tlsConfig)
+	bobGen1 := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
 	origBobDevice := bobGen1.omemoMgrV1.LocalDevice()
 
 	if err := alice.omemoMgrV1.SyncDevices(ctx, "bob@localhost"); err != nil {
@@ -84,7 +84,7 @@ func TestOmemoV1DeviceRotationWhilePeerOffline(t *testing.T) {
 	// device ID, which republishes bob's PEP device-list node. Alice does
 	// NOT reconnect or receive any live push here - this is the "changed
 	// while we were offline" scenario.
-	bobGen2 := newOmemoTestSession(t, ctx, "bob@localhost", "bobpw", tlsConfig)
+	bobGen2 := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
 	newBobDevice := bobGen2.omemoMgrV1.LocalDevice()
 
 	if newBobDevice.ID == origBobDevice.ID {

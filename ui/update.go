@@ -163,6 +163,7 @@ func isActivityMsg(msg tea.Msg) bool {
 	}
 }
 
+// Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	if im, ok := msg.(idleMsg); ok {
 		if im.gen == m.idleGen {

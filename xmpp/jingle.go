@@ -1,9 +1,11 @@
-// XEP-0166 (Jingle) session signaling, XEP-0167 (Jingle RTP Sessions) audio
-// description, XEP-0176 (Jingle ICE-UDP Transport), and XEP-0353 (Jingle
-// Message Initiation) for the lightweight propose/ringing push that precedes
-// a full Jingle session. This file only builds and sends/parses the
-// stanzas — it has no call-state machine and no awareness of pion/audio.
 package xmpp
+
+// This file implements XEP-0166 (Jingle) session signaling, XEP-0167
+// (Jingle RTP Sessions) audio description, XEP-0176 (Jingle ICE-UDP
+// Transport), and XEP-0353 (Jingle Message Initiation) for the lightweight
+// propose/ringing push that precedes a full Jingle session. It only builds
+// and sends/parses the stanzas — it has no call-state machine and no
+// awareness of pion/audio.
 
 import (
 	"context"
@@ -412,6 +414,7 @@ func (JingleEvent) isEvent() {}
 // JMIAction names which XEP-0353 element a JingleMessageEvent carried.
 type JMIAction string
 
+// JMIAction values, one per XEP-0353 element.
 const (
 	JMIPropose JMIAction = "propose"
 	JMIRinging JMIAction = "ringing"

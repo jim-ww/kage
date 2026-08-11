@@ -21,8 +21,8 @@ type messageBody struct {
 	Retract     *retractElem          `xml:"urn:xmpp:message-retract:1 retract"`
 	Reactions   *reactionsElem        `xml:"urn:xmpp:reactions:0 reactions"`
 	Fallback    *fallbackElem         `xml:"urn:xmpp:fallback:0 fallback"`
-	Encrypted   *omemoEncryptedElem   `xml:"urn:xmpp:omemo:2 encrypted"`
-	EncryptedV1 *omemoEncryptedElemV1 `xml:"eu.siacs.conversations.axolotl encrypted"`
+	Encrypted   *OmemoEncryptedElem   `xml:"urn:xmpp:omemo:2 encrypted"`
+	EncryptedV1 *OmemoEncryptedElemV1 `xml:"eu.siacs.conversations.axolotl encrypted"`
 	MAMResult   *mamResultElem        `xml:"urn:xmpp:mam:2 result"`
 	PubsubEvent *pubsubEventElem      `xml:"http://jabber.org/protocol/pubsub#event event"`
 
@@ -78,6 +78,7 @@ type messageBody struct {
 // ChatState is a XEP-0085 chat state notification value.
 type ChatState int
 
+// ChatState values, per XEP-0085.
 const (
 	ChatStateActive ChatState = iota
 	ChatStateComposing
@@ -116,19 +117,19 @@ func (m messageBody) chatState() (ChatState, bool) {
 	}
 }
 
-// setChatState sets the one pointer field on msg corresponding to state.
-func (msg *messageBody) setChatState(state ChatState) {
+// setChatState sets the one pointer field on m corresponding to state.
+func (m *messageBody) setChatState(state ChatState) {
 	switch state {
 	case ChatStateComposing:
-		msg.Composing = &struct{}{}
+		m.Composing = &struct{}{}
 	case ChatStatePaused:
-		msg.Paused = &struct{}{}
+		m.Paused = &struct{}{}
 	case ChatStateInactive:
-		msg.Inactive = &struct{}{}
+		m.Inactive = &struct{}{}
 	case ChatStateGone:
-		msg.Gone = &struct{}{}
+		m.Gone = &struct{}{}
 	default:
-		msg.Active = &struct{}{}
+		m.Active = &struct{}{}
 	}
 }
 
@@ -274,12 +275,12 @@ type SendOptions struct {
 	// Encrypted, if set, sends a XEP-0384 <encrypted/> element instead of a
 	// plaintext body. Mutually exclusive with the other options above and
 	// with EncryptedV1.
-	Encrypted *omemoEncryptedElem
+	Encrypted *OmemoEncryptedElem
 
 	// EncryptedV1, if set, sends a legacy (eu.siacs.conversations.axolotl)
 	// <encrypted/> element instead of a plaintext body. Mutually exclusive
 	// with the other options above and with Encrypted.
-	EncryptedV1 *omemoEncryptedElemV1
+	EncryptedV1 *OmemoEncryptedElemV1
 
 	// OOBURLs marks each of these URLs as a XEP-0066 out-of-band attachment,
 	// so receivers can tell "this is a file" from "the user pasted a link"

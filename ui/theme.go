@@ -1,5 +1,6 @@
 package ui
 
+// Theme holds the color palette used throughout the UI.
 type Theme struct {
 	AppBg       string `yaml:"app_bg,omitempty"`
 	PanelBg     string `yaml:"panel_bg,omitempty"`
@@ -23,7 +24,7 @@ type Theme struct {
 	NoticeFg    string `yaml:"notice_fg,omitempty"`
 }
 
-// Tokyo Night
+// DefaultTheme returns the built-in Tokyo Night theme.
 func DefaultTheme() Theme {
 	return Theme{
 		AppBg:       "#1a1b26",

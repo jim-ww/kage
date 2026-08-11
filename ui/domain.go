@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/list"
 )
 
+// Message is one chat message in an Account's timeline.
 type Message struct {
 	ID          string // stanza ID; enables XEP-0308 correction and XEP-0461 reply targeting
 	Author      string
@@ -79,6 +80,7 @@ type Reaction struct {
 	Mine  bool // true if our own account is one of the reactors for Emoji
 }
 
+// Account holds one configured account's chats, messages, and connection state.
 type Account struct {
 	Name     string
 	Chats    []list.Item
@@ -158,6 +160,7 @@ func (a Account) StatusText() string {
 // type="unavailable" (a plain presence, absent <show/>, is PresenceOnline).
 type Presence int
 
+// Presence values, in ascending "how available" order.
 const (
 	PresenceOffline Presence = iota // default: never seen online, or explicitly unavailable
 	PresenceDND                     // <show>dnd</show>: do not disturb
@@ -167,6 +170,7 @@ const (
 	PresenceChat                    // <show>chat</show>: actively free to chat
 )
 
+// Chat is one roster entry / conversation.
 type Chat struct {
 	Name        string
 	Address     string
@@ -191,7 +195,10 @@ type Chat struct {
 	Draft string
 }
 
+// Title implements list.Item.
 func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }
+
+// Description implements list.Item.
 func (c Chat) Description() string {
 	text := c.LastMessage
 	if text == "" && c.Address != "" && c.Address != c.Name {
@@ -206,6 +213,8 @@ func (c Chat) Description() string {
 	}
 	return prefix + text
 }
+
+// FilterValue implements list.Item.
 func (c Chat) FilterValue() string { return c.Name }
 
 // ── Focus state ───────────────────────────────────────────────────────────────

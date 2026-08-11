@@ -510,12 +510,11 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 					m.lastClickedMsgIdx = -1
 					m.lastClickTime = time.Time{}
 					return m, m.actionOpenMessage()
-				} else {
-					// Single-click: reply to the message
-					m.lastClickedMsgIdx = i
-					m.lastClickTime = clickTime
-					return m, m.actionReplyMessage()
 				}
+				// Single-click: reply to the message
+				m.lastClickedMsgIdx = i
+				m.lastClickTime = clickTime
+				return m, m.actionReplyMessage()
 			}
 		}
 	}

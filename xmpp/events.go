@@ -44,12 +44,12 @@ type MessageEvent struct {
 	// Encrypted is non-nil if this is a XEP-0384 OMEMO message; Body/other
 	// fields carry no meaningful content and the caller must decrypt this
 	// (crypto/omemo) to get the actual message.
-	Encrypted *omemoEncryptedElem
+	Encrypted *OmemoEncryptedElem
 
 	// EncryptedV1 is non-nil if this is a legacy
 	// (eu.siacs.conversations.axolotl) OMEMO message; same shape as
 	// Encrypted otherwise.
-	EncryptedV1 *omemoEncryptedElemV1
+	EncryptedV1 *OmemoEncryptedElemV1
 
 	// OOBURLs are the XEP-0066 out-of-band URLs this message explicitly
 	// marked as file attachments, if any. Only ever set on the plaintext

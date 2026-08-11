@@ -2,4 +2,5 @@
 // time (see flake.nix). Left at "dev" for plain `go build`/`go run`.
 package version
 
+// Version is kage's build version.
 var Version = "dev"

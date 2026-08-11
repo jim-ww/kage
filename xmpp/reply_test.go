@@ -31,7 +31,7 @@ func TestReplyToIDSurvivesEncryptedMessage(t *testing.T) {
 	// <reply/> happens before any decryption is attempted, so an empty
 	// envelope is enough to exercise the code path under test.
 	if _, err := alice.Send(ctx, "bob@localhost", "", SendOptions{
-		Encrypted: &omemoEncryptedElem{},
+		Encrypted: &OmemoEncryptedElem{},
 		ReplyToID: "original-msg-id",
 	}); err != nil {
 		t.Fatalf("Send: %v", err)

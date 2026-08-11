@@ -15,6 +15,7 @@ import (
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
+// Model is the top-level Bubble Tea model for the app.
 type Model struct {
 	width, height int
 	termHeight    int // raw terminal rows from the last WindowSizeMsg; height is derived from this minus the footer's actual (view-dependent) row count
@@ -294,10 +295,10 @@ type DisplayOptions struct {
 	FilePickerSortAscending bool
 }
 
-// initialCallState, if non-nil, seeds the persistent call bar immediately -
-// used when the TUI (re)attaches to a daemon that already has a call in
-// progress, so the bar shows up without waiting for the next live
-// CallStateMsg transition.
+// New builds the initial Model. initialCallState, if non-nil, seeds the
+// persistent call bar immediately - used when the TUI (re)attaches to a
+// daemon that already has a call in progress, so the bar shows up without
+// waiting for the next live CallStateMsg transition.
 func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, display DisplayOptions, initialCallState *CallStateMsg) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
@@ -484,6 +485,7 @@ func (m Model) newAddAccountForm() [3]textinput.Model {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+// Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textinput.Blink, func() tea.Msg { return openPendingChatMsg{} }, idleTimer(m.idleGen)}
 	// Report the model's real starting state right away - it's constructed
