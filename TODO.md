@@ -1,4 +1,3 @@
-- combine debug.log and daemon.log into one
 - add proper login/register modal
 - uploading your own files must not download them from server (must be downloaded)
 - notification appears sooner then message

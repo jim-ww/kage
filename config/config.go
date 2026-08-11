@@ -140,7 +140,7 @@ const DefaultHistoryPageSize = 200
 
 // DefaultMaxMessagesPerChat is how many messages are kept loaded per chat
 // when max_messages_per_chat isn't set in config.yaml.
-const DefaultMaxMessagesPerChat = 1000
+const DefaultMaxMessagesPerChat = 200
 
 // DefaultNoticeDurationSeconds is how long (in seconds) an in-app
 // notification toast stays visible before auto-dismissing when
