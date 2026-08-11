@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jim-ww/kage/config"
@@ -18,26 +19,81 @@ import (
 // pointer to the root command's persistent -c/--config flag value, shared
 // across every subcommand.
 func newExportCmd(cfgPath *string) *cobra.Command {
-	return &cobra.Command{
+	var accounts []string
+	cmd := &cobra.Command{
 		Use:   "export <output.json>",
-		Short: "Export every account's message history to a JSON file",
+		Short: "Export message history to a JSON file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runExport(*cfgPath, args[0])
+			return runExport(*cfgPath, accounts, args[0])
 		},
 	}
+	cmd.Flags().StringArrayVar(&accounts, "account", nil, "only export this account's messages (bare JID; repeatable). Default: every configured account")
+	return cmd
 }
 
 // newImportCmd wires the "import" subcommand to runImport.
 func newImportCmd(cfgPath *string) *cobra.Command {
-	return &cobra.Command{
+	var accountMaps []string
+	cmd := &cobra.Command{
 		Use:   "import <input.json>",
 		Short: "Import a previously exported message history",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runImport(*cfgPath, args[0])
+			accountMap, err := parseAccountMap(accountMaps)
+			if err != nil {
+				return err
+			}
+			return runImport(*cfgPath, args[0], accountMap)
 		},
 	}
+	cmd.Flags().StringArrayVar(&accountMaps, "map", nil, "reassign messages from one account to another on import, as from=to (bare JIDs; repeatable). Messages from accounts not named here import under their original account")
+	return cmd
+}
+
+// parseAccountMap turns "from=to" strings (as given to import --map,
+// possibly repeated) into a bare-JID lookup table.
+func parseAccountMap(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		from, to, ok := strings.Cut(p, "=")
+		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
+		if !ok || from == "" || to == "" {
+			return nil, fmt.Errorf("invalid --map %q, want from=to", p)
+		}
+		m[bareJID(from)] = bareJID(to)
+	}
+	return m, nil
+}
+
+// remapAccount reassigns msg from one account to another per accountMap
+// (see runImport), rewriting every address field that names the original
+// account - not just AccountJID, but whichever of To/From/reaction-From
+// held the account's own address - so the message keeps rendering as
+// sent/received correctly under its new owner. RosterJID (the peer) is
+// never touched: the other party in the conversation doesn't change.
+func remapAccount(msg exportMessage, accountMap map[string]string) exportMessage {
+	to, ok := accountMap[bareJID(msg.AccountJID)]
+	if !ok {
+		return msg
+	}
+	from := msg.AccountJID
+	remapField := func(addr string) string {
+		if bareJID(addr) == bareJID(from) {
+			return to
+		}
+		return addr
+	}
+	msg.AccountJID = to
+	msg.To = remapField(msg.To)
+	msg.From = remapField(msg.From)
+	for i, r := range msg.Reactions {
+		msg.Reactions[i].From = remapField(r.From)
+	}
+	return msg
 }
 
 // exportFormatVersion identifies the JSON schema of export files, so a
@@ -81,14 +137,21 @@ type exportFile struct {
 	Messages   []exportMessage `json:"messages"`
 }
 
-// runExport writes every account's message history (decrypted to
-// plaintext, regardless of how it's sealed at rest) to outPath as JSON.
-func runExport(cfgPath, outPath string) error {
+// runExport writes message history (decrypted to plaintext, regardless of
+// how it's sealed at rest) to outPath as JSON. If accounts is non-empty,
+// only messages belonging to one of those (bare-JID) accounts are
+// exported; otherwise every configured account's history is included.
+func runExport(cfgPath string, accounts []string, outPath string) error {
 	_, queries, localKey, closeDB, err := openStorageForCLI(cfgPath)
 	if err != nil {
 		return err
 	}
 	defer closeDB()
+
+	wantAccount := make(map[string]bool, len(accounts))
+	for _, a := range accounts {
+		wantAccount[bareJID(a)] = true
+	}
 
 	ctx := context.Background()
 	rows, err := queries.ListAllMessages(ctx)
@@ -112,6 +175,9 @@ func runExport(cfgPath, outPath string) error {
 	out := exportFile{Version: exportFormatVersion, ExportedAt: time.Now(), Messages: make([]exportMessage, 0, len(rows))}
 	skipped := 0
 	for _, r := range rows {
+		if len(wantAccount) > 0 && !wantAccount[bareJID(r.Accountjid)] {
+			continue
+		}
 		body, err := decryptedBody(localKey, r.Body, r.Encrypted)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: skipping message %s/%s (undecryptable): %v\n", r.Accountjid, r.Idattr.String, err)
@@ -185,7 +251,17 @@ func decryptedBody(localKey []byte, body sql.NullString, encrypted bool) (string
 // dedup keys a MAM history sync checks in account.go) are skipped rather
 // than inserted again, so re-running import, or running it before or after
 // a MAM backfill of the same history, never produces duplicate rows.
-func runImport(cfgPath, inPath string) error {
+//
+// accountMap (bare JID -> bare JID) reassigns messages from one account to
+// another as they're imported - e.g. re-homing an export taken from 1@me
+// onto 2@me, so messages always stay with users rather than the account
+// that happened to receive them. Every address field that names the owning
+// account (AccountJID, and whichever of To/From/reaction-From is the "own
+// side" of the stanza) is rewritten together, so the message still renders
+// as sent/received correctly under its new account. Messages from
+// accounts not named in accountMap import under their original account,
+// unchanged.
+func runImport(cfgPath, inPath string, accountMap map[string]string) error {
 	f, err := os.Open(inPath)
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", inPath, err)
@@ -205,6 +281,8 @@ func runImport(cfgPath, inPath string) error {
 	ctx := context.Background()
 	imported, skipped := 0, 0
 	for _, m := range in.Messages {
+		m = remapAccount(m, accountMap)
+
 		// Skip messages already in storage instead of inserting a duplicate
 		// row - checked the same way a MAM backfill (account.go) dedupes
 		// against the live path and earlier MAM pages, so importing twice,
