@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // renderSearchChatPopup shows the search-in-chat query prompt: a single text
@@ -103,55 +104,97 @@ func (m Model) renderSearchResultsPopup() string {
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
+// searchResultsPopupRows is how many result rows the popup always reserves
+// space for — a short last page, or the busy/error/no-matches states, are
+// padded with blank rows up to this many so the popup never visibly resizes
+// as its state changes. Matches openItemsPerPage, the page size
+// pagedCursor.bounds already uses.
+const searchResultsPopupRows = openItemsPerPage
+
+// searchResultsPopupWidth is the popup's fixed interior (pre-border/padding)
+// width: recomputed from the current terminal size on every render, so it
+// still adapts across resizes, but held constant within a single render
+// regardless of how long any row's content happens to be.
+func (m Model) searchResultsPopupWidth() int {
+	return min(max(20, m.chatAreaWidth()-10), 60)
+}
+
 func (m Model) searchResultsPrompt() string {
 	sr := m.searchResults
 	if sr == nil {
 		return ""
 	}
-	title := fmt.Sprintf("Search: %s", sr.query)
 	closeKey := m.keys.SearchChat.Help().Key
+	width := m.searchResultsPopupWidth()
+	title := ansi.Truncate(fmt.Sprintf("Search: %s", sr.query), width, "…")
+	footer := "[esc/" + closeKey + "] close"
 
-	if sr.busy {
-		return m.styles.infoPopup(title, []string{"Searching…"}, closeKey)
-	}
-	if sr.err != "" {
-		return m.styles.infoPopup(title, []string{"Error: " + sr.err}, closeKey)
-	}
+	// content holds each state's rows, always truncated (not just padded) to
+	// width before rows pads it out to searchResultsPopupRows below — a long
+	// query, error, or peer name here must not widen the popup any more than
+	// a long message preview does.
+	var content []string
 	matches := sr.filteredMatches()
-	if len(matches) == 0 {
-		return m.styles.infoPopup(title, []string{fmt.Sprintf("No matches (author: %s)", sr.author.label(sr.peerName))}, closeKey)
+	switch {
+	case sr.busy:
+		content = []string{ansi.Truncate("Searching…", width, "…")}
+	case sr.err != "":
+		content = []string{ansi.Truncate("Error: "+sr.err, width, "…")}
+	case len(matches) == 0:
+		content = []string{ansi.Truncate(fmt.Sprintf("No matches (author: %s)", sr.author.label(sr.peerName)), width, "…")}
+	default:
+		start, end := sr.bounds(len(matches))
+		page := matches[start:end]
+		if sr.cursor >= len(page) {
+			sr.cursor = max(0, len(page)-1)
+		}
+		// Right-align each row's date against the widest date on this page —
+		// they're all the same format so this is normally a no-op — and
+		// truncate the text part to whatever's left of the fixed width
+		// (accounting for renderRow's 2-cell cursor/hover prefix and a
+		// 2-cell gap before the date) rather than let a long preview widen
+		// the popup.
+		texts := make([]string, len(page))
+		dates := make([]string, len(page))
+		dateWidth := 0
+		for i, msgIdx := range page {
+			texts[i], dates[i] = m.searchResultLabel(sr.messages[msgIdx])
+			dateWidth = max(dateWidth, lipgloss.Width(dates[i]))
+		}
+		textBudget := max(1, width-2-2-dateWidth)
+		content = make([]string, len(page))
+		for i := range page {
+			text := ansi.Truncate(texts[i], textBudget, "…")
+			gap := textBudget - lipgloss.Width(text) + 2
+			label := text + strings.Repeat(" ", gap) + dates[i]
+			content[i] = m.renderRow(zoneSearchResultRow(i), i, sr.cursor, label)
+		}
+
+		hint := fmt.Sprintf("a: author (%s) · enter: jump", sr.author.label(sr.peerName))
+		if pages := openPageCount(len(matches)); pages > 1 {
+			hint = fmt.Sprintf("page %d/%d · left/right: page · %s", sr.page+1, pages, hint)
+		}
+		footer = hint + "  ·  [esc/" + closeKey + "] close"
 	}
 
-	start, end := sr.bounds(len(matches))
-	page := matches[start:end]
-	if sr.cursor >= len(page) {
-		sr.cursor = max(0, len(page)-1)
+	// Pad every state up to the same fixed row count/width so the popup's
+	// total footprint (border+padding around title+rows+blank+footer) never
+	// changes between busy, error, empty, and a full or partial results
+	// page. content's rows are already truncated to width above — pad-only
+	// here, since content[i] may already carry renderRow's zone marks and
+	// truncating those post-hoc risks cutting a mark's start/end pair.
+	blankRow := strings.Repeat(" ", width)
+	rows := make([]string, searchResultsPopupRows)
+	for i := range rows {
+		if i < len(content) {
+			rows[i] = padLinesToWidth(content[i], width)
+		} else {
+			rows[i] = blankRow
+		}
 	}
-	// Right-align each row's date against the widest text part on this page,
-	// so the dates form a straight column regardless of how long each
-	// message's truncated preview happens to be.
-	texts := make([]string, len(page))
-	dates := make([]string, len(page))
-	textWidth := 0
-	for i, msgIdx := range page {
-		texts[i], dates[i] = m.searchResultLabel(sr.messages[msgIdx])
-		textWidth = max(textWidth, lipgloss.Width(texts[i]))
-	}
+	footer = ansi.Truncate(footer, width, "…")
 
-	rows := make([]string, 0, len(page)+2)
-	for i := range page {
-		gap := textWidth - lipgloss.Width(texts[i]) + 2
-		label := texts[i] + strings.Repeat(" ", gap) + dates[i]
-		rows = append(rows, m.renderRow(zoneSearchResultRow(i), i, sr.cursor, label))
-	}
-
-	hint := fmt.Sprintf("a: author (%s) · enter: jump to message", sr.author.label(sr.peerName))
-	if pages := openPageCount(len(matches)); pages > 1 {
-		hint = fmt.Sprintf("page %d/%d · left/right: page · %s", sr.page+1, pages, hint)
-	}
-	rows = append(rows, "", hint)
-
-	return m.styles.infoPopup(title, rows, closeKey)
+	return m.styles.listPopup(title, rows, footer)
 }
 
 // searchResultLabel formats a search-result row's two parts: the direction

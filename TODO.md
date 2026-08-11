@@ -41,7 +41,6 @@
 - show more contact info on status line Name press
 - option to remove specific chat history (on server)
 - implement backups, compatible with conversations
-- search message content in across chats
 
 - refactor: move components to ui/ package
 - optimization speed up cursor message selection in chat and for scrolling

@@ -1,6 +1,11 @@
 package ui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"charm.land/lipgloss/v2"
+)
 
 // TestSearchResultsAuthorFilterCycles guards the 'a' keybind in the
 // search-results popup: it cycles all -> me -> them -> all, narrowing which
@@ -47,5 +52,47 @@ func TestSearchResultsAuthorFilterCycles(t *testing.T) {
 	}
 	if len(m.searchResults.matches) != 3 {
 		t.Fatalf("underlying matches = %v, want unchanged at 3", m.searchResults.matches)
+	}
+}
+
+// TestSearchResultsPopupFixedFootprint guards the popup's fixed footprint:
+// busy, error, no-matches, and an actual (partial) results page must all
+// render the same number of lines and the same max line width, so the
+// popup never visibly resizes as its state changes underneath the user.
+func TestSearchResultsPopupFixedFootprint(t *testing.T) {
+	m := newTestModelWithMessages(nil, &fakeHistorySearcher{})
+	m.width, m.height = 100, 30
+	m.updateSizes()
+
+	dims := func(sr *searchResultsState) (lines, width int) {
+		m.searchResults = sr
+		body := m.searchResultsPrompt()
+		for _, line := range strings.Split(body, "\n") {
+			lines++
+			if w := lipgloss.Width(line); w > width {
+				width = w
+			}
+		}
+		return
+	}
+
+	busyLines, busyWidth := dims(&searchResultsState{query: "q", busy: true})
+	errLines, errWidth := dims(&searchResultsState{query: "q", err: "boom"})
+	emptyLines, emptyWidth := dims(&searchResultsState{query: "q", messages: nil, matches: nil})
+
+	fullHistory := []Message{
+		{Content: "one"}, {Content: "two"}, {Content: "three"},
+	}
+	resultsLines, resultsWidth := dims(&searchResultsState{
+		query: "q", messages: fullHistory, matches: []int{0, 1, 2}, peerName: "bob",
+	})
+
+	if busyLines != errLines || errLines != emptyLines || emptyLines != resultsLines {
+		t.Fatalf("line counts differ across states: busy=%d err=%d empty=%d results=%d",
+			busyLines, errLines, emptyLines, resultsLines)
+	}
+	if busyWidth != errWidth || errWidth != emptyWidth || emptyWidth != resultsWidth {
+		t.Fatalf("max widths differ across states: busy=%d err=%d empty=%d results=%d",
+			busyWidth, errWidth, emptyWidth, resultsWidth)
 	}
 }
