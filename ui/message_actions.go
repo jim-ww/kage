@@ -288,6 +288,16 @@ func (m *Model) actionYankMessage() tea.Cmd {
 	return m.showNotification("message copied")
 }
 
+func (m *Model) actionYankDraft() tea.Cmd {
+	if m.input.Value() == "" {
+		return nil
+	}
+	if err := clipboard.WriteAll(m.input.Value()); err != nil {
+		return m.showNotification("copy failed")
+	}
+	return m.showNotification("draft copied")
+}
+
 func (m *Model) actionEditMessage() tea.Cmd {
 	if m.currentChatIndex() < 0 {
 		return nil

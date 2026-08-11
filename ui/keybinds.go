@@ -23,6 +23,7 @@ type KeyMap struct {
 	HalfPageDown          key.Binding // Ctrl+D — jump down by half the visible messages
 	DeleteMsg             key.Binding // Ctrl+Shift+D — delete selected message (with popup)
 	YankMsg               key.Binding // Ctrl+Y — yank selected message
+	YankDraft             key.Binding // Ctrl+Shift+Y — copy the compose box's current draft
 	EditMsg               key.Binding // Ctrl+E — edit (only last own message)
 	ReplyMsg              key.Binding // Ctrl+R — reply to selected message
 	InfoMsg               key.Binding // Ctrl+I — show message info popup
@@ -103,6 +104,7 @@ var DefaultKeyMap = KeyMap{
 	HalfPageDown: NewBinding([]string{"ctrl+d"}, "half page down"),
 	DeleteMsg:    NewBinding([]string{"ctrl+shift+d"}, "delete"),
 	YankMsg:      NewBinding([]string{"ctrl+y"}, "yank"),
+	YankDraft:    NewBinding([]string{"ctrl+shift+y"}, "copy draft"),
 	EditMsg:      NewBinding([]string{"ctrl+e"}, "edit (own last)"),
 	ReplyMsg:     NewBinding([]string{"ctrl+r"}, "reply"),
 	InfoMsg:      NewBinding([]string{"ctrl+i"}, "message info"),
@@ -265,6 +267,7 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.PasteImage, "paste image"},
 			{k.CallToggle, "call"},
 			{k.ClearDraft, "erase draft"},
+			{k.YankDraft, "copy draft"},
 			{k.UndoDraft, "undo"},
 			{k.RedoDraft, "redo"},
 			{k.ToggleComposeExpand, "expand input"},

@@ -569,6 +569,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionYankMessage(), true
 		}
 
+	case matchesKey(msg, m.keys.YankDraft):
+		if m.selectedView == viewChat {
+			return m, m.actionYankDraft(), true
+		}
+
 	case matchesKey(msg, m.keys.EditMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionEditMessage(), true

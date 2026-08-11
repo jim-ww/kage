@@ -278,6 +278,40 @@ func TestComposeToggleExpand(t *testing.T) {
 	}
 }
 
+func ctrlShiftYKey() tea.KeyMsg { return tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl | tea.ModShift} }
+
+// TestComposeYankDraft checks ctrl+shift+y copies the compose box's draft —
+// a no-op (no notification) on an empty draft, and a notification cmd
+// (success or "copy failed", depending on whether the test sandbox has a
+// clipboard) once there's something to copy.
+func TestComposeYankDraft(t *testing.T) {
+	chat := Chat{Address: "bob@localhost"}
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+
+	next, _ := m.Update(ctrlShiftYKey())
+	m = next.(Model)
+	if m.noticeID != 0 {
+		t.Fatal("ctrl+shift+y on an empty draft should be a no-op, got a notification")
+	}
+
+	next, _ = m.Update(keyText("hi"))
+	m = next.(Model)
+	next, _ = m.Update(ctrlShiftYKey())
+	m = next.(Model)
+	if m.noticeID == 0 {
+		t.Fatal("ctrl+shift+y on a non-empty draft should show a notification")
+	}
+	if got, want := m.input.Value(), "hi"; got != want {
+		t.Fatalf("draft should be untouched by yanking, got %q, want %q", got, want)
+	}
+}
+
 // TestComposeMouseWheelScrollsOverflowingInput checks that a wheel event
 // over the compose box moves its cursor (and so its internal viewport, per
 // textarea's DynamicHeight/MaxHeight-clamped scrolling) once the message is
