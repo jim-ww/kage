@@ -56,7 +56,7 @@ type deviceListState struct {
 	local      []OmemoDevice // this instance's own devices; never selectable for removal
 	devices    []OmemoDevice
 	selected   map[OmemoDevice]bool // devices marked for removal
-	page       int                  // current page (of openItemsPerPage) through the removable devices
+	pagedCursor
 	busy       bool
 	err        string
 	confirming bool // true while showing the y/n "remove N device(s)?" confirmation
@@ -124,6 +124,7 @@ func (m Model) renderDeviceListPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.deviceListPrompt())
+	popup = m.zone.Mark(zoneDeviceListPopup, popup)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
@@ -151,22 +152,23 @@ func (m Model) deviceListPrompt() string {
 		return m.styles.deletePrompt(m.deletePromptWidth(), fmt.Sprintf("Remove %d device(s) from account?", n), "This republishes the affected protocol's device list without them.")
 	}
 
-	start, end := openPageBounds(len(removable), dl.page)
+	start, end := dl.bounds(len(removable))
 	page := removable[start:end]
 
 	rows := make([]string, 0, len(dl.local)+len(page)+2)
 	for _, l := range dl.local {
-		rows = append(rows, fmt.Sprintf("    Device %d (%s, this device)", l.ID, l.Protocol))
+		rows = append(rows, fmt.Sprintf("      Device %d (%s, this device)", l.ID, l.Protocol))
 	}
 	for i, d := range page {
 		mark := "[ ]"
 		if dl.selected[d] {
 			mark = "[x]"
 		}
-		rows = append(rows, fmt.Sprintf("%d. %s Device %d (%s)", i+1, mark, d.ID, d.Protocol))
+		label := fmt.Sprintf("%d. %s Device %d (%s)", i+1, mark, d.ID, d.Protocol)
+		rows = append(rows, m.renderRow(zoneDeviceRow(i), i, dl.cursor, label))
 	}
 
-	hint := "digit: toggle · y: remove selected"
+	hint := "enter/digit: toggle · y: remove selected"
 	if pages := openPageCount(len(removable)); pages > 1 {
 		hint = fmt.Sprintf("page %d/%d · left/right: page · %s", dl.page+1, pages, hint)
 	}
@@ -211,25 +213,26 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	removable := dl.removableDevices()
-	start, end := openPageBounds(len(removable), dl.page)
-	if i, ok := digitKey(msg); ok && i >= 1 && i <= end-start {
+	start, end := dl.bounds(len(removable))
+	rowCount := end - start
+
+	if i, ok := digitKey(msg); ok && i >= 1 && i <= rowCount {
 		d := removable[start+i-1]
 		dl.selected[d] = !dl.selected[d]
 		return m, nil, true
 	}
 
-	switch {
-	case msg.String() == "left" || matchesLetter(msg, 'h'):
-		dl.page = max(0, dl.page-1)
-		return m, nil, true
-	case msg.String() == "right" || matchesLetter(msg, 'l'):
-		if dl.page < openPageCount(len(removable))-1 {
-			dl.page++
-		}
+	if dl.handleNavKey(msg, rowCount, len(removable)) {
 		return m, nil, true
 	}
 
 	switch {
+	case matchesKey(msg, m.keys.SelectSend):
+		if dl.cursor >= 0 && dl.cursor < rowCount {
+			d := removable[start+dl.cursor]
+			dl.selected[d] = !dl.selected[d]
+		}
+		return m, nil, true
 	case matchesKey(msg, m.keys.ConfirmYes):
 		anySelected := false
 		for _, v := range dl.selected {
@@ -245,4 +248,31 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		m.deviceList = nil
 	}
 	return m, nil, true
+}
+
+// handleDeviceListClick handles mouse clicks while the device-list popup is
+// open: clicking a device row moves the cursor there and toggles its
+// selection; clicking outside the popup closes it.
+func (m Model) handleDeviceListClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	dl := m.deviceList
+
+	if dl.busy || dl.confirming || dl.err != "" {
+		return m, nil
+	}
+
+	if !m.zone.Get(zoneDeviceListPopup).InBounds(msg) {
+		m.deviceList = nil
+		return m, nil
+	}
+
+	removable := dl.removableDevices()
+	start, end := dl.bounds(len(removable))
+	if i := m.rowUnderMouse(msg, end-start, zoneDeviceRow); i >= 0 {
+		dl.cursor = i
+		if msg.Mouse().Button == tea.MouseLeft {
+			d := removable[start+i]
+			dl.selected[d] = !dl.selected[d]
+		}
+	}
+	return m, nil
 }

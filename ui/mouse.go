@@ -7,8 +7,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/atotto/clipboard"
 	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
@@ -31,6 +31,7 @@ const (
 	zoneToggleSidebar         = "toggle-sidebar-button"
 	zoneMsgInfoPopup          = "msg-info-popup"
 	zoneContactManagerPopup   = "contact-manager-popup"
+	zoneDeviceListPopup       = "device-list-popup"
 	zoneCallAnswer            = "call-answer-button"
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
@@ -49,6 +50,7 @@ func zoneEmojiSuggestion(i int) string   { return fmt.Sprintf("emoji-suggest-%d"
 func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove-%d", i) }
 func zoneMsgInfoAttachment(i int) string { return fmt.Sprintf("msg-info-attachment-%d", i) }
 func zoneContactRow(i int) string        { return fmt.Sprintf("contact-row-%d", i) }
+func zoneDeviceRow(i int) string         { return fmt.Sprintf("device-row-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
 // (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
@@ -207,10 +209,24 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		cs := m.contactManagerState
 		if !cs.adding && cs.pendingRemove == "" && cs.err == "" {
 			contacts := cs.contacts(m)
-			start, end := openPageBounds(len(contacts), cs.page)
+			start, end := cs.bounds(len(contacts))
 			for i := 0; i < end-start; i++ {
 				if m.zone.Get(zoneContactRow(i)).InBounds(mouse) {
 					return zoneContactRow(i)
+				}
+			}
+		}
+		return ""
+	}
+
+	if m.deviceList != nil {
+		dl := m.deviceList
+		if !dl.busy && !dl.confirming && dl.err == "" {
+			removable := dl.removableDevices()
+			start, end := dl.bounds(len(removable))
+			for i := 0; i < end-start; i++ {
+				if m.zone.Get(zoneDeviceRow(i)).InBounds(mouse) {
+					return zoneDeviceRow(i)
 				}
 			}
 		}
@@ -315,6 +331,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.contactManagerState != nil {
 		return m.handleContactManagerClick(msg)
+	}
+
+	if m.deviceList != nil {
+		return m.handleDeviceListClick(msg)
 	}
 
 	if msg.Mouse().Button == tea.MouseLeft {

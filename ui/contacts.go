@@ -17,10 +17,9 @@ import (
 // contactRowContextMenuItems) — plus an add-contact text-input sub-mode.
 type contactManagerState struct {
 	accountIdx int
-	page       int
-	cursor     int // index of the highlighted row within the current page
-	busy       bool
-	err        string
+	pagedCursor
+	busy bool
+	err  string
 
 	// pendingRemove is the address staged for removal; non-empty while the
 	// "remove this contact?" confirmation is showing.
@@ -109,7 +108,7 @@ func (m Model) contactManagerPrompt() string {
 		return m.styles.deletePrompt(m.deletePromptWidth(), "Remove "+cs.pendingRemove+"?", "This also unsubscribes from their presence.")
 	}
 
-	start, end := openPageBounds(len(contacts), cs.page)
+	start, end := cs.bounds(len(contacts))
 	page := contacts[start:end]
 	if cs.cursor >= len(page) {
 		cs.cursor = max(0, len(page)-1)
@@ -123,8 +122,7 @@ func (m Model) contactManagerPrompt() string {
 		if c.Name != "" && c.Name != c.Address {
 			label = fmt.Sprintf("%s <%s>", c.Name, c.Address)
 		}
-		prefix := m.styles.renderMessagePrefix(i == cs.cursor, m.isHovered(zoneContactRow(i)))
-		rows = append(rows, m.zone.Mark(zoneContactRow(i), prefix+label))
+		rows = append(rows, m.renderRow(zoneContactRow(i), i, cs.cursor, label))
 	}
 
 	hint := "a: add · enter: options"
@@ -192,26 +190,14 @@ func (m Model) updateContactManagerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	contacts := cs.contacts(m)
-	start, end := openPageBounds(len(contacts), cs.page)
+	start, end := cs.bounds(len(contacts))
 	rowCount := end - start
 
+	if cs.handleNavKey(msg, rowCount, len(contacts)) {
+		return m, nil, true
+	}
+
 	switch {
-	case msg.String() == "up" || matchesLetter(msg, 'k'):
-		cs.cursor = max(0, cs.cursor-1)
-		return m, nil, true
-	case msg.String() == "down" || matchesLetter(msg, 'j'):
-		cs.cursor = min(rowCount-1, cs.cursor+1)
-		return m, nil, true
-	case msg.String() == "left" || matchesLetter(msg, 'h'):
-		cs.page = max(0, cs.page-1)
-		cs.cursor = 0
-		return m, nil, true
-	case msg.String() == "right" || matchesLetter(msg, 'l'):
-		if cs.page < openPageCount(len(contacts))-1 {
-			cs.page++
-		}
-		cs.cursor = 0
-		return m, nil, true
 	case matchesKey(msg, m.keys.SelectSend):
 		if cs.cursor >= 0 && cs.cursor < rowCount {
 			addr := contacts[start+cs.cursor].Address
@@ -247,15 +233,12 @@ func (m Model) handleContactManagerClick(msg tea.MouseClickMsg) (tea.Model, tea.
 	}
 
 	contacts := cs.contacts(m)
-	start, end := openPageBounds(len(contacts), cs.page)
-	for i := 0; i < end-start; i++ {
-		if m.zone.Get(zoneContactRow(i)).InBounds(msg) {
-			cs.cursor = i
-			if msg.Mouse().Button == tea.MouseLeft {
-				addr := contacts[start+i].Address
-				m.openContextMenu(m.contactRowContextMenuItems(addr))
-			}
-			return m, nil
+	start, end := cs.bounds(len(contacts))
+	if i := m.rowUnderMouse(msg, end-start, zoneContactRow); i >= 0 {
+		cs.cursor = i
+		if msg.Mouse().Button == tea.MouseLeft {
+			addr := contacts[start+i].Address
+			m.openContextMenu(m.contactRowContextMenuItems(addr))
 		}
 	}
 	return m, nil
