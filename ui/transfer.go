@@ -82,10 +82,11 @@ func throttledProgressSender(ch chan tea.Msg, id, label string) func(sent, total
 // openWithXDGOpen), so those aren't tracked or deduped - only re-launching
 // the browser on it, which is harmless.
 func (m *Model) startOpen(target string, isAttachment bool) tea.Cmd {
+	chat, _ := m.currentChat()
 	isRemoteURL := strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "aesgcm://")
 	downloadFirst := strings.HasPrefix(target, "aesgcm://") || (isAttachment && isRemoteURL)
 	if !downloadFirst {
-		return openWithXDGOpen(target, isAttachment)
+		return openWithXDGOpen(target, isAttachment, chat.Address)
 	}
 	if m.downloadsInFlight[target] {
 		return nil
@@ -95,7 +96,7 @@ func (m *Model) startOpen(target string, isAttachment bool) tea.Cmd {
 	}
 	m.downloadsInFlight[target] = true
 	delete(m.finishedTransfers, target)
-	return openWithXDGOpen(target, isAttachment)
+	return openWithXDGOpen(target, isAttachment, chat.Address)
 }
 
 // startSave begins downloading target to the downloads directory unless a

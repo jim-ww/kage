@@ -177,12 +177,28 @@ func attachmentIcon(name string, icons bool) string {
 	return plainFileIconDefault
 }
 
+// sanitizeJIDForPath turns a JID into a single filesystem-safe path
+// component for attachmentCacheDir's per-chat subdirectory: strips any
+// /resource, and replaces path separators that would otherwise split it
+// into extra directory levels or escape the attachments dir.
+func sanitizeJIDForPath(jid string) string {
+	if slash := strings.IndexByte(jid, '/'); slash >= 0 {
+		jid = jid[:slash]
+	}
+	jid = strings.ReplaceAll(jid, string(filepath.Separator), "_")
+	jid = strings.ReplaceAll(jid, "\\", "_")
+	if jid == "" || jid == "." || jid == ".." {
+		jid = "unknown"
+	}
+	return jid
+}
+
 // isAttachmentDownloaded reports whether target already has a local copy —
 // either in the aesgcm view cache (attachmentCacheDir) or in the downloads
 // directory, mirroring the exact destination paths openWithXDGOpen and
 // saveURLToDownloads would use. Doesn't create either directory: this runs
 // on every render, so it must stay a pure read.
-func isAttachmentDownloaded(target string) bool {
+func isAttachmentDownloaded(target, jid string) bool {
 	downloadURL := attachmentDownloadURL(target)
 	if downloadURL == "" {
 		return false
@@ -198,6 +214,7 @@ func isAttachmentDownloaded(target string) bool {
 			}
 			dir = filepath.Join(cacheBase, "kage", "attachments")
 		}
+		dir = filepath.Join(dir, sanitizeJIDForPath(jid))
 		sum := sha256.Sum256([]byte(target))
 		dest := filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
 		_, err := os.Stat(dest)
@@ -218,10 +235,10 @@ func isAttachmentDownloaded(target string) bool {
 
 // renderAttachmentLine formats an attachment as "<icon> <name>", with a
 // trailing marker when a local copy already exists.
-func renderAttachmentLine(target string, icons bool) string {
+func renderAttachmentLine(target string, icons bool, jid string) string {
 	name := attachmentDisplayName(target)
 	line := attachmentIcon(name, icons) + " " + name
-	if isAttachmentDownloaded(target) {
+	if isAttachmentDownloaded(target, jid) {
 		line += " (downloaded)"
 	}
 	return line
@@ -258,7 +275,7 @@ type openResultMsg struct {
 // (image viewer, PDF reader, etc.) instead of the URL handler opening it as
 // a raw browser download. Progress is reported as the download runs — see
 // throttledProgressSender.
-func openWithXDGOpen(target string, isAttachment bool) tea.Cmd {
+func openWithXDGOpen(target string, isAttachment bool, jid string) tea.Cmd {
 	isRemoteURL := strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "aesgcm://")
 	downloadFirst := strings.HasPrefix(target, "aesgcm://") || (isAttachment && isRemoteURL)
 	if !downloadFirst {
@@ -270,7 +287,7 @@ func openWithXDGOpen(target string, isAttachment bool) tea.Cmd {
 
 	ch := make(chan tea.Msg, 8)
 	go func() {
-		ch <- downloadAndOpen(target, ch)
+		ch <- downloadAndOpen(target, jid, ch)
 	}()
 	return listenForTransferChan(ch)
 }
@@ -279,7 +296,7 @@ func openWithXDGOpen(target string, isAttachment bool) tea.Cmd {
 // openWithXDGOpen's attachment path, reporting progress on ch as it goes.
 // Split out so openWithXDGOpen's Cmd construction (which must return
 // immediately) stays simple.
-func downloadAndOpen(target string, ch chan tea.Msg) tea.Msg {
+func downloadAndOpen(target, jid string, ch chan tea.Msg) tea.Msg {
 	// Cache the (decrypted, for aesgcm://) file by a hash of the full
 	// target (for aesgcm://, URL+iv+key all factor into the plaintext), so
 	// re-opening the same attachment for viewing reuses the
@@ -296,7 +313,7 @@ func downloadAndOpen(target string, ch chan tea.Msg) tea.Msg {
 		}
 	}
 
-	dir, dirErr := attachmentCacheDir()
+	dir, dirErr := attachmentCacheDir(jid)
 	if dirErr != nil {
 		return openResultMsg{target: target, isAttachment: true, err: dirErr}
 	}
@@ -393,8 +410,10 @@ func downloadsDir() (string, error) {
 
 // attachmentCacheDir returns where decrypted aesgcm:// attachments are
 // cached for viewing (as opposed to downloadsDir, which is for explicit
-// "Save As"), creating it if it doesn't exist yet.
-func attachmentCacheDir() (string, error) {
+// "Save As"), creating it if it doesn't exist yet. Attachments are cached
+// under a subdirectory per chat (bare JID), so files from different chats
+// never share a directory.
+func attachmentCacheDir(jid string) (string, error) {
 	dir := AttachmentsDir
 	if dir == "" {
 		base, err := os.UserCacheDir()
@@ -403,6 +422,7 @@ func attachmentCacheDir() (string, error) {
 		}
 		dir = filepath.Join(base, "kage", "attachments")
 	}
+	dir = filepath.Join(dir, sanitizeJIDForPath(jid))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}

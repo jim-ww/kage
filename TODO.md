@@ -1,4 +1,3 @@
-- save attachments per in attachments_dir one subdir per chat
 - show which devices of user online on chat hover (and hide when cursor is away)
 - add proper login/register modal
 - uploading your own files must not download them from server (must be downloaded)

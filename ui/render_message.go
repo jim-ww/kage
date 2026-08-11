@@ -162,8 +162,9 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		if text != "" {
 			parts = append(parts, highlightCodeBlocks(text))
 		}
+		chat, _ := m.currentChat()
 		for _, a := range msg.Attachments {
-			parts = append(parts, renderAttachmentLine(a, m.icons))
+			parts = append(parts, renderAttachmentLine(a, m.icons, chat.Address))
 		}
 		bodyContent = strings.Join(parts, "\n")
 	} else {
