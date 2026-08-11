@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"testing/synctest"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -176,9 +177,21 @@ func TestDraftClearedOnSend(t *testing.T) {
 
 	next, _ := m.Update(keyText("hi"))
 	m = next.(Model)
-	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = next.(Model)
-	runCmd(cmd)
+
+	// sendCurrentInput batches a notifyIdleTimeout (10m) tea.Tick alongside
+	// the draft-save timer. tea.Tick starts its real timer the instant it's
+	// constructed (inside Update, not when the returned Cmd is invoked), so
+	// both the Update call and runCmd must run inside the bubble for
+	// synctest's fake clock to apply — otherwise the Cmd's timer channel is
+	// fed by a real, non-bubble goroutine and synctest won't fast-forward
+	// it. Model setup happens outside the bubble since
+	// newTestModelWithSender leaks a bubblezone worker goroutine that
+	// synctest would otherwise flag as a deadlock.
+	synctest.Test(t, func(t *testing.T) {
+		next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		m = next.(Model)
+		runCmd(cmd)
+	})
 
 	if got, ok := saver.saved["bob@localhost"]; !ok || got != "" {
 		t.Fatalf("saved draft for bob after send = (%q, %v), want (\"\", true)", got, ok)
