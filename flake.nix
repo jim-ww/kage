@@ -28,7 +28,7 @@
           pname = "kage";
           version = "0.2.2";
           src = pkgs.lib.cleanSource ./.;
-          vendorHash = "sha256-Odaa6T3GC3CuulIg+QAS9UqwIHZTriNobZpG3r/16ZQ=";
+          vendorHash = "sha256-maEgCTQKfUa4wDMiQpTHEdkPZAjDvXYsU2qNB1yIzkw=";
 
           env.CGO_ENABLED = 1;
 

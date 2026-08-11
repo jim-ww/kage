@@ -1,6 +1,7 @@
 - textinput long message reaching limit, cannot break on new line
 - add proper login/register modal
 - uploading your own files must not download them from server (must be downloaded)
+- notification appears sooner then message
 
 - ui freezing in some cases, CPU usage goes up. on paste, or after editing certain amount of text?
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
