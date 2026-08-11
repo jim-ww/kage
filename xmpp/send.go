@@ -23,6 +23,10 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 			ID:   id,
 		},
 		Body: body,
+		// XEP-0359: always equal to our own stanza id, so a reply/correction/
+		// retraction referencing this message has a stable id to prefer over
+		// the bare id attribute even if something downstream rewrites that.
+		OriginID: &originIDElem{ID: id},
 	}
 	switch {
 	case opts.Encrypted != nil:

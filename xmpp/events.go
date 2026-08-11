@@ -224,7 +224,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 
 		if msg.Retract != nil {
 			c.enqueue(MessageEvent{
-				ID:        msg.ID,
+				ID:        msg.selfID(),
 				From:      msg.From.String(),
 				SentAt:    time.Now(),
 				RetractID: msg.Retract.ID,
@@ -240,7 +240,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				reactions = []string{} // distinguish "cleared" from "field absent" for callers
 			}
 			c.enqueue(MessageEvent{
-				ID:               msg.ID,
+				ID:               msg.selfID(),
 				From:             msg.From.String(),
 				SentAt:           time.Now(),
 				ReactionTargetID: msg.Reactions.ID,
@@ -272,7 +272,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				replaceID = msg.Replace.ID
 			}
 			c.enqueue(MessageEvent{
-				ID:        msg.ID,
+				ID:        msg.selfID(),
 				From:      msg.From.String(),
 				SentAt:    time.Now(),
 				Encrypted: msg.Encrypted,
@@ -293,7 +293,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				replaceID = msg.Replace.ID
 			}
 			c.enqueue(MessageEvent{
-				ID:          msg.ID,
+				ID:          msg.selfID(),
 				From:        msg.From.String(),
 				SentAt:      time.Now(),
 				EncryptedV1: msg.EncryptedV1,
@@ -340,7 +340,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		c.enqueue(MessageEvent{
-			ID:        msg.ID,
+			ID:        msg.selfID(),
 			From:      msg.From.String(),
 			Body:      body,
 			SentAt:    time.Now(),

@@ -104,7 +104,7 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		ArchiveID: r.ID,
 		From:      msg.From.String(),
 		To:        msg.To.String(),
-		ID:        msg.ID,
+		ID:        msg.selfID(),
 	}
 	if stamp, err := time.Parse(time.RFC3339, r.Forwarded.Delay.Stamp); err == nil {
 		am.SentAt = stamp

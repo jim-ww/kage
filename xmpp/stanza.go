@@ -26,6 +26,10 @@ type messageBody struct {
 	MAMResult   *mamResultElem        `xml:"urn:xmpp:mam:2 result"`
 	PubsubEvent *pubsubEventElem      `xml:"http://jabber.org/protocol/pubsub#event event"`
 
+	// OriginID/StanzaID are XEP-0359 - see their type docs.
+	OriginID *originIDElem `xml:"urn:xmpp:sid:0 origin-id"`
+	StanzaID *stanzaIDElem `xml:"urn:xmpp:sid:0 stanza-id"`
+
 	// OOB is XEP-0066 (Out of Band Data): each element explicitly marks a URL
 	// in/alongside the body as a file attachment (e.g. from XEP-0363 HTTP
 	// Upload) rather than an ordinary link the user pasted in. A message can
@@ -81,6 +85,18 @@ const (
 	ChatStateInactive
 	ChatStateGone
 )
+
+// selfID reports the id other clients should use to refer back to this
+// message (XEP-0461 reply, XEP-0308 correction, XEP-0424 retraction
+// targets) - the XEP-0359 origin-id when present, since it's guaranteed
+// stable across carbons/MAM/relays, falling back to the bare stanza id
+// attribute otherwise.
+func (m messageBody) selfID() string {
+	if m.OriginID != nil && m.OriginID.ID != "" {
+		return m.OriginID.ID
+	}
+	return m.ID
+}
 
 // chatState reports the chat state carried by msg, if any.
 func (m messageBody) chatState() (ChatState, bool) {
@@ -161,6 +177,28 @@ type oobElem struct {
 // receiptElem is XEP-0184: acknowledges receipt of the message with this ID.
 type receiptElem struct {
 	ID string `xml:"id,attr"`
+}
+
+// originIDElem is XEP-0359: a client-assigned id for this stanza that
+// SHOULD survive being forwarded/archived/carbon-copied unmodified, unlike
+// the bare stanza 'id' attribute which some intermediaries are free to
+// rewrite. This is the value other well-behaved clients prefer when
+// correlating a XEP-0461 <reply>/XEP-0308 <replace>/XEP-0424 <retract>
+// back to this message, so we set it equal to our own outgoing stanza id
+// (see Send) and prefer it over the bare id attribute on receipt (see
+// messageBody.selfID).
+type originIDElem struct {
+	ID string `xml:"id,attr"`
+}
+
+// stanzaIDElem is XEP-0359: the id an archiving/relaying entity (e.g. a
+// MAM server or MUC), identified by By, assigned this stanza. Decoded for
+// completeness but not currently used - our own origin-id already gives
+// us a stable id, and MAM's own <result id> (see mam.go's ArchiveID) is
+// what we use for archive paging.
+type stanzaIDElem struct {
+	ID string `xml:"id,attr"`
+	By string `xml:"by,attr"`
 }
 
 // replaceElem is XEP-0308: this message corrects an earlier one with this ID.
