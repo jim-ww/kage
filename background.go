@@ -87,6 +87,12 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	}
 
 	srv := ipc.NewServer()
+	srv.OnLastDisconnect = func() {
+		// No TUI attached anymore — don't leave notifications suppressed for
+		// whatever chat happened to be open/focused when it quit.
+		tuiFocused.Store(true)
+		tuiActiveChat.Store("")
+	}
 	a := &adapter{
 		sessions:    make([]*accountSession, len(cfg.Accounts)),
 		cfgAccounts: append([]config.Account(nil), cfg.Accounts...),

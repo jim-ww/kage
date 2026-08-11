@@ -265,7 +265,9 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		},
 	})
 
-	chatIsFocused := tuiFocused.Load() && tuiActiveChat.Load() == focusedChatKey(s.account.JID, from)
+	incomingKey := focusedChatKey(s.account.JID, from)
+	chatIsFocused := tuiFocused.Load() && tuiActiveChat.Load() == incomingKey
+	slog.Debug("notify decision", "incomingKey", incomingKey, "tuiFocused", tuiFocused.Load(), "tuiActiveChat", tuiActiveChat.Load(), "chatIsFocused", chatIsFocused, "notifyEnabled", notifyEnabled.Load(), "decryptFailed", decryptFailed, "outgoing", msgEv.Outgoing)
 	if notifyEnabled.Load() && !decryptFailed && !chatIsFocused && !msgEv.Outgoing {
 		daemon.Notify(s.rosterName(from), notifyPreview(body, oobURLs))
 	}

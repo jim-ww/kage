@@ -20,6 +20,11 @@ type Handler func(method string, params json.RawMessage) (result any, err error)
 type Server struct {
 	mu    sync.Mutex
 	conns map[*serverConn]struct{}
+
+	// OnLastDisconnect, if set, is called whenever the connected-client count
+	// drops to zero — e.g. so the daemon can reset state that only makes
+	// sense while a TUI is attached (see background.go's tuiFocused).
+	OnLastDisconnect func()
 }
 
 // serverConn is one accepted client connection; writeMu serializes
@@ -55,8 +60,13 @@ func (s *Server) serve(sc *serverConn, handler Handler) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.conns, sc)
+		empty := len(s.conns) == 0
+		cb := s.OnLastDisconnect
 		s.mu.Unlock()
 		sc.nc.Close()
+		if empty && cb != nil {
+			cb()
+		}
 	}()
 
 	for {

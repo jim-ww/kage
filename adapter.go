@@ -238,7 +238,9 @@ func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 // notification for a message that's already visible on screen.
 func (a *adapter) SetFocusState(accountJID, chatAddress string, focused bool) error {
 	tuiFocused.Store(focused)
-	tuiActiveChat.Store(focusedChatKey(accountJID, chatAddress))
+	key := focusedChatKey(accountJID, chatAddress)
+	tuiActiveChat.Store(key)
+	slog.Debug("focus state updated", "accountJID", accountJID, "chatAddress", chatAddress, "focused", focused, "key", key)
 	return nil
 }
 
