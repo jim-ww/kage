@@ -1,6 +1,10 @@
 package ui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 // setSelectedView switches the focused view and resizes accordingly — the
 // footer's row count (and so m.height) is view-dependent, so every focus
@@ -262,6 +266,34 @@ func (m Model) toggleComposeExpand() Model {
 // should traverse the same way, even though it's one "line" internally.
 func (m Model) composeMultiline() bool {
 	return m.selectedView == viewChat && m.input.Height() > 1
+}
+
+// fixStuckComposeCursorDown works around a textarea.Model bug (bubbles
+// v2.1.0's setCursorLineRelative, used by CursorDown/the "down" key): when
+// the current wrapped row's content exactly fills the field width with no
+// natural trailing space of its own — e.g. one long space-free run of
+// characters, as in a pasted token/URL/keysmash — its internal
+// `len(line)-1` boundary clamp lands one rune short of the row's true end,
+// so the LineInfo it recomputes from there still reports the *current* row,
+// and `m.col = nli.StartColumn` then resets the column right back to where
+// it started. Every subsequent Down press recomputes identically from that
+// same stuck (line, column), so no number of repeats ever breaks out —
+// verified via a standalone reproduction against the vendored library
+// itself, not just kage's use of it.
+//
+// The fix: position the cursor at exactly len(line) (not len(line)-1) on
+// the current logical line. LineInfo has a special case for a column
+// landing precisely on a wrapped row's boundary — it reports the *next*
+// row instead of clamping back into the current one — so this reaches the
+// row CursorDown was trying (and failing) to reach, without needing to
+// patch the vendored function itself.
+func (m *Model) fixStuckComposeCursorDown() {
+	lines := strings.Split(m.input.Value(), "\n")
+	row := m.input.Line()
+	if row < 0 || row >= len(lines) {
+		return
+	}
+	m.input.SetCursorColumn(len([]rune(lines[row])))
 }
 
 // inputAreaHeight accounts for the optional reply-hint / reacting-hint line

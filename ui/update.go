@@ -293,8 +293,18 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		}
 
 		oldValue := m.input.Value()
+		wasMultiline := m.composeMultiline()
+		beforeLine, beforeCol := m.input.Line(), m.input.Column()
+		isDownKey := false
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			isDownKey = keyMsg.String() == "down"
+		}
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
+		if wasMultiline && isDownKey && m.input.Value() == oldValue &&
+			m.input.Line() == beforeLine && m.input.Column() == beforeCol {
+			m.fixStuckComposeCursorDown()
+		}
 		if m.input.Value() != oldValue {
 			// The textarea grows/shrinks with content (DynamicHeight), which
 			// shifts inputAreaHeight() — the viewport must be resized in

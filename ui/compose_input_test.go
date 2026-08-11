@@ -120,6 +120,42 @@ func TestComposeManyNewlinesNotBlocked(t *testing.T) {
 	}
 }
 
+// TestComposeDownNotStuckOnExactWidthWrap checks that the down arrow can
+// still reach the second line when the first line is a single long
+// space-free run (a pasted token/URL/keysmash, common — real prose almost
+// always has a space near the wrap boundary) that happens to wrap so its
+// first row exactly fills the field width with no natural trailing space.
+// That combination trips a bubbles v2.1.0 textarea.Model bug
+// (setCursorLineRelative's `len(line)-1` boundary clamp): CursorDown
+// recomputes from the same (line, column) every time and can never advance,
+// no matter how many times it's pressed — see fixStuckComposeCursorDown in
+// layout.go for the full mechanism and the workaround.
+func TestComposeDownNotStuckOnExactWidthWrap(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.accounts = []Account{{Name: "me", Chats: nil, Messages: map[int][]Message{}}}
+	m.termHeight = 40
+	m.updateSizes()
+
+	next, _ := m.Update(keyText("ijadaspodksaodpaskdposakdpokdpoaskdpos"))
+	m = next.(Model)
+	next, _ = m.Update(altEnterKey())
+	m = next.(Model)
+	next, _ = m.Update(keyText("adkpasodksa"))
+	m = next.(Model)
+
+	m.input.MoveToBegin()
+
+	for i := 0; i < 3; i++ {
+		next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m = next.(Model)
+		if m.input.Line() == 1 {
+			return
+		}
+	}
+	t.Fatalf("down arrow never reached the second line, stuck at line=%d col=%d", m.input.Line(), m.input.Column())
+}
+
 // TestComposeUpDownCursorVsMessageNav checks that plain up/down move the
 // compose textarea's cursor while it holds more than one line, but fall
 // back to their usual job of moving the selected-message highlight once the
