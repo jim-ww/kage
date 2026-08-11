@@ -1,24 +1,26 @@
 package ui
 
-// pinnedWindowStep is how many additional messages growPinnedWindow reveals
-// per trigger when extending the loaded window across a chat's
-// PinnedHistory (see Account.PinnedHistory).
-const pinnedWindowStep = 100
-
-// growPinnedWindow extends chatIdx's loaded window across
-// accounts[accountIdx].PinnedHistory by up to pinnedWindowStep messages in
+// growPinnedWindow slides chatIdx's loaded window across
+// accounts[accountIdx].PinnedHistory by up to half of maxMessagesPerChat in
 // the given direction (older == true: toward the start; false: toward the
-// end) — unlike trimMessagesAround (which capped the *initial* jump so it
-// doesn't dump a search's entire scanned history into memory at once),
-// further growth here only ever extends the window, never re-trims it, the
-// same way normal (non-search) older-history scrolling already works in
-// this app: only live tail growth (trimMessagesFront) caps the loaded
-// window, scrolling up through history you're actively viewing does not.
-// Once a direction's edge reaches PinnedHistory's boundary on that side,
-// HistoryMore is updated to match; once both edges have been reached,
-// PinnedHistory/PinnedWindow for this chat are removed entirely — the
-// window is now an ordinary loaded window and normal storage-backed
-// older-history fetches / live message appends take back over.
+// end), keeping the window capped at maxMessagesPerChat throughout — unlike
+// normal (non-search) older-history scrolling, which never trims what it's
+// already loaded, letting the window here grow unboundedly made paging all
+// the way to the start of a long history (or jumpToLatestMessage unwinding
+// back to the tail) render/re-render an ever-larger message set on every
+// step, visibly worse the further it went. The already-decrypted
+// PinnedHistory means nothing already-viewed is lost by re-trimming — it's
+// just a slice away the next time this direction is paged again.
+//
+// Stepping by half the window (not a full window's worth) guarantees the
+// message that triggered the grow (always at the loaded window's near edge
+// — see maybeLoadOlderHistory/maybeLoadNewerHistory) stays inside the new
+// window rather than sliding past it. Once a direction's edge reaches
+// PinnedHistory's boundary on that side, HistoryMore is updated to match;
+// once the window spans the entire retained history (only possible once
+// the whole chat fits within one window), PinnedHistory/PinnedWindow for
+// this chat are removed — ordinary storage-backed paging / live-tail
+// appending takes back over.
 //
 // Returns false (does nothing) if there's no PinnedHistory for this chat,
 // or the requested direction is already at its edge.
@@ -33,12 +35,20 @@ func (m *Model) growPinnedWindow(accountIdx, chatIdx int, older bool) bool {
 	win := m.accounts[accountIdx].PinnedWindow[chatIdx]
 	start, end := win[0], win[1]
 
+	limit := m.maxMessagesPerChat
+	if limit <= 0 || limit > len(full) {
+		limit = len(full)
+	}
+	step := max(1, limit/2)
+
 	var newStart, newEnd int
 	switch {
 	case older && start > 0:
-		newStart, newEnd = max(0, start-pinnedWindowStep), end
+		newStart = max(0, start-step)
+		newEnd = min(len(full), newStart+limit)
 	case !older && end < len(full):
-		newStart, newEnd = start, min(len(full), end+pinnedWindowStep)
+		newEnd = min(len(full), end+step)
+		newStart = max(0, newEnd-limit)
 	default:
 		return false
 	}
@@ -49,8 +59,13 @@ func (m *Model) growPinnedWindow(accountIdx, chatIdx int, older bool) bool {
 		if windowed[i].ReplyTo == nil {
 			continue
 		}
-		shifted := *windowed[i].ReplyTo - newStart
-		windowed[i].ReplyTo = &shifted
+		rt := *windowed[i].ReplyTo
+		if rt < newStart || rt >= newEnd {
+			windowed[i].ReplyTo = nil
+		} else {
+			shifted := rt - newStart
+			windowed[i].ReplyTo = &shifted
+		}
 	}
 
 	m.accounts[accountIdx].Messages[chatIdx] = windowed
@@ -66,10 +81,34 @@ func (m *Model) growPinnedWindow(accountIdx, chatIdx int, older bool) bool {
 	if accountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 		// selectedMsg pointed into the old window's indexing; shift it by
 		// however much the window's start moved so it still points at the
-		// same underlying message — nothing already visible is ever
-		// dropped by a grow, so no clamping is needed.
+		// same underlying message — the step<limit/2 guarantee above means
+		// it's always still inside the new window, no clamping needed.
 		m.selectedMsg += start - newStart
 		m.refreshViewportFullScrollTo(m.selectedMsg)
 	}
+	return true
+}
+
+// unstickPinnedWindow drops accounts[accountIdx].PinnedHistory for chatIdx
+// (if any), replacing the loaded window in one step with the last
+// maxMessagesPerChat messages of the retained full history — used by
+// jumpToLatestMessage instead of repeatedly calling growPinnedWindow, which
+// would re-render an ever-larger window on every one of however many steps
+// it takes to reach the tail of a long history. Returns true if there was a
+// pinned window to unstick.
+func (m *Model) unstickPinnedWindow(accountIdx, chatIdx int) bool {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return false
+	}
+	full, ok := m.accounts[accountIdx].PinnedHistory[chatIdx]
+	if !ok {
+		return false
+	}
+
+	windowed, dropped := trimMessagesFront(full, m.maxMessagesPerChat)
+	m.accounts[accountIdx].Messages[chatIdx] = windowed
+	m.accounts[accountIdx].HistoryMore[chatIdx] = dropped > 0
+	delete(m.accounts[accountIdx].PinnedHistory, chatIdx)
+	delete(m.accounts[accountIdx].PinnedWindow, chatIdx)
 	return true
 }

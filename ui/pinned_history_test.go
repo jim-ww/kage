@@ -23,11 +23,10 @@ func newPinnedTestModel(t *testing.T, total, limit, target int) Model {
 }
 
 // TestGrowPinnedWindowOlder guards paging "up" (older) through a pinned
-// window: it reveals more of the retained PinnedHistory, keeps the window
-// only extends the window (never re-trims what's already loaded, matching
-// how normal older-history scrolling already works in this app — see
-// growPinnedWindow's doc comment), and drops PinnedHistory once both edges
-// have been reached.
+// window: it reveals more of the retained PinnedHistory while keeping the
+// window capped at maxMessagesPerChat throughout (never growing
+// unboundedly — see growPinnedWindow's doc comment for why that mattered),
+// and drops PinnedHistory once both edges have been reached.
 func TestGrowPinnedWindowOlder(t *testing.T) {
 	m := newPinnedTestModel(t, 1000, 100, 500)
 	chatIdx := 0
@@ -44,19 +43,19 @@ func TestGrowPinnedWindowOlder(t *testing.T) {
 		t.Fatal("growPinnedWindow(older) = false, want true (more history above)")
 	}
 	win = m.accounts[0].PinnedWindow[chatIdx]
-	if win[0] != 350 || win[1] != 550 {
-		t.Fatalf("window after growing older = %v, want [350 550] (end unchanged, only start extends)", win)
+	if win[0] != 400 || win[1] != 500 {
+		t.Fatalf("window after growing older = %v, want [400 500] (stepped by limit/2, still capped at limit)", win)
 	}
-	if len(m.accounts[0].Messages[chatIdx]) != 200 {
-		t.Fatalf("window size = %d, want 200 (grew by pinnedWindowStep, nothing dropped)", len(m.accounts[0].Messages[chatIdx]))
+	if len(m.accounts[0].Messages[chatIdx]) != 100 {
+		t.Fatalf("window size = %d, want capped at 100", len(m.accounts[0].Messages[chatIdx]))
 	}
 
 	// Grow older repeatedly until the start edge is reached.
 	for m.growPinnedWindow(0, chatIdx, true) {
 	}
 	win = m.accounts[0].PinnedWindow[chatIdx]
-	if win[0] != 0 || win[1] != 550 {
-		t.Fatalf("window after exhausting older = %v, want [0 550]", win)
+	if win[0] != 0 || win[1] != 100 {
+		t.Fatalf("window after exhausting older = %v, want [0 100]", win)
 	}
 	if m.accounts[0].HistoryMore[chatIdx] {
 		t.Fatal("HistoryMore should be false once the start edge is reached")
@@ -67,11 +66,14 @@ func TestGrowPinnedWindowOlder(t *testing.T) {
 	}
 }
 
-// TestGrowPinnedWindowNewerDropsPinnedHistoryAtBothEdges guards paging
-// "down" (newer): once both edges of PinnedHistory have been reached (by
-// growing both directions), PinnedHistory/PinnedWindow are removed entirely
-// so ordinary (non-search) loading semantics take back over.
-func TestGrowPinnedWindowNewerDropsPinnedHistoryAtBothEdges(t *testing.T) {
+// TestGrowPinnedWindowStaysCappedPagingBothDirections guards against the
+// window growing unboundedly as it's paged in both directions: since a
+// capped window can only ever have one edge in view at a time once the
+// retained history is larger than the cap, PinnedHistory legitimately stays
+// around indefinitely in that case — dropping it is unstickPinnedWindow's
+// job (jumpToLatestMessage), not something growPinnedWindow tries to
+// converge to on its own.
+func TestGrowPinnedWindowStaysCappedPagingBothDirections(t *testing.T) {
 	m := newPinnedTestModel(t, 250, 100, 125)
 	chatIdx := 0
 
@@ -80,22 +82,30 @@ func TestGrowPinnedWindowNewerDropsPinnedHistoryAtBothEdges(t *testing.T) {
 	for m.growPinnedWindow(0, chatIdx, false) {
 	}
 
+	if len(m.accounts[0].Messages[chatIdx]) != 100 {
+		t.Fatalf("window size = %d, want capped at 100 even after paging through both directions", len(m.accounts[0].Messages[chatIdx]))
+	}
+	if _, ok := m.accounts[0].PinnedHistory[chatIdx]; !ok {
+		t.Fatal("PinnedHistory should still be retained — the 250-message history is larger than the 100 cap")
+	}
+}
+
+// TestGrowPinnedWindowDropsPinnedHistoryWhenWholeHistoryFits guards the
+// degenerate case where the retained history is no larger than the window
+// cap: paging reaches both edges in a single window and PinnedHistory is
+// dropped, handing back off to ordinary (non-search) loading semantics.
+func TestGrowPinnedWindowDropsPinnedHistoryWhenWholeHistoryFits(t *testing.T) {
+	m := newPinnedTestModel(t, 80, 100, 40)
+	chatIdx := 0
+
+	// loadSearchResult's own trimMessagesAround already loaded the whole
+	// (80-message, under the 100 cap) history and skipped PinnedHistory
+	// entirely — nothing to grow.
 	if _, ok := m.accounts[0].PinnedHistory[chatIdx]; ok {
-		t.Fatal("PinnedHistory should be dropped once both edges are reached")
+		t.Fatal("PinnedHistory set even though the whole history already fit in one window")
 	}
-	if _, ok := m.accounts[0].PinnedWindow[chatIdx]; ok {
-		t.Fatal("PinnedWindow should be dropped once both edges are reached")
-	}
-	if m.accounts[0].HistoryMore[chatIdx] {
-		t.Fatal("HistoryMore should be false once the start edge is reached")
-	}
-	// Once an edge is reached, growing the other direction keeps it pinned
-	// rather than shrinking back away from it (see growPinnedWindow's
-	// comment) — so by the time both edges have been walked, the window
-	// has grown to cover the entire (here: small) retained history, not
-	// stayed capped at limit.
-	if len(m.accounts[0].Messages[chatIdx]) != 250 {
-		t.Fatalf("final window size = %d, want the full 250-message history", len(m.accounts[0].Messages[chatIdx]))
+	if len(m.accounts[0].Messages[chatIdx]) != 80 {
+		t.Fatalf("window size = %d, want the full 80-message history", len(m.accounts[0].Messages[chatIdx]))
 	}
 }
 

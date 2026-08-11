@@ -49,12 +49,12 @@ func (m Model) scrolledPastFirstPage() bool {
 func (m *Model) jumpToLatestMessage() {
 	// If the loaded window came from a search-result jump (PinnedHistory
 	// set for this chat), its tail isn't necessarily the chat's true latest
-	// message — unwind the pinned window all the way to its newer edge
-	// first so "latest" actually means latest, not just "however far a
-	// previous growPinnedWindow(..., false) call happened to reach".
+	// message — unstick it in one step (not a loop of growPinnedWindow
+	// calls, which would re-render an ever-larger window on every one of
+	// however many steps it takes to reach the tail of a long history) so
+	// "latest" actually means latest.
 	if chatIdx := m.currentChatIndex(); chatIdx >= 0 && m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
-		for m.growPinnedWindow(m.currentAccount, chatIdx, false) {
-		}
+		m.unstickPinnedWindow(m.currentAccount, chatIdx)
 	}
 
 	msgs := m.currentMessages()
