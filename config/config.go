@@ -4,243 +4,200 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
-	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v3"
 
 	"github.com/jim-ww/kage/ui"
 )
 
-type fileConfig struct {
-	Keybinds                map[string]any `toml:"keybinds"`
-	Theme                   ui.Theme       `toml:"theme"`
-	Mouse                   *bool          `toml:"mouse"`                                // nil (unset) means the default: on
-	SidebarWidth            int            `toml:"sidebar_width,omitempty"`              // persisted from dragging the sidebar border; 0 (unset) means the width/4-based default
-	InputHeight             int            `toml:"input_height,omitempty"`               // persisted from dragging the compose box border; 0 (unset) means the DynamicHeight-based default
-	SidebarHidden           bool           `toml:"sidebar_hidden,omitempty"`             // persisted from toggling the chat list (Ctrl+\ / status-bar button); unset means open
-	Icons                   *bool          `toml:"icons"`                                // nil (unset) means the default: on; show icons for attachments/encryption instead of plain-text tags
-	FilePickerDirsFirst     *bool          `toml:"file_picker_dirs_first"`               // nil (unset) means the default: on; group directories before files in the attach-file picker regardless of sort order
-	FilePickerSortField     string         `toml:"file_picker_sort_field,omitempty"`     // "created" or "updated"; persisted from cycling sort in the attach-file picker; unset means "updated"
-	FilePickerSortAscending bool           `toml:"file_picker_sort_ascending,omitempty"` // persisted from cycling sort in the attach-file picker; unset means descending
-	ShowNames               bool           `toml:"show_names,omitempty"`                 // show the sender's name in the message header instead of just a direction glyph; off by default
-	TimeLayout              string         `toml:"time_layout,omitempty"`                // custom Go time layout for message timestamps; unset means the default ("15:04"/"2006-01-02 15:04")
-	TimeOnlyToday           *bool          `toml:"time_only_today"`                      // nil (unset) means the default: on; with the default time layout, show time-only for messages sent today instead of a full date
-	DefaultAccount          string         `toml:"default_account"`                      // JID selected on startup; unset means the first configured account
-	OpenLastChat            *bool          `toml:"open_last_chat"`                       // nil (unset) means the default: on; whether to reopen LastChatAddress on startup
-	LastChatAccount         string         `toml:"last_chat_account,omitempty"`          // JID of the account owning the last opened chat
-	LastChatAddress         string         `toml:"last_chat_address,omitempty"`          // peer JID of the last opened chat, reopened on startup if OpenLastChat is set
-	Notifications           *bool          `toml:"notifications"`                        // nil (unset) means the default: on; whether a decrypted incoming message fires a desktop notification (the background daemon itself always runs)
-	TerminalCmd             string         `toml:"terminal_cmd,omitempty"`               // terminal emulator to launch from the tray icon; unset means fall back to $TERMINAL, then xdg-terminal-exec, then a hardcoded list
-	AttachmentsDir          string         `toml:"attachments_dir,omitempty"`            // directory decrypted/downloaded attachments are cached in for viewing; unset means $XDG_CACHE_HOME/kage/attachments (see os.UserCacheDir)
-	UseGPG                  *bool          `toml:"use_gpg"`                              // nil (unset) means the default: on; whether gpg encryption is available at all
-	UseKeyring              *bool          `toml:"use_keyring"`                          // nil (unset) means the default: on; whether the OS keyring is tried at all
-	HistoryPageSize         int            `toml:"history_page_size,omitempty"`          // number of messages loaded per chat at a time (initial load + each "load older"); 0 (unset) means the default
-	MaxMessagesPerChat      int            `toml:"max_messages_per_chat,omitempty"`      // cap on messages kept in memory/view per chat; 0 (unset) means the default
-	NoticeDuration          int            `toml:"notice_duration,omitempty"`            // seconds an in-app notification toast stays visible before auto-dismissing; 0 (unset) means the default
-	Storage                 StorageConfig  `toml:"storage"`
-	Accounts                []Account      `toml:"accounts"`
+// Config is both the yaml wire shape and the fully-resolved value the rest
+// of the app reads directly (cfg.MouseDisabled, cfg.HistoryPageSize, ...) —
+// no separate "raw file" struct. Defaults are applied by pre-filling a
+// Config with defaultConfig() before unmarshaling on top of it:
+// yaml.Unmarshal only touches keys actually present in the file, so an
+// absent key leaves the pre-filled default in place. See stripDefaults for
+// the write-back side of the same idea.
+//
+// Every boolean here is named so its Go zero value (false) is the default
+// (e.g. MouseDisabled rather than Mouse) — that means yaml.v3's plain
+// `omitempty` already omits it correctly (its isZero treats false as
+// empty), no separate defaults-prefill needed for bools specifically. It's
+// only the handful of fields whose sensible default isn't the zero value
+// (FilePickerSortField, HistoryPageSize, ...) that need defaultConfig().
+//
+// Theme and Keybinds are the exception to all of the above: they're
+// partial-override shapes (empty string / absent key = "inherit"), not
+// simple defaultable scalars, so they're deliberately left out of
+// defaultConfig() and resolved on demand via ResolvedTheme/ResolvedKeyMap.
+type Config struct {
+	Keybinds map[string]any `yaml:"keybinds,omitempty"`
+	Theme    ui.Theme       `yaml:"theme,omitempty"`
+
+	// MouseDisabled disables mouse click/scroll support; off (mouse
+	// enabled) by default.
+	MouseDisabled bool `yaml:"mouse_disabled,omitempty"`
+	// SidebarWidth is persisted from dragging the sidebar border; 0
+	// (unset) means the width/4-based default.
+	SidebarWidth int `yaml:"sidebar_width,omitempty"`
+	// InputHeight is persisted from dragging the compose box border; 0
+	// (unset) means the DynamicHeight-based default.
+	InputHeight int `yaml:"input_height,omitempty"`
+	// SidebarHidden is persisted from toggling the chat list (Ctrl+\ /
+	// status-bar button); unset means open.
+	SidebarHidden bool `yaml:"sidebar_hidden,omitempty"`
+	// IconsDisabled hides icons for attachments/encryption in favor of
+	// plain-text tags; off (icons shown) by default.
+	IconsDisabled bool `yaml:"icons_disabled,omitempty"`
+	// FilePickerFilesFirst shows files before directories in the
+	// attach-file picker regardless of sort order; off (dirs first) by
+	// default.
+	FilePickerFilesFirst bool `yaml:"file_picker_files_first,omitempty"`
+	// FilePickerSortField is "created" or "updated"; persisted from
+	// cycling sort in the attach-file picker; "updated" by default.
+	FilePickerSortField string `yaml:"file_picker_sort_field,omitempty"`
+	// FilePickerSortAscending is persisted from cycling sort in the
+	// attach-file picker; unset means descending.
+	FilePickerSortAscending bool `yaml:"file_picker_sort_ascending,omitempty"`
+	// ShowNames shows the sender's name in the message header instead of
+	// just a direction glyph; off by default.
+	ShowNames bool `yaml:"show_names,omitempty"`
+	// TimeLayout is a custom Go time layout for message timestamps;
+	// unset means the default ("15:04"/"2006-01-02 15:04").
+	TimeLayout string `yaml:"time_layout,omitempty"`
+	// AlwaysShowFullDate: with the default time layout, show the full
+	// date even for messages sent today; off by default.
+	AlwaysShowFullDate bool `yaml:"always_show_full_date,omitempty"`
+	// DefaultAccount is the JID selected on startup; unset means the
+	// first configured account.
+	DefaultAccount string `yaml:"default_account,omitempty"`
+	// OpenLastChatDisabled disables reopening LastChatAddress on
+	// startup; off by default.
+	OpenLastChatDisabled bool `yaml:"open_last_chat_disabled,omitempty"`
+	// LastChatAccount is the JID of the account owning the last opened
+	// chat.
+	LastChatAccount string `yaml:"last_chat_account,omitempty"`
+	// LastChatAddress is the peer JID of the last opened chat, reopened
+	// on startup unless OpenLastChatDisabled.
+	LastChatAddress string `yaml:"last_chat_address,omitempty"`
+	// NotificationsDisabled disables desktop notifications for decrypted
+	// incoming messages (the background daemon itself always runs); off
+	// by default.
+	NotificationsDisabled bool `yaml:"notifications_disabled,omitempty"`
+	// TerminalCmd is the terminal emulator to launch from the tray icon;
+	// unset means fall back to $TERMINAL, then xdg-terminal-exec, then a
+	// hardcoded list.
+	TerminalCmd string `yaml:"terminal_cmd,omitempty"`
+	// AttachmentsDir is the directory decrypted/downloaded attachments
+	// are cached in for viewing; unset means
+	// $XDG_CACHE_HOME/kage/attachments (see os.UserCacheDir).
+	AttachmentsDir string `yaml:"attachments_dir,omitempty"`
+	// GPGDisabled disables gpg encryption entirely (never shells out to
+	// gpg; "gpg" hidden from the per-chat encryption picker); off by
+	// default.
+	GPGDisabled bool `yaml:"gpg_disabled,omitempty"`
+	// KeyringDisabled disables ever consulting the OS keyring; off by
+	// default.
+	KeyringDisabled bool `yaml:"keyring_disabled,omitempty"`
+	// HistoryPageSize is the number of messages loaded per chat at a
+	// time (initial load + each "load older"); DefaultHistoryPageSize
+	// when unset.
+	HistoryPageSize int `yaml:"history_page_size,omitempty"`
+	// MaxMessagesPerChat caps how many messages are kept in memory/view
+	// per chat; DefaultMaxMessagesPerChat when unset.
+	MaxMessagesPerChat int `yaml:"max_messages_per_chat,omitempty"`
+	// NoticeDuration is seconds an in-app notification toast stays
+	// visible before auto-dismissing; DefaultNoticeDurationSeconds when
+	// unset.
+	NoticeDuration int           `yaml:"notice_duration,omitempty"`
+	Storage        StorageConfig `yaml:"storage,omitempty"`
+	Accounts       []Account     `yaml:"accounts,omitempty"`
+
+	// Path is the config file this was actually loaded from, or the
+	// default write location if none was found — always non-empty, so
+	// callers that need to persist a change (e.g. an auto-detected GPG
+	// key) have somewhere to write it back to. Not part of the yaml
+	// shape.
+	Path string `yaml:"-"`
 }
 
 // StorageConfig configures the password local message history is encrypted
 // under at rest (see ResolveStoragePassword) — one password for the whole
 // database, shared by every configured account.
 type StorageConfig struct {
-	Password    string `toml:"password,omitempty"`     // plaintext fallback
-	PasswordCmd string `toml:"password_cmd,omitempty"` // shell command printing the password on stdout
-}
-
-type UIConfig struct {
-	KeyMap                  ui.KeyMap
-	Theme                   ui.Theme
-	Mouse                   bool          // enables mouse click/scroll support; on by default
-	SidebarWidth            int           // 0 means "use the width/4-based default"
-	InputHeight             int           // 0 means "use the DynamicHeight-based default"
-	SidebarHidden           bool          // persisted chat list visibility; false (open) by default
-	OpenLastChat            bool          // whether to reopen the last chat on startup; on by default
-	Icons                   bool          // show icons for attachments/encryption instead of plain-text tags; on by default
-	FilePickerDirsFirst     bool          // group directories before files in the attach-file picker regardless of sort order; on by default
-	FilePickerSortField     string        // "created" or "updated"; persisted attach-file picker sort field; "updated" by default
-	FilePickerSortAscending bool          // persisted attach-file picker sort direction; descending by default
-	ShowNames               bool          // show the sender's name in the message header instead of just a direction glyph; off by default
-	TimeLayout              string        // custom Go time layout for message timestamps; empty means the default
-	TimeOnlyToday           bool          // with the default time layout, show time-only for messages sent today instead of a full date; on by default
-	NoticeDuration          time.Duration // how long an in-app notification toast stays visible before auto-dismissing; DefaultNoticeDuration when unset
-}
-
-// Config is the fully resolved application configuration.
-type Config struct {
-	UI       UIConfig
-	Storage  StorageConfig
-	Accounts []Account
-	// Notifications controls whether a decrypted incoming message fires a
-	// desktop notification. The background daemon itself always runs
-	// (the TUI depends on it for its XMPP connections/storage/decryption)
-	// regardless of this setting. On by default.
-	Notifications bool
-	// TerminalCmd is the terminal emulator command the tray icon's left-click
-	// launches a new kage TUI in. Empty means fall back to $TERMINAL, then
-	// xdg-terminal-exec, then a hardcoded list of common terminals.
-	TerminalCmd string
-	// AttachmentsDir is where decrypted/downloaded attachments are cached
-	// for viewing (opening a message attachment, not an explicit "Save
-	// As" — that always goes to the downloads directory). Empty means
-	// $XDG_CACHE_HOME/kage/attachments (see os.UserCacheDir).
-	AttachmentsDir string
-	// UseGPG controls whether gpg encryption is available at all: when off,
-	// kage never shells out to gpg (no gpg-agent/keyring prompts) and "gpg"
-	// is hidden from the per-chat encryption picker. On by default.
-	UseGPG bool
-	// UseKeyring controls whether the OS keyring is ever consulted: when
-	// off, password resolution (account + local storage) skips straight to
-	// password_cmd/plaintext, and new passwords are never stored in the
-	// keyring either. On by default.
-	UseKeyring bool
-	// DefaultAccountIdx is the index into Accounts selected on startup,
-	// resolved from the default_account JID setting. 0 (the first account)
-	// when unset or when the configured JID doesn't match any account.
-	DefaultAccountIdx int
-	// LastChatAccountIdx/LastChatAddress identify the chat to reopen on
-	// startup when UI.OpenLastChat is set. LastChatAddress is empty when no
-	// chat has been opened yet. LastChatAccountIdx is only meaningful
-	// alongside a non-empty LastChatAddress.
-	LastChatAccountIdx int
-	LastChatAddress    string
-	// HistoryPageSize is the number of messages loaded per chat at a time,
-	// both on startup and for each "load older messages" fetch as the user
-	// scrolls up — keeps very long histories from being decrypted/rendered
-	// all at once. DefaultHistoryPageSize when unset or non-positive.
-	HistoryPageSize int
-	// MaxMessagesPerChat caps how many messages are kept loaded in memory/view
-	// per chat — older messages beyond this are dropped from the UI slice
-	// (still intact in storage, reloadable via "load older") as new ones
-	// come in from live traffic or MAM sync, keeping very long histories or
-	// large MAM backfills from growing the in-memory view unbounded.
-	// DefaultMaxMessagesPerChat when unset or non-positive.
-	MaxMessagesPerChat int
-	// Path is the config file this was actually loaded from, or the
-	// default write location if none was found — always non-empty, so
-	// callers that need to persist a change (e.g. an auto-detected GPG key)
-	// have somewhere to write it back to.
-	Path string
+	Password    string `yaml:"password,omitempty"`     // plaintext fallback
+	PasswordCmd string `yaml:"password_cmd,omitempty"` // shell command printing the password on stdout
 }
 
 // DefaultHistoryPageSize is how many messages are loaded per chat at a time
-// when history_page_size isn't set in config.toml.
+// when history_page_size isn't set in config.yaml.
 const DefaultHistoryPageSize = 200
 
 // DefaultMaxMessagesPerChat is how many messages are kept loaded per chat
-// when max_messages_per_chat isn't set in config.toml.
+// when max_messages_per_chat isn't set in config.yaml.
 const DefaultMaxMessagesPerChat = 1000
 
-// DefaultNoticeDuration is how long an in-app notification toast stays
-// visible before auto-dismissing when notice_duration isn't set in
-// config.toml.
-const DefaultNoticeDuration = 3 * time.Second
+// DefaultNoticeDurationSeconds is how long (in seconds) an in-app
+// notification toast stays visible before auto-dismissing when
+// notice_duration isn't set in config.yaml.
+const DefaultNoticeDurationSeconds = 3
 
-func Load(path string) (Config, error) {
-	cfgOut := Config{
-		UI: UIConfig{
-			KeyMap:              ui.DefaultKeyMap,
-			Theme:               ui.DefaultTheme(),
-			Mouse:               true,
-			OpenLastChat:        true,
-			TimeOnlyToday:       true,
-			Icons:               true,
-			FilePickerDirsFirst: true,
-			FilePickerSortField: "updated",
-			NoticeDuration:      DefaultNoticeDuration,
-		},
-		Notifications:      true,
-		UseGPG:             true,
-		UseKeyring:         true,
-		HistoryPageSize:    DefaultHistoryPageSize,
-		MaxMessagesPerChat: DefaultMaxMessagesPerChat,
+// defaultConfig returns the Config to pre-fill before unmarshaling a file on
+// top of it, so an absent yaml key leaves the default in place. Theme/
+// Keybinds are deliberately left zero — see Config's doc.
+func defaultConfig() Config {
+	return Config{
+		FilePickerSortField: "updated",
+		HistoryPageSize:     DefaultHistoryPageSize,
+		MaxMessagesPerChat:  DefaultMaxMessagesPerChat,
+		NoticeDuration:      DefaultNoticeDurationSeconds,
 	}
-	paths := append([]string{path}, candidatePaths()...)
-	for _, path := range paths {
-		cfg, err := loadFile(path)
-		if err != nil {
-			return cfgOut, err
-		}
-		if cfg != nil {
-			keys, err := applyKeybinds(ui.DefaultKeyMap, cfg.Keybinds)
-			if err != nil {
-				return cfgOut, err
-			}
-			cfgOut.UI.KeyMap = keys
-			cfgOut.UI.Theme = mergeTheme(ui.DefaultTheme(), cfg.Theme)
-			if cfg.Mouse != nil {
-				cfgOut.UI.Mouse = *cfg.Mouse
-			}
-			cfgOut.UI.SidebarWidth = cfg.SidebarWidth
-			cfgOut.UI.SidebarHidden = cfg.SidebarHidden
-			if cfg.Icons != nil {
-				cfgOut.UI.Icons = *cfg.Icons
-			}
-			if cfg.FilePickerDirsFirst != nil {
-				cfgOut.UI.FilePickerDirsFirst = *cfg.FilePickerDirsFirst
-			}
-			if cfg.FilePickerSortField != "" {
-				cfgOut.UI.FilePickerSortField = cfg.FilePickerSortField
-			}
-			cfgOut.UI.FilePickerSortAscending = cfg.FilePickerSortAscending
-			cfgOut.UI.ShowNames = cfg.ShowNames
-			cfgOut.UI.TimeLayout = cfg.TimeLayout
-			cfgOut.UI.InputHeight = cfg.InputHeight
-			if cfg.OpenLastChat != nil {
-				cfgOut.UI.OpenLastChat = *cfg.OpenLastChat
-			}
-			if cfg.TimeOnlyToday != nil {
-				cfgOut.UI.TimeOnlyToday = *cfg.TimeOnlyToday
-			}
-			if cfg.Notifications != nil {
-				cfgOut.Notifications = *cfg.Notifications
-			}
-			if cfg.UseGPG != nil {
-				cfgOut.UseGPG = *cfg.UseGPG
-			}
-			if cfg.UseKeyring != nil {
-				cfgOut.UseKeyring = *cfg.UseKeyring
-			}
-			if cfg.HistoryPageSize > 0 {
-				cfgOut.HistoryPageSize = cfg.HistoryPageSize
-			}
-			if cfg.MaxMessagesPerChat > 0 {
-				cfgOut.MaxMessagesPerChat = cfg.MaxMessagesPerChat
-			}
-			if cfg.NoticeDuration > 0 {
-				cfgOut.UI.NoticeDuration = time.Duration(cfg.NoticeDuration) * time.Second
-			}
-			cfgOut.TerminalCmd = cfg.TerminalCmd
-			cfgOut.AttachmentsDir = cfg.AttachmentsDir
-			cfgOut.Storage = cfg.Storage
-			cfgOut.Accounts = cfg.Accounts
-			cfgOut.Path = path
-			if cfg.DefaultAccount != "" {
-				for i, acct := range cfg.Accounts {
-					if acct.JID == cfg.DefaultAccount {
-						cfgOut.DefaultAccountIdx = i
-						break
-					}
-				}
-			}
-			if cfg.LastChatAddress != "" {
-				cfgOut.LastChatAddress = cfg.LastChatAddress
-				for i, acct := range cfg.Accounts {
-					if acct.JID == cfg.LastChatAccount {
-						cfgOut.LastChatAccountIdx = i
-						break
-					}
-				}
-			}
-			return cfgOut, nil
+}
+
+// NoticeDurationValue returns NoticeDuration as a time.Duration.
+func (c Config) NoticeDurationValue() time.Duration {
+	return time.Duration(c.NoticeDuration) * time.Second
+}
+
+// ResolvedTheme returns the theme to render with: DefaultTheme with any
+// fields c.Theme sets overlaid on top.
+func (c Config) ResolvedTheme() ui.Theme {
+	return mergeTheme(ui.DefaultTheme(), c.Theme)
+}
+
+// ResolvedKeyMap returns the keymap to use: DefaultKeyMap with any bindings
+// in c.Keybinds overlaid on top.
+func (c Config) ResolvedKeyMap() (ui.KeyMap, error) {
+	return applyKeybinds(ui.DefaultKeyMap, c.Keybinds)
+}
+
+// DefaultAccountIndex resolves DefaultAccount to an index into Accounts —
+// the account selected on startup. 0 (the first account) when unset or when
+// the configured JID doesn't match any account.
+func (c Config) DefaultAccountIndex() int {
+	if c.DefaultAccount == "" {
+		return 0
+	}
+	for i, acct := range c.Accounts {
+		if acct.JID == c.DefaultAccount {
+			return i
 		}
 	}
-	if defaultPath, err := DefaultWritePath(); err == nil {
-		cfgOut.Path = defaultPath
+	return 0
+}
+
+// LastChatAccountIndex resolves LastChatAccount to an index into Accounts.
+// 0 when unset or when the configured JID doesn't match any account — only
+// meaningful alongside a non-empty LastChatAddress.
+func (c Config) LastChatAccountIndex() int {
+	for i, acct := range c.Accounts {
+		if acct.JID == c.LastChatAccount {
+			return i
+		}
 	}
-	return cfgOut, nil
+	return 0
 }
 
 func candidatePaths() []string {
@@ -248,27 +205,69 @@ func candidatePaths() []string {
 	if env := strings.TrimSpace(os.Getenv("KAGE_CONFIG")); env != "" {
 		paths = append(paths, env)
 	}
-	paths = append(paths, "config.toml")
+	paths = append(paths, "config.yaml")
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		paths = append(paths, filepath.Join(home, ".config", "kage", "config.toml"))
+		paths = append(paths, filepath.Join(home, ".config", "kage", "config.yaml"))
 	}
 	return paths
 }
 
-func loadFile(path string) (*fileConfig, error) {
+// Load reads the first config file found among path (if non-empty) and the
+// usual candidate locations ($KAGE_CONFIG, ./config.yaml,
+// ~/.config/kage/config.yaml), applying defaults for anything unset. If none
+// exist, returns defaultConfig() with Path set to where a new file would be
+// written.
+func Load(path string) (Config, error) {
+	for _, p := range append([]string{path}, candidatePaths()...) {
+		if p == "" {
+			continue
+		}
+		cfg, found, err := loadConfigFile(p)
+		if err != nil {
+			return defaultConfig(), err
+		}
+		if found {
+			cfg.Path = p
+			return cfg, nil
+		}
+	}
+	cfg := defaultConfig()
+	if defaultPath, err := DefaultWritePath(); err == nil {
+		cfg.Path = defaultPath
+	}
+	return cfg, nil
+}
+
+// loadConfigFile pre-fills defaultConfig() and unmarshals path on top of it.
+// found is false (with a zero error) when path doesn't exist.
+func loadConfigFile(path string) (cfg Config, found bool, err error) {
+	cfg = defaultConfig()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return cfg, false, nil
 		}
-		return nil, fmt.Errorf("read config %q: %w", path, err)
+		return cfg, false, fmt.Errorf("read config %q: %w", path, err)
 	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, false, fmt.Errorf("parse config %q: %w", path, err)
+	}
+	return cfg, true, nil
+}
 
-	var cfg fileConfig
-	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config %q: %w", path, err)
+// stripDefaults zeroes any field of cfg that equals the corresponding field
+// in def, so that field's `omitempty` tag drops it from the encoded output —
+// used before writing the file back so config.yaml only ever contains
+// settings that differ from default.
+func stripDefaults(cfg *Config, def Config) {
+	v := reflect.ValueOf(cfg).Elem()
+	d := reflect.ValueOf(def)
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.CanSet() && reflect.DeepEqual(f.Interface(), d.Field(i).Interface()) {
+			f.Set(reflect.Zero(f.Type()))
+		}
 	}
-	return &cfg, nil
 }
 
 func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {

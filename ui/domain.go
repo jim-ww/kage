@@ -118,7 +118,7 @@ type Account struct {
 	Status Presence
 
 	// Removed is set once AccountRemover.RemoveAccount has disconnected this
-	// account and dropped it from config.toml. It stays in m.accounts (and
+	// account and dropped it from config.yaml. It stays in m.accounts (and
 	// so this slot in the sidebar) for the rest of this run — see
 	// AccountRemovedMsg for why indices can't shift — but is excluded from
 	// switching and shows as offline/removed until the next restart drops

@@ -1,0 +1,92 @@
+accounts:
+  - jid: user@example.com
+    # password resolution order: OS keyring -> password_cmd -> password
+    password_cmd: pass show xmpp/user
+    # password: plaintext fallback, avoid if possible
+    # alias: display name shown in place of the JID in the UI
+    # gpg_key_id: own key fingerprint, used to decrypt incoming messages
+    # gpg_peers:
+    #   friend@example.com: friend's key fingerprint, used to encrypt outgoing messages to them
+    # omemo_peers: pins a specific OMEMO protocol version for specific peers
+    #   friend@example.com: v2 # "v1" or "v2"
+    # status: "" # "", "chat", "away", "xa", "dnd", or "offline" — presence to come online with
+
+# mouse_disabled: false # disables click/scroll support (chat list, messages, send button); off by default
+# sidebar_width: 0 # chat list width in columns; persisted from dragging the sidebar border; 0 means the width/4-based default
+# input_height: 0 # compose box height in rows; persisted from dragging its top border; 0 means the DynamicHeight-based default
+# sidebar_hidden: false # persisted from toggling the chat list (Ctrl+\ / status-bar button)
+# icons_disabled: false # hides icons for attachments/encryption in favor of plain-text tags
+# file_picker_files_first: false # shows files before directories in the attach-file picker regardless of sort order
+# file_picker_sort_field: updated # "created" or "updated"; persisted from cycling sort in the attach-file picker
+# file_picker_sort_ascending: false # persisted from cycling sort in the attach-file picker
+# show_names: false # show the sender's name in the message header instead of just a direction glyph
+# time_layout: "" # custom Go time layout for message timestamps; empty means the default ("15:04"/"2006-01-02 15:04")
+# always_show_full_date: false # with the default time layout, show the full date even for messages sent today
+# default_account: "" # JID selected on startup; empty means the first configured account
+# open_last_chat_disabled: false # disables reopening the last chat on startup
+# last_chat_account: "" # JID of the account owning the last opened chat; persisted automatically
+# last_chat_address: "" # peer JID of the last opened chat; persisted automatically, reopened on startup unless open_last_chat_disabled
+# notifications_disabled: false # disables desktop notifications for decrypted incoming messages
+# terminal_cmd: "" # terminal emulator to launch from the tray icon; empty falls back to $TERMINAL, then xdg-terminal-exec, then a hardcoded list
+# attachments_dir: "" # directory decrypted/downloaded attachments are cached in for viewing; empty means $XDG_CACHE_HOME/kage/attachments
+# gpg_disabled: false # disables gpg encryption entirely (never shells out to gpg; "gpg" hidden from the per-chat encryption picker)
+# keyring_disabled: false # disables ever consulting the OS keyring
+# history_page_size: 200 # messages loaded per chat at a time (initial load + each "load older")
+# max_messages_per_chat: 1000 # cap on messages kept in memory/view per chat
+# notice_duration: 3 # seconds an in-app notification toast stays visible before auto-dismissing
+
+# storage encryption password (local message history at rest), same
+# resolution order as an account's password: OS keyring -> password_cmd -> password
+# storage:
+#   password_cmd: pass show xmpp/kage-storage
+#   # password: plaintext fallback, avoid if possible
+
+# keybinds: only the names below are recognized (see config.go's
+# applyKeybinds); values shown are kage's actual defaults, so uncomment and
+# edit only the ones you want to change.
+# keybinds:
+#   quit: ["q", "ctrl+c"]
+#   back: ["esc"]
+#   switch: ["tab"]
+#   focus_chats: ["\\"]
+#   chat_open: ["l", "right"]
+#   select_send: ["enter"]
+#   message_up: ["ctrl+k", "up"]
+#   message_down: ["ctrl+j", "down"]
+#   delete: ["ctrl+shift+d"]
+#   yank: ["ctrl+y"]
+#   edit: ["ctrl+e"]
+#   reply: ["ctrl+r"]
+#   info: ["ctrl+i"]
+#   open: ["ctrl+o"]
+#   save: ["ctrl+s"]
+#   attach_file: ["ctrl+f"]
+#   sort_file_picker: ["ctrl+s"]
+#   react: ["ctrl+t"]
+#   confirm_yes: ["y"]
+#   confirm_no: ["n", "esc"]
+#   add_account: ["a"]
+
+# theme: values shown are kage's actual default (Tokyo Night); uncomment and
+# edit only the colors you want to change.
+# theme:
+#   app_bg: "#1a1b26"
+#   panel_bg: "#1f2335"
+#   panel_alt_bg: "#24283b"
+#   panel_edge: "#292e42"
+#   log_bg: "#1b1f2f"
+#   them_fg: "#c0caf5"
+#   text_muted: "#a9b1d6"
+#   time: "#565f89"
+#   border_d: "#3b4261"
+#   border_a: "#f7768e"
+#   accent_cyan: "#7dcfff"
+#   reply_fg: "#73daca"
+#   popup_bg: "#1f2335"
+#   popup_danger: "#f7768e"
+#   filter_match: "#e0af68"
+#   nick_me: "#7dcfff"
+#   nick_them: "#bb9af7"
+#   status_fg: "#9ece6a"
+#   notice_bg: "#292e42"
+#   notice_fg: "#c0caf5"

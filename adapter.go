@@ -44,7 +44,7 @@ type adapter struct {
 }
 
 // AddAccount implements ui.AccountAdder: resolves and stores the password in
-// the OS keyring, persists the account to config.toml, connects it live, and
+// the OS keyring, persists the account to config.yaml, connects it live, and
 // starts its supervisor goroutine — mirroring what main does for accounts
 // configured at startup, just for one account added mid-session.
 func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
@@ -52,7 +52,7 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	if password != "" {
 		// Prefer the OS keyring (unless use_keyring is off); if that's
 		// unavailable (no Secret Service running, headless box, etc.) fall
-		// back to storing the password in plaintext in config.toml rather
+		// back to storing the password in plaintext in config.yaml rather
 		// than failing the add outright.
 		keyringErr := fmt.Errorf("use_keyring is disabled")
 		if a.useKeyring {
@@ -85,7 +85,7 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string) tea.Msg {
 	return ui.AccountAddedMsg{Account: uiAcct}
 }
 
-// statusConfigValue is the inverse of accountStatus: the config.toml value to
+// statusConfigValue is the inverse of accountStatus: the config.yaml value to
 // persist for a ui.Presence account status ("" for online).
 func statusConfigValue(status ui.Presence) string {
 	switch status {
@@ -105,7 +105,7 @@ func statusConfigValue(status ui.Presence) string {
 }
 
 // SetAccountStatus implements ui.AccountStatusSetter: persists the chosen
-// status to config.toml (so a restart comes back up the same way), then
+// status to config.yaml (so a restart comes back up the same way), then
 // applies it live - closing the connection outright for PresenceOffline (no
 // further traffic to that account's server at all), dialing a currently
 // offline account back up for PresenceOnline/PresenceAway, or just updating
@@ -120,7 +120,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	}
 	sess.account.Status = statusConfigValue(status)
 	// Best-effort: this SIGHUPs the daemon's own process to re-read
-	// config.toml (see daemon.SignalReload) for settings like Notifications
+	// config.yaml (see daemon.SignalReload) for settings like Notifications
 	// that aren't already reflected in the live session state above - never
 	// a reason to fail the status change itself.
 	if err := daemon.SignalReload(); err != nil {
@@ -418,7 +418,7 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.
 // RemoveAccount implements ui.AccountRemover: purges this account's own
 // device from each OMEMO protocol's published device list (so peers stop
 // treating it as a valid encryption target), disconnects it, and drops it
-// from config.toml. Local storage (history, roster cache, OMEMO
+// from config.yaml. Local storage (history, roster cache, OMEMO
 // identity/session state) is never touched — sessions keeps the slot (see
 // ui.AccountRemovedMsg for why indices must stay stable), just closed, so
 // its reconnect supervisor goroutine exits instead of retrying.

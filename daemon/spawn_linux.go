@@ -76,7 +76,7 @@ func acquireLock(path string) (f *os.File, ok bool, err error) {
 
 // SignalReload sends SIGHUP to the currently running daemon (identified by
 // the PID Run recorded in its lock file when it started), asking it to
-// re-read config.toml and adjust which accounts it's watching accordingly -
+// re-read config.yaml and adjust which accounts it's watching accordingly -
 // see daemon_linux.go's sighup handling. A no-op (nil error) if no daemon
 // is running, or its recorded PID is stale.
 func SignalReload() error {

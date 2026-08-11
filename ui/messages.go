@@ -324,20 +324,20 @@ type AccountAddErrorMsg struct {
 	Err error
 }
 
-// AccountRemover disconnects an account and drops it from config.toml —
+// AccountRemover disconnects an account and drops it from config.yaml —
 // implemented outside ui (main.go's adapter) so ui stays decoupled from the
 // network/config layers. Runs on the Bubble Tea event loop's goroutine via a
 // tea.Cmd since it involves network I/O (purging the account's published
 // OMEMO device list before disconnecting). Never touches local storage — no
 // history, roster cache, or OMEMO identity/session state is deleted, only
-// the live connection and the config.toml entry.
+// the live connection and the config.yaml entry.
 type AccountRemover interface {
 	RemoveAccount(accountIdx int) tea.Msg
 }
 
 // AccountRemovedMsg is sent into the Bubble Tea loop once
 // AccountRemover.RemoveAccount has disconnected accountIdx and dropped it
-// from config.toml. The account stays in the sidebar for the rest of this
+// from config.yaml. The account stays in the sidebar for the rest of this
 // run (indices must stay stable — see AccountConnectedMsg) but shows as
 // offline/removed and is excluded from switching; it's gone for good only
 // after a restart.

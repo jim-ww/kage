@@ -18,18 +18,18 @@ const storageKeyringAccount = "local-storage"
 
 // Account is one configured XMPP account.
 type Account struct {
-	JID         string            `toml:"jid"`
-	Alias       string            `toml:"alias,omitempty"` // display name shown in place of the JID in the UI
-	Password    string            `toml:"password,omitempty"`     // plaintext fallback
-	PasswordCmd string            `toml:"password_cmd,omitempty"` // shell command printing the password on stdout
-	GPGKeyID    string            `toml:"gpg_key_id,omitempty"`   // own key, used to decrypt/sign
-	GPGPeers    map[string]string `toml:"gpg_peers,omitempty"`    // JID -> peer's key fingerprint
+	JID         string            `yaml:"jid"`
+	Alias       string            `yaml:"alias,omitempty"`        // display name shown in place of the JID in the UI
+	Password    string            `yaml:"password,omitempty"`     // plaintext fallback
+	PasswordCmd string            `yaml:"password_cmd,omitempty"` // shell command printing the password on stdout
+	GPGKeyID    string            `yaml:"gpg_key_id,omitempty"`   // own key, used to decrypt/sign
+	GPGPeers    map[string]string `yaml:"gpg_peers,omitempty"`    // JID -> peer's key fingerprint
 
 	// OmemoPeers pins a specific OMEMO protocol version for specific peers:
 	// JID -> "v1" | "v2". Only consulted when resolveOmemoProtocol's
 	// auto-detection runs (e.g. for legacy stored chat modes) - a chat
 	// pinned directly to "omemo-v1"/"omemo-v2" ignores this.
-	OmemoPeers map[string]string `toml:"omemo_peers,omitempty"`
+	OmemoPeers map[string]string `yaml:"omemo_peers,omitempty"`
 
 	// Status is the account's configured presence: "" (default, online),
 	// "chat", "away", "xa" (extended away), "dnd", or "offline". Read once
@@ -37,7 +37,7 @@ type Account struct {
 	// never touches the network) and what initial <show/> to send;
 	// persisted immediately whenever changed from the UI, so a restart
 	// always comes back up in the same status.
-	Status string `toml:"status,omitempty"`
+	Status string `yaml:"status,omitempty"`
 }
 
 // ResolvePassword returns the account's password, trying the OS keyring

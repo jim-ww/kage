@@ -40,7 +40,6 @@
 - account manager: fix adding duplicate accounts
 - option to remove specific chat history (on server)
 - implement backups, compatible with conversations
-- omit options from config, that have default values
 - search message content in across chats
 
 - refactor: move components to ui/ package

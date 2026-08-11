@@ -402,7 +402,7 @@ func openStorageForCLI(cfgPath string) (cfg config.Config, queries *storage.Quer
 	if err != nil {
 		return config.Config{}, nil, nil, nil, err
 	}
-	localKey, err = loadLocalKey(cfg.Storage, cfg.UseKeyring, queries)
+	localKey, err = loadLocalKey(cfg.Storage, !cfg.KeyringDisabled, queries)
 	if err != nil {
 		dbConn.Close()
 		return config.Config{}, nil, nil, nil, err

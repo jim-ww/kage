@@ -137,7 +137,7 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 // actionRemoveAccount opens the remove-account confirmation for the account
 // at idx (already selected/switched to by the caller — see
 // accountRowContextMenuItems). Confirming disconnects it and drops it from
-// config.toml (see AccountRemover) without touching local storage.
+// config.yaml (see AccountRemover) without touching local storage.
 func (m *Model) actionRemoveAccount(idx int) tea.Cmd {
 	if idx < 0 || idx >= len(m.accounts) || m.accountRemover == nil {
 		return m.showNotification("account removal unavailable")

@@ -7,7 +7,6 @@ require (
 	charm.land/bubbletea/v2 v2.0.6
 	charm.land/lipgloss/v2 v2.0.3
 	fyne.io/systray v1.12.2
-	github.com/BurntSushi/toml v1.4.0
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.7
@@ -26,6 +25,7 @@ require (
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.54.0
 	golang.org/x/term v0.45.0
+	gopkg.in/yaml.v3 v3.0.1
 	mellium.im/sasl v0.3.2
 	mellium.im/xmlstream v0.15.4
 	mellium.im/xmpp v0.23.0

@@ -379,7 +379,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 	slog.Debug("password resolved", "jid", sess.account.JID, "elapsed", time.Since(start))
 
-	var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
+	var tlsConfig *tls.Config // nil: Dial's default verified config; future config.yaml option could set a custom RootCAs pool here
 	slog.Debug("dialing", "jid", sess.account.JID)
 	start = time.Now()
 	client, err := xmpp.Dial(ctx, sess.account.JID, password, tlsConfig)

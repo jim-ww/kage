@@ -196,10 +196,10 @@ func TestChangeStoragePasswordRejectsEmptyPassword(t *testing.T) {
 }
 
 // TestPersistStoragePasswordWritesPlaintextConfig checks the
-// useKeyring=false path writes the new password into config.toml.
+// useKeyring=false path writes the new password into config.yaml.
 func TestPersistStoragePasswordWritesPlaintextConfig(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "config.toml")
+	cfgPath := filepath.Join(dir, "config.yaml")
 
 	if err := persistStoragePassword(cfgPath, false, "new-storage-password"); err != nil {
 		t.Fatalf("persistStoragePassword: %v", err)

@@ -1,18 +1,17 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/BurntSushi/toml"
 	"github.com/zalando/go-keyring"
+	"gopkg.in/yaml.v3"
 )
 
 // DefaultWritePath returns where a newly generated config should be written:
 // $KAGE_CONFIG if set, otherwise the XDG-style default
-// ~/.config/kage/config.toml (created if the directory doesn't exist).
+// ~/.config/kage/config.yaml (created if the directory doesn't exist).
 func DefaultWritePath() (string, error) {
 	if env := os.Getenv("KAGE_CONFIG"); env != "" {
 		return env, nil
@@ -25,7 +24,7 @@ func DefaultWritePath() (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}
-	return filepath.Join(dir, "config.toml"), nil
+	return filepath.Join(dir, "config.yaml"), nil
 }
 
 // SetKeyringPassword stores password in the OS keyring for jid, under the
@@ -204,26 +203,24 @@ func SetStoragePlaintextPassword(path, password string) error {
 	return writeFileConfig(path, cfg)
 }
 
-func loadOrEmpty(path string) (fileConfig, error) {
-	existing, err := loadFile(path)
-	if err != nil {
-		return fileConfig{}, err
-	}
-	if existing == nil {
-		return fileConfig{}, nil
-	}
-	return *existing, nil
+func loadOrEmpty(path string) (Config, error) {
+	cfg, _, err := loadConfigFile(path)
+	return cfg, err
 }
 
-func writeFileConfig(path string, cfg fileConfig) error {
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+// writeFileConfig strips any field equal to its default (see stripDefaults)
+// before encoding, so config.yaml only ever contains settings that differ
+// from default.
+func writeFileConfig(path string, cfg Config) error {
+	stripDefaults(&cfg, defaultConfig())
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	return nil

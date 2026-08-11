@@ -13,7 +13,7 @@ import (
 	"github.com/jim-ww/kage/storage"
 )
 
-// notifyEnabled mirrors cfg.Notifications for handleIncomingMessage's
+// notifyEnabled mirrors !cfg.NotificationsDisabled for handleIncomingMessage's
 // notify-or-not check (events.go) — only meaningful in --background mode;
 // the TUI process never reads it.
 var notifyEnabled atomic.Bool
@@ -58,9 +58,9 @@ type backend struct {
 func newBackend() *backend { return &backend{} }
 
 func (b *backend) Start(ctx context.Context, cfg config.Config) {
-	notifyEnabled.Store(cfg.Notifications)
+	notifyEnabled.Store(!cfg.NotificationsDisabled)
 
-	if cfg.UseGPG {
+	if !cfg.GPGDisabled {
 		ensureGPGKeys(&cfg)
 	}
 
@@ -75,11 +75,11 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 		return
 	}
 
-	if cfg.UseGPG {
+	if !cfg.GPGDisabled {
 		primeGPGAgent(ctx, queries, cfg.Accounts)
 	}
 
-	localKey, err := loadLocalKey(cfg.Storage, cfg.UseKeyring, queries)
+	localKey, err := loadLocalKey(cfg.Storage, !cfg.KeyringDisabled, queries)
 	if err != nil {
 		slog.Error("background: deriving local key", "err", err)
 		dbConn.Close()
@@ -100,8 +100,8 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 		db:          dbConn,
 		queries:     queries,
 		localKey:    localKey,
-		useGPG:      cfg.UseGPG,
-		useKeyring:  cfg.UseKeyring,
+		useGPG:      !cfg.GPGDisabled,
+		useKeyring:  !cfg.KeyringDisabled,
 		srv:         srv,
 	}
 	ds := &daemonServer{a: a, srv: srv}
@@ -142,9 +142,9 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 // RemoveAccount, SetAccountStatus all mutate sessions directly, in-process,
 // since the RPC that changed them and the connections themselves now live
 // in the same daemon) — this only needs to pick up config-level toggles
-// like cfg.Notifications.
+// like cfg.NotificationsDisabled.
 func (b *backend) Reload(cfg config.Config) {
-	notifyEnabled.Store(cfg.Notifications)
+	notifyEnabled.Store(!cfg.NotificationsDisabled)
 }
 
 func (b *backend) Shutdown() {

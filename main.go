@@ -133,12 +133,12 @@ func primeGPGAgent(ctx context.Context, queries *storage.Queries, accounts []con
 
 // runSetupWizard interactively prompts for a JID and password on the
 // terminal and writes a new account into the config file, so a first-time
-// user doesn't have to hand-edit TOML. Tries the OS keyring first; if that
+// user doesn't have to hand-edit YAML. Tries the OS keyring first; if that
 // fails (no Secret Service, etc.) it asks whether to fall back to a
 // password_cmd or a plaintext password in the config file.
 func runSetupWizard(useKeyring bool) error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fmt.Errorf("no accounts configured and not running interactively; add an [[accounts]] entry to config.toml yourself")
+		return fmt.Errorf("no accounts configured and not running interactively; add an \"accounts:\" entry to config.yaml yourself")
 	}
 
 	fmt.Println("No accounts configured yet — let's set one up.")
@@ -182,7 +182,7 @@ func runSetupWizard(useKeyring bool) error {
 		if useKeyring {
 			fmt.Printf("Couldn't store the password in the OS keyring (%v).\n", keyringErr)
 		}
-		fmt.Println("Fall back to: (1) a command that prints the password (password_cmd), or (2) storing it in plaintext in config.toml?")
+		fmt.Println("Fall back to: (1) a command that prints the password (password_cmd), or (2) storing it in plaintext in config.yaml?")
 		for {
 			fmt.Print("[1/2]: ")
 			line, err := reader.ReadString('\n')
@@ -202,7 +202,7 @@ func runSetupWizard(useKeyring bool) error {
 					continue
 				}
 			case "2":
-				fmt.Println("Warning: the password will be stored in plaintext in config.toml.")
+				fmt.Println("Warning: the password will be stored in plaintext in config.yaml.")
 				acct.Password = password
 			default:
 				fmt.Println("  please enter 1 or 2")
@@ -269,7 +269,7 @@ func runTUI(cfgPath string, debug bool) error {
 		return err
 	}
 	if len(cfg.Accounts) == 0 {
-		if err := runSetupWizard(cfg.UseKeyring); err != nil {
+		if err := runSetupWizard(!cfg.KeyringDisabled); err != nil {
 			return err
 		}
 		cfg, err = config.Load(cfgPath)
@@ -277,13 +277,13 @@ func runTUI(cfgPath string, debug bool) error {
 			return err
 		}
 		if len(cfg.Accounts) == 0 {
-			return fmt.Errorf("no accounts configured; add an [[accounts]] entry to config.toml")
+			return fmt.Errorf("no accounts configured; add an \"accounts:\" entry to config.yaml")
 		}
 	}
 
-	// The background daemon always runs now — cfg.Notifications only gates
-	// whether it fires a desktop notification, not whether it starts at all
-	// (see events.go's handleIncomingMessage).
+	// The background daemon always runs now — cfg.NotificationsDisabled only
+	// gates whether it fires a desktop notification, not whether it starts at
+	// all (see events.go's handleIncomingMessage).
 	if err := daemon.EnsureRunning(cfg.Path, debug); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: starting kage's background service: %v\n", err)
 	}
@@ -316,25 +316,30 @@ func runTUI(cfgPath string, debug bool) error {
 	}
 
 	openLastChatAddress := ""
-	startAccountIdx := cfg.DefaultAccountIdx
-	if cfg.UI.OpenLastChat && cfg.LastChatAddress != "" && cfg.LastChatAccountIdx >= 0 && cfg.LastChatAccountIdx < len(cfg.Accounts) {
+	startAccountIdx := cfg.DefaultAccountIndex()
+	lastChatAccountIdx := cfg.LastChatAccountIndex()
+	if !cfg.OpenLastChatDisabled && cfg.LastChatAddress != "" && lastChatAccountIdx < len(cfg.Accounts) {
 		openLastChatAddress = cfg.LastChatAddress
-		startAccountIdx = cfg.LastChatAccountIdx
+		startAccountIdx = lastChatAccountIdx
 	}
 	ui.AttachmentsDir = cfg.AttachmentsDir
-	display := ui.DisplayOptions{
-		Icons:                   cfg.UI.Icons,
-		UseGPG:                  cfg.UseGPG,
-		ShowNames:               cfg.UI.ShowNames,
-		TimeLayout:              cfg.UI.TimeLayout,
-		TimeOnlyToday:           cfg.UI.TimeOnlyToday,
-		MaxMessagesPerChat:      cfg.MaxMessagesPerChat,
-		NoticeDuration:          cfg.UI.NoticeDuration,
-		FilePickerDirsFirst:     cfg.UI.FilePickerDirsFirst,
-		FilePickerSortField:     cfg.UI.FilePickerSortField,
-		FilePickerSortAscending: cfg.UI.FilePickerSortAscending,
+	keyMap, err := cfg.ResolvedKeyMap()
+	if err != nil {
+		return err
 	}
-	model := ui.New(uiAccounts, startAccountIdx, cfg.UI.KeyMap, cfg.UI.Theme, client, client, cfg.UI.Mouse, cfg.UI.SidebarWidth, cfg.UI.SidebarHidden, openLastChatAddress, cfg.UI.InputHeight, display, initialCallState)
+	display := ui.DisplayOptions{
+		Icons:                   !cfg.IconsDisabled,
+		UseGPG:                  !cfg.GPGDisabled,
+		ShowNames:               cfg.ShowNames,
+		TimeLayout:              cfg.TimeLayout,
+		TimeOnlyToday:           !cfg.AlwaysShowFullDate,
+		MaxMessagesPerChat:      cfg.MaxMessagesPerChat,
+		NoticeDuration:          cfg.NoticeDurationValue(),
+		FilePickerDirsFirst:     !cfg.FilePickerFilesFirst,
+		FilePickerSortField:     cfg.FilePickerSortField,
+		FilePickerSortAscending: cfg.FilePickerSortAscending,
+	}
+	model := ui.New(uiAccounts, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.SidebarWidth, cfg.SidebarHidden, openLastChatAddress, cfg.InputHeight, display, initialCallState)
 	p := tea.NewProgram(model)
 	client.setProgram(p)
 

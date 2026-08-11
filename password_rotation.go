@@ -16,7 +16,7 @@ import (
 // ChangeStoragePassword implements ui.StoragePasswordChanger: re-encrypts
 // every locally-encrypted message body and draft under a new password,
 // derived from a freshly generated salt, then persists the new password
-// (keyring if configured, else plaintext in config.toml).
+// (keyring if configured, else plaintext in config.yaml).
 //
 // Safety: the whole re-encryption (every row, plus the new salt) happens
 // inside a single sqlite transaction — either every row ends up sealed under
@@ -25,7 +25,7 @@ import (
 // The new password is only written to keyring/config *after* that commit
 // succeeds, so a crash or error can never leave the database re-encrypted
 // under a password that was never actually saved anywhere. If persisting the
-// new password itself fails (keyring and config.toml write both fail, which
+// new password itself fails (keyring and config.yaml write both fail, which
 // would be unusual), the error says so explicitly rather than silently
 // leaving the database unreadable on next launch.
 //
@@ -61,7 +61,7 @@ func (a *adapter) ChangeStoragePassword(newPassword string) error {
 		// nobody knows the password now", which is far worse than a normal
 		// error. Say so explicitly.
 		return fmt.Errorf("storage was re-encrypted successfully, but SAVING the new password failed (%w) - "+
-			"set [storage] password (or password_cmd) in config.toml to your new password manually, "+
+			"set storage.password (or storage.password_cmd) in config.yaml to your new password manually, "+
 			"or the database will be unreadable on next launch", err)
 	}
 
@@ -146,7 +146,7 @@ func rotateStorageKey(ctx context.Context, db *sql.DB, queries *storage.Queries,
 
 // persistStoragePassword saves password wherever ResolveStoragePassword will
 // next look for it: the OS keyring if useKeyring is on, otherwise plaintext
-// in config.toml — same precedence ResolveStoragePassword reads back with.
+// in config.yaml — same precedence ResolveStoragePassword reads back with.
 // A keyring failure (no Secret Service running, etc.) falls back to the
 // plaintext config write rather than erroring outright, same tolerance
 // Account.ResolvePassword already extends elsewhere in this codebase.

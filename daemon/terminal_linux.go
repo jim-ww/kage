@@ -30,7 +30,7 @@ func resolveTerminal(configured string) (string, error) {
 			return t, nil
 		}
 	}
-	return "", fmt.Errorf("no terminal found: set terminal_cmd in config.toml, $TERMINAL, or install one of %v", fallbackTerminals)
+	return "", fmt.Errorf("no terminal found: set terminal_cmd in config.yaml, $TERMINAL, or install one of %v", fallbackTerminals)
 }
 
 // launchTerminal spawns a detached terminal running the kage TUI binary

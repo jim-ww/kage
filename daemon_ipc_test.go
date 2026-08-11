@@ -15,14 +15,14 @@ import (
 // dispatch table: it spins up the same adapter+daemonServer+ipc.Server the
 // real --background mode builds (minus any XMPP dialing, which these two
 // RPCs don't touch), talks to it over a real Unix socket via ipcClient
-// exactly like the TUI does, and checks a write (persists to config.toml)
+// exactly like the TUI does, and checks a write (persists to config.yaml)
 // and a read (persists to storage) both round-trip correctly. If a future
 // change to daemon_server.go's dispatch table or ipc_client.go's RPC
 // wrappers breaks the wire format for either, this fails.
 func TestDaemonIPCRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 
-	cfgPath := filepath.Join(dir, "config.toml")
+	cfgPath := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(cfgPath, nil, 0o600); err != nil {
 		t.Fatalf("seeding config file: %v", err)
 	}
@@ -65,8 +65,8 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reloading config: %v", err)
 	}
-	if cfg.UI.SidebarWidth != 42 {
-		t.Errorf("SidebarWidth = %d, want 42", cfg.UI.SidebarWidth)
+	if cfg.SidebarWidth != 42 {
+		t.Errorf("SidebarWidth = %d, want 42", cfg.SidebarWidth)
 	}
 
 	if err := client.IncrementChatUnread("me@example.com", "you@example.com", 3); err != nil {
