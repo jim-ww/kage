@@ -3,6 +3,7 @@ package xmpp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -79,7 +80,7 @@ func (c *Client) UploadFile(ctx context.Context, path string, onProgress func(se
 	// Service discovery and slot negotiation are tiny XMPP round trips. Keep
 	// them tightly bounded so a server that does not implement XEP-0363 cannot
 	// leave the UI waiting forever before the HTTP transfer even begins.
-	discoveryCtx, cancelDiscovery := context.WithTimeout(ctx, 15*time.Second)
+	discoveryCtx, cancelDiscovery := context.WithTimeout(ctx, 40*time.Second)
 	defer cancelDiscovery()
 	service, err := c.uploadService(discoveryCtx)
 	if err != nil {
@@ -150,7 +151,7 @@ func (c *Client) UploadFileWithReader(ctx context.Context, path string, reader i
 	}
 
 	// Service discovery and slot negotiation
-	discoveryCtx, cancelDiscovery := context.WithTimeout(ctx, 15*time.Second)
+	discoveryCtx, cancelDiscovery := context.WithTimeout(ctx, 40*time.Second)
 	defer cancelDiscovery()
 	service, err := c.uploadService(discoveryCtx)
 	if err != nil {
@@ -206,9 +207,15 @@ func (c *Client) uploadService(ctx context.Context) (jid.JID, error) {
 
 	svc, err := c.discoverUploadService(ctx)
 
-	c.mu.Lock()
-	c.uploadSvc, c.uploadSvcErr, c.uploadSvcSet = svc, err, true
-	c.mu.Unlock()
+	// A timeout is transient - the service may just have been slow to answer
+	// this once. Only cache a definitive "not advertised" result, so a slow
+	// disco walk doesn't permanently disable uploads for the rest of the
+	// session.
+	if !errors.Is(err, context.DeadlineExceeded) {
+		c.mu.Lock()
+		c.uploadSvc, c.uploadSvcErr, c.uploadSvcSet = svc, err, true
+		c.mu.Unlock()
+	}
 
 	return svc, err
 }
@@ -234,11 +241,20 @@ func (c *Client) discoverUploadService(ctx context.Context) (jid.JID, error) {
 		return jid.JID{}, fmt.Errorf("closing upload-service discovery: %w", err)
 	}
 
-	// Debug: log discovered services and their features
-	for _, item := range services {
-		info, err := disco.GetInfo(ctx, item.Node, item.JID, c.session)
+	// Query each item's features in turn. A single unresponsive item (a
+	// gateway or component that never answers) must not be able to burn the
+	// whole shared ctx before we ever reach the real upload service further
+	// down the list - so each query gets its own bounded slice of time,
+	// independent of how much the earlier items used.
+	for i, item := range services {
+		itemCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		info, err := disco.GetInfo(itemCtx, item.Node, item.JID, c.session)
+		cancel()
 		if err != nil {
 			slog.Warn("upload discovery: failed to get info", "service", item.JID, "err", err)
+			if ctx.Err() != nil {
+				return jid.JID{}, fmt.Errorf("upload discovery timed out on %s (checked %d/%d services): %w", root, i, len(services), ctx.Err())
+			}
 			continue
 		}
 		var features []string

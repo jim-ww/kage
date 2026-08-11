@@ -1,3 +1,5 @@
+- add KAGE_DEBUG variable instead/in addition of/to flag?
+- combine debug.log and daemon.log into one
 - add proper login/register modal
 - uploading your own files must not download them from server (must be downloaded)
 - notification appears sooner then message
@@ -8,7 +10,6 @@
 - ui freezing in some cases, CPU usage goes up. on paste, or after editing certain amount of text?
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - ^shift+U bind doesnt work (omemo devices)
-- add KAGE_DEBUG variable instead/in addition of/to flag?
 - sometimes status shows as offline, when other client is online. could be either status send/receive problem
 - add keyboard navigation to modals (and ways to open them)
 - "kage's background service disconnected; please restart kage" is always printed on quit
