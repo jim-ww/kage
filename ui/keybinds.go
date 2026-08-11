@@ -39,7 +39,7 @@ type KeyMap struct {
 	PasteImage            key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
 	RenameChat            key.Binding // r — open the rename-contact prompt for the selected chat
 	ToggleSidebar         key.Binding // Ctrl+\ — show/hide the chat list sidebar
-	DeviceList            key.Binding // Ctrl+Shift+U — view/purge the current account's published OMEMO device list
+	DeviceList            key.Binding // u (accounts panel) — view/purge the current account's published OMEMO device list
 	ContactManager        key.Binding // c — add/remove roster contacts for the current account (accounts panel)
 	RemoveAttachment      key.Binding // Backspace (on empty input) — drop the highlighted pending attachment
 	ClearDraft            key.Binding // Ctrl+Shift+E — erase the compose box
@@ -127,7 +127,7 @@ var DefaultKeyMap = KeyMap{
 	PasteImage:            NewBinding([]string{"ctrl+p"}, "paste image"),
 	RenameChat:            NewBinding([]string{"r"}, "rename chat"),
 	ToggleSidebar:         NewBinding([]string{"ctrl+\\"}, "toggle chat list"),
-	DeviceList:            NewBinding([]string{"ctrl+shift+u"}, "omemo devices"),
+	DeviceList:            NewBinding([]string{"u"}, "omemo devices"),
 	ContactManager:        NewBinding([]string{"c"}, "manage contacts"),
 	RemoveAttachment:      NewBinding([]string{"backspace"}, "remove attachment"),
 	ClearDraft:            NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
