@@ -28,9 +28,9 @@ func (m Model) renderSearchChatPopup() string {
 // HistorySearcher.SearchHistory runs in the background, then holds the
 // chat's entire persisted history (Messages) plus which indices into it
 // matched the query (Matches) once HistorySearchResultMsg arrives. Only
-// Matches are shown/paginated as rows — Messages exists so picking one can
-// load the whole chat wholesale (see loadSearchResult) without a second
-// round trip.
+// Matches — narrowed further by author (see filteredMatches) — are
+// shown/paginated as rows; Messages exists so picking one can load the whole
+// chat wholesale (see loadSearchResult) without a second round trip.
 type searchResultsState struct {
 	accountIdx  int
 	chatAddress string
@@ -41,6 +41,50 @@ type searchResultsState struct {
 	err      string
 	messages []Message
 	matches  []int
+	author   authorFilter
+}
+
+// authorFilter narrows the search-results popup to messages from one
+// participant, cycled with the 'a' key. Only "all"/"me"/"them" for now,
+// matching kage's current 1:1-chat-only model — a chat with more than two
+// participants (group chat) would need a picker instead of a 3-way cycle,
+// but that's a change local to this filter, not the search itself.
+type authorFilter int
+
+const (
+	authorFilterAll authorFilter = iota
+	authorFilterMe
+	authorFilterThem
+)
+
+func (f authorFilter) label() string {
+	switch f {
+	case authorFilterMe:
+		return "me"
+	case authorFilterThem:
+		return "them"
+	default:
+		return "all"
+	}
+}
+
+func (f authorFilter) next() authorFilter {
+	return (f + 1) % 3
+}
+
+// filteredMatches returns sr.matches narrowed to sr.author.
+func (sr *searchResultsState) filteredMatches() []int {
+	if sr.author == authorFilterAll {
+		return sr.matches
+	}
+	wantMe := sr.author == authorFilterMe
+	out := make([]int, 0, len(sr.matches))
+	for _, idx := range sr.matches {
+		if sr.messages[idx].IsMe == wantMe {
+			out = append(out, idx)
+		}
+	}
+	return out
 }
 
 // renderSearchResultsPopup shows the search-in-chat results popup: one row
@@ -69,12 +113,13 @@ func (m Model) searchResultsPrompt() string {
 	if sr.err != "" {
 		return m.styles.infoPopup(title, []string{"Error: " + sr.err}, closeKey)
 	}
-	if len(sr.matches) == 0 {
-		return m.styles.infoPopup(title, []string{"No matches"}, closeKey)
+	matches := sr.filteredMatches()
+	if len(matches) == 0 {
+		return m.styles.infoPopup(title, []string{fmt.Sprintf("No matches (author: %s)", sr.author.label())}, closeKey)
 	}
 
-	start, end := sr.bounds(len(sr.matches))
-	page := sr.matches[start:end]
+	start, end := sr.bounds(len(matches))
+	page := matches[start:end]
 	if sr.cursor >= len(page) {
 		sr.cursor = max(0, len(page)-1)
 	}
@@ -96,8 +141,8 @@ func (m Model) searchResultsPrompt() string {
 		rows = append(rows, m.renderRow(zoneSearchResultRow(i), i, sr.cursor, label))
 	}
 
-	hint := "enter: jump to message"
-	if pages := openPageCount(len(sr.matches)); pages > 1 {
+	hint := fmt.Sprintf("a: author (%s) · enter: jump to message", sr.author.label())
+	if pages := openPageCount(len(matches)); pages > 1 {
 		hint = fmt.Sprintf("page %d/%d · left/right: page · %s", sr.page+1, pages, hint)
 	}
 	rows = append(rows, "", hint)
@@ -135,24 +180,38 @@ func (m Model) updateSearchResultsKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	if sr.busy {
 		return m, nil, true
 	}
-	if sr.err != "" || len(sr.matches) == 0 {
+	if sr.err != "" {
 		if matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) || matchesKey(msg, m.keys.SearchChat) {
 			m.searchResults = nil
 		}
 		return m, nil, true
 	}
 
-	start, end := sr.bounds(len(sr.matches))
+	if matchesLetter(msg, 'a') {
+		sr.author = sr.author.next()
+		sr.cursor, sr.page = 0, 0
+		return m, nil, true
+	}
+
+	matches := sr.filteredMatches()
+	if len(matches) == 0 {
+		if matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) || matchesKey(msg, m.keys.SearchChat) {
+			m.searchResults = nil
+		}
+		return m, nil, true
+	}
+
+	start, end := sr.bounds(len(matches))
 	rowCount := end - start
 
-	if sr.handleNavKey(msg, rowCount, len(sr.matches)) {
+	if sr.handleNavKey(msg, rowCount, len(matches)) {
 		return m, nil, true
 	}
 
 	switch {
 	case matchesKey(msg, m.keys.SelectSend):
 		if sr.cursor >= 0 && sr.cursor < rowCount {
-			m.loadSearchResult(sr.matches[start+sr.cursor])
+			m.loadSearchResult(matches[start+sr.cursor])
 			m.searchResults = nil
 		}
 		return m, nil, true
@@ -194,7 +253,7 @@ func (m *Model) loadSearchResult(msgIdx int) {
 // jumps to it); clicking outside the popup closes it.
 func (m Model) handleSearchResultsClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	sr := m.searchResults
-	if sr.busy || sr.err != "" || len(sr.matches) == 0 {
+	if sr.busy || sr.err != "" {
 		return m, nil
 	}
 
@@ -203,11 +262,16 @@ func (m Model) handleSearchResultsClick(msg tea.MouseClickMsg) (tea.Model, tea.C
 		return m, nil
 	}
 
-	start, end := sr.bounds(len(sr.matches))
+	matches := sr.filteredMatches()
+	if len(matches) == 0 {
+		return m, nil
+	}
+
+	start, end := sr.bounds(len(matches))
 	if i := m.rowUnderMouse(msg, end-start, zoneSearchResultRow); i >= 0 {
 		sr.cursor = i
 		if msg.Mouse().Button == tea.MouseLeft {
-			m.loadSearchResult(sr.matches[start+i])
+			m.loadSearchResult(matches[start+i])
 			m.searchResults = nil
 		}
 	}
