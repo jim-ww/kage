@@ -37,6 +37,7 @@ const (
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
 	zoneCallHangup            = "call-hangup-button"
+	zoneJumpToBottom          = "jump-to-bottom-button"
 )
 
 // inputWheelScrollLines is how many lines a single wheel notch moves the
@@ -265,6 +266,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 			return zoneCallHangup
 		}
 	}
+	if m.zone.Get(zoneJumpToBottom).InBounds(mouse) {
+		return zoneJumpToBottom
+	}
 	if m.zone.Get(zoneSendButton).InBounds(mouse) {
 		return zoneSendButton
 	}
@@ -449,6 +453,11 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.zone.Get(zoneToggleSidebar).InBounds(msg) {
 		return m.toggleSidebar()
+	}
+
+	if m.zone.Get(zoneJumpToBottom).InBounds(msg) {
+		m.jumpToLatestMessage()
+		return m, nil
 	}
 
 	for i := range m.emojiSuggestions {

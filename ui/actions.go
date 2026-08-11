@@ -26,6 +26,38 @@ func (m *Model) switchAccount(index int) tea.Cmd {
 	return cmd
 }
 
+// scrolledPastFirstPage reports whether the chat viewport has scrolled up
+// more than one full screen's worth of content away from the bottom — the
+// "jump to latest" button's show/hide condition. A plain !AtBottom() would
+// show it the instant the bottom line scrolls out of view even by one row,
+// which is still the first screenful the user would see if they scrolled
+// the rest of the way down themselves; the button is for the case where
+// they've paged/navigated far enough that "latest" is no longer one
+// scroll away.
+func (m Model) scrolledPastFirstPage() bool {
+	height := m.viewport.Height()
+	if height <= 0 {
+		return false
+	}
+	return m.viewport.YOffset() < m.viewport.TotalLineCount()-2*height
+}
+
+// jumpToLatestMessage scrolls the chat viewport to the bottom and moves the
+// selection to the newest loaded message — used by the floating "jump to
+// latest" button shown whenever the viewport has scrolled away from the
+// bottom (via message navigation, paging, or landing on a search result).
+func (m *Model) jumpToLatestMessage() {
+	msgs := m.currentMessages()
+	if len(msgs) == 0 {
+		m.viewport.GotoBottom()
+		return
+	}
+	old := m.selectedMsg
+	m.selectedMsg = len(msgs) - 1
+	m.refreshViewportSelection(old, m.selectedMsg)
+	m.viewport.GotoBottom()
+}
+
 func (m *Model) actionMakeDefaultAccount(index int) tea.Cmd {
 	if index < 0 || index >= len(m.accounts) || m.defaultAccountSetter == nil {
 		return nil

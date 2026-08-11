@@ -199,6 +199,10 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
 		viewportBody := m.styles.viewportContent(m.chatAreaWidth(), viewportHeight, m.viewport.View())
 		viewportArea = m.zone.Mark(zonePaneViewport, m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody))
+		if m.currentChatIndex() >= 0 && m.scrolledPastFirstPage() {
+			btn := m.zone.Mark(zoneJumpToBottom, m.styles.renderJumpToBottomButton(m.isHovered(zoneJumpToBottom)))
+			viewportArea = overlayBottomCenter(viewportArea, btn, 1)
+		}
 	}
 
 	// renderChatArea is only called when the chat pane is the visible one, so
@@ -273,21 +277,34 @@ func (m Model) renderCallBar(width int) string {
 }
 
 // overlayBottomRight splices toast on top of base, anchored a small margin
-// off the bottom-right corner of the screen. base is the already fully
-// rendered (ANSI-styled) screen; toast is composited line-by-line with
-// ansi.Cut so it doesn't break escape codes or wide-character boundaries in
-// whatever base content it covers.
+// off the bottom-right corner of the screen.
 func overlayBottomRight(base, toast string) string {
 	const marginBottom, marginRight = 2, 2
-
-	baseLines := strings.Split(base, "\n")
-	toastLines := strings.Split(toast, "\n")
-	toastWidth := lipgloss.Width(toast)
-
-	x := max(0, lipgloss.Width(base)-toastWidth-marginRight)
+	baseLines, toastLines := strings.Split(base, "\n"), strings.Split(toast, "\n")
+	x := max(0, lipgloss.Width(base)-lipgloss.Width(toast)-marginRight)
 	y := max(0, len(baseLines)-len(toastLines)-marginBottom)
+	return overlayAt(base, toast, x, y)
+}
 
-	for i, toastLine := range toastLines {
+// overlayBottomCenter splices content on top of base, horizontally centered
+// and anchored marginBottom rows off the bottom edge of base.
+func overlayBottomCenter(base, content string, marginBottom int) string {
+	baseLines, contentLines := strings.Split(base, "\n"), strings.Split(content, "\n")
+	x := max(0, (lipgloss.Width(base)-lipgloss.Width(content))/2)
+	y := max(0, len(baseLines)-len(contentLines)-marginBottom)
+	return overlayAt(base, content, x, y)
+}
+
+// overlayAt splices content on top of base at cell position (x, y). base is
+// the already fully rendered (ANSI-styled) block; content is composited
+// line-by-line with ansi.Cut so it doesn't break escape codes or
+// wide-character boundaries in whatever base content it covers.
+func overlayAt(base, content string, x, y int) string {
+	baseLines := strings.Split(base, "\n")
+	contentLines := strings.Split(content, "\n")
+	contentWidth := lipgloss.Width(content)
+
+	for i, contentLine := range contentLines {
 		row := y + i
 		if row >= len(baseLines) {
 			break
@@ -295,8 +312,8 @@ func overlayBottomRight(base, toast string) string {
 		bg := baseLines[row]
 		bgWidth := ansi.StringWidth(bg)
 		left := ansi.Cut(bg, 0, min(x, bgWidth))
-		right := ansi.Cut(bg, min(x+toastWidth, bgWidth), bgWidth)
-		baseLines[row] = left + toastLine + right
+		right := ansi.Cut(bg, min(x+contentWidth, bgWidth), bgWidth)
+		baseLines[row] = left + contentLine + right
 	}
 	return strings.Join(baseLines, "\n")
 }

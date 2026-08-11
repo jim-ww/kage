@@ -327,6 +327,27 @@ func (s uiStyles) renderSidebarToggleButton(hidden, hovered bool) string {
 	return st.Render(icon)
 }
 
+// renderJumpToBottomButton renders the floating "jump to latest" button
+// overlaid centered above the compose box whenever the chat viewport has
+// scrolled away from the bottom (see Model.viewport.AtBottom(), checked in
+// renderChatArea) — e.g. after navigating up through messages, paging, or
+// landing on an older message from a search result. Faint by default so it
+// reads as a translucent hint rather than competing with the message text
+// it floats over ("half-transparent" being an approximation a terminal can
+// actually render); full brightness and reversed on hover, like every other
+// button here.
+func (s uiStyles) renderJumpToBottomButton(hovered bool) string {
+	st := lipgloss.NewStyle().
+		Foreground(s.colors.themFg).
+		Background(s.colors.borderD).
+		Padding(0, 1).
+		Faint(true)
+	if hovered {
+		st = st.Faint(false).Reverse(true)
+	}
+	return st.Render("↓ jump to latest")
+}
+
 // contextMenuRow renders one action label, padded/highlighted to width so
 // every row is a consistent, easy-to-hit target — narrow rows packed
 // tightly together (the original complaint) invite misclicks.
