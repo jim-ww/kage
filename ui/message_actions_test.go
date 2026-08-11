@@ -63,10 +63,26 @@ func TestSendCurrentInputMarksLocalEchoEncrypted(t *testing.T) {
 	}
 }
 
+// fakeHistorySearcher is a stub HistorySearcher for testing search-in-chat
+// without any real storage/decrypt dependency: SearchHistory just returns
+// whatever messages/matches were configured for the query it's asked about.
+type fakeHistorySearcher struct {
+	messages []Message
+	matches  []int
+}
+
+func (f *fakeHistorySearcher) SearchHistory(accountIdx int, to, query string) tea.Cmd {
+	return func() tea.Msg {
+		return HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Messages: f.messages, Matches: f.matches}
+	}
+}
+
 // newTestModelWithMessages builds a model with a single open chat containing
-// msgs, for tests exercising selection/search over message content.
-func newTestModelWithMessages(msgs []Message) Model {
+// msgs (as the chat's currently-loaded window) and searcher wired up as its
+// HistorySearcher, for tests exercising search-in-chat.
+func newTestModelWithMessages(msgs []Message, searcher HistorySearcher) Model {
 	m := newTestModelWithSender(nil, nil)
+	m.historySearcher = searcher
 	chat := Chat{Address: "bob@example.test"}
 	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
 	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
@@ -78,17 +94,21 @@ func newTestModelWithMessages(msgs []Message) Model {
 	return m
 }
 
-// TestSearchChatFindsAndCyclesMatches guards actionSearchChat/
-// updateSearchMatches: typing a query selects the nearest match at/after the
-// current selection, and enter cycles forward through the rest, wrapping
-// back to the first after the last.
-func TestSearchChatFindsAndCyclesMatches(t *testing.T) {
-	m := newTestModelWithMessages([]Message{
+// TestSearchChatOpensPromptRunsSearchAndJumpsToResult guards the full
+// search-in-chat flow: Ctrl+/ opens the query prompt, enter submits it and
+// runs HistorySearcher.SearchHistory (whose result — the chat's entire
+// history, since a real implementation scans everything, plus which indices
+// matched — arrives as HistorySearchResultMsg), the results popup opens
+// showing those matches, and picking one loads it as the chat's in-memory
+// window with the selection on the matched message.
+func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
+	fullHistory := []Message{
 		{Content: "hello there"},
 		{Content: "nothing to see"},
 		{Content: "hello again"},
-	})
-	m.selectedMsg = 1
+	}
+	searcher := &fakeHistorySearcher{messages: fullHistory, matches: []int{0, 2}}
+	m := newTestModelWithMessages(fullHistory[:1], searcher)
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl})
 	m = next.(Model)
@@ -100,25 +120,38 @@ func TestSearchChatFindsAndCyclesMatches(t *testing.T) {
 		next, _ := m.Update(keyText(string(r)))
 		m = next.(Model)
 	}
-	if len(m.searchMatches) != 2 {
-		t.Fatalf("searchMatches = %v, want 2 matches", m.searchMatches)
+
+	next, cmd := m.Update(keyText("enter"))
+	m = next.(Model)
+	if m.searchingChat {
+		t.Fatal("searchingChat still true after submitting, want false")
 	}
-	if m.selectedMsg != 2 {
-		t.Fatalf("selectedMsg = %d, want 2 (nearest match at/after selectedMsg=1)", m.selectedMsg)
+	if m.searchResults == nil || !m.searchResults.busy {
+		t.Fatal("searchResults not opened in its busy state after submitting")
+	}
+	resultMsg := nonIdleCmd(cmd)
+	if resultMsg == nil {
+		t.Fatal("submitting the query returned no cmd to run the search")
+	}
+
+	next, _ = m.Update(resultMsg)
+	m = next.(Model)
+	if m.searchResults == nil || m.searchResults.busy {
+		t.Fatalf("searchResults still busy after HistorySearchResultMsg arrived: %+v", m.searchResults)
+	}
+	if len(m.searchResults.matches) != 2 {
+		t.Fatalf("searchResults.matches = %v, want 2 matches", m.searchResults.matches)
 	}
 
 	next, _ = m.Update(keyText("enter"))
 	m = next.(Model)
-	if m.selectedMsg != 0 {
-		t.Fatalf("selectedMsg after enter = %d, want 0 (wrapped to first match)", m.selectedMsg)
-	}
-
-	next, _ = m.Update(keyText("esc"))
-	m = next.(Model)
-	if m.searchingChat {
-		t.Fatal("searchingChat still true after esc, want false")
+	if m.searchResults != nil {
+		t.Fatal("searchResults still open after picking a result")
 	}
 	if m.selectedMsg != 0 {
-		t.Fatalf("selectedMsg after esc = %d, want unchanged at 0", m.selectedMsg)
+		t.Fatalf("selectedMsg after picking first result = %d, want 0", m.selectedMsg)
+	}
+	if got := m.accounts[0].Messages[0]; len(got) != len(fullHistory) {
+		t.Fatalf("chat's loaded window has %d messages, want %d (the full history)", len(got), len(fullHistory))
 	}
 }

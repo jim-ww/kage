@@ -122,10 +122,15 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return model.(Model), cmd, true
 	}
 
-	// ── Search-in-chat prompt intercepts all input until closed ─────────
+	// ── Search-in-chat prompt intercepts all input until submitted/canceled ──
 	if m.searchingChat {
 		model, cmd := m.updateSearchChatForm(msg)
 		return model.(Model), cmd, true
+	}
+
+	// ── Search-results popup intercepts all input until closed ──────────
+	if m.searchResults != nil {
+		return m.updateSearchResultsKey(msg)
 	}
 
 	// ── Save-as prompt intercepts all input until submitted/canceled ──
@@ -619,10 +624,8 @@ func (m Model) updateRenameChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// updateSearchChatForm handles all key input while the search-in-chat prompt
-// is open: typing live-updates searchMatches and jumps the selection, enter
-// cycles to the next match, esc closes the prompt (leaving the selection
-// wherever it landed).
+// updateSearchChatForm handles all key input while the search-in-chat query
+// prompt is open: enter submits it (see submitSearchChat), esc cancels.
 func (m Model) updateSearchChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.String() == "esc":
@@ -630,15 +633,11 @@ func (m Model) updateSearchChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case matchesKey(msg, m.keys.SelectSend):
-		if len(m.searchMatches) > 0 {
-			m.jumpToSearchMatch(m.searchMatchPos + 1)
-		}
-		return m, nil
+		return m, m.submitSearchChat()
 
 	default:
 		var cmd tea.Cmd
 		m.searchInput, cmd = m.searchInput.Update(msg)
-		m.updateSearchMatches()
 		return m, cmd
 	}
 }

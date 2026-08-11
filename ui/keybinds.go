@@ -140,7 +140,7 @@ var DefaultKeyMap = KeyMap{
 	ToggleComposeExpand:   NewBinding([]string{"ctrl+`"}, "expand input"),
 	UndoDraft:             NewBinding([]string{"ctrl+z"}, "undo"),
 	RedoDraft:             NewBinding([]string{"ctrl+shift+z"}, "redo"),
-	Help: NewBinding([]string{"ctrl+h"}, "help"),
+	Help:                  NewBinding([]string{"ctrl+h"}, "help"),
 	// "ctrl+?" is the intended gesture (ctrl + the "?" that shares the "/"
 	// key on a US layout), but no terminal actually reports that literal
 	// string: legacy encoding sends the raw ctrl+/ control byte as

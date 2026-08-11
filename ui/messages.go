@@ -67,6 +67,32 @@ type OlderHistoryMsg struct {
 	HasMore    bool
 }
 
+// HistorySearcher searches a chat's entire persisted history for messages
+// whose content contains a substring, implemented outside ui (main.go's
+// adapter, backed by storage) so ui stays decoupled from the storage/crypto
+// layers. Runs as a tea.Cmd, off the Bubble Tea event loop's goroutine, since
+// (unlike HistoryLoader's single page) it has to decrypt and scan the whole
+// chat history.
+type HistorySearcher interface {
+	SearchHistory(accountIdx int, to, query string) tea.Cmd
+}
+
+// HistorySearchResultMsg reports the result of HistorySearcher.SearchHistory.
+// Messages is the chat's entire persisted history, already decrypted and in
+// chronological order — exactly what ui.Model would hold if the chat were
+// fully loaded — and Matches indexes into it for every message whose content
+// contains Query (case-insensitive). Selecting a match and pressing enter
+// loads Messages wholesale as the chat's new in-memory window and jumps the
+// cursor to Matches[i], so no further paging is needed for that chat.
+type HistorySearchResultMsg struct {
+	AccountIdx int
+	From       string
+	Query      string
+	Messages   []Message
+	Matches    []int
+	Err        error
+}
+
 // ContactRenamer sets a custom display name for a contact — a roster set
 // (RFC 6121), persisted server-side and mirrored to local storage — so ui
 // stays decoupled from the XMPP/storage layers. Called synchronously from

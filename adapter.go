@@ -195,6 +195,30 @@ func (a *adapter) LoadOlderHistory(accountIdx int, to string) tea.Cmd {
 	}
 }
 
+// SearchHistory implements ui.HistorySearcher: decrypts and scans to's
+// entire persisted history (see loadHistory) as a tea.Cmd, off the main
+// goroutine, and returns every message whose content contains query
+// (case-insensitive) alongside the whole decrypted history — the caller
+// loads that wholesale rather than making a second round trip once a result
+// is picked.
+func (a *adapter) SearchHistory(accountIdx int, to, query string) tea.Cmd {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		msgs := loadHistory(context.Background(), sess, to, sess.rosterName(to))
+		needle := strings.ToLower(query)
+		var matches []int
+		for i, msg := range msgs {
+			if strings.Contains(strings.ToLower(msg.Content), needle) {
+				matches = append(matches, i)
+			}
+		}
+		return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Messages: msgs, Matches: matches}
+	}
+}
+
 // SetDefaultAccount implements ui.DefaultAccountSetter: persists jid as the
 // account selected on startup.
 func (a *adapter) SetDefaultAccount(jid string) error {

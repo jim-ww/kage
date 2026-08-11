@@ -192,6 +192,16 @@ func (c *ipcClient) LoadOlderHistory(accountIdx int, to string) tea.Cmd {
 	}
 }
 
+func (c *ipcClient) SearchHistory(accountIdx int, to, query string) tea.Cmd {
+	return func() tea.Msg {
+		var msg ui.HistorySearchResultMsg
+		if err := c.conn.Call(rpcSearchHistory, searchHistoryParams{AccountIdx: accountIdx, To: to, Query: query}, &msg); err != nil {
+			return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Err: err}
+		}
+		return msg
+	}
+}
+
 func (c *ipcClient) AddContact(accountIdx int, address string) tea.Msg {
 	var msg ui.ContactAddedMsg
 	if err := c.conn.Call(rpcAddContact, contactParams{AccountIdx: accountIdx, Address: address}, &msg); err != nil {

@@ -32,6 +32,7 @@ const (
 	zoneMsgInfoPopup          = "msg-info-popup"
 	zoneContactManagerPopup   = "contact-manager-popup"
 	zoneDeviceListPopup       = "device-list-popup"
+	zoneSearchResultsPopup    = "search-results-popup"
 	zoneCallAnswer            = "call-answer-button"
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
@@ -51,6 +52,7 @@ func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove
 func zoneMsgInfoAttachment(i int) string { return fmt.Sprintf("msg-info-attachment-%d", i) }
 func zoneContactRow(i int) string        { return fmt.Sprintf("contact-row-%d", i) }
 func zoneDeviceRow(i int) string         { return fmt.Sprintf("device-row-%d", i) }
+func zoneSearchResultRow(i int) string   { return fmt.Sprintf("search-result-row-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
 // (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
@@ -219,6 +221,19 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		return ""
 	}
 
+	if m.searchResults != nil {
+		sr := m.searchResults
+		if !sr.busy && sr.err == "" && len(sr.matches) > 0 {
+			start, end := sr.bounds(len(sr.matches))
+			for i := 0; i < end-start; i++ {
+				if m.zone.Get(zoneSearchResultRow(i)).InBounds(mouse) {
+					return zoneSearchResultRow(i)
+				}
+			}
+		}
+		return ""
+	}
+
 	if m.deviceList != nil {
 		dl := m.deviceList
 		if !dl.busy && !dl.confirming && dl.err == "" {
@@ -331,6 +346,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.contactManagerState != nil {
 		return m.handleContactManagerClick(msg)
+	}
+
+	if m.searchResults != nil {
+		return m.handleSearchResultsClick(msg)
 	}
 
 	if m.deviceList != nil {

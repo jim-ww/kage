@@ -192,6 +192,7 @@ type Model struct {
 	chatEncryptionSetter   ChatEncryptionSetter
 	lastChatSetter         LastChatSetter
 	historyLoader          HistoryLoader
+	historySearcher        HistorySearcher
 	accountStatusSetter    AccountStatusSetter
 	accountRemover         AccountRemover
 	chatReadTracker        ChatReadTracker
@@ -235,18 +236,18 @@ type Model struct {
 	renameChatIdx int
 	renameInput   textinput.Model
 
-	// search-in-chat prompt state, active while searchingChat is true.
-	// Opened by SearchChat (Ctrl+/) while viewChat is focused. Unlike the
-	// other prompts here it isn't modal — it replaces the chat status bar
-	// row while the viewport underneath keeps rendering normally, so matches
-	// stay visible as the query changes. Live: every keystroke recomputes
-	// searchMatches (case-insensitive substring over each message's Content)
-	// and jumps the selection to the nearest one; enter cycles to the next
-	// match; esc closes the prompt, leaving the selection where it landed.
-	searchingChat  bool
-	searchInput    textinput.Model
-	searchMatches  []int // indices into currentMessages() that match searchInput's value
-	searchMatchPos int   // index into searchMatches of the current match; -1 when there are none
+	// search-in-chat query prompt state, active while searchingChat is true.
+	// Opened by SearchChat (Ctrl+/) while viewChat is focused; submitting
+	// (enter) runs historySearcher.SearchHistory as a tea.Cmd and opens
+	// searchResults once HistorySearchResultMsg arrives. Search runs across
+	// the chat's entire persisted history, not just what's currently loaded
+	// in memory — see searchResultsState.
+	searchingChat bool
+	searchInput   textinput.Model
+
+	// searchResults is non-nil while the search-results popup (opened once a
+	// search-in-chat query completes) is showing. See searchResultsState.
+	searchResults *searchResultsState
 
 	// save-as prompt state, active while savingAs is true. Opened by
 	// SaveMsgAs (Ctrl+Shift+S) or picking an item from the open/save popup
@@ -376,6 +377,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	draftSaver, _ := sender.(DraftSaver)
 	storagePasswordChanger, _ := sender.(StoragePasswordChanger)
 	historyLoader, _ := sender.(HistoryLoader)
+	historySearcher, _ := sender.(HistorySearcher)
 	deviceManager, _ := sender.(OmemoDeviceManager)
 	contactManager, _ := sender.(ContactManager)
 	accountStatusSetter, _ := sender.(AccountStatusSetter)
@@ -430,6 +432,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		filePickerSortSetter:   filePickerSortSetter,
 		lastChatSetter:         lastChatSetter,
 		historyLoader:          historyLoader,
+		historySearcher:        historySearcher,
 		accountStatusSetter:    accountStatusSetter,
 		accountRemover:         accountRemover,
 		chatReadTracker:        chatReadTracker,

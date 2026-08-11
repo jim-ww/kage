@@ -183,6 +183,17 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return cmd().(ui.OlderHistoryMsg), nil
 
+	case rpcSearchHistory:
+		p, err := unmarshalParams[searchHistoryParams](params)
+		if err != nil {
+			return nil, err
+		}
+		cmd := d.a.SearchHistory(p.AccountIdx, p.To, p.Query)
+		if cmd == nil {
+			return nil, fmt.Errorf("unknown account %d", p.AccountIdx)
+		}
+		return cmd().(ui.HistorySearchResultMsg), nil
+
 	case rpcAddContact:
 		p, err := unmarshalParams[contactParams](params)
 		if err != nil {

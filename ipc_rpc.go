@@ -28,6 +28,7 @@ const (
 	rpcSendFile              = "SendFile"
 	rpcUploadFile            = "UploadFile"
 	rpcLoadOlderHistory      = "LoadOlderHistory"
+	rpcSearchHistory         = "SearchHistory"
 	rpcAddContact            = "AddContact"
 	rpcRemoveContact         = "RemoveContact"
 	rpcResubscribeContact    = "ResubscribeContact"
@@ -130,6 +131,11 @@ type uploadFileParams struct {
 type loadOlderHistoryParams struct {
 	AccountIdx int
 	To         string
+}
+type searchHistoryParams struct {
+	AccountIdx int
+	To         string
+	Query      string
 }
 type contactParams struct {
 	AccountIdx int

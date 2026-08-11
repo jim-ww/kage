@@ -284,8 +284,9 @@ func (m *Model) submitRenameChat() tea.Cmd {
 	return cmd
 }
 
-// actionSearchChat opens the search-in-chat prompt (viewChat's SearchChat
-// keybind, Ctrl+/).
+// actionSearchChat opens the search-in-chat query prompt (viewChat's
+// SearchChat keybind, Ctrl+/). Submitting it (see submitSearchChat) searches
+// the chat's entire persisted history, not just what's currently loaded.
 func (m *Model) actionSearchChat() tea.Cmd {
 	if m.currentChatIndex() < 0 {
 		return m.showNotification("no chat selected")
@@ -301,56 +302,24 @@ func (m *Model) actionSearchChat() tea.Cmd {
 
 	m.searchInput = ti
 	m.searchingChat = true
-	m.searchMatches = nil
-	m.searchMatchPos = -1
 	return textinput.Blink
 }
 
-// updateSearchMatches recomputes searchMatches from the search prompt's
-// current value (case-insensitive substring over each message's Content)
-// and jumps the selection to the match nearest the current one — the first
-// match at or after selectedMsg, or the first match overall if none is.
-func (m *Model) updateSearchMatches() {
-	query := strings.ToLower(strings.TrimSpace(m.searchInput.Value()))
-	m.searchMatches = nil
-	if query == "" {
-		m.searchMatchPos = -1
-		return
+// submitSearchChat closes the query prompt and kicks off
+// historySearcher.SearchHistory as a tea.Cmd, opening searchResults in its
+// busy state so the popup shows immediately while the scan runs.
+func (m *Model) submitSearchChat() tea.Cmd {
+	m.searchingChat = false
+	query := strings.TrimSpace(m.searchInput.Value())
+	chat, ok := m.currentChat()
+	if !ok || query == "" || m.historySearcher == nil {
+		return nil
 	}
 
-	for i, msg := range m.currentMessages() {
-		if strings.Contains(strings.ToLower(msg.Content), query) {
-			m.searchMatches = append(m.searchMatches, i)
-		}
-	}
-	if len(m.searchMatches) == 0 {
-		m.searchMatchPos = -1
-		return
-	}
-
-	pos := 0
-	for i, idx := range m.searchMatches {
-		if idx >= m.selectedMsg {
-			pos = i
-			break
-		}
-	}
-	m.jumpToSearchMatch(pos)
-}
-
-// jumpToSearchMatch selects and scrolls to searchMatches[pos], wrapping pos
-// into range first so callers (updateSearchMatches, cycling on enter) can
-// pass an out-of-range position freely.
-func (m *Model) jumpToSearchMatch(pos int) {
-	if len(m.searchMatches) == 0 {
-		return
-	}
-	pos = ((pos % len(m.searchMatches)) + len(m.searchMatches)) % len(m.searchMatches)
-	m.searchMatchPos = pos
-
-	old := m.selectedMsg
-	m.selectedMsg = m.searchMatches[pos]
-	m.refreshViewportScrollTo(old, m.selectedMsg)
+	accountIdx := m.currentAccount
+	to := chat.Address
+	m.searchResults = &searchResultsState{accountIdx: accountIdx, chatAddress: to, query: query, busy: true}
+	return m.historySearcher.SearchHistory(accountIdx, to, query)
 }
 
 func (m *Model) actionYankMessage() tea.Cmd {

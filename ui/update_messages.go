@@ -291,6 +291,22 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case HistorySearchResultMsg:
+		sr := m.searchResults
+		if sr == nil || sr.accountIdx != msg.AccountIdx || sr.chatAddress != msg.From || sr.query != msg.Query {
+			// A later search (or the popup being closed) superseded this
+			// result — discard it rather than overwrite unrelated state.
+			return m, nil, true
+		}
+		sr.busy = false
+		if msg.Err != nil {
+			sr.err = msg.Err.Error()
+			return m, nil, true
+		}
+		sr.messages = msg.Messages
+		sr.matches = msg.Matches
+		return m, nil, true
+
 	case MessageCorrectedMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
