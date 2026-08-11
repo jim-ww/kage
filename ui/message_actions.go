@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -292,15 +293,33 @@ func (m *Model) actionEditMessage() tea.Cmd {
 		return nil
 	}
 	msgs := m.currentMessages()
-	if !m.canEdit(msgs) {
-		return m.showNotification("can only edit your last message")
+	idx := lastOwnMessageIdx(msgs)
+	if idx < 0 {
+		return m.showNotification("no message to edit")
 	}
+	if len(msgs[idx].Attachments) > 0 {
+		return m.showNotification("can't edit attachments")
+	}
+	m.selectedMsg = idx
+	m.refreshViewportScrollTo(idx)
 	m.stashDraftForCompose()
-	m.editingMsgIdx = m.selectedMsg
-	m.input.SetValue(msgs[m.selectedMsg].Content)
-	m.resetDraftHistory(msgs[m.selectedMsg].Content)
+	m.editingMsgIdx = idx
+	m.input.SetValue(msgs[idx].Content)
+	m.resetDraftHistory(msgs[idx].Content)
 	m.input.Placeholder = "edit message..."
 	return m.input.Focus()
+}
+
+// lastOwnMessageIdx returns the index of the last message with IsMe set, or
+// -1 if the chat has none — this is the only message ctrl+e can edit
+// (callers must separately reject it if it's an attachment).
+func lastOwnMessageIdx(msgs []Message) int {
+	for i := range slices.Backward(msgs) {
+		if msgs[i].IsMe {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m *Model) actionReplyMessage() tea.Cmd {
@@ -496,12 +515,13 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(draftCmd, unreadCmd, m.input.Focus())
 }
 
-// canEdit returns true only when selectedMsg is the last "IsMe" message.
+// canEdit returns true only when selectedMsg is the last "IsMe" message and
+// isn't an attachment (its body is the upload URL, not editable text).
 func (m Model) canEdit(msgs []Message) bool {
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return false
 	}
-	if !msgs[m.selectedMsg].IsMe {
+	if !msgs[m.selectedMsg].IsMe || len(msgs[m.selectedMsg].Attachments) > 0 {
 		return false
 	}
 	for i := m.selectedMsg + 1; i < len(msgs); i++ {

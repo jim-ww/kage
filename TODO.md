@@ -4,7 +4,6 @@
 - ui freezing in some cases, CPU usage goes up. on paste, or after editing certain amount of text?
 - textinput long message reaching limit, cannot break on new line
 - uploading your own files must not download them from server (must be downloaded)
-- ctrl+e should automatically select last message for edit (as no other can be edited)
 - config: add attachmentsDir cfg
 - add proper login/register modal
 - reattaching(mapping) messages from json exports to separate accounts
