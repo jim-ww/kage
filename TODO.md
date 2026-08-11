@@ -1,4 +1,4 @@
-- change drag & drop behavior: add dropped file as attachment, instead of sending right away. ensure multi-file drop is handled too
+- change drag & drop behavior: add dropped file as attachment list, instead of sending right away. ensure multi-file drop is handled too
 - textinput long message reaching limit, cannot break on new line
 - add proper login/register modal
 - uploading your own files must not download them from server (must be downloaded)

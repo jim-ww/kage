@@ -160,6 +160,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		// handler is already positioned inside the element start passed to us.
 		// The decoded value is valid regardless; only bail if we got nothing.
 		_ = d.DecodeElement(&msg, start)
+		logXML("IN", c.JID.String(), msg)
 
 		// XEP-0280: unwrap a carbon-copied message and process the original
 		// as if it arrived directly - this is what lets another resource on

@@ -2,18 +2,21 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/daemon"
+	"github.com/jim-ww/kage/xmpp"
 	"github.com/spf13/cobra"
 )
 
 // newDaemonCmd groups controls over kage's background service (the one
 // process per user session that owns every account's XMPP connection,
-// storage, and decryption — see daemon.Run). cfgPath/debug are the root
-// command's persistent flag values.
-func newDaemonCmd(cfgPath *string, debug *bool) *cobra.Command {
+// storage, and decryption — see daemon.Run). cfgPath/debug/debugXML are
+// the root command's persistent flag values.
+func newDaemonCmd(cfgPath *string, debug *bool, debugXML *bool) *cobra.Command {
 	daemonCmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Control kage's background service",
@@ -24,7 +27,7 @@ func newDaemonCmd(cfgPath *string, debug *bool) *cobra.Command {
 		Short: "Start the background service if it isn't already running",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := daemon.EnsureRunning(*cfgPath, *debug); err != nil {
+			if err := daemon.EnsureRunning(*cfgPath, *debug, *debugXML); err != nil {
 				return err
 			}
 			fmt.Println("kage background service is running")
@@ -75,7 +78,7 @@ func newDaemonCmd(cfgPath *string, debug *bool) *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDaemonProcess(*cfgPath, *debug)
+			return runDaemonProcess(*cfgPath, *debug, *debugXML)
 		},
 	}
 	daemonCmd.AddCommand(runCmd)
@@ -83,15 +86,44 @@ func newDaemonCmd(cfgPath *string, debug *bool) *cobra.Command {
 	return daemonCmd
 }
 
+// setupXMLLog opens <config dir>/kage/xml.log and points package xmpp's
+// wire-level stanza logger at it — off by default since it captures full
+// message content, only for diagnosing interop issues with other clients
+// (e.g. why a peer client won't render a <reply/> kage sent).
+func setupXMLLog(debugXML bool) {
+	if !debugXML {
+		return
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: determining config dir for xml log: %v\n", err)
+		return
+	}
+	dir = filepath.Join(dir, "kage")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: creating %s: %v\n", dir, err)
+		return
+	}
+	path := filepath.Join(dir, "xml.log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: opening %s: %v\n", path, err)
+		return
+	}
+	xmpp.SetXMLLog(f)
+	slog.Info("xml logging enabled", "log_file", path)
+}
+
 // runDaemonProcess is the actual background-service entry point, invoked by
 // `kage daemon run` — spawned detached by daemon.EnsureRunning, never meant
 // to be typed directly.
-func runDaemonProcess(cfgPath string, debug bool) error {
+func runDaemonProcess(cfgPath string, debug bool, debugXML bool) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
 	}
 	setupLog(debug)
+	setupXMLLog(debugXML)
 	if cfg.HistoryPageSize > 0 {
 		historyPageSize = cfg.HistoryPageSize
 	}

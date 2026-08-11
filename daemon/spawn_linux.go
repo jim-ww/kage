@@ -121,7 +121,7 @@ func probeSocket(sockPath string) bool {
 // it's confirmed reachable or a short retry budget is exhausted.
 // Best-effort: any failure here is logged by the caller, never fatal to
 // starting the TUI.
-func EnsureRunning(cfgPath string, debug bool) error {
+func EnsureRunning(cfgPath string, debug bool, debugXML bool) error {
 	sockPath, err := ipc.SocketPath()
 	if err != nil {
 		return fmt.Errorf("locating kage service socket: %w", err)
@@ -151,6 +151,9 @@ func EnsureRunning(cfgPath string, debug bool) error {
 	}
 	if debug {
 		args = append(args, "--debug")
+	}
+	if debugXML {
+		args = append(args, "--debug-xml")
 	}
 	cmd := exec.Command(exe, args...)
 	cmd.Stdin = nil

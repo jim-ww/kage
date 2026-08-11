@@ -236,6 +236,7 @@ func main() {
 func newRootCmd() *cobra.Command {
 	var cfgPath string
 	var debug bool
+	var debugXML bool
 
 	root := &cobra.Command{
 		Use:           "kage",
@@ -245,15 +246,16 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI(cfgPath, debug)
+			return runTUI(cfgPath, debug, debugXML)
 		},
 	}
 	root.PersistentFlags().StringVarP(&cfgPath, "config", "c", "", "path to config")
 	root.PersistentFlags().BoolVar(&debug, "debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise)")
+	root.PersistentFlags().BoolVar(&debugXML, "debug-xml", false, "log every decoded incoming/outgoing XMPP stanza to <config dir>/kage/xml.log — verbose, includes message content, for diagnosing interop issues with other clients")
 
 	root.AddCommand(newExportCmd(&cfgPath))
 	root.AddCommand(newImportCmd(&cfgPath))
-	root.AddCommand(newDaemonCmd(&cfgPath, &debug))
+	root.AddCommand(newDaemonCmd(&cfgPath, &debug, &debugXML))
 
 	return root
 }
@@ -261,7 +263,7 @@ func newRootCmd() *cobra.Command {
 // runTUI is what kage does with no subcommand: load config, run the setup
 // wizard if no accounts exist yet, make sure the background daemon is up,
 // and launch the Bubble Tea program.
-func runTUI(cfgPath string, debug bool) error {
+func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	setupLog(cmp.Or(debug, os.Getenv("KAGE_DEBUG") != ""))
 
 	cfg, err := config.Load(cfgPath)
@@ -284,7 +286,7 @@ func runTUI(cfgPath string, debug bool) error {
 	// The background daemon always runs now — cfg.NotificationsDisabled only
 	// gates whether it fires a desktop notification, not whether it starts at
 	// all (see events.go's handleIncomingMessage).
-	if err := daemon.EnsureRunning(cfg.Path, debug); err != nil {
+	if err := daemon.EnsureRunning(cfg.Path, debug, debugXML); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: starting kage's background service: %v\n", err)
 	}
 	if cfg.HistoryPageSize > 0 {

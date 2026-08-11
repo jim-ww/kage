@@ -75,6 +75,7 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 	for _, u := range opts.OOBURLs {
 		msg.OOB = append(msg.OOB, oobElem{URL: u})
 	}
+	logXML("OUT", c.JID.String(), msg)
 	if err := c.session.Encode(ctx, msg); err != nil {
 		return "", err
 	}
