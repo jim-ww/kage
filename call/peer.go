@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 )
@@ -95,7 +96,13 @@ func (p *PeerConnection) AddVideoTrack() error {
 	if err != nil {
 		return fmt.Errorf("creating local video track: %w", err)
 	}
-	if _, err := p.pc.AddTrack(track); err != nil {
+	// Sendonly: we're always the sharer for this track (the receiving side
+	// never calls AddVideoTrack - see applyContentAdd). Plain AddTrack
+	// defaults the transceiver to sendrecv, which would negotiate a second,
+	// unwanted inbound video leg back to us.
+	if _, err := p.pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
+		Direction: webrtc.RTPTransceiverDirectionSendonly,
+	}); err != nil {
 		return fmt.Errorf("adding local video track: %w", err)
 	}
 	p.videoTrack = track
@@ -190,8 +197,12 @@ func (p *PeerConnection) WriteSample(data []byte, duration time.Duration) error 
 	return p.track.WriteSample(media.Sample{Data: data, Duration: duration})
 }
 
-// WriteVideoSample pushes one H.264 NAL unit onto the outbound video track.
-// Returns an error if AddVideoTrack hasn't been called yet.
+// WriteVideoSample pushes one complete H.264 access unit (all of its NALs,
+// Annex-B start codes included) onto the outbound video track as a single
+// sample, so pion's H264 payloader packetizes them as one frame (marker bit
+// set only on the last RTP packet) and duration advances the RTP timestamp
+// by one frame period. Returns an error if AddVideoTrack hasn't been called
+// yet.
 func (p *PeerConnection) WriteVideoSample(data []byte, duration time.Duration) error {
 	if p.videoTrack == nil {
 		return fmt.Errorf("no video track added yet")
@@ -205,6 +216,21 @@ func (p *PeerConnection) WriteVideoSample(data []byte, duration time.Duration) e
 // get depacketized and piped into a ScreenViewer (mpv).
 func (p *PeerConnection) OnTrack(f func(*webrtc.TrackRemote)) {
 	p.pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) { f(track) })
+}
+
+// SendPLI asks the sender of ssrc for a fresh keyframe (RTCP Picture Loss
+// Indication). Needed the moment a video track is registered: an encoder
+// that was already running before we subscribed (the normal case - e.g. a
+// phone's camera starts well before Jingle content negotiation finishes on
+// our end) has long since sent its one keyframe and won't send another
+// until its own GOP boundary, which can be tens of seconds to minutes away.
+// Without asking, every P-frame we receive references a keyframe we never
+// saw, and the decoder has nothing to draw - a permanently black viewer
+// that still looks like RTP is flowing fine, because it is.
+func (p *PeerConnection) SendPLI(ssrc webrtc.SSRC) error {
+	return p.pc.WriteRTCP([]rtcp.Packet{
+		&rtcp.PictureLossIndication{MediaSSRC: uint32(ssrc)},
+	})
 }
 
 // OnConnectionStateChange registers f to be called on every peer connection
@@ -223,6 +249,31 @@ func (p *PeerConnection) LocalDescription() *webrtc.SessionDescription {
 // Close tears down the connection.
 func (p *PeerConnection) Close() error {
 	return p.pc.Close()
+}
+
+// DebugTransceivers summarizes every transceiver's mid/direction/current
+// direction and whether it has a live sender/receiver track - for logging
+// around content-add renegotiation, where a mismatched direction (e.g. the
+// video sender never actually getting attached) would otherwise silently
+// drop every written sample with no error.
+func (p *PeerConnection) DebugTransceivers() []string {
+	var out []string
+	for _, t := range p.pc.GetTransceivers() {
+		sendTrack, recvTrack := "none", "none"
+		if s := t.Sender(); s != nil {
+			if tr := s.Track(); tr != nil {
+				sendTrack = tr.Kind().String() + "/" + tr.ID()
+			}
+		}
+		if r := t.Receiver(); r != nil {
+			if tracks := r.Tracks(); len(tracks) > 0 {
+				recvTrack = tracks[0].Kind().String() + "/" + tracks[0].ID()
+			}
+		}
+		out = append(out, fmt.Sprintf("mid=%s direction=%s send_track=%s recv_track=%s",
+			t.Mid(), t.Direction(), sendTrack, recvTrack))
+	}
+	return out
 }
 
 // Stats samples pion's GetStats() for a rough call-quality snapshot:
@@ -256,4 +307,27 @@ func (p *PeerConnection) Stats() (lossPct, rttMs float64) {
 		lossPct = float64(lost) / float64(total) * 100
 	}
 	return lossPct, rttMs
+}
+
+// VideoSenderSSRC returns the SSRC pion has assigned the outbound video
+// track's RTPSender, or 0 if RTPSender.Send hasn't actually been called yet
+// (e.g. because the transceiver never reached "negotiated"). Note that
+// GetStats()'s OutboundRTPStreamStats is not a reliable way to confirm RTP
+// is actually flowing for this track - a loopback test (two PeerConnections
+// wired directly together, see call/loopback_test.go) reproducibly shows
+// "packets_sent"/"bytes_sent" at 0 with no OutboundRTPStreamStats entry at
+// all even while the other side is demonstrably receiving real RTP, for a
+// track added via mid-call renegotiation - so don't reach for it here.
+func (p *PeerConnection) VideoSenderSSRC() webrtc.SSRC {
+	for _, t := range p.pc.GetTransceivers() {
+		if t.Kind() != webrtc.RTPCodecTypeVideo {
+			continue
+		}
+		if s := t.Sender(); s != nil {
+			if encodings := s.GetParameters().Encodings; len(encodings) > 0 {
+				return encodings[0].SSRC
+			}
+		}
+	}
+	return 0
 }

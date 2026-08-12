@@ -54,6 +54,18 @@ const (
 	// is the peer's answer to it, same shape.
 	JingleActionContentAdd    = "content-add"
 	JingleActionContentAccept = "content-accept"
+
+	// JingleActionContentModify (XEP-0166 §7.2.9) asks to change an existing
+	// content's senders (e.g. upgrade a receive-only video content to
+	// bidirectional). kage never originates one, only replies to a peer's:
+	// we don't have a camera pipeline to become a sender with, so the only
+	// correct reply (per the same section) is to echo the content back with
+	// its senders value unchanged - an explicit decline, rather than silence
+	// the peer might read as acceptance (observed live: Conversations logged
+	// "remote has accepted our upgrade to senders=both" after kage silently
+	// dropped its content-modify, since we didn't yet have a case for it at
+	// all).
+	JingleActionContentModify = "content-modify"
 )
 
 // JingleIQ is the <jingle/> payload of a Jingle IQ (XEP-0166). SID is the
@@ -301,6 +313,17 @@ func (c *Client) SendContentAdd(ctx context.Context, to, sid string, content Jin
 func (c *Client) SendContentAccept(ctx context.Context, to, sid string, content JingleContent) error {
 	return c.sendJingleIQ(ctx, to, JingleIQ{
 		Action:   JingleActionContentAccept,
+		SID:      sid,
+		Contents: []JingleContent{content},
+	})
+}
+
+// SendContentModify replies to a peer's content-modify - see
+// JingleActionContentModify's doc for why kage only ever echoes the
+// content's senders value back unchanged, never actually changing it.
+func (c *Client) SendContentModify(ctx context.Context, to, sid string, content JingleContent) error {
+	return c.sendJingleIQ(ctx, to, JingleIQ{
+		Action:   JingleActionContentModify,
 		SID:      sid,
 		Contents: []JingleContent{content},
 	})

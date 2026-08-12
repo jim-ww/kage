@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jim-ww/kage/call"
+	"github.com/jim-ww/kage/xmpp"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -34,7 +35,7 @@ a=sendrecv
 `
 
 func TestJingleContentsFromSDP(t *testing.T) {
-	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP})
+	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP}, true)
 	if err != nil {
 		t.Fatalf("translating offer to jingle: %v", err)
 	}
@@ -76,12 +77,12 @@ func TestJingleContentsFromSDP(t *testing.T) {
 // re-reads the result: everything a WebRTC negotiation depends on has to
 // survive both directions unchanged.
 func TestJingleSDPRoundTrip(t *testing.T) {
-	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP})
+	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP}, true)
 	if err != nil {
 		t.Fatalf("translating offer to jingle: %v", err)
 	}
 
-	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer)
+	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer, true)
 	if err != nil {
 		t.Fatalf("translating jingle back to sdp: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestJingleSDPRoundTrip(t *testing.T) {
 		}
 	}
 
-	again, err := jingleContentsFromSDP(rebuilt)
+	again, err := jingleContentsFromSDP(rebuilt, true)
 	if err != nil {
 		t.Fatalf("re-reading rebuilt sdp: %v", err)
 	}
@@ -128,11 +129,11 @@ func TestJingleSDPAgainstPion(t *testing.T) {
 		t.Skipf("no usable pion peer connection here: %v", err)
 	}
 
-	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP})
+	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP}, true)
 	if err != nil {
 		t.Fatalf("translating offer to jingle: %v", err)
 	}
-	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer)
+	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer, true)
 	if err != nil {
 		t.Fatalf("translating jingle back to sdp: %v", err)
 	}
@@ -150,11 +151,11 @@ func TestJingleSDPAgainstPion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating answer: %v", err)
 	}
-	answerContents, err := jingleContentsFromSDP(answer)
+	answerContents, err := jingleContentsFromSDP(answer, true)
 	if err != nil {
 		t.Fatalf("translating answer to jingle: %v", err)
 	}
-	if _, err := sdpFromJingleContents(answerContents, webrtc.SDPTypeAnswer); err != nil {
+	if _, err := sdpFromJingleContents(answerContents, webrtc.SDPTypeAnswer, true); err != nil {
 		t.Fatalf("translating jingle answer back to sdp: %v", err)
 	}
 }
@@ -163,7 +164,7 @@ func TestJingleSDPAgainstPion(t *testing.T) {
 // on its generated offer survives translation to Jingle <source/> and back
 // out to SDP unchanged.
 func TestSSRCRoundTrip(t *testing.T) {
-	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP})
+	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP}, true)
 	if err != nil {
 		t.Fatalf("translating offer to jingle: %v", err)
 	}
@@ -178,7 +179,7 @@ func TestSSRCRoundTrip(t *testing.T) {
 		t.Fatalf("source parameters decoded as %+v, want cname=kage", sources[0].Parameters)
 	}
 
-	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer)
+	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer, true)
 	if err != nil {
 		t.Fatalf("translating jingle back to sdp: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestSSRCRoundTrip(t *testing.T) {
 		t.Errorf("rebuilt sdp is missing the ssrc line:\n%s", rebuilt.SDP)
 	}
 
-	again, err := jingleContentsFromSDP(rebuilt)
+	again, err := jingleContentsFromSDP(rebuilt, true)
 	if err != nil {
 		t.Fatalf("re-reading rebuilt sdp: %v", err)
 	}
@@ -229,7 +230,7 @@ a=sendrecv
 `
 
 func TestJingleSDPMultiContentRoundTrip(t *testing.T) {
-	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionTwoContentSDP})
+	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionTwoContentSDP}, true)
 	if err != nil {
 		t.Fatalf("translating two-content offer to jingle: %v", err)
 	}
@@ -246,7 +247,7 @@ func TestJingleSDPMultiContentRoundTrip(t *testing.T) {
 		t.Fatalf("video sources decoded as %+v", contents[1].Description.Sources)
 	}
 
-	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer)
+	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer, true)
 	if err != nil {
 		t.Fatalf("translating two-content jingle back to sdp: %v", err)
 	}
@@ -263,7 +264,7 @@ func TestJingleSDPMultiContentRoundTrip(t *testing.T) {
 		}
 	}
 
-	again, err := jingleContentsFromSDP(rebuilt)
+	again, err := jingleContentsFromSDP(rebuilt, true)
 	if err != nil {
 		t.Fatalf("re-reading rebuilt multi-content sdp: %v", err)
 	}
@@ -276,7 +277,7 @@ func TestJingleSDPMultiContentRoundTrip(t *testing.T) {
 // still produces exactly one content and one m-line after generalizing to
 // support multiple - the regression case for the multi-content plumbing.
 func TestJingleSDPSingleContentUnaffected(t *testing.T) {
-	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP})
+	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: pionOfferSDP}, true)
 	if err != nil {
 		t.Fatalf("translating offer to jingle: %v", err)
 	}
@@ -284,7 +285,7 @@ func TestJingleSDPSingleContentUnaffected(t *testing.T) {
 		t.Fatalf("got %d jingle contents, want 1", len(contents))
 	}
 
-	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer)
+	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer, true)
 	if err != nil {
 		t.Fatalf("translating jingle back to sdp: %v", err)
 	}
@@ -319,5 +320,139 @@ func TestICECandidateRoundTrip(t *testing.T) {
 	want := "candidate:1829696788 1 UDP 2122260223 192.168.1.5 51234 typ srflx raddr 10.0.0.2 rport 51235 generation 0"
 	if init.Candidate != want {
 		t.Fatalf("candidate re-rendered as %q, want %q", init.Candidate, want)
+	}
+}
+
+// TestSendersDirectionRoleAware guards against a regression where a
+// unidirectional content's XEP-0166 "senders" attribute was computed
+// without regard to which Jingle role (initiator/responder) the local peer
+// actually holds - "sendonly" locally was always written out as
+// senders="initiator" even when the local peer sending it was the
+// responder, which would tell a spec-compliant peer the wrong party is
+// sending (this is exactly what screen-share content-add hits: the sharer
+// isn't always the session's initiator).
+func TestSendersDirectionRoleAware(t *testing.T) {
+	cases := []struct {
+		direction   string
+		isInitiator bool
+		wantSenders string
+	}{
+		{"sendonly", true, "initiator"},
+		{"sendonly", false, "responder"},
+		{"recvonly", true, "responder"},
+		{"recvonly", false, "initiator"},
+		{"sendrecv", true, "both"},
+		{"sendrecv", false, "both"},
+	}
+	for _, tc := range cases {
+		if got := directionToSenders(tc.direction, tc.isInitiator); got != tc.wantSenders {
+			t.Errorf("directionToSenders(%q, isInitiator=%v) = %q, want %q",
+				tc.direction, tc.isInitiator, got, tc.wantSenders)
+		}
+		// sendersToDirection must invert directionToSenders for the same role.
+		if got := sendersToDirection(tc.wantSenders, tc.isInitiator); got != tc.direction {
+			t.Errorf("sendersToDirection(%q, isInitiator=%v) = %q, want %q",
+				tc.wantSenders, tc.isInitiator, got, tc.direction)
+		}
+	}
+}
+
+// TestSDPFromJingleContentsSingleSSRCPerMid guards against a regression
+// where a peer sending RTX/FEC (e.g. a phone camera's video track, which
+// almost always advertises a repair SSRC alongside the primary one) caused
+// incoming video calls to be rejected outright. We don't parse XEP-0339
+// <ssrc-group/> (see JingleSource's doc), so multiple <source/> elements on
+// one content used to all become ungrouped a=ssrc lines under the same mid;
+// pion's Plan-B heuristic (trackDetailsFromSDP) treats an unlinked second
+// SSRC on one mid as a second track and refuses to answer at all
+// ("Expected UnifiedPlan, but RemoteDescription is PlanB"). Only the first
+// (primary) source should ever reach the rebuilt SDP.
+func TestSDPFromJingleContentsSingleSSRCPerMid(t *testing.T) {
+	contents := []xmpp.JingleContent{{
+		Creator: "initiator",
+		Name:    "video",
+		Senders: "initiator",
+		Description: &xmpp.RTPDescription{
+			Media: "video",
+			PayloadTypes: []xmpp.RTPPayloadType{
+				{ID: 96, Name: "H264", ClockRate: 90000},
+			},
+			Sources: []xmpp.JingleSource{
+				{SSRC: 111, Parameters: []xmpp.JingleSourceParam{{Name: "cname", Value: "peer"}}},
+				{SSRC: 222, Parameters: []xmpp.JingleSourceParam{{Name: "cname", Value: "peer"}}}, // RTX repair SSRC
+			},
+		},
+		Transport: &xmpp.ICEUDPTransport{
+			Ufrag: "ufrag",
+			Pwd:   "pwd",
+			Fingerprint: &xmpp.DTLSFingerprint{
+				Hash: "sha-256", Setup: "actpass", Value: "AA:BB",
+			},
+		},
+	}}
+
+	sdpDesc, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer, true)
+	if err != nil {
+		t.Fatalf("building sdp: %v", err)
+	}
+	if n := strings.Count(sdpDesc.SDP, "a=ssrc:"); n != 1 {
+		t.Fatalf("rebuilt sdp has %d a=ssrc lines, want 1 (multiple unlinked SSRCs on one mid trips pion's Plan-B check):\n%s", n, sdpDesc.SDP)
+	}
+	if !strings.Contains(sdpDesc.SDP, "a=ssrc:111 ") {
+		t.Fatalf("rebuilt sdp dropped the primary ssrc:\n%s", sdpDesc.SDP)
+	}
+	if strings.Contains(sdpDesc.SDP, "a=ssrc:222 ") {
+		t.Fatalf("rebuilt sdp kept the repair ssrc:\n%s", sdpDesc.SDP)
+	}
+}
+
+// TestJingleContentsFromSDPSingleSSRCPerContent is
+// TestSDPFromJingleContentsSingleSSRCPerMid's counterpart for our own
+// outgoing offers/answers: pion auto-negotiates RTX for a video track (it
+// did for kage's own screen-share content-add live, unprompted) and so its
+// generated SDP can carry two a=ssrc lines under one m= section - a primary
+// and a repair SSRC, both sharing the same msid/cname, telling them apart
+// only by an a=ssrc-group:FID line we don't parse. Emitting the repair SSRC
+// as an ordinary second <source/> left at least one real peer (Conversations)
+// confused about which SSRC was the actual video and reporting zero frames
+// received. jingleContentsFromSDP must keep only the first SSRC per content.
+func TestJingleContentsFromSDPSingleSSRCPerContent(t *testing.T) {
+	const offerWithRTX = `v=0
+o=- 1 1 IN IP4 0.0.0.0
+s=-
+t=0 0
+a=fingerprint:sha-256 F5:3C:1E:9A:44:2B:70:D8:6C:11:A0:5F:93:2E:88:47:6D:CA:31:05:9B:E2:74:AF:60:13:8C:29:B7:4E:D1:52
+a=group:BUNDLE 0
+m=video 9 UDP/TLS/RTP/SAVPF 96 97
+c=IN IP4 0.0.0.0
+a=setup:actpass
+a=mid:0
+a=ice-ufrag:BCkjvJhCEcYkAWGP
+a=ice-pwd:GVQhZbPTHmzDdWuJDeMdrHwYrEEJDMRF
+a=rtcp-mux
+a=rtpmap:96 H264/90000
+a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f
+a=rtpmap:97 rtx/90000
+a=fmtp:97 apt=96
+a=ssrc-group:FID 2399846864 3594954464
+a=ssrc:2399846864 cname:kage
+a=ssrc:2399846864 msid:kage video
+a=ssrc:3594954464 cname:kage
+a=ssrc:3594954464 msid:kage video
+a=sendonly
+`
+	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offerWithRTX}, true)
+	if err != nil {
+		t.Fatalf("translating offer to jingle: %v", err)
+	}
+	if len(contents) != 1 {
+		t.Fatalf("got %d contents, want 1", len(contents))
+	}
+	sources := contents[0].Description.Sources
+	if len(sources) != 1 {
+		t.Fatalf("got %d sources, want 1 (RTX ssrc must be dropped): %+v", len(sources), sources)
+	}
+	if sources[0].SSRC != 2399846864 {
+		t.Fatalf("kept ssrc %d, want the primary 2399846864", sources[0].SSRC)
 	}
 }

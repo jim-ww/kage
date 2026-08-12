@@ -1,11 +1,35 @@
 package call
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
+	"sync"
 	"time"
 )
+
+// syncBuffer is bytes.Buffer with its own lock, so it's safe to Write from
+// exec.Cmd's internal stderr-copying goroutine while Run's EOF handler reads
+// it back from a different goroutine.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // screenShareFramerate is a conservative cap for screen-share capture -
 // rarely needs more than this to read comfortably, and keeps bandwidth/CPU
@@ -20,6 +44,7 @@ const screenShareFramerate = 15
 type ScreenShare struct {
 	cmd    *exec.Cmd
 	stdout io.ReadCloser
+	stderr *syncBuffer
 	done   chan struct{}
 }
 
@@ -41,19 +66,33 @@ func NewScreenShare() (*ScreenShare, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening wf-recorder stdout: %w", err)
 	}
+	// wf-recorder logs everything of interest - screencopy/portal permission
+	// failures in particular - to stderr, not stdout. Left unset, exec
+	// discards it, so a wf-recorder that fails to actually capture anything
+	// exits with output indistinguishable from a clean, deliberate stop (see
+	// Run's EOF handling below).
+	stderr := &syncBuffer{}
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting wf-recorder: %w", err)
 	}
-	return &ScreenShare{cmd: cmd, stdout: stdout, done: make(chan struct{})}, nil
+	return &ScreenShare{cmd: cmd, stdout: stdout, stderr: stderr, done: make(chan struct{})}, nil
 }
 
-// Run reads Annex-B NAL units off wf-recorder's stdout and calls write for
-// each one (with its start code included), until the stream ends or Stop is
-// called. Blocks until then - callers run it in its own goroutine.
-func (s *ScreenShare) Run(write func(nal []byte, sinceLast time.Duration) error) error {
+// Run reads Annex-B NAL units off wf-recorder's stdout, groups them into
+// complete access units (frames), and calls write once per frame (start
+// codes included, one or more NALs concatenated - e.g. SPS/PPS followed by
+// the slice) until the stream ends or Stop is called. A frame is flushed as
+// soon as its VCL NAL (slice, type 1 or 5 - wf-recorder/x264 emits one slice
+// per picture, no slice partitioning) has been seen, since any SPS/PPS/SEI
+// NALs for that picture always precede it. Blocks until done - callers run
+// it in its own goroutine.
+func (s *ScreenShare) Run(write func(frame []byte, sinceLast time.Duration) error) error {
 	buf := make([]byte, 0, 1<<20)
 	tmp := make([]byte, 1<<16)
+	frame := make([]byte, 0, 1<<16)
 	last := time.Now()
+	frames := 0
 	for {
 		select {
 		case <-s.done:
@@ -73,20 +112,56 @@ func (s *ScreenShare) Run(write func(nal []byte, sinceLast time.Duration) error)
 				if len(nal) == 0 {
 					continue
 				}
+				frame = append(frame, nal...)
+				if !isVCLNAL(nal) {
+					continue
+				}
 				now := time.Now()
 				sinceLast := now.Sub(last)
 				last = now
-				if werr := write(nal, sinceLast); werr != nil {
+				out := frame
+				frame = make([]byte, 0, 1<<16)
+				frames++
+				if frames == 1 || frames%60 == 0 {
+					slog.Debug("screen share: encoded frame", "frames", frames, "bytes", len(out), "since_last", sinceLast)
+				}
+				if werr := write(out, sinceLast); werr != nil {
 					return werr
 				}
 			}
 		}
 		if err != nil {
 			if err == io.EOF {
+				// A clean Stop() closes s.done first, so a caller-initiated
+				// stop returns via the select above before we ever see EOF
+				// here - EOF reaching this point means wf-recorder exited on
+				// its own, which is always worth surfacing (0 frames
+				// especially: portal/screencopy permission failures exit
+				// this way with nothing on stdout and the real reason only
+				// on stderr).
+				slog.Debug("screen share: wf-recorder stream ended", "frames", frames, "stderr", s.stderr.String())
 				return nil
 			}
 			return err
 		}
+	}
+}
+
+// isVCLNAL reports whether nal (start code included, 3- or 4-byte) is a
+// coded slice - the NAL that marks the end of its access unit.
+func isVCLNAL(nal []byte) bool {
+	i := 3
+	if len(nal) > 2 && nal[2] != 1 {
+		i = 4
+	}
+	if i >= len(nal) {
+		return false
+	}
+	switch nal[i] & 0x1f {
+	case 1, 5: // non-IDR / IDR coded slice
+		return true
+	default:
+		return false
 	}
 }
 
@@ -113,6 +188,9 @@ func splitNextNAL(buf []byte) (nal, rest []byte, ok bool) {
 	if start < 0 {
 		return nil, buf, false
 	}
+	// Search past this NAL's own start code before looking for the next
+	// one, so a short start-code-like run at the very front of the NAL
+	// payload can't be mistaken for the following NAL's marker.
 	next := indexStartCode(buf, start+3)
 	if next < 0 {
 		return nil, buf, false
@@ -120,36 +198,61 @@ func splitNextNAL(buf []byte) (nal, rest []byte, ok bool) {
 	return buf[start:next], buf[next:], true
 }
 
-// indexStartCode finds the byte offset right after the next Annex-B start
-// code (00 00 01, whether preceded by one extra zero byte or not) at or
-// after from, or -1 if none has arrived yet.
+// indexStartCode finds the byte offset of the next Annex-B start code (the
+// 00 00 01 itself, extended one byte earlier if preceded by an extra zero
+// byte) at or after from, or -1 if none has arrived yet.
 func indexStartCode(buf []byte, from int) int {
 	for i := from; i+2 < len(buf); i++ {
 		if buf[i] == 0 && buf[i+1] == 0 && buf[i+2] == 1 {
-			return i + 3
+			if i > 0 && buf[i-1] == 0 {
+				return i - 1
+			}
+			return i
 		}
 	}
 	return -1
 }
 
-// ScreenViewer plays a peer's shared-screen video track by piping its
-// depacketized H.264 Annex-B stream into mpv, which does its own decode -
-// kage never touches a decoded video frame itself, mirroring how gpg is
-// shelled out to rather than reimplemented (see crypto/gpg).
+// VideoCodec names which codec a peer's incoming video track was actually
+// negotiated with (see webrtc.TrackRemote.Codec()) - the peer picks this,
+// not us: kage's own screen-share always sends H.264 (wf-recorder/x264),
+// but an arbitrary Jingle peer sending video (e.g. a phone placing a video
+// call) may have chosen VP8 instead, and mpv needs telling which one it's
+// getting fed - feeding VP8 payload through an H.264 demuxer produces no
+// visible error, just a viewer that opens and stays black forever.
+type VideoCodec int
+
+const (
+	VideoCodecH264 VideoCodec = iota
+	VideoCodecVP8
+)
+
+// ScreenViewer plays a peer's shared-screen or camera video track by piping
+// its depacketized stream into mpv, which does its own decode - kage never
+// touches a decoded video frame itself, mirroring how gpg is shelled out to
+// rather than reimplemented (see crypto/gpg).
 type ScreenViewer struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	codec     VideoCodec
+	ivfHeader bool
+	frameNum  uint64
 }
 
-// NewScreenViewer launches mpv reading a raw H.264 stream on stdin.
-func NewScreenViewer(title string) (*ScreenViewer, error) {
+// NewScreenViewer launches mpv reading a raw H.264 Annex-B or IVF-wrapped
+// VP8 stream (see WriteFrame) on stdin, depending on codec.
+func NewScreenViewer(title string, codec VideoCodec) (*ScreenViewer, error) {
+	format := "h264"
+	if codec == VideoCodecVP8 {
+		format = "ivf"
+	}
 	cmd := exec.Command(
 		"mpv",
 		"--title="+title,
 		"--force-window=immediate",
 		"--profile=low-latency",
 		"--demuxer=lavf",
-		"--demuxer-lavf-format=h264",
+		"--demuxer-lavf-format="+format,
 		"--untimed",
 		"-",
 	)
@@ -160,13 +263,46 @@ func NewScreenViewer(title string) (*ScreenViewer, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting mpv: %w", err)
 	}
-	return &ScreenViewer{cmd: cmd, stdin: stdin}, nil
+	return &ScreenViewer{cmd: cmd, stdin: stdin, codec: codec}, nil
 }
 
-// WriteNAL writes one Annex-B NAL unit (start code included) to mpv's input
-// stream.
-func (v *ScreenViewer) WriteNAL(nal []byte) error {
-	_, err := v.stdin.Write(nal)
+// WriteFrame writes one complete decoded access unit to mpv's input stream:
+// for H.264, one or more concatenated Annex-B NALs (start codes included);
+// for VP8, one raw VP8 frame, which - unlike H.264 - has no self-delimiting
+// start codes of its own, so it's wrapped in a minimal IVF container (a
+// 32-byte file header written once, then one 12-byte frame header per
+// frame) so mpv's lavf/ivf demuxer can find frame boundaries at all. The
+// width/height/frame-rate IVF declares are placeholders: VP8's own keyframe
+// header carries the real dimensions, which is what decoders actually use.
+func (v *ScreenViewer) WriteFrame(data []byte) error {
+	if v.codec != VideoCodecVP8 {
+		_, err := v.stdin.Write(data)
+		return err
+	}
+	if !v.ivfHeader {
+		hdr := make([]byte, 32)
+		copy(hdr[0:4], "DKIF")
+		binary.LittleEndian.PutUint16(hdr[4:6], 0)
+		binary.LittleEndian.PutUint16(hdr[6:8], 32)
+		copy(hdr[8:12], "VP80")
+		binary.LittleEndian.PutUint16(hdr[12:14], 1280)
+		binary.LittleEndian.PutUint16(hdr[14:16], 720)
+		binary.LittleEndian.PutUint32(hdr[16:20], 30) // frame rate numerator
+		binary.LittleEndian.PutUint32(hdr[20:24], 1)  // timebase denominator
+		binary.LittleEndian.PutUint32(hdr[24:28], 0)  // frame count: unknown, streaming
+		if _, err := v.stdin.Write(hdr); err != nil {
+			return err
+		}
+		v.ivfHeader = true
+	}
+	frameHdr := make([]byte, 12)
+	binary.LittleEndian.PutUint32(frameHdr[0:4], uint32(len(data)))
+	binary.LittleEndian.PutUint64(frameHdr[4:12], v.frameNum)
+	v.frameNum++
+	if _, err := v.stdin.Write(frameHdr); err != nil {
+		return err
+	}
+	_, err := v.stdin.Write(data)
 	return err
 }
 

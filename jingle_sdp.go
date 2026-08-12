@@ -34,7 +34,7 @@ const jingleContentName = "audio"
 // Candidates present in desc at the time of the call are included, but ours
 // are normally still being gathered - the rest trickle out separately as
 // transport-info (see jingleTransportInfoContent).
-func jingleContentsFromSDP(desc webrtc.SessionDescription) ([]xmpp.JingleContent, error) {
+func jingleContentsFromSDP(desc webrtc.SessionDescription, isInitiator bool) ([]xmpp.JingleContent, error) {
 	var parsed sdp.SessionDescription
 	if err := parsed.UnmarshalString(desc.SDP); err != nil {
 		return nil, fmt.Errorf("parsing local sdp: %w", err)
@@ -43,10 +43,12 @@ func jingleContentsFromSDP(desc webrtc.SessionDescription) ([]xmpp.JingleContent
 	var contents []xmpp.JingleContent
 	for _, media := range parsed.MediaDescriptions {
 		name := attrOr(media, &parsed, "mid", jingleContentName)
+		direction := getSDPDirection(media)
+		senders := directionToSenders(direction, isInitiator)
 		content := xmpp.JingleContent{
 			Creator: "initiator",
 			Name:    name,
-			Senders: "both",
+			Senders: senders,
 			Description: &xmpp.RTPDescription{
 				Media:        media.MediaName.Media,
 				PayloadTypes: payloadTypesFromSDP(media),
@@ -87,13 +89,23 @@ func jingleContentsFromSDP(desc webrtc.SessionDescription) ([]xmpp.JingleContent
 }
 
 // sourcesFromSDP reads the `a=ssrc:<id> cname:<value>` lines pion generates
-// for a media section's local track(s) into XEP-0167/XEP-0339 <source/>
-// elements. Only cname is carried today - it's the one parameter every
-// consumer of this needs (stream identity), and pion itself doesn't emit
-// msid/label/mslabel on its generated offers.
+// for a media section's local track into a single XEP-0167/XEP-0339
+// <source/> element. Only cname is carried today - it's the one parameter
+// every consumer of this needs (stream identity), and pion itself doesn't
+// emit msid/label/mslabel on its generated offers.
+//
+// Only the first (primary) SSRC is kept, even if pion auto-negotiated RTX
+// for the m= section and so declared a second one there: without full
+// XEP-0339 <ssrc-group/> support (out of scope - see JingleSource's doc) to
+// tell a peer the second SSRC is a repair stream for the first, sending it
+// as an ordinary, ungrouped second <source/> leaves the peer either
+// confused about which SSRC is the actual media (observed live: a peer
+// declared both under the same msid and then received zero frames) or
+// tripping the same Plan-B misdetection sdpFromJingleContents already
+// guards against on the receiving end - this is that fix's counterpart for
+// our own outgoing offers/answers.
 func sourcesFromSDP(media *sdp.MediaDescription) []xmpp.JingleSource {
-	bySSRC := map[uint32]*xmpp.JingleSource{}
-	var order []uint32
+	var src *xmpp.JingleSource
 	for _, a := range media.Attributes {
 		if a.Key != "ssrc" {
 			continue
@@ -107,25 +119,20 @@ func sourcesFromSDP(media *sdp.MediaDescription) []xmpp.JingleSource {
 			continue
 		}
 		ssrc := uint32(id)
-		src, seen := bySSRC[ssrc]
-		if !seen {
+		if src == nil {
 			src = &xmpp.JingleSource{SSRC: ssrc}
-			bySSRC[ssrc] = src
-			order = append(order, ssrc)
+		} else if src.SSRC != ssrc {
+			continue // a second, presumably RTX, SSRC - not carried, see doc above
 		}
 		attrName, attrValue, ok := strings.Cut(rest, ":")
 		if ok {
 			src.Parameters = append(src.Parameters, xmpp.JingleSourceParam{Name: attrName, Value: attrValue})
 		}
 	}
-	if len(order) == 0 {
+	if src == nil {
 		return nil
 	}
-	sources := make([]xmpp.JingleSource, 0, len(order))
-	for _, ssrc := range order {
-		sources = append(sources, *bySSRC[ssrc])
-	}
-	return sources
+	return []xmpp.JingleSource{*src}
 }
 
 // payloadTypesFromSDP reads the rtpmap/fmtp lines of one media section into
@@ -180,12 +187,19 @@ func payloadTypesFromSDP(media *sdp.MediaDescription) []xmpp.RTPPayloadType {
 }
 
 // sdpFromJingleContents rebuilds a full SDP offer/answer from an incoming
-// session-initiate/session-accept's contents, so it can be handed to
-// PeerConnection.SetRemoteDescription. One MediaDescription is emitted per
-// content that carries a Description+Transport (today that's always exactly
-// the one audio content; the loop is content-agnostic so a second content,
-// e.g. video, needs no changes here).
-func sdpFromJingleContents(contents []xmpp.JingleContent, typ webrtc.SDPType) (webrtc.SessionDescription, error) {
+// stanza's contents (session-initiate/-accept, content-add/-accept,
+// transport-replace/-accept), so it can be handed to
+// PeerConnection.SetRemoteDescription. Because contents always came from the
+// remote peer, isInitiator here means "is the remote peer the session's
+// Jingle initiator" - the opposite of the local callSession's own role (see
+// callSession.incoming) - so the reconstructed a=sendonly/recvonly reflects
+// what the remote peer is actually doing, not us. This is the inverse of
+// jingleContentsFromSDP, which always describes our own SDP and so always
+// takes our own role. One MediaDescription is emitted per content that
+// carries a Description+Transport (today that's always exactly the one
+// audio content; the loop is content-agnostic so a second content, e.g.
+// video, needs no changes here).
+func sdpFromJingleContents(contents []xmpp.JingleContent, typ webrtc.SDPType, isInitiator bool) (webrtc.SessionDescription, error) {
 	described := contentsWithMedia(contents)
 	if len(described) == 0 {
 		return webrtc.SessionDescription{}, fmt.Errorf("jingle %s has no content with a description and transport", typ)
@@ -205,6 +219,7 @@ func sdpFromJingleContents(contents []xmpp.JingleContent, typ webrtc.SDPType) (w
 		mids = append(mids, mid)
 
 		var formats []string
+		direction := sendersToDirection(content.Senders, isInitiator)
 		attrs := []sdp.Attribute{
 			{Key: "mid", Value: mid},
 			{Key: "ice-ufrag", Value: content.Transport.Ufrag},
@@ -212,7 +227,7 @@ func sdpFromJingleContents(contents []xmpp.JingleContent, typ webrtc.SDPType) (w
 			{Key: "ice-options", Value: "trickle"},
 			{Key: "fingerprint", Value: content.Transport.Fingerprint.Hash + " " + strings.TrimSpace(content.Transport.Fingerprint.Value)},
 			{Key: "setup", Value: setupOrDefault(content.Transport.Fingerprint.Setup, typ)},
-			{Key: "sendrecv"},
+			{Key: direction},
 			{Key: "rtcp-mux"},
 		}
 		for _, pt := range content.Description.PayloadTypes {
@@ -239,11 +254,22 @@ func sdpFromJingleContents(contents []xmpp.JingleContent, typ webrtc.SDPType) (w
 		if len(formats) == 0 {
 			return webrtc.SessionDescription{}, fmt.Errorf("jingle %s content %q offers no payload types", typ, mid)
 		}
-		for _, src := range content.Description.Sources {
-			for _, p := range src.Parameters {
+		// Only the first source: a peer sending RTX/FEC lists those as
+		// additional <source/> elements alongside the primary one (grouped
+		// via <ssrc-group/> in full XEP-0339, which we don't parse - see
+		// JingleSource's doc). Emitting every one of them as an ungrouped
+		// a=ssrc here would leave pion's Plan-B heuristic seeing multiple
+		// unlinked tracks under one mid (it specifically special-cases
+		// a=ssrc-group:FID to rule that out - see pion's trackDetailsFromSDP)
+		// and it then refuses to answer at all ("Expected UnifiedPlan, but
+		// RemoteDescription is PlanB"). We don't do RTX/FEC ourselves, so
+		// the primary source - conventionally listed first - is all we
+		// actually need here.
+		if srcs := content.Description.Sources; len(srcs) > 0 {
+			for _, p := range srcs[0].Parameters {
 				attrs = append(attrs, sdp.Attribute{
 					Key:   "ssrc",
-					Value: fmt.Sprintf("%d %s:%s", src.SSRC, p.Name, p.Value),
+					Value: fmt.Sprintf("%d %s:%s", srcs[0].SSRC, p.Name, p.Value),
 				})
 			}
 		}
@@ -429,4 +455,68 @@ func attrOr(media *sdp.MediaDescription, session *sdp.SessionDescription, key, d
 		return v
 	}
 	return def
+}
+
+// getSDPDirection reads the direction attribute from a media section.
+// Returns "sendrecv" by default if no direction attribute is present.
+func getSDPDirection(media *sdp.MediaDescription) string {
+	for _, dir := range []string{"sendrecv", "sendonly", "recvonly", "inactive"} {
+		if _, ok := media.Attribute(dir); ok {
+			return dir
+		}
+	}
+	return "sendrecv"
+}
+
+// directionToSenders maps a *local* SDP direction attribute to its XEP-0166
+// senders equivalent, which is expressed in terms of the Jingle session's
+// initiator/responder roles rather than "us"/"them" - isInitiator says which
+// role this local peer holds (see callSession.incoming). This is the inverse
+// of sendersToDirection.
+func directionToSenders(direction string, isInitiator bool) string {
+	self, other := "responder", "initiator"
+	if isInitiator {
+		self, other = "initiator", "responder"
+	}
+	switch direction {
+	case "sendrecv":
+		return "both"
+	case "sendonly":
+		return self
+	case "recvonly":
+		return other
+	case "inactive":
+		return "none"
+	default:
+		return "both"
+	}
+}
+
+// sendersToDirection maps a XEP-0166 senders attribute (in terms of the
+// session's initiator/responder roles) to the local SDP direction attribute
+// for this peer - isInitiator says which role this local peer holds (see
+// callSession.incoming). "both" maps to sendrecv and "none" to inactive
+// regardless of role; "initiator"/"responder" resolve to sendonly if that
+// role is ours, recvonly otherwise. When the attribute is empty (older
+// clients), we default to sendrecv.
+func sendersToDirection(senders string, isInitiator bool) string {
+	switch senders {
+	case "both":
+		return "sendrecv"
+	case "none":
+		return "inactive"
+	case "initiator":
+		if isInitiator {
+			return "sendonly"
+		}
+		return "recvonly"
+	case "responder":
+		if isInitiator {
+			return "recvonly"
+		}
+		return "sendonly"
+	default:
+		// Empty or unknown: default to sendrecv for compatibility
+		return "sendrecv"
+	}
 }

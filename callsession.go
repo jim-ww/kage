@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
+	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media/samplebuilder"
@@ -608,6 +610,9 @@ func (s *accountSession) handleJingle(ctx context.Context, srv *ipc.Server, acco
 	case xmpp.JingleActionContentAccept:
 		c.applyContentAccept(ctx, ev.Jingle)
 
+	case xmpp.JingleActionContentModify:
+		c.applyContentModify(ctx, ev.Jingle)
+
 	case xmpp.JingleActionSessionTerminate:
 		c.end(ctx, "ended", terminateReason(ev.Jingle.Reason))
 	}
@@ -647,7 +652,7 @@ func (c *callSession) setupPeer(ctx context.Context) error {
 
 	pc.OnTrack(func(track *webrtc.TrackRemote) {
 		if track.Kind() == webrtc.RTPCodecTypeVideo {
-			go recoverAndLog(c.sid, "playRemoteVideo", func() { c.playRemoteVideo(track) })
+			go recoverAndLog(c.sid, "playRemoteVideo", func() { c.playRemoteVideo(pc, track) })
 			return
 		}
 		go recoverAndLog(c.sid, "playRemote", func() { c.playRemote(track) })
@@ -676,7 +681,7 @@ func (c *callSession) initiateSession(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	contents, err := jingleContentsFromSDP(offer)
+	contents, err := jingleContentsFromSDP(offer, !c.incoming)
 	if err != nil {
 		return err
 	}
@@ -698,7 +703,7 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	if err := c.setupPeer(ctx); err != nil {
 		return err
 	}
-	offer, err := sdpFromJingleContents(jingle.Contents, webrtc.SDPTypeOffer)
+	offer, err := sdpFromJingleContents(jingle.Contents, webrtc.SDPTypeOffer, c.incoming)
 	if err != nil {
 		return err
 	}
@@ -711,13 +716,24 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	if err != nil {
 		return err
 	}
-	contents, err := jingleContentsFromSDP(answer)
+	contents, err := jingleContentsFromSDP(answer, !c.incoming)
 	if err != nil {
 		return err
 	}
-	// Echo the initiator's content name so both ends agree on the mid.
-	if in, ok := firstContentOfKind(jingle.Contents, "audio"); ok && in.Name != "" {
-		contents[0].Name = in.Name
+	// Echo the initiator's content name for each content so both ends agree
+	// on the mid - matched by media kind, not position: contents[0] isn't
+	// necessarily audio (e.g. an incoming audio+video call whose offer lists
+	// video first), and blindly renaming contents[0] to the initiator's
+	// audio name produced two contents with the same name (collapsing to
+	// the same mid) whenever it wasn't, which some peers (Conversations)
+	// reject outright with "Multiple entries with same key".
+	for i := range contents {
+		if contents[i].Description == nil {
+			continue
+		}
+		if in, ok := firstContentOfKind(jingle.Contents, contents[i].Description.Media); ok && in.Name != "" {
+			contents[i].Name = in.Name
+		}
 	}
 	c.rememberTransport(contents)
 
@@ -743,7 +759,7 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 // applyAnswer is the outgoing path's final signaling step: the callee's
 // session-accept becomes our remote description.
 func (c *callSession) applyAnswer(ctx context.Context, jingle xmpp.JingleIQ) error {
-	answer, err := sdpFromJingleContents(jingle.Contents, webrtc.SDPTypeAnswer)
+	answer, err := sdpFromJingleContents(jingle.Contents, webrtc.SDPTypeAnswer, c.incoming)
 	if err != nil {
 		return err
 	}
@@ -769,13 +785,22 @@ func (c *callSession) applyAnswer(ctx context.Context, jingle xmpp.JingleIQ) err
 // repeat them.
 func (c *callSession) rememberTransport(contents []xmpp.JingleContent) {
 	// ICE-UDP is bundled here (one ICE session shared by every mid via
-	// a=group:BUNDLE), so a single ufrag/pwd pair is correct even once a
-	// second content (e.g. video) exists - picking the audio one specifically
-	// is just a stable, always-present anchor, not a real per-content choice.
-	content, ok := firstContentOfKind(contents, "audio")
-	if !ok || content.Transport == nil {
+	// a=group:BUNDLE), so the ufrag/pwd pair is the same regardless of which
+	// content we anchor to - but the *content name* used to label trickled
+	// candidates is not a free choice: it has to be the bundle-tag content
+	// (the first m= section - RFC 8843 - so the first one here, since our
+	// content order always mirrors SDP m-line order). Hardcoding "audio"
+	// here used to seem harmless for exactly that reason, until a call
+	// where video is the first content (e.g. an incoming video call):
+	// candidates kept arriving labeled for the audio content, the peer
+	// never got any candidate for the actual bundle-tag line, and ICE sat
+	// at "checking" for the whole call - observed live against Conversations,
+	// which strictly attributes every candidate to the content name it came
+	// labeled with rather than just applying it to the whole bundle.
+	if len(contents) == 0 || contents[0].Transport == nil {
 		return
 	}
+	content := contents[0]
 	c.mu.Lock()
 	c.contentName = content.Name
 	c.ufrag = content.Transport.Ufrag
@@ -855,6 +880,7 @@ func (c *callSession) markRemoteSet() {
 }
 
 func (c *callSession) onConnectionState(ctx context.Context, state webrtc.PeerConnectionState) {
+	slog.Debug("peer connection state changed", "sid", c.sid, "state", state.String())
 	switch state {
 	case webrtc.PeerConnectionStateConnected:
 		c.mu.Lock()
@@ -982,7 +1008,7 @@ func (c *callSession) attemptICERestart(ctx context.Context) {
 		c.scheduleRestartRetry(ctx, attempt)
 		return
 	}
-	contents, err := jingleContentsFromSDP(offer)
+	contents, err := jingleContentsFromSDP(offer, !c.incoming)
 	if err != nil || len(contents) == 0 {
 		slog.Warn("building transport-replace from restart offer", "sid", c.sid, "attempt", attempt, "err", err)
 		c.scheduleRestartRetry(ctx, attempt)
@@ -990,10 +1016,9 @@ func (c *callSession) attemptICERestart(ctx context.Context) {
 	}
 	c.rememberTransport(contents)
 
-	content, ok := firstContentOfKind(contents, "audio")
-	if !ok {
-		content = contents[0]
-	}
+	// The bundle-tag content (first m-line, whichever kind it is) - see
+	// rememberTransport's doc for why this can't be hardcoded to "audio".
+	content := contents[0]
 	replaceContent := xmpp.JingleContent{Creator: "initiator", Name: content.Name, Transport: content.Transport}
 	if err := c.client.SendTransportReplace(ctx, remote, c.sid, replaceContent); err != nil {
 		slog.Warn("sending transport-replace", "sid", c.sid, "attempt", attempt, "err", err)
@@ -1046,7 +1071,7 @@ func (c *callSession) applyTransportReplace(ctx context.Context, jingle xmpp.Jin
 		return
 	}
 
-	offer, err := sdpFromJingleContents(jingle.Contents, webrtc.SDPTypeOffer)
+	offer, err := sdpFromJingleContents(jingle.Contents, webrtc.SDPTypeOffer, c.incoming)
 	if err != nil {
 		slog.Warn("parsing transport-replace", "sid", c.sid, "err", err)
 		if err := c.client.SendTransportReject(ctx, remote, c.sid); err != nil {
@@ -1068,17 +1093,16 @@ func (c *callSession) applyTransportReplace(ctx context.Context, jingle xmpp.Jin
 		slog.Warn("answering transport-replace", "sid", c.sid, "err", err)
 		return
 	}
-	contents, err := jingleContentsFromSDP(answer)
+	contents, err := jingleContentsFromSDP(answer, !c.incoming)
 	if err != nil || len(contents) == 0 {
 		slog.Warn("building transport-accept from restart answer", "sid", c.sid, "err", err)
 		return
 	}
 	c.rememberTransport(contents)
 
-	content, ok := firstContentOfKind(contents, "audio")
-	if !ok {
-		content = contents[0]
-	}
+	// The bundle-tag content (first m-line, whichever kind it is) - see
+	// rememberTransport's doc for why this can't be hardcoded to "audio".
+	content := contents[0]
 	acceptContent := xmpp.JingleContent{Creator: "initiator", Name: content.Name, Transport: content.Transport}
 	if err := c.client.SendTransportAccept(ctx, remote, c.sid, acceptContent); err != nil {
 		slog.Warn("sending transport-accept", "sid", c.sid, "err", err)
@@ -1096,7 +1120,7 @@ func (c *callSession) applyTransportAccept(jingle xmpp.JingleIQ) {
 	if pc == nil {
 		return
 	}
-	answer, err := sdpFromJingleContents(jingle.Contents, webrtc.SDPTypeAnswer)
+	answer, err := sdpFromJingleContents(jingle.Contents, webrtc.SDPTypeAnswer, c.incoming)
 	if err != nil {
 		slog.Warn("parsing transport-accept", "sid", c.sid, "err", err)
 		return
@@ -1241,6 +1265,7 @@ func (c *callSession) startScreenShare() error {
 		return fmt.Errorf("call is not connected")
 	}
 
+	slog.Debug("screen share: starting", "sid", c.sid)
 	if err := pc.AddVideoTrack(); err != nil {
 		return fmt.Errorf("adding video track: %w", err)
 	}
@@ -1248,7 +1273,8 @@ func (c *callSession) startScreenShare() error {
 	if err != nil {
 		return fmt.Errorf("creating content-add offer: %w", err)
 	}
-	contents, err := jingleContentsFromSDP(offer)
+
+	contents, err := jingleContentsFromSDP(offer, !c.incoming)
 	if err != nil {
 		return fmt.Errorf("building content-add: %w", err)
 	}
@@ -1256,6 +1282,7 @@ func (c *callSession) startScreenShare() error {
 	if !ok {
 		return fmt.Errorf("no video content in renegotiation offer")
 	}
+	slog.Debug("screen share: sending content-add", "sid", c.sid, "to", remote, "content_name", videoContent.Name, "payload_types", len(videoContent.Description.PayloadTypes))
 
 	c.mu.Lock()
 	c.pendingShare = true
@@ -1277,14 +1304,16 @@ func (c *callSession) startScreenShare() error {
 // this side just receives (pion's CreateAnswer sets recvonly for a
 // transceiver with no local track).
 func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ) {
+	slog.Debug("screen share: received content-add", "sid", c.sid, "contents", len(jingle.Contents))
 	c.mu.Lock()
 	pc, remote, merged := c.pc, c.remoteJID, append(append([]xmpp.JingleContent(nil), c.remoteContents...), jingle.Contents...)
 	c.mu.Unlock()
 	if pc == nil {
+		slog.Warn("screen share: content-add with no peer connection", "sid", c.sid)
 		return
 	}
 
-	offer, err := sdpFromJingleContents(merged, webrtc.SDPTypeOffer)
+	offer, err := sdpFromJingleContents(merged, webrtc.SDPTypeOffer, c.incoming)
 	if err != nil {
 		slog.Warn("parsing content-add", "sid", c.sid, "err", err)
 		return
@@ -1298,12 +1327,16 @@ func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ)
 	c.remoteContents = merged
 	c.mu.Unlock()
 
+	// No local video track is added on this side (see comment above), so
+	// given the sendonly offer we just applied, pion's CreateAnswer
+	// negotiates recvonly for the video m-line on its own.
 	answer, err := pc.CreateAnswer()
 	if err != nil {
 		slog.Warn("answering content-add", "sid", c.sid, "err", err)
 		return
 	}
-	answerContents, err := jingleContentsFromSDP(answer)
+
+	answerContents, err := jingleContentsFromSDP(answer, !c.incoming)
 	if err != nil {
 		slog.Warn("building content-accept", "sid", c.sid, "err", err)
 		return
@@ -1319,16 +1352,21 @@ func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ)
 	}
 	if err := c.client.SendContentAccept(ctx, remote, c.sid, videoAnswer); err != nil {
 		slog.Warn("sending content-accept", "sid", c.sid, "err", err)
+		return
 	}
+	slog.Debug("screen share: content-accept sent, waiting for remote video track", "sid", c.sid, "content_name", videoAnswer.Name)
+	slog.Debug("screen share: transceiver state after content-add", "sid", c.sid, "transceivers", pc.DebugTransceivers())
 }
 
 // applyContentAccept is the sharer's side: the peer's answer to our
 // content-add completes the renegotiation, at which point it's finally safe
 // to actually start capturing and sending frames (see beginScreenShareCapture).
 func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.JingleIQ) {
+	slog.Debug("screen share: received content-accept", "sid", c.sid, "contents", len(jingle.Contents))
 	c.mu.Lock()
 	if !c.pendingShare {
 		c.mu.Unlock()
+		slog.Debug("screen share: content-accept but no share was pending, ignoring", "sid", c.sid)
 		return
 	}
 	pc, merged := c.pc, append(append([]xmpp.JingleContent(nil), c.remoteContents...), jingle.Contents...)
@@ -1337,7 +1375,7 @@ func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.Jingle
 		return
 	}
 
-	answer, err := sdpFromJingleContents(merged, webrtc.SDPTypeAnswer)
+	answer, err := sdpFromJingleContents(merged, webrtc.SDPTypeAnswer, c.incoming)
 	if err != nil {
 		slog.Warn("parsing content-accept", "sid", c.sid, "err", err)
 		return
@@ -1352,7 +1390,46 @@ func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.Jingle
 	c.pendingShare = false
 	c.mu.Unlock()
 
+	slog.Debug("screen share: content-add negotiation complete, starting capture", "sid", c.sid)
+	slog.Debug("screen share: transceiver state after content-accept", "sid", c.sid, "transceivers", pc.DebugTransceivers())
 	c.beginScreenShareCapture(pc)
+}
+
+// applyContentModify replies to a peer's XEP-0166 content-modify (e.g.
+// Conversations trying to upgrade a receive-only video content to
+// bidirectional so it can send its own camera back) by echoing the
+// content's senders value from before the request, unchanged - see
+// xmpp.JingleActionContentModify's doc for why silence here is actively
+// wrong (a real peer, observed live, read it as acceptance and proceeded on
+// a senders value kage's own PeerConnection never actually adopted, leaving
+// the two sides disagreeing about who sends what for the rest of the call).
+func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.JingleIQ) {
+	c.mu.Lock()
+	remote, remoteContents := c.remoteJID, c.remoteContents
+	c.mu.Unlock()
+
+	for _, req := range jingle.Contents {
+		// content-modify only names the content (creator/name/senders), no
+		// <description/> - matching jingleContentsFromSDP's own assumption
+		// that echoed content names are stable identifiers, not something to
+		// re-derive from a description that may not even be present here.
+		var current xmpp.JingleContent
+		var ok bool
+		for _, rc := range remoteContents {
+			if rc.Name == req.Name {
+				current, ok = rc, true
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		slog.Debug("screen share: declining content-modify, keeping senders unchanged", "sid", c.sid, "content", req.Name, "requested_senders", req.Senders, "kept_senders", current.Senders)
+		decline := xmpp.JingleContent{Creator: req.Creator, Name: req.Name, Senders: current.Senders}
+		if err := c.client.SendContentModify(ctx, remote, c.sid, decline); err != nil {
+			slog.Warn("declining content-modify", "sid", c.sid, "err", err)
+		}
+	}
 }
 
 // beginScreenShareCapture launches wf-recorder and starts pumping captured
@@ -1363,6 +1440,7 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 		slog.Warn("starting screen share capture", "sid", c.sid, "err", err)
 		return
 	}
+	slog.Debug("screen share: capture started", "sid", c.sid, "video_sender_ssrc", pc.VideoSenderSSRC())
 
 	c.mu.Lock()
 	c.screenShare = share
@@ -1370,8 +1448,8 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.mu.Unlock()
 
 	go recoverAndLog(c.sid, "screenShareCapture", func() {
-		if err := share.Run(func(nal []byte, sinceLast time.Duration) error {
-			return pc.WriteVideoSample(nal, sinceLast)
+		if err := share.Run(func(frame []byte, sinceLast time.Duration) error {
+			return pc.WriteVideoSample(frame, sinceLast)
 		}); err != nil {
 			slog.Warn("screen share capture ended", "sid", c.sid, "err", err)
 		}
@@ -1410,15 +1488,111 @@ func (c *callSession) stopScreenShare() {
 // spawned once the first complete frame arrives, so a video track that's
 // negotiated but never actually sends anything (the common case: the peer
 // isn't sharing) never pops up an empty mpv window.
-func (c *callSession) playRemoteVideo(track *webrtc.TrackRemote) {
-	sb := samplebuilder.New(50, &codecs.H264Packet{}, 90000)
+func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.TrackRemote) {
+	slog.Debug("screen share: remote video track registered, waiting for packets", "sid", c.sid, "track_id", track.ID(), "ssrc", track.SSRC())
+
+	// Request a keyframe now, not just once we're ready to decode: the
+	// sender's encoder was very likely already running before this track
+	// existed on our side (see SendPLI's doc), so without this the first
+	// samples we assemble reference a keyframe we never received and the
+	// viewer stays black indefinitely. A couple of retries cover a PLI lost
+	// before ICE/DTLS is fully settled.
+	for _, delay := range []time.Duration{0, 2 * time.Second, 5 * time.Second} {
+		time.AfterFunc(delay, func() {
+			if err := pc.SendPLI(track.SSRC()); err != nil {
+				slog.Debug("screen share: sending PLI failed", "sid", c.sid, "err", err)
+				return
+			}
+			slog.Debug("screen share: PLI sent", "sid", c.sid)
+		})
+	}
+
+	// The very first RTP packet has to be read before we can ask pion what
+	// codec it actually negotiated: track.Codec() is empty at the moment
+	// OnTrack fires (SetFireOnTrackBeforeFirstRTP - see NewPeerConnection -
+	// deliberately fires OnTrack before codec auto-detection completes, to
+	// dodge a separate pion crash), and only reads as the real value once
+	// codec detection has run, which needs a packet to have arrived first.
+	var firstPacket *rtp.Packet
+	for firstPacket == nil {
+		select {
+		case <-c.done:
+			return
+		default:
+		}
+		packet, _, err := track.ReadRTP()
+		if err != nil {
+			slog.Debug("screen share: reading remote video RTP ended before any codec was known", "sid", c.sid, "err", err)
+			return
+		}
+		firstPacket = packet
+	}
+
+	// The peer picks the codec, not us - kage's own screen-share always
+	// sends H.264, but an arbitrary Jingle peer's video (e.g. a phone
+	// placing a video call) may have negotiated VP8 instead. Feeding VP8
+	// RTP through an H.264 depacketizer produces no error, just NAL-shaped
+	// garbage that never contains anything hasKeyframe recognizes and a
+	// viewer that opens and stays black forever - so ask pion what it
+	// actually negotiated rather than assuming.
+	mimeType := strings.ToLower(track.Codec().RTPCodecCapability.MimeType)
+	var depacketizer rtp.Depacketizer
+	var videoCodec call.VideoCodec
+	var hasKeyframe func([]byte) bool
+	switch mimeType {
+	case strings.ToLower(webrtc.MimeTypeVP8):
+		depacketizer = &codecs.VP8Packet{}
+		videoCodec = call.VideoCodecVP8
+		hasKeyframe = hasVP8Keyframe
+	case strings.ToLower(webrtc.MimeTypeH264):
+		depacketizer = &codecs.H264Packet{}
+		videoCodec = call.VideoCodecH264
+		hasKeyframe = hasH264IDRNAL
+	default:
+		slog.Warn("screen share: remote video track has an unsupported codec, not viewing it", "sid", c.sid, "mime_type", mimeType)
+		return
+	}
+	slog.Debug("screen share: first remote video RTP packet received", "sid", c.sid, "seq", firstPacket.SequenceNumber, "payload_type", firstPacket.PayloadType, "codec", mimeType, "bytes", len(firstPacket.Payload))
+
+	sb := samplebuilder.New(50, depacketizer, 90000)
+	sb.Push(firstPacket)
 	var viewer *call.ScreenViewer
+	packets, samples := 1, 0
+	sawKeyframe := false
 	defer func() {
 		if viewer != nil {
 			viewer.Close()
 		}
 	}()
 	for {
+		for {
+			sample := sb.Pop()
+			if sample == nil {
+				break
+			}
+			samples++
+			if hasKeyframe(sample.Data) && !sawKeyframe {
+				sawKeyframe = true
+				slog.Debug("screen share: first keyframe assembled", "sid", c.sid, "sample", samples, "bytes", len(sample.Data))
+			}
+			if samples == 1 || samples%60 == 0 {
+				slog.Debug("screen share: assembled sample", "sid", c.sid, "sample", samples, "bytes", len(sample.Data), "saw_keyframe", sawKeyframe)
+			}
+			if viewer == nil {
+				v, err := call.NewScreenViewer(c.peer+" — screen share", videoCodec)
+				if err != nil {
+					slog.Warn("starting screen share viewer", "sid", c.sid, "err", err)
+					return
+				}
+				viewer = v
+				slog.Debug("screen share: mpv viewer launched", "sid", c.sid)
+			}
+			if err := viewer.WriteFrame(sample.Data); err != nil {
+				slog.Debug("screen share: writing to mpv failed", "sid", c.sid, "err", err)
+				return
+			}
+		}
+
 		select {
 		case <-c.done:
 			return
@@ -1427,27 +1601,45 @@ func (c *callSession) playRemoteVideo(track *webrtc.TrackRemote) {
 
 		packet, _, err := track.ReadRTP()
 		if err != nil {
+			slog.Debug("screen share: reading remote video RTP ended", "sid", c.sid, "packets", packets, "samples", samples, "saw_keyframe", sawKeyframe, "err", err)
 			return // track ended, or the connection went away
 		}
+		packets++
 		sb.Push(packet)
-		for {
-			sample := sb.Pop()
-			if sample == nil {
-				break
-			}
-			if viewer == nil {
-				v, err := call.NewScreenViewer(c.peer + " — screen share")
-				if err != nil {
-					slog.Warn("starting screen share viewer", "sid", c.sid, "err", err)
-					return
-				}
-				viewer = v
-			}
-			if err := viewer.WriteNAL(sample.Data); err != nil {
-				return
-			}
+	}
+}
+
+// hasVP8Keyframe reports whether an assembled VP8 frame is a keyframe: the
+// low bit of VP8's first byte (the uncompressed data chunk's frame tag) is
+// 0 for a key frame, 1 for an interframe (RFC 6386 §9.1).
+func hasVP8Keyframe(data []byte) bool {
+	return len(data) > 0 && data[0]&0x1 == 0
+}
+
+// hasH264IDRNAL reports whether an assembled H.264 access unit (Annex-B,
+// one or more concatenated NALs) contains an IDR slice (type 5) - i.e. is a
+// keyframe a decoder can actually start from. Used purely for diagnosing
+// "video track receives packets but the viewer stays black": that symptom
+// is indistinguishable from working RTP unless we can tell whether any of
+// what we assembled was ever decodable in the first place (see SendPLI).
+func hasH264IDRNAL(data []byte) bool {
+	for i := 0; i+3 < len(data); i++ {
+		if data[i] != 0 || data[i+1] != 0 {
+			continue
+		}
+		var nalStart int
+		if data[i+2] == 1 {
+			nalStart = i + 3
+		} else if data[i+2] == 0 && i+3 < len(data) && data[i+3] == 1 {
+			nalStart = i + 4
+		} else {
+			continue
+		}
+		if nalStart < len(data) && data[nalStart]&0x1f == 5 {
+			return true
 		}
 	}
+	return false
 }
 
 // --- teardown -----------------------------------------------------------
@@ -1461,6 +1653,7 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 		c.stopRing()
 
 		c.mu.Lock()
+		slog.Debug("call ending", "sid", c.sid, "prior_state", c.state.String(), "new_state", state, "reason", reason, "was_sharing", c.sharing)
 		c.state = callEnded
 		pc, mic, spk, share := c.pc, c.mic, c.spk, c.screenShare
 		c.pc, c.mic, c.spk, c.enc, c.dec = nil, nil, nil, nil, nil

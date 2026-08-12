@@ -17,6 +17,7 @@ require (
 	github.com/jim-ww/omemo-go v0.1.3
 	github.com/lrstanley/bubblezone/v2 v2.0.0
 	github.com/pion/opus v0.1.1-0.20260806214105-56fe97fcac80
+	github.com/pion/rtcp v1.2.17
 	github.com/pion/rtp v1.10.5
 	github.com/pion/sdp/v3 v3.0.19
 	github.com/pion/webrtc/v4 v4.2.18
@@ -24,7 +25,6 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.54.0
-	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
 	mellium.im/sasl v0.3.2
 	mellium.im/xmlstream v0.15.4
@@ -60,7 +60,6 @@ require (
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/mdns/v2 v2.1.0 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/rtcp v1.2.17 // indirect
 	github.com/pion/sctp v1.11.1 // indirect
 	github.com/pion/srtp/v3 v3.0.12 // indirect
 	github.com/pion/stun/v3 v3.1.6 // indirect
