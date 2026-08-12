@@ -420,6 +420,22 @@ func (s *accountSession) answerCall(ctx context.Context) error {
 	return nil
 }
 
+// rejectAndNotifyOwnDevices sends a XEP-0353 <reject/> to the caller (remote)
+// declining the call, then, mirroring answerCall's AcceptCall self-notify,
+// sends another <reject/> to our own bare JID so every other resource of
+// this account that's also ringing on the same propose (see ringingFrom's
+// caller-side counterpart: <propose/> fans out to all our devices too)
+// learns one of us already declined and stops ringing, instead of only
+// falling silent once the caller eventually gives up and retracts.
+func (c *callSession) rejectAndNotifyOwnDevices(ctx context.Context, remote string) {
+	if err := c.client.RejectCall(ctx, remote, c.sid); err != nil {
+		slog.Warn("rejecting call", "sid", c.sid, "err", err)
+	}
+	if err := c.client.RejectCall(ctx, c.client.JID.Bare().String(), c.sid); err != nil {
+		slog.Warn("notifying own devices of declined call", "sid", c.sid, "err", err)
+	}
+}
+
 // retractFromAllRinging sends a XEP-0353 <retract/> to the peer's bare JID
 // (the "should reach every resource" address) plus directly to every full
 // JID that's individually confirmed ringing (see ringingFrom) - belt and
@@ -460,9 +476,7 @@ func (s *accountSession) hangupCall(ctx context.Context) error {
 		// to terminate, only the XEP-0353 propose to decline - same wire
 		// action as rejectCall, reached here when hangupCall (ctrl+g) is used
 		// instead of the dedicated reject key.
-		if err := c.client.RejectCall(ctx, remote, c.sid); err != nil {
-			slog.Warn("rejecting call", "sid", c.sid, "err", err)
-		}
+		c.rejectAndNotifyOwnDevices(ctx, remote)
 	default:
 		if remote != "" {
 			if err := c.client.SendSessionTerminate(ctx, remote, c.sid, &xmpp.JingleReason{Success: &struct{}{}}); err != nil {
@@ -486,9 +500,7 @@ func (s *accountSession) rejectCall(ctx context.Context) error {
 
 	switch {
 	case state == callRingingLocal:
-		if err := c.client.RejectCall(ctx, remote, c.sid); err != nil {
-			slog.Warn("rejecting call", "sid", c.sid, "err", err)
-		}
+		c.rejectAndNotifyOwnDevices(ctx, remote)
 	case state == callProposing || state == callRingingRemote:
 		// Our own outgoing call, not yet proceeded to a Jingle session - same
 		// wire action as hangupCall's equivalent branch (there's no
@@ -612,7 +624,19 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 		}
 
 	case xmpp.JMIReject:
-		c.end(ctx, "ended", "declined")
+		// Mirrors JMIAccept below: as the caller, a <reject/> from the callee
+		// always ends the call. As the callee (c.incoming), rejectCall now
+		// also sends <reject/> to our own bare JID so every other resource
+		// that's also ringing on this propose learns one of them declined -
+		// only end on that self-notify if we're still the one ringing,
+		// otherwise a device that already answered would hang up on itself.
+		c.mu.Lock()
+		stillRinging := c.incoming && c.state == callRingingLocal
+		isCaller := !c.incoming
+		c.mu.Unlock()
+		if isCaller || stillRinging {
+			c.end(ctx, "ended", "declined")
+		}
 
 	case xmpp.JMIRetract:
 		c.end(ctx, "ended", "caller hung up")
@@ -656,9 +680,15 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 	if s.call != nil {
 		s.callMu.Unlock()
 		// Busy: decline rather than leave the caller ringing forever. No call
-		// waiting in this slice - just let the TUI show what it missed.
+		// waiting in this slice - just let the TUI show what it missed. Also
+		// tell our own other devices (this propose fanned out to them too,
+		// see rejectAndNotifyOwnDevices) so they don't keep ringing on a call
+		// we've already declined as busy.
 		if err := client.RejectCall(ctx, ev.From, ev.SID); err != nil {
 			slog.Warn("rejecting call while busy", "sid", ev.SID, "err", err)
+		}
+		if err := client.RejectCall(ctx, client.JID.Bare().String(), ev.SID); err != nil {
+			slog.Warn("notifying own devices of busy decline", "sid", ev.SID, "err", err)
 		}
 		broadcast(srv, evMissedCall, missedCallEvent{AccountIdx: accountIdx, From: from, SID: ev.SID})
 		return
