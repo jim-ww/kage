@@ -195,11 +195,19 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			// inside this same sidebar zone, so hovering an account row
 			// would otherwise bounce selectedView back to viewChats and
 			// the popup would look like it instantly closed.
-			if m.selectedView != viewAccounts {
+			//
+			// setSelectedView also calls updateSizes() (layout/textarea
+			// recalculation), so this must only run on an actual change —
+			// every mouse-motion event lands in this same branch while the
+			// mouse sweeps the sidebar, and re-running updateSizes() on
+			// every single one of them (instead of just once, on entry) is
+			// what made the hovered-row highlight visibly lag behind a fast
+			// mouse sweep.
+			if m.selectedView != viewAccounts && m.selectedView != viewChats {
 				m.setSelectedView(viewChats)
 			}
 		} else if m.zone.Get(zonePaneViewport).InBounds(msg) || m.zone.Get(zonePaneInput).InBounds(msg) {
-			if m.currentChatIndex() >= 0 {
+			if m.currentChatIndex() >= 0 && m.selectedView != viewChat {
 				m.setSelectedView(viewChat)
 			}
 		}
