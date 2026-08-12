@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/list"
@@ -10,6 +13,17 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 )
+
+// localIDSeq backs newLocalID - only needs to be unique among messages
+// currently held in memory (see Message.LocalID's doc comment), so a
+// per-process counter is enough; no need for anything cryptographic or
+// persisted across restarts.
+var localIDSeq atomic.Uint64
+
+// newLocalID returns a fresh Message.LocalID.
+func newLocalID() string {
+	return fmt.Sprintf("local-%d-%d", time.Now().UnixNano(), localIDSeq.Add(1))
+}
 
 // sendCurrentInput performs the SelectSend action for viewChat: sends the
 // composed message (wired as an edit/reply/reaction as appropriate given
@@ -132,11 +146,29 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			m.replyToIdx = -1
 		}
 
-		if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
+		chat, ok := m.currentChat()
+		switch {
+		case !ok || chat.Address == "" || m.sender == nil:
+			// Nothing was ever handed to Send - showing a local echo here
+			// would be a message the network has never heard of and never
+			// will, indistinguishable on screen from one that actually went
+			// out. Surface the problem and bail before the shared tail below
+			// clears m.input via restoreStashedDraft - the typed text is
+			// worth keeping around for a retry, not silently dropped along
+			// with the failed send.
+			cmds = append(cmds, m.showNotification("not connected; message not sent"))
+			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+				cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
+			}
+			m.updateSizes()
+			return tea.Batch(cmds...)
+
+		default:
+			newMsg.LocalID = newLocalID()
+			sendOpts.LocalID = newMsg.LocalID
 			id, err := m.sender.Send(m.currentAccount, chat.Address, text, sendOpts)
-			if err != nil {
-				cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
-			} else {
+			switch {
+			case err == nil:
 				newMsg.ID = id
 				// Send only succeeds without falling back to plaintext, so a
 				// configured encryption mode here means the message really
@@ -153,13 +185,28 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 					// protocol was resolved server-side; unknown here.
 					newMsg.Encrypted, newMsg.EncMethod = true, "omemo"
 				}
+			case errors.Is(err, ErrQueued):
+				// Not sent, not failed - queued for automatic replay once the
+				// account reconnects (see adapter.flushOutbox). Shown
+				// distinctly (Message.Pending) rather than silently rendered
+				// the same as a delivered message; MessageSendResolvedMsg
+				// reconciles it by LocalID once the queued send is actually
+				// attempted.
+				newMsg.Pending = true
+				cmds = append(cmds, m.showNotification("offline; message queued"))
+			default:
+				// A real failure - still shown (the text isn't lost) but
+				// flagged (Message.Failed), never silently indistinguishable
+				// from sent.
+				newMsg.Failed = true
+				cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
 			}
-		}
 
-		msgs := append(m.currentMessages(), newMsg)
-		m.setCurrentMessages(msgs)
-		if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-			cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, newMsg.Content))
+			msgs := append(m.currentMessages(), newMsg)
+			m.setCurrentMessages(msgs)
+			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+				cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, newMsg.Content))
+			}
 		}
 	}
 

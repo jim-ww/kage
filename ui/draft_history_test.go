@@ -89,7 +89,7 @@ func TestComposeUndoRedo(t *testing.T) {
 // that was just sent.
 func TestComposeUndoHistoryClearedOnSend(t *testing.T) {
 	chat := Chat{Address: "bob@localhost"}
-	m := newTestModel(&fakeAccountAdder{})
+	m := newTestModelWithSender(newFakeDraftSaver(), &fakeAccountAdder{})
 	m.selectedView = viewChat
 	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
 	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {

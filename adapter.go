@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -700,8 +701,45 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 	queued := s.drainOutbox()
 	for _, q := range queued {
 		if q.filePath == "" {
-			if _, err := a.send(ctx, s.accountIdx, q.to, q.body, q.opts); err != nil {
+			id, err := a.send(ctx, s.accountIdx, q.to, q.body, q.opts)
+			switch {
+			case errors.Is(err, ui.ErrQueued):
+				// Still offline (flush was called speculatively, or dropped
+				// again immediately after reconnecting) - a.send already put
+				// it straight back in the outbox itself, so there's nothing
+				// to reconcile: the UI's placeholder is still accurately
+				// Pending.
+			case err != nil:
 				slog.Warn("sending queued message failed", "jid", s.account.JID, "to", q.to, "err", err)
+				if q.opts.LocalID != "" {
+					broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+						AccountIdx: s.accountIdx,
+						To:         q.to,
+						LocalID:    q.opts.LocalID,
+						Err:        err.Error(),
+					})
+				}
+			default:
+				encrypted, method := false, ""
+				switch mode := resolveEncryptionMode(ctx, s, q.to); mode {
+				case "gpg":
+					encrypted, method = true, "gpg"
+				case "omemo-v1", "omemo-v2":
+					encrypted, method = true, mode
+				case "none", "":
+				default:
+					encrypted, method = true, "omemo"
+				}
+				if q.opts.LocalID != "" {
+					broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+						AccountIdx: s.accountIdx,
+						To:         q.to,
+						LocalID:    q.opts.LocalID,
+						ID:         id,
+						Encrypted:  encrypted,
+						EncMethod:  method,
+					})
+				}
 			}
 			continue
 		}
@@ -763,9 +801,15 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		// corrections reference a target ID from an earlier, already-sent
 		// message, so replaying them later is safe as long as that target
 		// wasn't itself still queued (see enqueueOutbox).
+		//
+		// ui.ErrQueued (not nil) is returned so the caller can tell "queued,
+		// will go out automatically" apart from "sent" - a nil error here
+		// used to be indistinguishable from success up at the UI, which then
+		// had no way to avoid rendering an unsent message exactly like a
+		// delivered one.
 		s.enqueueOutbox(to, body, opts)
 		slog.Debug("account offline; message queued", "jid", s.account.JID, "to", to)
-		return "", nil
+		return "", ui.ErrQueued
 	}
 
 	if opts.ReactionTargetID != "" {

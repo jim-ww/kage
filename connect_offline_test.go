@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -42,8 +43,8 @@ func TestConnectAndSuperviseAccountRegistersOfflineSession(t *testing.T) {
 	// With no live client, a plain send must queue rather than erroring
 	// with "unknown account".
 	id, err := a.send(context.Background(), 0, "bob@localhost", "hello", ui.SendOptions{})
-	if err != nil {
-		t.Fatalf("send while never-yet-connected: got err %v, want nil (queued)", err)
+	if !errors.Is(err, ui.ErrQueued) {
+		t.Fatalf("send while never-yet-connected: got err %v, want ui.ErrQueued", err)
 	}
 	if id != "" {
 		t.Fatalf("send while never-yet-connected: got id %q, want empty", id)

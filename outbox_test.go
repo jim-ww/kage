@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jim-ww/kage/config"
@@ -29,8 +30,8 @@ func TestSendQueuesWhileOffline(t *testing.T) {
 
 	for i, c := range cases {
 		id, err := a.send(context.Background(), 0, "bob@example.com", "hello", c.opts)
-		if err != nil {
-			t.Fatalf("%s while offline: got err %v, want nil (queued)", c.name, err)
+		if !errors.Is(err, ui.ErrQueued) {
+			t.Fatalf("%s while offline: got err %v, want ui.ErrQueued", c.name, err)
 		}
 		if id != "" {
 			t.Fatalf("%s while offline: got id %q, want empty (nothing sent yet)", c.name, id)

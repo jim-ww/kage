@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jim-ww/kage/config"
@@ -36,6 +37,11 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 			return nil, err
 		}
 		id, err := d.a.Send(p.AccountIdx, p.To, p.Body, p.Opts)
+		if errors.Is(err, ui.ErrQueued) {
+			// A queued send isn't an RPC failure - see sendResult.Queued's
+			// doc comment for why this can't just be returned as err here.
+			return sendResult{Queued: true}, nil
+		}
 		if err != nil {
 			return nil, err
 		}

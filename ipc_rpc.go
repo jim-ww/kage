@@ -57,6 +57,7 @@ const (
 	evMessageCorrected     = "MessageCorrected"
 	evMessageRetracted     = "MessageRetracted"
 	evMessageDelivered     = "MessageDelivered"
+	evMessageSendResolved  = "MessageSendResolved"
 	evMessageReactions     = "MessageReactions"
 	evPresence             = "Presence"
 	evDeviceName           = "DeviceName"
@@ -83,7 +84,15 @@ type sendParams struct {
 	To, Body   string
 	Opts       ui.SendOptions
 }
-type sendResult struct{ ID string }
+// sendResult's Queued flag carries ui.ErrQueued's meaning ("not sent yet,
+// but will be automatically") across the RPC boundary as data rather than as
+// an error - an *ipc.Conn.Call error only round-trips as a message string,
+// which would lose the sentinel identity ipcClient.Send needs to reconstruct
+// ui.ErrQueued on the client side.
+type sendResult struct {
+	ID     string
+	Queued bool
+}
 
 type markRetractedParams struct {
 	AccountIdx int

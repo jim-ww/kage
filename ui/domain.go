@@ -20,6 +20,29 @@ type Message struct {
 	ReplyTo     *int     // index into the message slice; nil = not a reply
 	Attachments []string // file paths or URLs attached to the message
 
+	// LocalID is a client-generated correlation key set on a message the
+	// moment it's composed (sendCurrentInput), before the network even knows
+	// about it - ID stays empty until (if ever) a real send actually
+	// succeeds. Used to find and patch this exact placeholder row again once
+	// MessageSendResolvedMsg reports what really happened, since ID can't be
+	// used for that lookup yet. Empty for anything that wasn't optimistically
+	// echoed this way (incoming messages, history loaded from storage).
+	LocalID string
+
+	// Pending is set on a message that's been queued for later delivery
+	// (MessageSender.Send returned ErrQueued, e.g. the account is offline)
+	// rather than actually sent yet - see MessageSendResolvedMsg, which
+	// clears it once the queued send is actually attempted. Never true at
+	// the same time as Failed.
+	Pending bool
+
+	// Failed is set on a message MessageSender.Send (or its later queued
+	// retry) reported a real error for - kept visible rather than silently
+	// dropped, so what the user typed is never lost, but never rendered
+	// indistinguishably from an actually-delivered message. Never true at
+	// the same time as Pending.
+	Failed bool
+
 	// Encrypted is set when the message was end-to-end encrypted (OMEMO or
 	// GPG) on the wire, rather than sent as plaintext.
 	Encrypted bool
@@ -379,4 +402,13 @@ type SendOptions struct {
 	// "this is a file" from "the user pasted a link" instead of guessing
 	// from the body text alone.
 	OOBURLs []string
+
+	// LocalID, for a plain new-message send, is the composing Message's own
+	// LocalID - carried through MessageSender.Send (and, if the account is
+	// offline, the outbox replay that eventually calls Send again) purely so
+	// a later MessageSendResolvedMsg can report back which placeholder
+	// message to reconcile. Meaningless (and unused) for
+	// reaction/retraction/correction sends, which target an existing
+	// message's real ID instead.
+	LocalID string
 }

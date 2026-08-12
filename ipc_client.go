@@ -94,6 +94,9 @@ func (c *ipcClient) Send(accountIdx int, to, body string, opts ui.SendOptions) (
 	if err := c.conn.Call(rpcSend, sendParams{AccountIdx: accountIdx, To: to, Body: body, Opts: opts}, &res); err != nil {
 		return "", err
 	}
+	if res.Queued {
+		return "", ui.ErrQueued
+	}
 	return res.ID, nil
 }
 
@@ -383,6 +386,8 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.MessageRetractedMsg](c, ev.Data)
 	case evMessageDelivered:
 		sendEvent[ui.MessageDeliveredMsg](c, ev.Data)
+	case evMessageSendResolved:
+		sendEvent[ui.MessageSendResolvedMsg](c, ev.Data)
 	case evMessageReactions:
 		sendEvent[ui.MessageReactionsMsg](c, ev.Data)
 	case evPresence:

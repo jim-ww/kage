@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"errors"
 	"testing"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
+
+var errTestSend = errors.New("simulated send failure")
 
 type fakeSuccessSender struct{}
 
@@ -14,6 +17,198 @@ func (f *fakeSuccessSender) Send(int, string, string, SendOptions) (string, erro
 }
 func (f *fakeSuccessSender) SetTyping(int, string, bool) error       { return nil }
 func (f *fakeSuccessSender) MarkRetracted(int, string, string) error { return nil }
+
+// fakeErrSender always fails/queues Send with a fixed err, for exercising
+// sendCurrentInput's non-success paths.
+type fakeErrSender struct{ err error }
+
+func (f *fakeErrSender) Send(int, string, string, SendOptions) (string, error) { return "", f.err }
+func (f *fakeErrSender) SetTyping(int, string, bool) error                     { return nil }
+func (f *fakeErrSender) MarkRetracted(int, string, string) error               { return nil }
+
+// TestSendCurrentInputNeverEchoesWithoutASend guards against the bug where a
+// message the app never actually handed to MessageSender.Send (chat/sender
+// unavailable) still showed up in the local chat history as if it had been
+// sent — indistinguishable on screen from a message that really went out,
+// and permanently missing on the recipient's side since nothing was ever
+// transmitted. No local message must be created in that case, and the
+// problem must be surfaced instead of silently swallowed.
+func TestSendCurrentInputNeverEchoesWithoutASend(t *testing.T) {
+	m := newTestModelWithSender(nil, nil) // sender == nil
+	chat := Chat{Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+	m.input.SetValue("hello")
+
+	cmd := m.sendCurrentInput()
+
+	if msgs := m.currentMessages(); len(msgs) != 0 {
+		t.Fatalf("currentMessages() has %d entries, want 0 (nothing was ever sent)", len(msgs))
+	}
+	if cmd == nil {
+		t.Fatal("sendCurrentInput() returned a nil cmd, want a notification surfacing the failure")
+	}
+	if got := m.input.Value(); got != "hello" {
+		t.Fatalf("input.Value() = %q, want the typed text preserved for a retry", got)
+	}
+}
+
+// TestSendCurrentInputMarksQueuedPending guards against a queued (offline)
+// send being locally echoed as if fully delivered - MessageSender.Send
+// returning ErrQueued must leave the message visibly Pending (not encrypted,
+// not carrying a real ID) until MessageSendResolvedMsg reconciles it, never
+// indistinguishable from an actually-sent message.
+func TestSendCurrentInputMarksQueuedPending(t *testing.T) {
+	m := newTestModelWithSender(&fakeErrSender{err: ErrQueued}, nil)
+	chat := Chat{Address: "bob@example.test", EncryptionMode: "omemo-v1"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+	m.input.SetValue("hello")
+
+	m.sendCurrentInput()
+
+	msgs := m.currentMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("currentMessages() has %d entries, want 1", len(msgs))
+	}
+	got := msgs[0]
+	if !got.Pending {
+		t.Error("Pending = false, want true for a queued send")
+	}
+	if got.Failed {
+		t.Error("Failed = true, want false for a queued (not failed) send")
+	}
+	if got.ID != "" {
+		t.Errorf("ID = %q, want empty until MessageSendResolvedMsg reports the real one", got.ID)
+	}
+	if got.Encrypted {
+		t.Error("Encrypted = true, want false - the message hasn't actually been sent/encrypted yet")
+	}
+	if got.LocalID == "" {
+		t.Error("LocalID is empty, want a correlation key for MessageSendResolvedMsg to find this message again")
+	}
+}
+
+// TestMessageSendResolvedReconcilesPendingMessage checks that a
+// MessageSendResolvedMsg (adapter.flushOutbox actually attempting a queued
+// send) finds the right placeholder by LocalID and clears Pending, filling
+// in the real ID on success or flipping to Failed on error - the queued send
+// must never leave the placeholder permanently stuck showing Pending once
+// its outcome is actually known.
+func TestMessageSendResolvedReconcilesPendingMessage(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		m := newTestModelWithSender(&fakeErrSender{err: ErrQueued}, nil)
+		chat := Chat{Address: "bob@example.test"}
+		m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+		if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+			_ = cmd()
+		}
+		m.chats.Select(0)
+		m.input.SetValue("hello")
+		m.sendCurrentInput()
+		localID := m.currentMessages()[0].LocalID
+
+		next, _, handled := m.handleEventMsg(MessageSendResolvedMsg{
+			AccountIdx: m.currentAccount,
+			To:         chat.Address,
+			LocalID:    localID,
+			ID:         "real-stanza-id",
+			Encrypted:  true,
+			EncMethod:  "omemo-v1",
+		})
+		if !handled {
+			t.Fatal("MessageSendResolvedMsg was not handled")
+		}
+		m = next
+
+		got := m.currentMessages()[0]
+		if got.Pending {
+			t.Error("Pending = true after resolution, want false")
+		}
+		if got.ID != "real-stanza-id" {
+			t.Errorf("ID = %q, want %q", got.ID, "real-stanza-id")
+		}
+		if !got.Encrypted || got.EncMethod != "omemo-v1" {
+			t.Errorf("Encrypted/EncMethod = %v/%q, want true/omemo-v1", got.Encrypted, got.EncMethod)
+		}
+	})
+
+	t.Run("failure", func(t *testing.T) {
+		m := newTestModelWithSender(&fakeErrSender{err: ErrQueued}, nil)
+		chat := Chat{Address: "bob@example.test"}
+		m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+		if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+			_ = cmd()
+		}
+		m.chats.Select(0)
+		m.input.SetValue("hello")
+		m.sendCurrentInput()
+		localID := m.currentMessages()[0].LocalID
+
+		next, cmd, handled := m.handleEventMsg(MessageSendResolvedMsg{
+			AccountIdx: m.currentAccount,
+			To:         chat.Address,
+			LocalID:    localID,
+			Err:        "connection refused",
+		})
+		if !handled {
+			t.Fatal("MessageSendResolvedMsg was not handled")
+		}
+		if cmd == nil {
+			t.Fatal("expected a notification cmd for the failed queued send")
+		}
+		m = next
+
+		got := m.currentMessages()[0]
+		if got.Pending {
+			t.Error("Pending = true after resolution, want false")
+		}
+		if !got.Failed {
+			t.Error("Failed = false, want true")
+		}
+	})
+}
+
+// TestSendCurrentInputMarksRealFailure guards against a genuine send error
+// (not queued) being silently dropped or shown as delivered - the typed
+// text must still appear (nothing lost) but flagged Failed, and the error
+// must be surfaced via a notification.
+func TestSendCurrentInputMarksRealFailure(t *testing.T) {
+	m := newTestModelWithSender(&fakeErrSender{err: errTestSend}, nil)
+	chat := Chat{Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+	m.input.SetValue("hello")
+
+	cmd := m.sendCurrentInput()
+
+	msgs := m.currentMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("currentMessages() has %d entries, want 1", len(msgs))
+	}
+	got := msgs[0]
+	if !got.Failed {
+		t.Error("Failed = false, want true for a real send error")
+	}
+	if got.Pending {
+		t.Error("Pending = true, want false for a real (non-queued) failure")
+	}
+	if got.Content != "hello" {
+		t.Errorf("Content = %q, want the typed text preserved", got.Content)
+	}
+	if cmd == nil {
+		t.Fatal("sendCurrentInput() returned a nil cmd, want a notification surfacing the error")
+	}
+}
 
 // TestSendCurrentInputMarksLocalEchoEncrypted guards against the local
 // optimistic echo of a just-sent message silently reporting itself as

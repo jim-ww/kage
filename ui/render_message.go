@@ -126,7 +126,16 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	dirGlyph := "«"
 	if msg.IsMe {
 		dirGlyph = "»"
-		if msg.ID != "" {
+		switch {
+		case msg.Failed:
+			// Never rendered the same as a plain unconfirmed send (no status
+			// glyph at all) - that ambiguity is exactly what let a message
+			// that was never actually transmitted sit in the chat looking
+			// like every other line. See Message.Failed's doc comment.
+			timeLabel += " ✗"
+		case msg.Pending:
+			timeLabel += " …"
+		case msg.ID != "":
 			status := "✓"
 			if msg.Delivered {
 				status = "✓✓"

@@ -468,6 +468,31 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case MessageSendResolvedMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByLocalID(msgs, msg.LocalID)
+		if idx < 0 {
+			return m, nil, true
+		}
+		msgs[idx].Pending = false
+		var cmd tea.Cmd
+		if msg.Err != "" {
+			msgs[idx].Failed = true
+			cmd = m.showNotification("send failed: " + msg.Err)
+		} else {
+			msgs[idx].ID = msg.ID
+			msgs[idx].Encrypted = msg.Encrypted
+			msgs[idx].EncMethod = msg.EncMethod
+		}
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.refreshViewport()
+		}
+		return m, cmd, true
+
 	case MessageReactionsMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {

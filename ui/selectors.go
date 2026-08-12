@@ -325,3 +325,20 @@ func messageIndexByID(msgs []Message, id string) int {
 	}
 	return -1
 }
+
+// messageIndexByLocalID returns the index of the message with the given
+// client-generated LocalID within msgs, or -1 if none matches (or localID is
+// empty) - used to find a Pending message again once MessageSendResolvedMsg
+// reports what happened to it, since its real ID wasn't known when it was
+// composed.
+func messageIndexByLocalID(msgs []Message, localID string) int {
+	if localID == "" {
+		return -1
+	}
+	for i, msg := range msgs {
+		if msg.LocalID == localID {
+			return i
+		}
+	}
+	return -1
+}

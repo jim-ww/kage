@@ -1,16 +1,28 @@
 package ui
 
 import (
+	"errors"
 	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
 
+// ErrQueued is the sentinel Send returns when the account is offline and the
+// message was queued for later delivery instead of actually sent -
+// distinguishing "not sent yet, but will be" from both success and a real
+// failure, so the caller can mark the message Pending rather than either
+// showing it as delivered (a lie) or discarding it/showing "send failed" (it
+// wasn't a failure). See Message.Pending and MessageSendResolvedMsg, which
+// reports what eventually happens to a queued send.
+var ErrQueued = errors.New("account offline; message queued for delivery")
+
 // MessageSender delivers an outgoing message for the given account to "to"
 // (a bare/full JID), returning the ID it was sent with. Implemented outside
 // ui — by an adapter that knows about the xmpp session and any per-peer
-// encryption — so ui stays decoupled from both.
+// encryption — so ui stays decoupled from both. A non-nil err is either
+// ErrQueued (see its doc comment) or a real failure - the caller must not
+// treat the two the same way.
 type MessageSender interface {
 	Send(accountIdx int, to, body string, opts SendOptions) (id string, err error)
 
@@ -225,6 +237,26 @@ type MessageRetractedMsg struct {
 	AccountIdx int
 	From       string // bare JID (chat)
 	RetractID  string // ID of the message being retracted
+}
+
+// MessageSendResolvedMsg is sent into the Bubble Tea loop when a queued
+// (Message.Pending) send is actually attempted - i.e. adapter.flushOutbox
+// replaying it after the account reconnects. LocalID finds the placeholder
+// Message to patch in place (its ID was never known at compose time, so it
+// can't be used for this lookup the way MessageCorrectedMsg's ReplaceID is).
+// Exactly one of ID or Err is meaningful: a successful send clears Pending
+// and fills in ID/Encrypted/EncMethod, matching what a normal successful
+// Send() call would have set; a failed one clears Pending and sets Failed
+// instead, with Err as the notification text - the same two outcomes
+// sendCurrentInput handles for a live send, just arriving later.
+type MessageSendResolvedMsg struct {
+	AccountIdx int
+	To         string // bare/full JID this was addressed to (chat key)
+	LocalID    string
+	ID         string // the real stanza ID, non-empty only on success
+	Encrypted  bool
+	EncMethod  string
+	Err        string // non-empty means the queued send ultimately failed
 }
 
 // MessageDeliveredMsg is sent into the Bubble Tea loop when a XEP-0184
