@@ -621,6 +621,7 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 	if err := client.RingingCall(ctx, ev.From, ev.SID); err != nil {
 		slog.Warn("sending ringing", "sid", ev.SID, "err", err)
 	}
+	slog.Debug("incoming call proposed", "sid", ev.SID, "from", from, "accountIdx", accountIdx)
 	broadcast(srv, evIncomingCall, incomingCallEvent{
 		AccountIdx: accountIdx, From: from, SID: ev.SID, Media: ev.Media,
 	})
@@ -1989,6 +1990,7 @@ func (c *callSession) broadcastState(state callState, reason string) {
 	muted, quality, sharing := c.muted, c.quality, c.sharing
 	sas, fpChanged := c.fingerprintSAS, c.fingerprintChanged
 	c.mu.Unlock()
+	slog.Debug("call state broadcast", "sid", c.sid, "state", state.String(), "reason", reason, "incoming", c.incoming)
 	broadcast(c.srv, evCallState, callStateEvent{
 		AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid, State: state.String(), Reason: reason,
 		Muted: muted, Quality: quality, Sharing: sharing,
