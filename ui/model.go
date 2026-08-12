@@ -139,6 +139,9 @@ type Model struct {
 	// necessarily is too, no matter what changed it or whether some future
 	// mutation site wasn't accounted for.
 	sidebarRenderCache *sidebarCacheEntry
+	// viewportFrameCache is renderSidebar's counterpart for the message
+	// pane's border/frame — see viewportFrameCacheEntry's doc comment.
+	viewportFrameCache *viewportFrameCacheEntry
 
 	input    *textarea.Model
 	viewport viewport.Model
@@ -466,6 +469,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		currentAccount:         startAccount,
 		chats:                  &l,
 		sidebarRenderCache:     &sidebarCacheEntry{},
+		viewportFrameCache:     &viewportFrameCacheEntry{},
 		input:                  &ti,
 		draftHistory:           []string{""},
 		viewport:               viewport.New(),

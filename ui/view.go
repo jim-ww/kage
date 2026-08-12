@@ -185,6 +185,37 @@ func (m Model) renderSidebar(want sidebarCacheEntry) string {
 	return want.rendered
 }
 
+// viewportFrameCacheEntry is the exact set of inputs that determine the
+// message viewport's styled/framed output (see renderViewportFrame) — the
+// same content-addressed caching approach as sidebarCacheEntry, and for the
+// same reason: m.viewport.View()'s content changes on every message-cursor
+// move, mouse hover, and scroll, and tracking every one of those call sites
+// to know when to invalidate would be as fragile as doing it for the chat
+// list. Comparing the rendered content itself instead means the cache can
+// never be stale.
+type viewportFrameCacheEntry struct {
+	width, height int
+	content       string
+	rendered      string
+}
+
+// renderViewportFrame renders the message viewport's border/padding frame
+// around already-rendered content, reusing the previous frame's styled
+// output when width/height/content are all byte-identical to it — e.g.
+// almost any event that doesn't touch the loaded chat's content or the pane
+// size at all (a mouse motion over the sidebar, an unrelated popup opening,
+// scrolledPastFirstPage's jump-to-bottom button toggling — none of those
+// change what's inside this frame).
+func (m Model) renderViewportFrame(want viewportFrameCacheEntry) string {
+	c := m.viewportFrameCache
+	if c.width == want.width && c.height == want.height && c.content == want.content {
+		return c.rendered
+	}
+	want.rendered = m.styles.viewportFrame(want.width, want.height, m.styles.viewportContent(want.width, want.height, want.content))
+	*c = want
+	return want.rendered
+}
+
 // renderChatArea builds the chat status bar + viewport/popup + input box
 // column. Only called when chatAreaWidth() > 0 — in narrow mode that's
 // exactly when the chat pane (rather than the chat list) is the single
@@ -248,8 +279,11 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderFilePickerPopup()
 	default:
 		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
-		viewportBody := m.styles.viewportContent(m.chatAreaWidth(), viewportHeight, m.viewport.View())
-		viewportArea = m.zone.Mark(zonePaneViewport, m.styles.viewportFrame(m.chatAreaWidth(), viewportHeight, viewportBody))
+		viewportArea = m.zone.Mark(zonePaneViewport, m.renderViewportFrame(viewportFrameCacheEntry{
+			width:   m.chatAreaWidth(),
+			height:  viewportHeight,
+			content: m.viewport.View(),
+		}))
 		if m.currentChatIndex() >= 0 && m.scrolledPastFirstPage() {
 			btn := m.zone.Mark(zoneJumpToBottom, m.styles.renderJumpToBottomButton(m.isHovered(zoneJumpToBottom)))
 			viewportArea = overlayBottomCenter(viewportArea, btn, 1)

@@ -8,14 +8,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// BenchmarkMouseSweepFullPipeline drives the full Update+View pipeline (not
-// just handleMouseMotion in isolation) with a realistic sidebar (many
-// chats) and an open chat with many messages, simulating a mouse sweeping
-// up and down across message rows — the scenario reported as showing a
-// visible lag trail behind the actual cursor position.
-func BenchmarkMouseSweepFullPipeline(b *testing.B) {
-	nChats := 30
-	nMsgs := 150
+// newMouseSweepBenchModel builds a Model with a realistic sidebar (many
+// chats) and an open chat with many messages, shared by the mouse-sweep
+// benchmarks below.
+func newMouseSweepBenchModel(nChats, nMsgs int) Model {
 	items := make([]list.Item, nChats)
 	for i := range items {
 		items[i] = Chat{Name: "chat", Address: "c" + string(rune('a'+i)) + "@example.com", LastMessage: "hey there, how's it going"}
@@ -38,14 +34,21 @@ func BenchmarkMouseSweepFullPipeline(b *testing.B) {
 	m.updateSizes()
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+	return m
+}
 
-	// Render once so the zone manager has real bounds to hit-test against.
-	_ = m.View()
+// BenchmarkMouseSweepFullPipeline drives the full Update+View pipeline (not
+// just handleMouseMotion in isolation), simulating a mouse sweeping up and
+// down across message rows — the scenario reported as showing a visible
+// lag trail behind the actual cursor position. This is the sidebar
+// render cache's sweet spot: hovering messages never touches sidebar
+// state, so it should hit on every frame.
+func BenchmarkMouseSweepFullPipeline(b *testing.B) {
+	m := newMouseSweepBenchModel(30, 150)
+	_ = m.View() // populate zone bounds to hit-test against
 
-	// Collect real on-screen coordinates for a handful of message rows
-	// (whatever's actually visible at the bottom of the loaded chat).
 	var points []tea.Mouse
-	for i := nMsgs - 20; i < nMsgs; i++ {
+	for i := 149 - 20; i < 150; i++ {
 		z := m.zone.Get(zoneMessage(i))
 		if z == nil {
 			continue
@@ -58,13 +61,49 @@ func BenchmarkMouseSweepFullPipeline(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// up
 		for j := len(points) - 1; j >= 0; j-- {
 			next, _ := m.Update(tea.MouseMotionMsg(points[j]))
 			m = next.(Model)
 			_ = m.View()
 		}
-		// down
+		for j := 0; j < len(points); j++ {
+			next, _ := m.Update(tea.MouseMotionMsg(points[j]))
+			m = next.(Model)
+			_ = m.View()
+		}
+	}
+}
+
+// BenchmarkMouseSweepSidebarFullPipeline mirrors
+// BenchmarkMouseSweepFullPipeline but sweeps over chat-list rows instead of
+// messages — the viewport frame cache's sweet spot: hovering the chat list
+// never touches the open chat's message content, so renderViewportFrame
+// should hit on every frame while renderSidebar (whose input includes the
+// chat list's own hover-dependent styling) misses on every one.
+func BenchmarkMouseSweepSidebarFullPipeline(b *testing.B) {
+	m := newMouseSweepBenchModel(30, 150)
+	m.selectedView = viewChats
+	_ = m.View()
+
+	var points []tea.Mouse
+	for i := 0; i < 30; i++ {
+		z := m.zone.Get(zoneChatItem(i))
+		if z == nil {
+			continue
+		}
+		points = append(points, tea.Mouse{X: z.StartX, Y: z.StartY})
+	}
+	if len(points) < 2 {
+		b.Fatal("not enough visible chat-item zones to sweep over")
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for j := len(points) - 1; j >= 0; j-- {
+			next, _ := m.Update(tea.MouseMotionMsg(points[j]))
+			m = next.(Model)
+			_ = m.View()
+		}
 		for j := 0; j < len(points); j++ {
 			next, _ := m.Update(tea.MouseMotionMsg(points[j]))
 			m = next.(Model)

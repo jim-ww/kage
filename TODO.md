@@ -1,3 +1,4 @@
+- version command(nix): commit hash is not embeded in dev versions
 - select & yank text in draft with mouse
 - add default encryption for chats config option, default omemov1
 - option to choose mic + mid call
