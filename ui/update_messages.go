@@ -337,7 +337,16 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		existing := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		// If an earlier page already trimmed this chat's newest end into
+		// PinnedHistory (see below), that full retained history — not just
+		// the currently windowed slice — is the real baseline to prepend
+		// onto; otherwise a second older-history fetch would merge against
+		// only the visible window and silently forget everything already
+		// trimmed off.
+		existing, pinned := m.accounts[msg.AccountIdx].PinnedHistory[chatIdx]
+		if !pinned {
+			existing = m.accounts[msg.AccountIdx].Messages[chatIdx]
+		}
 		// Prepending shifts every already-loaded message's position by
 		// len(msg.Messages); their ReplyTo indices (set when that page was
 		// built) point within the slice as it existed before this shift, so
@@ -352,18 +361,34 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		// Trimmed off the *newest* end (trimMessagesBack), not the oldest —
 		// the whole point of scrolling up was to see this older content, so
 		// keeping it and dropping what's now furthest from view is the
-		// right end to give up. Search (now that it exists and is fast —
-		// see loadSearchResult/growPinnedWindow) is the way back to
-		// anything this drops, which is why this no longer needs to stay
-		// unbounded the way it used to before search could jump back in.
-		combined, _ = trimMessagesBack(combined, m.maxMessagesPerChat)
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = combined
+		// right end to give up. Unlike a plain trim, the dropped tail isn't
+		// lost: it's kept as PinnedHistory/PinnedWindow (the same mechanism
+		// a search jump uses), so scrolling back down still works —
+		// maybeLoadNewerHistory/growPinnedWindow slides the window across
+		// it instead of needing a "load newer" fetch that doesn't exist.
+		windowed, drop := trimMessagesBack(combined, m.maxMessagesPerChat)
+		if drop > 0 {
+			if m.accounts[msg.AccountIdx].PinnedHistory == nil {
+				m.accounts[msg.AccountIdx].PinnedHistory = make(map[int][]Message)
+			}
+			if m.accounts[msg.AccountIdx].PinnedWindow == nil {
+				m.accounts[msg.AccountIdx].PinnedWindow = make(map[int][2]int)
+			}
+			m.accounts[msg.AccountIdx].PinnedHistory[chatIdx] = combined
+			m.accounts[msg.AccountIdx].PinnedWindow[chatIdx] = [2]int{0, len(windowed)}
+		} else if pinned {
+			// Shrank back to fit in one window (e.g. maxMessagesPerChat was
+			// raised) — nothing left to page across.
+			delete(m.accounts[msg.AccountIdx].PinnedHistory, chatIdx)
+			delete(m.accounts[msg.AccountIdx].PinnedWindow, chatIdx)
+		}
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = windowed
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			// Prepended messages shift every existing index up by
 			// len(msg.Messages) — keep the selection on the same message
 			// rather than letting it silently jump, clamped in case it (or
 			// the message it pointed at) was itself trimmed off the end.
-			m.selectedMsg = min(m.selectedMsg+len(msg.Messages), len(combined)-1)
+			m.selectedMsg = min(m.selectedMsg+len(msg.Messages), len(windowed)-1)
 			m.refreshViewportFullScrollTo(m.selectedMsg)
 		}
 		return m, nil, true

@@ -205,9 +205,9 @@ func TestIncomingMessageTrimsToLimit(t *testing.T) {
 // prepending a fetched older page keeps the oldest end (what scrolling up
 // was trying to reveal) and drops from the newest end once the chat exceeds
 // maxMessagesPerChat, the mirror image of trimMessagesFront's live-tail-growth
-// cap. Search (loadSearchResult/growPinnedWindow) is what makes this safe to
-// do unconditionally now — anything dropped here is still reachable by
-// jumping back to it via search.
+// cap. What's dropped here is retained as PinnedHistory/PinnedWindow (the
+// same mechanism a search jump uses), so it's still reachable by scrolling
+// back down — see TestOlderHistoryTrimmedTailReachableByScrollingDown.
 func TestOlderHistoryTrimmedFromNewestEnd(t *testing.T) {
 	m := newLimitTestModel(t, 3, 3)
 	m.selectedMsg = 0
@@ -263,5 +263,54 @@ func TestOlderHistoryStaysCappedAcrossManyPages(t *testing.T) {
 		if got := len(cur.accounts[0].Messages[0]); got > 200 {
 			t.Fatalf("page %d: len(Messages) = %d, want capped at 200", page, got)
 		}
+	}
+}
+
+// TestOlderHistoryTrimmedTailReachableByScrollingDown guards the regression
+// this cap previously reintroduced: trimming an older-history page's newest
+// end used to just discard it with no way back, since ordinary (non-search)
+// scrolling has no "load newer" fetch — the moment a chat grew past
+// maxMessagesPerChat while scrolling up, scrolling back down would silently
+// stop loading anything at all. The trimmed tail must be recoverable via
+// growPinnedWindow (maybeLoadNewerHistory), the same mechanism a search jump
+// already relies on.
+func TestOlderHistoryTrimmedTailReachableByScrollingDown(t *testing.T) {
+	m := newLimitTestModel(t, 3, 3)
+	m.selectedMsg = 0
+	chatIdx := 0
+
+	older := []Message{{ID: "x"}, {ID: "y"}}
+	updated, _, handled := m.handleEventMsg(OlderHistoryMsg{
+		AccountIdx: 0,
+		From:       "bob@example.com",
+		Messages:   older,
+		HasMore:    false,
+	})
+	if !handled {
+		t.Fatal("OlderHistoryMsg was not handled")
+	}
+	got := updated.accounts[0].Messages[chatIdx]
+	if len(got) != 3 || got[0].ID != "x" || got[2].ID != "a" {
+		t.Fatalf("unexpected window after trim: %+v", got)
+	}
+	if _, ok := updated.accounts[0].PinnedHistory[chatIdx]; !ok {
+		t.Fatal("trimmed tail should be retained as PinnedHistory")
+	}
+
+	// growPinnedWindow slides by half the window per call (see its doc
+	// comment), so reaching the tail takes a few scrolls — same as a real
+	// user repeatedly hitting the bottom of the loaded window. What matters
+	// is that each call actually loads something (the regression was that
+	// nothing loaded at all), eventually reaching the true tail ("c") that
+	// was visible before the user ever scrolled up.
+	for i := 0; i < 10 && got[len(got)-1].ID != "c"; i++ {
+		updated.selectedMsg = len(got) - 1
+		if cmd := updated.maybeLoadNewerHistory(); cmd != nil {
+			t.Fatal("maybeLoadNewerHistory should resolve via growPinnedWindow, not a network fetch")
+		}
+		got = updated.accounts[0].Messages[chatIdx]
+	}
+	if got[len(got)-1].ID != "c" {
+		t.Fatalf("expected to reach the true tail by scrolling down, got %+v", got)
 	}
 }
