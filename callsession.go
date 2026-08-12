@@ -442,7 +442,9 @@ func (c *callSession) rejectAndNotifyOwnDevices(ctx context.Context, remote stri
 		slog.Warn("notifying own devices of declined call", "sid", c.sid, "err", err)
 	}
 	ownResource := c.client.JID.Resourcepart()
-	for _, res := range c.sess.ownResources() {
+	all := c.sess.ownResources()
+	slog.Debug("notifying own devices of decline", "sid", c.sid, "own_resource", ownResource, "known_resources", all)
+	for _, res := range all {
 		if res == ownResource || res == "" {
 			continue
 		}
