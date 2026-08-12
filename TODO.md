@@ -1,6 +1,8 @@
 - non-sent local-only messages
 - pagination breaking
 - calls not finishing intitializing, after call accept
+- speed up connection to xmpp server?
+- clicking retries should highlight replied-to message
 
 - version command(nix): commit hash is not embeded in dev versions
 - select & yank text in draft with mouse

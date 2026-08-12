@@ -121,6 +121,38 @@ func (q *Queries) DeleteOmemoStaleSignedPreKey(ctx context.Context, arg DeleteOm
 	return err
 }
 
+const deleteOutboxEntry = `-- name: DeleteOutboxEntry :exec
+DELETE FROM outbox WHERE id = ?1
+`
+
+func (q *Queries) DeleteOutboxEntry(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteOutboxEntry, id)
+	return err
+}
+
+const deleteOutboxEntryByLocalID = `-- name: DeleteOutboxEntryByLocalID :one
+DELETE FROM outbox
+WHERE accountJID = ?1 AND localID = ?2
+RETURNING toAttr
+`
+
+type DeleteOutboxEntryByLocalIDParams struct {
+	AccountJid string `db:"account_jid"`
+	LocalID    string `db:"local_id"`
+}
+
+// Used for a user-initiated permanent delete of a still-pending send (never
+// sent, unlike a normal message delete which only flags Retracted).
+// RETURNING toAttr both lets the caller broadcast which chat lost a message
+// and, via sql.ErrNoRows, tells "deleted" apart from "already gone" (e.g.
+// lost a race with flushOutbox actually sending it in the meantime).
+func (q *Queries) DeleteOutboxEntryByLocalID(ctx context.Context, arg DeleteOutboxEntryByLocalIDParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, deleteOutboxEntryByLocalID, arg.AccountJid, arg.LocalID)
+	var toattr string
+	err := row.Scan(&toattr)
+	return toattr, err
+}
+
 const deleteReactionsByReactor = `-- name: DeleteReactionsByReactor :exec
 DELETE FROM messageReactions
 WHERE accountJID = ?1
@@ -883,6 +915,89 @@ func (q *Queries) InsertOmemoSignedPreKey(ctx context.Context, arg InsertOmemoSi
 	return err
 }
 
+const insertOutboxEntry = `-- name: InsertOutboxEntry :one
+INSERT INTO outbox (
+	accountJID, localID, toAttr, body, encrypted, filePath,
+	replaceID, replyToID, quotedAuthor, quotedBody,
+	retractID, reactionTargetID, reactions, oobURLs,
+	failed, errorText
+)
+VALUES (
+	?1, ?2, ?3, ?4, ?5, ?6,
+	?7, ?8, ?9, ?10,
+	?11, ?12, ?13, ?14,
+	?15, ?16
+)
+RETURNING id, accountjid, localid, toattr, body, encrypted, filepath, replaceid, replytoid, quotedauthor, quotedbody, retractid, reactiontargetid, reactions, ooburls, createdat, failed, errortext
+`
+
+type InsertOutboxEntryParams struct {
+	AccountJid       string         `db:"account_jid"`
+	LocalID          string         `db:"local_id"`
+	ToAttr           string         `db:"to_attr"`
+	Body             string         `db:"body"`
+	Encrypted        bool           `db:"encrypted"`
+	FilePath         sql.NullString `db:"file_path"`
+	ReplaceID        sql.NullString `db:"replace_id"`
+	ReplyToID        sql.NullString `db:"reply_to_id"`
+	QuotedAuthor     sql.NullString `db:"quoted_author"`
+	QuotedBody       sql.NullString `db:"quoted_body"`
+	RetractID        sql.NullString `db:"retract_id"`
+	ReactionTargetID sql.NullString `db:"reaction_target_id"`
+	Reactions        sql.NullString `db:"reactions"`
+	OobUrls          sql.NullString `db:"oob_urls"`
+	Failed           bool           `db:"failed"`
+	ErrorText        sql.NullString `db:"error_text"`
+}
+
+// failed/error_text are explicit args (not left to the failed column's
+// schema default) so this single query serves both enqueueOutboxRow (queued
+// while offline: failed=false) and markOutboxFailed (a real send failure,
+// persisted as a durable record: failed=true) - see outbox.failed's doc
+// comment for why a real failure is kept, not just dropped.
+func (q *Queries) InsertOutboxEntry(ctx context.Context, arg InsertOutboxEntryParams) (Outbox, error) {
+	row := q.db.QueryRowContext(ctx, insertOutboxEntry,
+		arg.AccountJid,
+		arg.LocalID,
+		arg.ToAttr,
+		arg.Body,
+		arg.Encrypted,
+		arg.FilePath,
+		arg.ReplaceID,
+		arg.ReplyToID,
+		arg.QuotedAuthor,
+		arg.QuotedBody,
+		arg.RetractID,
+		arg.ReactionTargetID,
+		arg.Reactions,
+		arg.OobUrls,
+		arg.Failed,
+		arg.ErrorText,
+	)
+	var i Outbox
+	err := row.Scan(
+		&i.ID,
+		&i.Accountjid,
+		&i.Localid,
+		&i.Toattr,
+		&i.Body,
+		&i.Encrypted,
+		&i.Filepath,
+		&i.Replaceid,
+		&i.Replytoid,
+		&i.Quotedauthor,
+		&i.Quotedbody,
+		&i.Retractid,
+		&i.Reactiontargetid,
+		&i.Reactions,
+		&i.Ooburls,
+		&i.Createdat,
+		&i.Failed,
+		&i.Errortext,
+	)
+	return i, err
+}
+
 const insertReaction = `-- name: InsertReaction :exec
 INSERT INTO messageReactions (accountJID, rosterJID, idAttr, fromJID, emoji)
 VALUES (?1, ?2, ?3, ?4, ?5)
@@ -946,6 +1061,7 @@ SELECT
 	retracted,
 	edited,
 	delivered,
+	serverAcked,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -974,6 +1090,7 @@ type ListAllMessagesRow struct {
 	Retracted        bool           `db:"retracted"`
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
+	Serveracked      bool           `db:"serveracked"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`
@@ -1012,6 +1129,7 @@ func (q *Queries) ListAllMessages(ctx context.Context) ([]ListAllMessagesRow, er
 			&i.Retracted,
 			&i.Edited,
 			&i.Delivered,
+			&i.Serveracked,
 			&i.Ooburls,
 			&i.Calldirection,
 			&i.Calloutcome,
@@ -1275,6 +1393,7 @@ SELECT
 	retracted,
 	edited,
 	delivered,
+	serverAcked,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -1310,6 +1429,7 @@ type ListMessagesByRosterRow struct {
 	Retracted        bool           `db:"retracted"`
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
+	Serveracked      bool           `db:"serveracked"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`
@@ -1340,6 +1460,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Retracted,
 			&i.Edited,
 			&i.Delivered,
+			&i.Serveracked,
 			&i.Ooburls,
 			&i.Calldirection,
 			&i.Calloutcome,
@@ -1375,6 +1496,7 @@ SELECT
 	retracted,
 	edited,
 	delivered,
+	serverAcked,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -1419,6 +1541,7 @@ type ListMessagesByRosterBeforeRow struct {
 	Retracted        bool           `db:"retracted"`
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
+	Serveracked      bool           `db:"serveracked"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`
@@ -1467,6 +1590,7 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Retracted,
 			&i.Edited,
 			&i.Delivered,
+			&i.Serveracked,
 			&i.Ooburls,
 			&i.Calldirection,
 			&i.Calloutcome,
@@ -1547,6 +1671,111 @@ func (q *Queries) ListOmemoPreKeys(ctx context.Context, arg ListOmemoPreKeysPara
 	for rows.Next() {
 		var i ListOmemoPreKeysRow
 		if err := rows.Scan(&i.ID, &i.Public, &i.Private); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOutboxByAccount = `-- name: ListOutboxByAccount :many
+SELECT id, accountjid, localid, toattr, body, encrypted, filepath, replaceid, replytoid, quotedauthor, quotedbody, retractid, reactiontargetid, reactions, ooburls, createdat, failed, errortext
+FROM outbox
+WHERE accountJID = ?1
+ORDER BY id ASC
+`
+
+// Every row, pending and given-up/failed alike, oldest first - used to
+// build the chat view's Pending/Failed placeholders (see
+// pendingOutboxMessagesByPeer), which must show both kinds.
+func (q *Queries) ListOutboxByAccount(ctx context.Context, accountJid string) ([]Outbox, error) {
+	rows, err := q.db.QueryContext(ctx, listOutboxByAccount, accountJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Outbox
+	for rows.Next() {
+		var i Outbox
+		if err := rows.Scan(
+			&i.ID,
+			&i.Accountjid,
+			&i.Localid,
+			&i.Toattr,
+			&i.Body,
+			&i.Encrypted,
+			&i.Filepath,
+			&i.Replaceid,
+			&i.Replytoid,
+			&i.Quotedauthor,
+			&i.Quotedbody,
+			&i.Retractid,
+			&i.Reactiontargetid,
+			&i.Reactions,
+			&i.Ooburls,
+			&i.Createdat,
+			&i.Failed,
+			&i.Errortext,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingOutboxByAccount = `-- name: ListPendingOutboxByAccount :many
+SELECT id, accountjid, localid, toattr, body, encrypted, filepath, replaceid, replytoid, quotedauthor, quotedbody, retractid, reactiontargetid, reactions, ooburls, createdat, failed, errortext
+FROM outbox
+WHERE accountJID = ?1 AND failed = FALSE
+ORDER BY id ASC
+`
+
+// Same as ListOutboxByAccount but excluding failed=TRUE rows - used by
+// flushOutbox, which must never automatically retry a send the user already
+// saw marked Failed (and, by not deleting it, implicitly accepted rather
+// than discarded).
+func (q *Queries) ListPendingOutboxByAccount(ctx context.Context, accountJid string) ([]Outbox, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingOutboxByAccount, accountJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Outbox
+	for rows.Next() {
+		var i Outbox
+		if err := rows.Scan(
+			&i.ID,
+			&i.Accountjid,
+			&i.Localid,
+			&i.Toattr,
+			&i.Body,
+			&i.Encrypted,
+			&i.Filepath,
+			&i.Replaceid,
+			&i.Replytoid,
+			&i.Quotedauthor,
+			&i.Quotedbody,
+			&i.Retractid,
+			&i.Reactiontargetid,
+			&i.Reactions,
+			&i.Ooburls,
+			&i.Createdat,
+			&i.Failed,
+			&i.Errortext,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1700,6 +1929,28 @@ type MarkMessageRetractedParams struct {
 
 func (q *Queries) MarkMessageRetracted(ctx context.Context, arg MarkMessageRetractedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markMessageRetracted, arg.AccountJid, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markMessageServerAcked = `-- name: MarkMessageServerAcked :execrows
+UPDATE messages
+SET serverAcked = TRUE
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND rosterJID = ?3
+`
+
+type MarkMessageServerAckedParams struct {
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+func (q *Queries) MarkMessageServerAcked(ctx context.Context, arg MarkMessageServerAckedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markMessageServerAcked, arg.AccountJid, arg.IDAttr, arg.RosterJid)
 	if err != nil {
 		return 0, err
 	}

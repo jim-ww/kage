@@ -14,6 +14,7 @@ import (
 	"github.com/jim-ww/kage/crypto/localstore"
 	kageomemo "github.com/jim-ww/kage/crypto/omemo"
 	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
 	omemolib "github.com/jim-ww/omemo-go"
 )
@@ -72,6 +73,45 @@ func loadDraft(ctx context.Context, queries *storage.Queries, accountJID string,
 		return ""
 	}
 	return pt
+}
+
+// decryptOutboxBody returns row's plaintext body, decrypting it with
+// localKey (crypto/localstore) if it's stored encrypted - the outbox
+// table's counterpart to loadDraft, for the same reason (best-effort:
+// yields empty on failure rather than blocking startup/flush).
+func decryptOutboxBody(row storage.Outbox, localKey []byte) string {
+	if !row.Encrypted {
+		return row.Body
+	}
+	if localKey == nil {
+		slog.Warn("stored outbox entry is encrypted but no local storage password is available", "to", row.Toattr)
+		return ""
+	}
+	pt, err := localstore.Open(localKey, row.Body)
+	if err != nil {
+		slog.Warn("decrypting stored outbox entry", "err", err)
+		return ""
+	}
+	return pt
+}
+
+// outboxRowToMessage converts a stored outbox row for a plain new-message
+// send (not a reaction/retraction/correction/staged-attachment - see
+// pendingOutboxMessagesByPeer, which filters to only those before calling
+// this) into a Pending ui.Message for chat history - the DB-backed
+// counterpart of sendCurrentInput's local echo, shown identically (Pending,
+// no ID, no Encrypted marking yet) until MessageSendResolvedMsg reports what
+// actually happened to it.
+func outboxRowToMessage(row storage.Outbox, localKey []byte) ui.Message {
+	return ui.Message{
+		LocalID: row.Localid,
+		Author:  "me",
+		Content: decryptOutboxBody(row, localKey),
+		SentAt:  time.Unix(row.Createdat, 0),
+		IsMe:    true,
+		Pending: !row.Failed,
+		Failed:  row.Failed,
+	}
 }
 
 // publishOwnGPGKey exports our own public key and publishes it to our PEP

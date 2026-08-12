@@ -50,10 +50,11 @@ func TestConnectAndSuperviseAccountRegistersOfflineSession(t *testing.T) {
 		t.Fatalf("send while never-yet-connected: got id %q, want empty", id)
 	}
 
-	sess.outboxMu.Lock()
-	queued := len(sess.outbox)
-	sess.outboxMu.Unlock()
-	if queued != 1 {
-		t.Fatalf("outbox length = %d, want 1", queued)
+	queued, err := sess.loadOutbox(context.Background())
+	if err != nil {
+		t.Fatalf("loadOutbox: %v", err)
+	}
+	if len(queued) != 1 {
+		t.Fatalf("outbox length = %d, want 1", len(queued))
 	}
 }

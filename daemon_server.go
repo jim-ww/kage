@@ -54,6 +54,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.MarkRetracted(p.AccountIdx, p.To, p.ID)
 
+	case rpcDeleteQueued:
+		p, err := unmarshalParams[deleteQueuedParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.DeleteQueued(p.AccountIdx, p.LocalID)
+
 	case rpcSetTyping:
 		p, err := unmarshalParams[setTypingParams](params)
 		if err != nil {

@@ -468,6 +468,22 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case MessageServerAckedMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByID(msgs, msg.MessageID)
+		if idx < 0 {
+			return m, nil, true
+		}
+		msgs[idx].ServerAcked = true
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.refreshViewport()
+		}
+		return m, nil, true
+
 	case MessageSendResolvedMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
 		if chatIdx < 0 {
@@ -492,6 +508,28 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m.refreshViewport()
 		}
 		return m, cmd, true
+
+	case OutboxDeletedMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByLocalID(msgs, msg.LocalID)
+		if idx < 0 {
+			return m, nil, true
+		}
+		selectedMsg := m.selectedMsg
+		if msg.AccountIdx != m.currentAccount || chatIdx != m.currentChatIndex() {
+			selectedMsg = idx // not the open chat - removeMessageAt's adjustment is meaningless, just needs to not go negative below
+		}
+		msgs, selectedMsg = removeMessageAt(msgs, idx, selectedMsg)
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.selectedMsg = selectedMsg
+			m.refreshViewport()
+		}
+		return m, nil, true
 
 	case MessageReactionsMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)

@@ -1,6 +1,10 @@
 package ui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"slices"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 func (m Model) currentChatIndex() int {
 	idx := m.chats.GlobalIndex()
@@ -341,4 +345,23 @@ func messageIndexByLocalID(msgs []Message, localID string) int {
 		}
 	}
 	return -1
+}
+
+// removeMessageAt deletes the message at idx outright (as opposed to
+// flagging Retracted) - only valid for a message that was never actually
+// sent (Message.Pending), where there's no server-side copy to preserve a
+// record of. Returns the updated slice and, if idx was m.selectedMsg or
+// earlier, the selection index adjusted to still point at the same message
+// (or clamped to the new last message, or -1 if the slice is now empty).
+func removeMessageAt(msgs []Message, idx, selectedMsg int) ([]Message, int) {
+	msgs = slices.Delete(msgs, idx, idx+1)
+	switch {
+	case len(msgs) == 0:
+		selectedMsg = -1
+	case selectedMsg > idx:
+		selectedMsg--
+	case selectedMsg == idx && selectedMsg >= len(msgs):
+		selectedMsg = len(msgs) - 1
+	}
+	return msgs, selectedMsg
 }

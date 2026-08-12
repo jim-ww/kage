@@ -29,6 +29,7 @@ func (f *fakeChangerSender) Send(int, string, string, SendOptions) (string, erro
 }
 func (f *fakeChangerSender) SetTyping(int, string, bool) error       { return nil }
 func (f *fakeChangerSender) MarkRetracted(int, string, string) error { return nil }
+func (f *fakeChangerSender) DeleteQueued(int, string) error          { return nil }
 
 // TestChangeStoragePasswordOpenValidateSubmit exercises the popup end to
 // end: the keybind opens it (only from viewAccounts), empty/mismatched

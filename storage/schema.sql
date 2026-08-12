@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	retracted     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0424: sender attempted to retract this; content is kept, just flagged
 	edited        BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0308: this row's body was overwritten by a later correction
 	delivered     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0184: peer acknowledged receipt of a message we sent
+	serverAcked   BOOLEAN  NOT NULL DEFAULT FALSE, -- our own server confirmed it has this (see account.go's trackForServerAck/confirmPendingAcks) - meaningful only when sent = TRUE; a message we received is never "server acked" in this sense
 	oobURLs       TEXT, -- XEP-0066: newline-separated URLs the sender explicitly marked as file attachments; NULL/empty means none
 	callDirection TEXT, -- call log rows only (stanzaType = 'call'): 'incoming' or 'outgoing'
 	callOutcome   TEXT, -- call log rows only: 'answered', 'missed', 'declined', or 'failed'
@@ -124,6 +125,39 @@ CREATE TABLE IF NOT EXISTS chatUnread (
 
 	PRIMARY KEY (accountJID, rosterJID)
 ) WITHOUT ROWID;
+
+-- Sends attempted while offline (a plain message, reaction, retraction,
+-- correction, or staged-attachment upload+send), held here until the
+-- account reconnects and adapter.flushOutbox replays them in insertion
+-- order, deleting each row only once it's actually been attempted. A
+-- crash/restart while offline must not silently lose these - that's the
+-- whole point of this table over the in-memory slice it replaced; a queued
+-- send now survives exactly as durably as a message that already went out.
+CREATE TABLE IF NOT EXISTS outbox (
+	id               INTEGER PRIMARY KEY NOT NULL,
+	accountJID       TEXT    NOT NULL,
+	localID          TEXT    NOT NULL, -- correlates with the in-memory ui.Message.LocalID a live UI may be showing Pending, so flushOutbox's outcome can be reported back to the right placeholder via MessageSendResolvedMsg
+	toAttr           TEXT    NOT NULL,
+	body             TEXT    NOT NULL,
+	encrypted        BOOLEAN NOT NULL DEFAULT FALSE, -- whether body is AES-sealed at rest (crypto/localstore), same convention as chatDraft.encrypted
+	filePath         TEXT, -- non-empty for a staged attachment (see queuedSend.filePath): body is the caption text, replayed via upload-then-send instead of a plain send
+	replaceID        TEXT,
+	replyToID        TEXT,
+	quotedAuthor     TEXT,
+	quotedBody       TEXT,
+	retractID        TEXT,
+	reactionTargetID TEXT,
+	reactions        TEXT, -- newline-separated emoji, same convention as oobURLs below
+	oobURLs          TEXT,
+	createdAt        INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)), -- shown as the pending/failed message's SentAt when a plain send is surfaced in chat history before it's actually gone out; id alone (monotonic) is enough to preserve replay order, this is purely for display
+	failed           BOOLEAN NOT NULL DEFAULT FALSE, -- a real (non-offline) send failure, e.g. "omemo not ready" - kept as a durable record (shown Failed, not Pending) rather than deleted, so it survives a TUI/daemon restart same as everything else here; never retried by flushOutbox (see ListPendingOutboxByAccount)
+	errorText        TEXT -- the error adapter.send returned, set only when failed = TRUE
+);
+
+-- Serves ListOutboxByAccount/ListPendingOutboxByAccount's per-account scans
+-- in insertion order (id is monotonic, so it alone preserves replay order
+-- across a restart).
+CREATE INDEX IF NOT EXISTS outboxAccountJID ON outbox (accountJID, id);
 
 -- Local-only unsent compose-box text per chat, never synced to the network.
 -- A row only exists while a chat has unsent draft text; the row is deleted

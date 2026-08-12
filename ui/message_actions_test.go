@@ -17,6 +17,7 @@ func (f *fakeSuccessSender) Send(int, string, string, SendOptions) (string, erro
 }
 func (f *fakeSuccessSender) SetTyping(int, string, bool) error       { return nil }
 func (f *fakeSuccessSender) MarkRetracted(int, string, string) error { return nil }
+func (f *fakeSuccessSender) DeleteQueued(int, string) error          { return nil }
 
 // fakeErrSender always fails/queues Send with a fixed err, for exercising
 // sendCurrentInput's non-success paths.
@@ -25,6 +26,83 @@ type fakeErrSender struct{ err error }
 func (f *fakeErrSender) Send(int, string, string, SendOptions) (string, error) { return "", f.err }
 func (f *fakeErrSender) SetTyping(int, string, bool) error                     { return nil }
 func (f *fakeErrSender) MarkRetracted(int, string, string) error               { return nil }
+func (f *fakeErrSender) DeleteQueued(int, string) error                        { return nil }
+
+// fakeDeleteQueuedSender records every DeleteQueued call, for verifying
+// Ctrl+Shift+D on a Pending message goes through the sender rather than
+// just quietly disappearing from the local view.
+type fakeDeleteQueuedSender struct {
+	lastAccountIdx int
+	lastLocalID    string
+	calls          int
+	err            error
+}
+
+func (f *fakeDeleteQueuedSender) Send(int, string, string, SendOptions) (string, error) {
+	return "", nil
+}
+func (f *fakeDeleteQueuedSender) SetTyping(int, string, bool) error       { return nil }
+func (f *fakeDeleteQueuedSender) MarkRetracted(int, string, string) error { return nil }
+func (f *fakeDeleteQueuedSender) DeleteQueued(accountIdx int, localID string) error {
+	f.calls++
+	f.lastAccountIdx, f.lastLocalID = accountIdx, localID
+	return f.err
+}
+
+// TestDeleteUnsentMessageRemovesItOutright checks that confirming a delete
+// (Ctrl+Shift+D, then y) on a still-Pending or a Failed message - both never
+// actually sent, both backed by an outbox row - calls
+// MessageSender.DeleteQueued and removes the message from local history
+// entirely, unlike a normal delete, which only flags Retracted and keeps
+// the row: a message that was never actually sent has no server-side copy
+// worth preserving a record of.
+func TestDeleteUnsentMessageRemovesItOutright(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		target Message
+	}{
+		{"pending", Message{Author: "me", Content: "queued reply", IsMe: true, Pending: true, LocalID: "local-1"}},
+		{"failed", Message{Author: "me", Content: "failed reply", IsMe: true, Failed: true, LocalID: "local-1"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			sender := &fakeDeleteQueuedSender{}
+			m := newTestModelWithSender(sender, nil)
+			m.selectedView = viewChat
+			chat := Chat{Address: "bob@example.test"}
+			msgs := []Message{{Author: "Bob", Content: "hi"}, tt.target}
+			m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+			if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+				_ = cmd()
+			}
+			m.selectedMsg = 1
+			m.confirmTarget = confirmDeleteMessage
+
+			next, _, handled := m.updateKeyMsg(keyCode('y'))
+			if !handled {
+				t.Fatal("confirm-yes key was not handled")
+			}
+			m = next
+
+			if sender.calls != 1 {
+				t.Fatalf("DeleteQueued calls = %d, want 1", sender.calls)
+			}
+			if sender.lastLocalID != "local-1" {
+				t.Errorf("DeleteQueued LocalID = %q, want %q", sender.lastLocalID, "local-1")
+			}
+
+			got := m.currentMessages()
+			if len(got) != 1 {
+				t.Fatalf("currentMessages() has %d entries, want 1 (unsent message removed outright)", len(got))
+			}
+			if got[0].Content != "hi" {
+				t.Errorf("remaining message = %+v, want the other (already-sent) one", got[0])
+			}
+			if m.confirmTarget != confirmNone {
+				t.Errorf("confirmTarget = %v, want confirmNone", m.confirmTarget)
+			}
+		})
+	}
+}
 
 // TestSendCurrentInputNeverEchoesWithoutASend guards against the bug where a
 // message the app never actually handed to MessageSender.Send (chat/sender

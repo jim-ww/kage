@@ -11,6 +11,7 @@ import (
 const (
 	rpcSend                  = "Send"
 	rpcMarkRetracted         = "MarkRetracted"
+	rpcDeleteQueued          = "DeleteQueued"
 	rpcSetTyping             = "SetTyping"
 	rpcRenameContact         = "RenameContact"
 	rpcSetDefaultAccount     = "SetDefaultAccount"
@@ -57,7 +58,9 @@ const (
 	evMessageCorrected     = "MessageCorrected"
 	evMessageRetracted     = "MessageRetracted"
 	evMessageDelivered     = "MessageDelivered"
+	evMessageServerAcked   = "MessageServerAcked"
 	evMessageSendResolved  = "MessageSendResolved"
+	evOutboxDeleted        = "OutboxDeleted"
 	evMessageReactions     = "MessageReactions"
 	evPresence             = "Presence"
 	evDeviceName           = "DeviceName"
@@ -97,6 +100,11 @@ type sendResult struct {
 type markRetractedParams struct {
 	AccountIdx int
 	To, ID     string
+}
+
+type deleteQueuedParams struct {
+	AccountIdx int
+	LocalID    string
 }
 type setTypingParams struct {
 	AccountIdx int

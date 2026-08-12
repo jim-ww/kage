@@ -43,13 +43,28 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			case confirmQuit:
 				return m, tea.Quit, true
 			case confirmDeleteMessage:
-				// Messages are never actually deleted — only flagged as
-				// retracted. Own messages also get a XEP-0424 retraction
-				// sent over the network; someone else's message can only
-				// be flagged locally, since we can't retract their stanza.
+				// A still-Pending or Failed message was never actually sent
+				// (both are backed by an outbox row - see
+				// account.go's enqueueOutbox/markOutboxFailed) - nothing to
+				// retract, and no server-side copy to preserve a record of,
+				// so it's removed outright instead of flagged. Everything
+				// else is never actually deleted, only flagged as retracted:
+				// own messages also get a XEP-0424 retraction sent over the
+				// network; someone else's message can only be flagged
+				// locally, since we can't retract their stanza.
 				if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
 					target := msgs[m.selectedMsg]
-					if target.ID != "" {
+					switch {
+					case target.Pending, target.Failed:
+						if m.sender != nil && target.LocalID != "" {
+							if err := m.sender.DeleteQueued(m.currentAccount, target.LocalID); err != nil {
+								cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
+							}
+						}
+						var newMsgs []Message
+						newMsgs, m.selectedMsg = removeMessageAt(msgs, m.selectedMsg, m.selectedMsg)
+						m.setCurrentMessages(newMsgs)
+					case target.ID != "":
 						if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
 							if target.IsMe {
 								if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{RetractID: target.ID}); err != nil {
@@ -59,9 +74,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 								cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
 							}
 						}
+						cmds = append(cmds, m.retractSelectedMsg())
+					default:
+						cmds = append(cmds, m.retractSelectedMsg())
 					}
 				}
-				cmds = append(cmds, m.retractSelectedMsg())
 			case confirmDeleteChat:
 				cmds = append(cmds, m.deleteSelectedChat())
 			case confirmRemoveAccount:

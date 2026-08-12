@@ -135,12 +135,19 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 			timeLabel += " ✗"
 		case msg.Pending:
 			timeLabel += " …"
-		case msg.ID != "":
-			status := "✓"
-			if msg.Delivered {
-				status = "✓✓"
-			}
-			timeLabel += " " + status
+		case msg.ID != "" && msg.Delivered:
+			// The peer's client has it, which implies the server did too -
+			// shown regardless of ServerAcked, since a delivery receipt can
+			// race ahead of our own ping-based server confirmation.
+			timeLabel += " ✓✓"
+		case msg.ID != "" && msg.ServerAcked:
+			// Our server confirmed it has this (see Message.ServerAcked's doc
+			// comment) - not yet peer-delivered, or no receipt is expected.
+			timeLabel += " ✓"
+			// Sent locally (has an ID) but neither confirmed by the server nor
+			// delivered yet: deliberately no glyph at all, rather than a
+			// guessed "✓" - see Message.ServerAcked's doc comment for why a
+			// local send succeeding is not proof the server ever got it.
 		}
 	}
 	name := ""

@@ -36,6 +36,15 @@ type MessageSender interface {
 	// while the user is actively typing to "to", false once they stop
 	// (cleared the input or sent) or navigate away.
 	SetTyping(accountIdx int, to string, composing bool) error
+
+	// DeleteQueued permanently discards a still-Pending message (localID,
+	// see Message.LocalID) without ever sending it - the user explicitly
+	// deleting a queued send, as opposed to MarkRetracted/a XEP-0424
+	// retraction which only flags an already-sent message. Not an error if
+	// localID no longer matches anything queued (e.g. it was actually sent,
+	// or already deleted, in the meantime) - the caller only needs to know
+	// the message is gone from the outbox one way or another.
+	DeleteQueued(accountIdx int, localID string) error
 }
 
 // FileSender uploads a local file and sends its download URL to a chat. It is
@@ -259,12 +268,34 @@ type MessageSendResolvedMsg struct {
 	Err        string // non-empty means the queued send ultimately failed
 }
 
+// OutboxDeletedMsg is sent into the Bubble Tea loop when a still-Pending
+// message is permanently discarded (MessageSender.DeleteQueued) - by this
+// client or, since more than one TUI can attach to the same daemon, another
+// one. The Pending placeholder (found by LocalID, same as
+// MessageSendResolvedMsg) is removed from the chat outright rather than
+// flagged, since it was never actually sent.
+type OutboxDeletedMsg struct {
+	AccountIdx int
+	To         string // bare/full JID this was addressed to (chat key)
+	LocalID    string
+}
+
 // MessageDeliveredMsg is sent into the Bubble Tea loop when a XEP-0184
 // delivery receipt arrives for a message we sent.
 type MessageDeliveredMsg struct {
 	AccountIdx int
 	From       string // bare JID (chat)
 	MessageID  string // ID of the message the peer acknowledged
+}
+
+// MessageServerAckedMsg is sent into the Bubble Tea loop when a debounced
+// server-confirmation ping (see account.go's
+// trackForServerAck/confirmPendingAcks) succeeds for a message we sent -
+// see Message.ServerAcked's doc comment.
+type MessageServerAckedMsg struct {
+	AccountIdx int
+	To         string // bare/full JID this was addressed to (chat key)
+	MessageID  string
 }
 
 // MessageReactionsMsg is sent into the Bubble Tea loop when a XEP-0444

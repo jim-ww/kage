@@ -519,6 +519,27 @@ func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 	return err
 }
 
+// DeleteQueued implements ui.MessageSender: permanently discards a
+// still-Pending message from the outbox table without ever sending it. Not
+// an error if localID no longer matches anything queued - broadcasting
+// evOutboxDeleted (so every attached client removes the same placeholder,
+// not just the one that asked) only happens when a row actually existed to
+// delete.
+func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	to, found, err := s.deleteOutboxByLocalID(context.Background(), localID)
+	if err != nil {
+		return err
+	}
+	if found {
+		broadcast(a.srv, evOutboxDeleted, ui.OutboxDeletedMsg{AccountIdx: accountIdx, To: to, LocalID: localID})
+	}
+	return nil
+}
+
 // SetTyping implements ui.MessageSender: sends a XEP-0085 chat state
 // notification to "to" — no persistence, no encryption, it's ephemeral.
 func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
@@ -687,28 +708,50 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 	return a.send(context.Background(), accountIdx, to, body, opts)
 }
 
-// flushOutbox replays every send s.enqueueOutbox/enqueueOutboxFile held
-// while s was offline, in the order they were made. Plain sends (messages,
-// reactions, retractions, corrections) go straight through a.send, the same
-// path a live send would take, so encryption is (re)resolved against the
-// fresh connection. Attachments were never uploaded, so those go through the
-// same upload-then-send steps SendFile/UploadFile+Send would - the result
-// wasn't the return value of a Bubble Tea command the UI is waiting on (that
-// call already returned "queued" and moved on), so it's pushed into the UI
-// via the same live-event broadcast path an incoming message uses. Called by
-// reconnectWithBackoff right after it restores s's client.
+// flushOutbox replays every send persisted to the outbox table (see its
+// schema doc comment) while s was offline, oldest first. Plain sends
+// (messages, reactions, retractions, corrections) go straight through
+// a.send, the same path a live send would take, so encryption is
+// (re)resolved against the fresh connection. Attachments were never
+// uploaded, so those go through the same upload-then-send steps
+// SendFile/UploadFile+Send would - the result wasn't the return value of a
+// Bubble Tea command the UI is waiting on (that call already returned
+// "queued" and moved on), so it's pushed into the UI via the same live-event
+// broadcast path an incoming message uses.
+//
+// Each row is deleted right before it's actually attempted, not after - if
+// the connection drops again mid-attempt, a.send's own offline branch
+// re-inserts it as a fresh row via enqueueOutbox, so nothing is lost, it's
+// just replayed under a new row id next time. Deleting after instead would
+// risk the opposite: a second concurrent flush (or a slow send outliving a
+// disconnect/reconnect cycle) re-sending the same row twice before either
+// gets to delete it. Called by reconnectWithBackoff and
+// connectAndSuperviseAccount right after either restores s's client.
 func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
-	queued := s.drainOutbox()
+	if _, err := s.liveClient(); err != nil {
+		// Nothing to do - called speculatively, or dropped again immediately
+		// after reconnecting. Every row stays exactly where it is for the
+		// next attempt.
+		return
+	}
+
+	queued, err := s.loadOutbox(ctx)
+	if err != nil {
+		slog.Warn("loading outbox for flush", "jid", s.account.JID, "err", err)
+		return
+	}
+
 	for _, q := range queued {
 		if q.filePath == "" {
+			if err := s.deleteOutboxRow(ctx, q.dbID); err != nil {
+				slog.Warn("deleting flushed outbox entry", "jid", s.account.JID, "to", q.to, "err", err)
+			}
 			id, err := a.send(ctx, s.accountIdx, q.to, q.body, q.opts)
 			switch {
 			case errors.Is(err, ui.ErrQueued):
-				// Still offline (flush was called speculatively, or dropped
-				// again immediately after reconnecting) - a.send already put
-				// it straight back in the outbox itself, so there's nothing
-				// to reconcile: the UI's placeholder is still accurately
-				// Pending.
+				// Went offline again between the top-level check above and
+				// this send - a.send already re-enqueued it (as a fresh
+				// row), so the UI's placeholder is still accurately Pending.
 			case err != nil:
 				slog.Warn("sending queued message failed", "jid", s.account.JID, "to", q.to, "err", err)
 				if q.opts.LocalID != "" {
@@ -746,15 +789,19 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 
 		client, err := s.liveClient()
 		if err != nil {
-			// Still offline (flush was called speculatively, or dropped
-			// again immediately after reconnecting) - put it back rather
-			// than losing it.
-			s.enqueueOutboxFile(q.to, q.body, q.filePath, q.opts)
-			continue
+			// Went offline again - leave this (and every remaining) row
+			// alone for the next flush attempt.
+			return
 		}
 		url, err := a.uploadFile(ctx, s, client, q.to, q.filePath, nil)
 		if err != nil {
+			// The upload itself failed (not an offline/queued outcome) -
+			// same as a plain send's real-failure case, this row is done,
+			// not worth retrying forever.
 			slog.Warn("uploading queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", err)
+			if delErr := s.deleteOutboxRow(ctx, q.dbID); delErr != nil {
+				slog.Warn("deleting failed outbox attachment entry", "jid", s.account.JID, "to", q.to, "err", delErr)
+			}
 			continue
 		}
 		body := url
@@ -763,9 +810,12 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 		}
 		sendOpts := q.opts
 		sendOpts.OOBURLs = []string{url}
-		id, err := a.send(ctx, s.accountIdx, q.to, body, sendOpts)
-		if err != nil {
-			slog.Warn("sending queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", err)
+		id, sendErr := a.send(ctx, s.accountIdx, q.to, body, sendOpts)
+		if delErr := s.deleteOutboxRow(ctx, q.dbID); delErr != nil {
+			slog.Warn("deleting flushed outbox attachment entry", "jid", s.account.JID, "to", q.to, "err", delErr)
+		}
+		if sendErr != nil {
+			slog.Warn("sending queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", sendErr)
 			continue
 		}
 		broadcast(a.srv, evIncomingMessage, ui.IncomingMessageMsg{
@@ -790,11 +840,29 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 // those URLs as XEP-0066 attachments - only applied when the send ends up
 // unencrypted, since attaching them in the clear would leak the URL
 // alongside an encrypted body.
-func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
+func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opts ui.SendOptions) (id string, err error) {
 	s, valid := a.session(accountIdx)
 	if !valid {
 		return "", fmt.Errorf("unknown account %d", accountIdx)
 	}
+
+	// A real (non-offline, non-queued) failure below - "omemo not ready", an
+	// encrypt error, the server rejecting the stanza - must survive this
+	// process restarting the same as a queued send does, or it silently
+	// vanishes the moment a different TUI process (which never saw this
+	// return value) reloads its view from storage. Skipped for
+	// reactions/retractions/corrections: those target an existing message
+	// that's already durably stored, nothing here needs to survive on their
+	// behalf. See markOutboxFailed's doc comment.
+	isPlainMessageSend := opts.ReplaceID == "" && opts.RetractID == "" && opts.ReactionTargetID == ""
+	defer func() {
+		if err != nil && !errors.Is(err, ui.ErrQueued) && isPlainMessageSend && opts.LocalID != "" {
+			if pErr := s.markOutboxFailed(ctx, to, body, opts, err.Error()); pErr != nil {
+				slog.Warn("persisting failed send", "jid", s.account.JID, "to", to, "err", pErr)
+			}
+		}
+	}()
+
 	client, err := s.liveClient()
 	if err != nil {
 		// Queue and replay verbatim once reconnected. Reactions/retractions/
@@ -807,7 +875,13 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		// used to be indistinguishable from success up at the UI, which then
 		// had no way to avoid rendering an unsent message exactly like a
 		// delivered one.
-		s.enqueueOutbox(to, body, opts)
+		if qErr := s.enqueueOutbox(ctx, to, body, opts); qErr != nil {
+			// Persisting the queue entry itself failed - this is a genuine
+			// failure, not "queued, will go out automatically": returning
+			// ErrQueued here would tell the UI everything's fine when the
+			// message was actually never recorded anywhere.
+			return "", fmt.Errorf("account offline and queuing failed: %w", qErr)
+		}
 		slog.Debug("account offline; message queued", "jid", s.account.JID, "to", to)
 		return "", ui.ErrQueued
 	}
@@ -942,7 +1016,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		sendOpts.OOBURLs = opts.OOBURLs
 	}
 
-	id, err := client.Send(ctx, to, wireBody, sendOpts)
+	id, err = client.Send(ctx, to, wireBody, sendOpts)
 	if err != nil {
 		return "", err
 	}
@@ -983,6 +1057,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	}); err != nil {
 		slog.Warn("persisting sent message", "err", err)
 	}
+	s.trackForServerAck(a, s.accountIdx, to, id)
 	return id, nil
 }
 
@@ -1101,15 +1176,19 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 		result.Err = fmt.Errorf("unknown account %d", accountIdx)
 		return result
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
 	client, err := s.liveClient()
 	if err != nil {
-		s.enqueueOutboxFile(to, text, path, opts)
+		if qErr := s.enqueueOutboxFile(ctx, to, text, path, opts); qErr != nil {
+			result.Err = fmt.Errorf("account offline and queuing failed: %w", qErr)
+			return result
+		}
 		slog.Debug("account offline; attachment queued", "jid", s.account.JID, "to", to, "path", path)
 		result.Queued = true
 		return result
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
 
 	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, "uploading "+filepath.Base(path)))
 	if err != nil {

@@ -104,6 +104,10 @@ func (c *ipcClient) MarkRetracted(accountIdx int, to, id string) error {
 	return c.conn.Call(rpcMarkRetracted, markRetractedParams{AccountIdx: accountIdx, To: to, ID: id}, nil)
 }
 
+func (c *ipcClient) DeleteQueued(accountIdx int, localID string) error {
+	return c.conn.Call(rpcDeleteQueued, deleteQueuedParams{AccountIdx: accountIdx, LocalID: localID}, nil)
+}
+
 func (c *ipcClient) SetTyping(accountIdx int, to string, composing bool) error {
 	return c.conn.Call(rpcSetTyping, setTypingParams{AccountIdx: accountIdx, To: to, Composing: composing}, nil)
 }
@@ -386,8 +390,12 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.MessageRetractedMsg](c, ev.Data)
 	case evMessageDelivered:
 		sendEvent[ui.MessageDeliveredMsg](c, ev.Data)
+	case evMessageServerAcked:
+		sendEvent[ui.MessageServerAckedMsg](c, ev.Data)
 	case evMessageSendResolved:
 		sendEvent[ui.MessageSendResolvedMsg](c, ev.Data)
+	case evOutboxDeleted:
+		sendEvent[ui.OutboxDeletedMsg](c, ev.Data)
 	case evMessageReactions:
 		sendEvent[ui.MessageReactionsMsg](c, ev.Data)
 	case evPresence:

@@ -23,6 +23,7 @@ func (f *fakeDraftSaver) Send(int, string, string, SendOptions) (string, error) 
 }
 func (f *fakeDraftSaver) SetTyping(int, string, bool) error       { return nil }
 func (f *fakeDraftSaver) MarkRetracted(int, string, string) error { return nil }
+func (f *fakeDraftSaver) DeleteQueued(int, string) error          { return nil }
 
 func (f *fakeDraftSaver) SaveDraft(_, chatAddress, text string) error {
 	f.calls++

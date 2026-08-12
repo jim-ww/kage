@@ -68,6 +68,17 @@ type Message struct {
 	// starts "sent" and flips to "delivered" when the receipt arrives.
 	Delivered bool
 
+	// ServerAcked is set once our own server has confirmed (via a debounced
+	// XEP-0199 ping round trip - see account.go's
+	// trackForServerAck/confirmPendingAcks) that it actually received this
+	// message, as opposed to the local send call merely returning without an
+	// error. Only meaningful when IsMe is true and ID is set. Rendered as a
+	// single "✓" (vs. Delivered's "✓✓") - never shown until this is true, so
+	// a message the server never actually got (e.g. written into a socket
+	// buffer on a connection that was already silently dead) doesn't render
+	// identically to one that really went out.
+	ServerAcked bool
+
 	// Reactions is the aggregate (XEP-0444) reaction state on this message
 	// across everyone who's reacted, one entry per distinct emoji.
 	Reactions []Reaction

@@ -18,6 +18,7 @@ func (f *fakeChatEncryptionSender) Send(int, string, string, SendOptions) (strin
 }
 func (f *fakeChatEncryptionSender) SetTyping(int, string, bool) error       { return nil }
 func (f *fakeChatEncryptionSender) MarkRetracted(int, string, string) error { return nil }
+func (f *fakeChatEncryptionSender) DeleteQueued(int, string) error          { return nil }
 func (f *fakeChatEncryptionSender) SetChatEncryption(accountIdx int, peerJID, mode string) error {
 	f.lastAccountIdx, f.lastPeerJID, f.mode = accountIdx, peerJID, mode
 	return nil

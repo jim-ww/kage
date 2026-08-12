@@ -18,6 +18,7 @@ import (
 	"mellium.im/xmpp/disco"
 	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/mux"
+	"mellium.im/xmpp/ping"
 	"mellium.im/xmpp/roster"
 	"mellium.im/xmpp/stanza"
 )
@@ -312,6 +313,17 @@ func (c *Client) ProbePresence(ctx context.Context, addr string) error {
 		return fmt.Errorf("parsing JID %q: %w", addr, err)
 	}
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.ProbePresence, To: j.Bare()}.Wrap(nil))
+}
+
+// Ping sends a XEP-0199 ping IQ to our own server (no "to" resource - an
+// empty To addresses the server itself) and blocks until it responds or ctx
+// is done. A real round trip to the server, unlike Send returning nil (which
+// only proves a local write succeeded, not that the server ever processed
+// it) - used to confirm a batch of just-sent messages actually reached the
+// server rather than being silently dropped by a connection that looked
+// alive but wasn't. See account.go's trackForServerAck/confirmPendingAcks.
+func (c *Client) Ping(ctx context.Context) error {
+	return ping.Send(ctx, c.session, jid.JID{})
 }
 
 // DeviceName returns the human-readable client name a full JID (bare JID +

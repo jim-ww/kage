@@ -169,6 +169,13 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
 
+-- name: MarkMessageServerAcked :execrows
+UPDATE messages
+SET serverAcked = TRUE
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid);
+
 
 -- name: ListMessagesByRoster :many
 SELECT
@@ -186,6 +193,7 @@ SELECT
 	retracted,
 	edited,
 	delivered,
+	serverAcked,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -226,6 +234,7 @@ SELECT
 	retracted,
 	edited,
 	delivered,
+	serverAcked,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -269,6 +278,7 @@ SELECT
 	retracted,
 	edited,
 	delivered,
+	serverAcked,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -508,6 +518,59 @@ WHERE accountJID = sqlc.arg(account_jid) AND rosterJID = sqlc.arg(roster_jid);
 SELECT rosterJID, body, encrypted
 FROM chatDraft
 WHERE accountJID = sqlc.arg(account_jid);
+
+
+-- name: InsertOutboxEntry :one
+-- failed/error_text are explicit args (not left to the failed column's
+-- schema default) so this single query serves both enqueueOutboxRow (queued
+-- while offline: failed=false) and markOutboxFailed (a real send failure,
+-- persisted as a durable record: failed=true) - see outbox.failed's doc
+-- comment for why a real failure is kept, not just dropped.
+INSERT INTO outbox (
+	accountJID, localID, toAttr, body, encrypted, filePath,
+	replaceID, replyToID, quotedAuthor, quotedBody,
+	retractID, reactionTargetID, reactions, oobURLs,
+	failed, errorText
+)
+VALUES (
+	sqlc.arg(account_jid), sqlc.arg(local_id), sqlc.arg(to_attr), sqlc.arg(body), sqlc.arg(encrypted), sqlc.arg(file_path),
+	sqlc.arg(replace_id), sqlc.arg(reply_to_id), sqlc.arg(quoted_author), sqlc.arg(quoted_body),
+	sqlc.arg(retract_id), sqlc.arg(reaction_target_id), sqlc.arg(reactions), sqlc.arg(oob_urls),
+	sqlc.arg(failed), sqlc.arg(error_text)
+)
+RETURNING *;
+
+-- name: ListOutboxByAccount :many
+-- Every row, pending and given-up/failed alike, oldest first - used to
+-- build the chat view's Pending/Failed placeholders (see
+-- pendingOutboxMessagesByPeer), which must show both kinds.
+SELECT *
+FROM outbox
+WHERE accountJID = sqlc.arg(account_jid)
+ORDER BY id ASC;
+
+-- name: ListPendingOutboxByAccount :many
+-- Same as ListOutboxByAccount but excluding failed=TRUE rows - used by
+-- flushOutbox, which must never automatically retry a send the user already
+-- saw marked Failed (and, by not deleting it, implicitly accepted rather
+-- than discarded).
+SELECT *
+FROM outbox
+WHERE accountJID = sqlc.arg(account_jid) AND failed = FALSE
+ORDER BY id ASC;
+
+-- name: DeleteOutboxEntry :exec
+DELETE FROM outbox WHERE id = sqlc.arg(id);
+
+-- name: DeleteOutboxEntryByLocalID :one
+-- Used for a user-initiated permanent delete of a still-pending send (never
+-- sent, unlike a normal message delete which only flags Retracted).
+-- RETURNING toAttr both lets the caller broadcast which chat lost a message
+-- and, via sql.ErrNoRows, tells "deleted" apart from "already gone" (e.g.
+-- lost a race with flushOutbox actually sending it in the meantime).
+DELETE FROM outbox
+WHERE accountJID = sqlc.arg(account_jid) AND localID = sqlc.arg(local_id)
+RETURNING toAttr;
 
 
 -- name: GetOmemoIdentity :one

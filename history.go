@@ -36,6 +36,7 @@ type historyRow struct {
 	Retracted        bool
 	Edited           bool
 	Delivered        bool
+	Serveracked      bool
 	Ooburls          sql.NullString
 	Stanzatype       string
 	Calldirection    sql.NullString
@@ -134,6 +135,7 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 			Retracted:   row.Retracted,
 			Edited:      row.Edited,
 			Delivered:   row.Delivered,
+			ServerAcked: row.Serveracked,
 			Encrypted:   row.E2eencrypted,
 			EncMethod:   row.E2eemethod.String,
 			Reactions:   loadReactionsForMessage(ctx, s, chatAddr, row.Idattr.String),
@@ -172,7 +174,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		hrows[i] = historyRow{
 			Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
-			Edited: r.Edited, Delivered: r.Delivered, Ooburls: r.Ooburls,
+			Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
 			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 		}
 	}
@@ -230,7 +232,7 @@ func loadHistoryPage(ctx context.Context, s *accountSession, chatAddr, chatName 
 		hrows[len(rows)-1-i] = historyRow{
 			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
-			Edited: r.Edited, Delivered: r.Delivered, Ooburls: r.Ooburls,
+			Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
 			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 		}
 	}

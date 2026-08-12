@@ -97,6 +97,7 @@ type Message struct {
 	Retracted        bool           `db:"retracted"`
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
+	Serveracked      bool           `db:"serveracked"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`
@@ -178,6 +179,27 @@ type Omemotrust struct {
 	Protocol    string `db:"protocol"`
 	Identitykey []byte `db:"identitykey"`
 	State       int64  `db:"state"`
+}
+
+type Outbox struct {
+	ID               int64          `db:"id"`
+	Accountjid       string         `db:"accountjid"`
+	Localid          string         `db:"localid"`
+	Toattr           string         `db:"toattr"`
+	Body             string         `db:"body"`
+	Encrypted        bool           `db:"encrypted"`
+	Filepath         sql.NullString `db:"filepath"`
+	Replaceid        sql.NullString `db:"replaceid"`
+	Replytoid        sql.NullString `db:"replytoid"`
+	Quotedauthor     sql.NullString `db:"quotedauthor"`
+	Quotedbody       sql.NullString `db:"quotedbody"`
+	Retractid        sql.NullString `db:"retractid"`
+	Reactiontargetid sql.NullString `db:"reactiontargetid"`
+	Reactions        sql.NullString `db:"reactions"`
+	Ooburls          sql.NullString `db:"ooburls"`
+	Createdat        int64          `db:"createdat"`
+	Failed           bool           `db:"failed"`
+	Errortext        sql.NullString `db:"errortext"`
 }
 
 type Pgppeerkey struct {

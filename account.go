@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -77,53 +78,268 @@ type accountSession struct {
 	callMu sync.Mutex
 	call   *callSession
 
-	// outboxMu guards outbox: sends (messages, reactions, retractions,
-	// corrections) attempted while this account is offline (adapter.send hit
-	// a dead/nil client), held here instead of erroring so they go out
-	// automatically once reconnectWithBackoff reconnects and calls
-	// adapter.flushOutbox. Reactions/retractions/corrections carry a target
-	// ID from an earlier send, so replaying them verbatim is safe *unless*
-	// that target message was itself still queued (empty ID) when the user
-	// reacted/retracted/corrected it - see adapter.send's early return for
-	// queued sends, which is the source of that gap.
-	outboxMu sync.Mutex
-	outbox   []queuedSend
+	// ackMu guards ackPending/ackTimer: messages sent since the last
+	// confirmPendingAcks flush, waiting on a debounced XEP-0199 ping to
+	// confirm the server actually received them - see
+	// trackForServerAck/confirmPendingAcks.
+	ackMu      sync.Mutex
+	ackPending []pendingAck
+	ackTimer   *time.Timer
 }
 
-// queuedSend is one send held in accountSession.outbox while its account is
-// offline, replayed once reconnected. filePath is empty for a plain
+// pendingAck is one send queued in accountSession.ackPending, waiting on
+// confirmPendingAcks's debounced ping.
+type pendingAck struct {
+	to, id string
+}
+
+// ackDebounce is how long trackForServerAck waits after the most recently
+// queued send before actually pinging the server. Sending several messages
+// in a burst (e.g. typing quickly) shares a single ping/pong round trip to
+// confirm all of them at once rather than paying one per message - the same
+// reason real XEP-0198 doesn't require a stream-management ack request
+// after every single stanza either.
+const ackDebounce = 500 * time.Millisecond
+
+// trackForServerAck queues (to, id) - a message adapter.send just handed
+// off successfully - to be confirmed against the server by a debounced ping
+// (see ackDebounce and confirmPendingAcks). A local Send() call returning
+// without an error only proves the write reached the local socket buffer,
+// not that the server ever processed it (see Message.ServerAcked's doc
+// comment) - this is what actually closes that gap.
+func (s *accountSession) trackForServerAck(a *adapter, accountIdx int, to, id string) {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	s.ackPending = append(s.ackPending, pendingAck{to: to, id: id})
+	if s.ackTimer != nil {
+		s.ackTimer.Stop()
+	}
+	s.ackTimer = time.AfterFunc(ackDebounce, func() {
+		s.confirmPendingAcks(context.Background(), a.srv, accountIdx)
+	})
+}
+
+// confirmPendingAcks is trackForServerAck's debounced timer callback: pings
+// the server once and, only if that round trip actually succeeds, marks
+// every message queued since the last flush as ServerAcked together -
+// rather than confirming (or guessing) each individually. Runs detached on
+// its own goroutine (via time.AfterFunc, same as resolveDeviceName's
+// pattern for background PEP work), so it recovers its own panics.
+func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server, accountIdx int) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic confirming server acks", "jid", s.account.JID, "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
+	s.ackMu.Lock()
+	pending := s.ackPending
+	s.ackPending = nil
+	s.ackTimer = nil
+	s.ackMu.Unlock()
+	if len(pending) == 0 {
+		return
+	}
+
+	client, err := s.liveClient()
+	if err != nil {
+		// Already offline by the time the debounce fired - nothing to ping,
+		// and this batch stays unacked (no ✓) rather than guessing either
+		// way. Whatever eventually reconnects and sends something new starts
+		// a fresh batch.
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx); err != nil {
+		// The server never actually answered for this batch - exactly the
+		// silent-drop scenario a bare "the local write returned no error"
+		// can't detect on its own. Leave every message in this batch
+		// unacked; see Message.ServerAcked's doc comment.
+		slog.Warn("confirming server ack failed; leaving batch unacked", "jid", s.account.JID, "batch", len(pending), "err", err)
+		return
+	}
+
+	for _, p := range pending {
+		if _, err := s.db.MarkMessageServerAcked(ctx, storage.MarkMessageServerAckedParams{
+			AccountJid: s.account.JID,
+			IDAttr:     nullString(p.id),
+			RosterJid:  nullString(p.to),
+		}); err != nil {
+			slog.Warn("persisting server ack", "jid", s.account.JID, "to", p.to, "err", err)
+			continue
+		}
+		broadcast(srv, evMessageServerAcked, ui.MessageServerAckedMsg{
+			AccountIdx: accountIdx,
+			To:         p.to,
+			MessageID:  p.id,
+		})
+	}
+}
+
+// queuedSend is one send loaded from the outbox table (see its schema doc
+// comment) for replay by adapter.flushOutbox. filePath is empty for a plain
 // message/reaction/retraction/correction (replayed through adapter.send
 // verbatim); non-empty for a staged attachment (replayed through
 // adapter.flushOutbox's upload-then-send, body used as the message text).
 type queuedSend struct {
+	dbID     int64 // storage.Outbox.ID - the row to delete once this entry is actually attempted, not before (see flushOutbox)
 	to, body string
 	opts     ui.SendOptions
 	filePath string
 }
 
-// enqueueOutbox appends a send to s.outbox for later replay by
-// adapter.flushOutbox.
-func (s *accountSession) enqueueOutbox(to, body string, opts ui.SendOptions) {
-	s.outboxMu.Lock()
-	s.outbox = append(s.outbox, queuedSend{to: to, body: body, opts: opts})
-	s.outboxMu.Unlock()
+// enqueueOutbox persists a send to the outbox table for later replay by
+// adapter.flushOutbox — real storage, not an in-memory slice, so a
+// crash/restart while offline doesn't silently lose it the way the
+// in-memory version this replaced did. Reactions/retractions/corrections
+// carry a target ID from an earlier send, so replaying them later is safe
+// *unless* that target message was itself still queued (empty ID) when the
+// user reacted/retracted/corrected it - see adapter.send's early return for
+// queued sends, which is the source of that gap.
+func (s *accountSession) enqueueOutbox(ctx context.Context, to, body string, opts ui.SendOptions) error {
+	return s.enqueueOutboxRow(ctx, to, body, opts, "")
 }
 
-// enqueueOutboxFile appends a staged attachment's upload+send to s.outbox
-// for later replay by adapter.flushOutbox.
-func (s *accountSession) enqueueOutboxFile(to, text, path string, opts ui.SendOptions) {
-	s.outboxMu.Lock()
-	s.outbox = append(s.outbox, queuedSend{to: to, body: text, opts: opts, filePath: path})
-	s.outboxMu.Unlock()
+// enqueueOutboxFile is enqueueOutbox's counterpart for a staged attachment's
+// upload+send.
+func (s *accountSession) enqueueOutboxFile(ctx context.Context, to, text, path string, opts ui.SendOptions) error {
+	return s.enqueueOutboxRow(ctx, to, text, opts, path)
 }
 
-// drainOutbox atomically empties s.outbox and returns what was in it.
-func (s *accountSession) drainOutbox() []queuedSend {
-	s.outboxMu.Lock()
-	queued := s.outbox
-	s.outbox = nil
-	s.outboxMu.Unlock()
-	return queued
+func (s *accountSession) enqueueOutboxRow(ctx context.Context, to, body string, opts ui.SendOptions, filePath string) error {
+	_, err := s.insertOutboxEntry(ctx, to, body, opts, filePath, false, "")
+	return err
+}
+
+// markOutboxFailed persists a real (non-queued, non-offline) send failure -
+// e.g. adapter.send's "omemo not ready" - as a durable failed=true row,
+// exactly like enqueueOutbox does for the offline/queued case. Without this,
+// a Failed message only ever lived in whichever TUI process's in-memory
+// Model happened to render the ✗ marker: restarting just that process (not
+// the daemon) rebuilds its view from storage via listAccounts, which had no
+// record of the failure at all, and the message silently vanished. Always a
+// fresh row, never an update to an existing one: by the time this runs, any
+// outbox row this attempt came from (a flushOutbox replay) has already been
+// deleted (see flushOutbox's doc comment), and a live first attempt from
+// sendCurrentInput never had one to begin with.
+func (s *accountSession) markOutboxFailed(ctx context.Context, to, body string, opts ui.SendOptions, errText string) error {
+	_, err := s.insertOutboxEntry(ctx, to, body, opts, "", true, errText)
+	return err
+}
+
+func (s *accountSession) insertOutboxEntry(ctx context.Context, to, body string, opts ui.SendOptions, filePath string, failed bool, errText string) (storage.Outbox, error) {
+	sealedBody, encrypted := encryptForStorage(s, body)
+	return s.db.InsertOutboxEntry(ctx, storage.InsertOutboxEntryParams{
+		AccountJid:       s.account.JID,
+		LocalID:          opts.LocalID,
+		ToAttr:           to,
+		Body:             sealedBody.String,
+		Encrypted:        encrypted,
+		FilePath:         nullString(filePath),
+		ReplaceID:        nullString(opts.ReplaceID),
+		ReplyToID:        nullString(opts.ReplyToID),
+		QuotedAuthor:     nullString(opts.QuotedAuthor),
+		QuotedBody:       nullString(opts.QuotedBody),
+		RetractID:        nullString(opts.RetractID),
+		ReactionTargetID: nullString(opts.ReactionTargetID),
+		Reactions:        joinOOBURLs(opts.Reactions),
+		OobUrls:          joinOOBURLs(opts.OOBURLs),
+		Failed:           failed,
+		ErrorText:        nullString(errText),
+	})
+}
+
+// pendingOutboxMessagesByPeer loads every plain new-message send currently
+// sitting in the outbox - both still-queued (Pending) and given-up
+// (Failed) - and groups them by recipient (toAttr), oldest first, as
+// ui.Messages ready to append onto that chat's already-loaded history. The
+// DB-backed outbox's rows are otherwise invisible to the chat view until a
+// queued one is actually sent (MessageSendResolvedMsg) or the app happens to
+// be running when flushOutbox gets to it, and a failed one is never
+// otherwise reported at all once the TUI process that saw it live is gone -
+// see markOutboxFailed's doc comment. Reactions/retractions/corrections and
+// staged-attachment entries are skipped: they don't correspond to a new
+// chat-history row (a reaction/retraction/correction targets one that's
+// already showing; an attachment's own optimistic-echo flow is handled
+// separately, see adapter.flushOutbox's file branch) - markOutboxFailed
+// never writes one of these anyway, only enqueueOutbox does.
+func pendingOutboxMessagesByPeer(ctx context.Context, queries *storage.Queries, acct config.Account, localKey []byte) (map[string][]ui.Message, error) {
+	rows, err := queries.ListOutboxByAccount(ctx, acct.JID)
+	if err != nil {
+		return nil, err
+	}
+	byPeer := make(map[string][]ui.Message)
+	for _, r := range rows {
+		if r.Filepath.Valid && r.Filepath.String != "" {
+			continue
+		}
+		if r.Replaceid.Valid || r.Retractid.Valid || r.Reactiontargetid.Valid {
+			continue
+		}
+		byPeer[r.Toattr] = append(byPeer[r.Toattr], outboxRowToMessage(r, localKey))
+	}
+	return byPeer, nil
+}
+
+// loadOutbox returns every send still eligible for an automatic retry in
+// this account's outbox (i.e. failed = FALSE - see outbox.failed's doc
+// comment), oldest first (replay order), decrypting each body with
+// s.localKey the same way loadDraft does for a stored draft. Used by
+// flushOutbox, which must never resurrect a send the user already saw
+// marked Failed.
+func (s *accountSession) loadOutbox(ctx context.Context) ([]queuedSend, error) {
+	rows, err := s.db.ListPendingOutboxByAccount(ctx, s.account.JID)
+	if err != nil {
+		return nil, err
+	}
+	queued := make([]queuedSend, len(rows))
+	for i, r := range rows {
+		queued[i] = queuedSend{
+			dbID:     r.ID,
+			to:       r.Toattr,
+			body:     decryptOutboxBody(r, s.localKey),
+			filePath: r.Filepath.String,
+			opts: ui.SendOptions{
+				LocalID:          r.Localid,
+				ReplaceID:        r.Replaceid.String,
+				ReplyToID:        r.Replytoid.String,
+				QuotedAuthor:     r.Quotedauthor.String,
+				QuotedBody:       r.Quotedbody.String,
+				RetractID:        r.Retractid.String,
+				ReactionTargetID: r.Reactiontargetid.String,
+				Reactions:        splitOOBURLs(r.Reactions),
+				OOBURLs:          splitOOBURLs(r.Ooburls),
+			},
+		}
+	}
+	return queued, nil
+}
+
+// deleteOutboxRow removes one outbox entry by its storage id, once
+// flushOutbox has actually attempted it (successfully or not) - see
+// flushOutbox's doc comment for why this happens before the send attempt,
+// not after.
+func (s *accountSession) deleteOutboxRow(ctx context.Context, dbID int64) error {
+	return s.db.DeleteOutboxEntry(ctx, dbID)
+}
+
+// deleteOutboxByLocalID permanently removes a still-queued send by its
+// client-generated LocalID without ever sending it - the user explicitly
+// discarding a Pending message (Ctrl+Shift+D), as opposed to a normal
+// message delete which only flags Retracted. found is false (with a nil
+// error) if no matching row existed - e.g. it lost a race with flushOutbox
+// actually sending it in the meantime - in which case to is meaningless.
+func (s *accountSession) deleteOutboxByLocalID(ctx context.Context, localID string) (to string, found bool, err error) {
+	to, err = s.db.DeleteOutboxEntryByLocalID(ctx, storage.DeleteOutboxEntryByLocalIDParams{
+		AccountJid: s.account.JID,
+		LocalID:    localID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return to, err == nil, err
 }
 
 // rosterEntry is a contact's cached roster state, refreshed at connect time
@@ -332,6 +548,14 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	}
 	slog.Debug("connectAccountLive done", "jid", acct.JID, "elapsed", time.Since(start), "new_chats", len(newChats))
 
+	// Replay anything left in the DB-backed outbox from a previous run that
+	// crashed/was killed before it got a chance to reconnect and flush -
+	// otherwise a message queued while offline, then the whole app closed
+	// before coming back online, would just sit in storage forever, never
+	// retried, with the local UI (once restarted) having no idea it never
+	// went out.
+	a.flushOutbox(ctx, sess)
+
 	broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore})
 
 	// Start listening (and reconnecting on drop) right away, concurrently
@@ -429,6 +653,11 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		drafts[r.Rosterjid] = loadDraft(ctx, queries, acct.JID, r, localKey)
 	}
 
+	pendingByPeer, err := pendingOutboxMessagesByPeer(ctx, queries, acct, localKey)
+	if err != nil {
+		slog.Warn("loading pending outbox messages", "jid", acct.JID, "err", err)
+	}
+
 	chats := make([]list.Item, 0, len(rows))
 	messages := make(map[int][]ui.Message, len(rows))
 	historyMore := make(map[int]bool, len(rows))
@@ -446,6 +675,11 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		histStart := time.Now()
 		hist, hasMore := loadHistoryPage(ctx, sess, r.Jid, name)
 		slog.Debug("loadHistoryPage done", "jid", acct.JID, "peer", r.Jid, "elapsed", time.Since(histStart), "messages", len(hist), "more", hasMore)
+		// Still-queued sends left over from before the app last closed (see
+		// pendingOutboxMessagesByPeer's doc comment) belong at the tail,
+		// after everything already delivered - flushOutbox will actually
+		// attempt them again once this account reconnects.
+		hist = append(hist, pendingByPeer[r.Jid]...)
 		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid]}
 		if len(hist) > 0 {
 			messages[i] = hist
