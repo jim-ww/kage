@@ -20,8 +20,9 @@ func (m *Model) refreshViewport() {
 		m.viewport.SetContent(m.styles.plainText.Render("connecting..."))
 		return
 	}
-	content, offsets := m.renderMessagesWithOffsets()
+	content, offsets, front := m.renderMessagesWithOffsets()
 	m.msgOffsets = offsets
+	m.renderWindowStart = front
 	m.viewportLines = strings.Split(content, "\n")
 	m.viewport.SetContentLines(m.viewportLines)
 }
@@ -49,13 +50,16 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 	msgs := m.currentMessages()
 
 	for _, idx := range []int{oldIdx, newIdx} {
-		if idx < 0 || idx >= len(msgs) || idx >= len(m.msgOffsets) {
+		rel := idx - m.renderWindowStart
+		if idx < 0 || idx >= len(msgs) || rel < 0 || rel >= len(m.msgOffsets) {
+			// Outside the current render window (see renderWindowMessages) —
+			// nothing to patch; its lines simply aren't in the buffer.
 			continue
 		}
-		start := m.msgOffsets[idx]
+		start := m.msgOffsets[rel]
 		end := len(m.viewportLines)
-		if idx+1 < len(m.msgOffsets) {
-			end = m.msgOffsets[idx+1]
+		if rel+1 < len(m.msgOffsets) {
+			end = m.msgOffsets[rel+1]
 		}
 		if start < 0 || end > len(m.viewportLines) || start > end {
 			m.refreshViewport()
@@ -90,7 +94,17 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 // key presses in chats with many messages, the same issue
 // refreshViewportSelection already fixed for mouse motion.
 func (m *Model) refreshViewportScrollTo(oldIdx, msgIdx int) {
-	m.refreshViewportSelection(oldIdx, msgIdx)
+	if m.needsWindowRecenter(msgIdx) {
+		// msgIdx is at/beyond the render window's edge (see
+		// renderWindowMessages) — refreshViewportSelection's per-message
+		// patch can't reach a message that isn't in the window at all, so a
+		// full rebuild (still bounded by the window, not total messages) is
+		// required here instead. Callers always set m.selectedMsg to msgIdx
+		// before calling this, so the rebuilt window centers on it.
+		m.refreshViewport()
+	} else {
+		m.refreshViewportSelection(oldIdx, msgIdx)
+	}
 	m.applyScrollMargin(msgIdx)
 }
 
@@ -104,18 +118,45 @@ func (m *Model) refreshViewportFullScrollTo(msgIdx int) {
 	m.applyScrollMargin(msgIdx)
 }
 
+// needsWindowRecenter reports whether msgIdx is close enough to (or beyond)
+// the current render window's edge — see renderWindowMessages/
+// renderWindowMargin — that refreshViewportSelection's per-message patch
+// can no longer be trusted to reach it, and a full refreshViewport (which
+// recenters the window) is needed instead. Always false while the whole
+// chat still fits in one window (front stays 0, nothing to recenter).
+func (m *Model) needsWindowRecenter(msgIdx int) bool {
+	total := len(m.currentMessages())
+	if total <= renderWindowMessages || len(m.msgOffsets) == 0 {
+		return false
+	}
+	front := m.renderWindowStart
+	end := front + len(m.msgOffsets)
+	rel := msgIdx - front
+	if rel < 0 || rel >= len(m.msgOffsets) {
+		return true
+	}
+	if front > 0 && msgIdx < front+renderWindowMargin {
+		return true
+	}
+	if end < total && msgIdx >= end-renderWindowMargin {
+		return true
+	}
+	return false
+}
+
 // applyScrollMargin is the scrolloff logic shared by
 // refreshViewportScrollTo/refreshViewportFullScrollTo — see
 // refreshViewportScrollTo's doc comment.
 func (m *Model) applyScrollMargin(msgIdx int) {
-	if msgIdx < 0 || msgIdx >= len(m.msgOffsets) {
+	rel := msgIdx - m.renderWindowStart
+	if rel < 0 || rel >= len(m.msgOffsets) {
 		return
 	}
 
-	start := m.msgOffsets[msgIdx]
+	start := m.msgOffsets[rel]
 	end := len(m.viewportLines) - 1
-	if msgIdx+1 < len(m.msgOffsets) {
-		end = m.msgOffsets[msgIdx+1] - 1
+	if rel+1 < len(m.msgOffsets) {
+		end = m.msgOffsets[rel+1] - 1
 	}
 
 	height := m.viewport.Height()
@@ -144,7 +185,7 @@ func (m Model) msgIndexAtOffset(yOffset int) int {
 		}
 		idx = i
 	}
-	return idx
+	return idx + m.renderWindowStart
 }
 
 // visibleMessageCount returns how many messages currently have at least one

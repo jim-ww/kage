@@ -168,7 +168,8 @@ type Model struct {
 	pickingFile          bool                // true while the Bubble file picker is open
 	pendingAttachments   []pendingAttachment // files staged (via the file picker) to go out with the next sent message; nothing is uploaded until send
 	selectedAttachment   int                 // index into pendingAttachments highlighted for Tab/Backspace/ctrl+o; -1 when empty
-	msgOffsets           []int               // line offset of each message inside viewport content
+	msgOffsets           []int               // line offset of each rendered message inside viewport content; msgOffsets[i] is message index (i+renderWindowStart)'s offset
+	renderWindowStart    int                 // absolute message index msgOffsets[0]/viewportLines describe — see renderWindowMessages
 	viewportLines        []string            // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
 	noticeText           string
 	noticeID             int

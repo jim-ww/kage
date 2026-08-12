@@ -9,35 +9,75 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// renderMessagesWithOffsets renders all messages for the active chat and
-// returns the full string plus the line-offset of each message within it.
-func (m Model) renderMessagesWithOffsets() (string, []int) {
+// renderWindowMessages caps how many messages actually get rendered into
+// the viewport's line buffer at once, independent of maxMessagesPerChat
+// (which caps how many stay loaded in memory for scrollback). Every render
+// is handed to charm.land/bubbles viewport.SetContentLines, which rescans
+// every line it's given (computing longestLineWidth) on every single call
+// regardless of how much actually changed — a cost that scales with total
+// loaded messages, not just the 1-2 that changed, defeating
+// refreshViewportSelection's incremental patching the deeper into history a
+// chat has loaded. Capping the render window bounds that cost by a fixed
+// size instead. Chats under this size are entirely unaffected (front stays
+// 0, the window covers every message) — this only kicks in once a chat's
+// loaded history actually exceeds it.
+const renderWindowMessages = 60
+
+// renderWindowMargin is how close the selection can get to the render
+// window's edge before it needs recentering — see windowCoversWithMargin.
+const renderWindowMargin = 15
+
+// renderWindow computes [front, front+size) of a total-message-count list
+// to actually render, centered on target — the render-window mirror of
+// trimMessagesAround, but chosen fresh on every render rather than stored,
+// since nothing here needs to persist across renders the way the in-memory
+// message cap does (no ReplyTo renumbering: renderMessage always receives
+// the full msgs slice and target's true index, so a message's identity and
+// its ReplyTo target never change, only which range gets a line offset
+// recorded this time).
+func renderWindow(total, target, size int) (front, end int) {
+	if size <= 0 || total <= size {
+		return 0, total
+	}
+	front = target - size/2
+	front = max(0, min(front, total-size))
+	return front, front + size
+}
+
+// renderMessagesWithOffsets renders the active chat's current render
+// window (see renderWindowMessages) and returns the full string, the
+// line-offset of each rendered message within it, and the absolute message
+// index the window starts at (0 unless the chat has grown past
+// renderWindowMessages) — msgOffsets[i] is message index i+front's offset,
+// not message i's; see Model.renderWindowStart.
+func (m Model) renderMessagesWithOffsets() (string, []int, int) {
 	cw := m.chatAreaWidth()
 	if cw <= 10 {
-		return "", nil
+		return "", nil, 0
 	}
 
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
-		return "", nil
+		return "", nil, 0
 	}
 	msgs := m.currentMessages()
-	offsets := make([]int, len(msgs))
+	front, end := renderWindow(len(msgs), m.selectedMsg, renderWindowMessages)
+	offsets := make([]int, end-front)
 
 	var sb strings.Builder
 	currentLine := 0
 
-	for i, msg := range msgs {
-		if i > 0 {
+	for i := front; i < end; i++ {
+		if i > front {
 			sb.WriteByte('\n')
 			currentLine++
 		}
-		offsets[i] = currentLine
-		rendered := m.zone.Mark(zoneMessage(i), padLinesToWidth(m.renderMessage(msg, i, cw, msgs), cw))
+		offsets[i-front] = currentLine
+		rendered := m.zone.Mark(zoneMessage(i), padLinesToWidth(m.renderMessage(msgs[i], i, cw, msgs), cw))
 		sb.WriteString(rendered)
 		currentLine += strings.Count(rendered, "\n")
 	}
-	return sb.String(), offsets
+	return sb.String(), offsets, front
 }
 
 // formatMessageTime formats a message timestamp per the user's config: a

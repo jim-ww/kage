@@ -145,11 +145,11 @@ type StorageConfig struct {
 
 // DefaultHistoryPageSize is how many messages are loaded per chat at a time
 // when history_page_size isn't set in config.yaml.
-const DefaultHistoryPageSize = 200
+const DefaultHistoryPageSize = 60
 
 // DefaultMaxMessagesPerChat is how many messages are kept loaded per chat
 // when max_messages_per_chat isn't set in config.yaml.
-const DefaultMaxMessagesPerChat = 200
+const DefaultMaxMessagesPerChat = 120
 
 // DefaultNoticeDurationSeconds is how long (in seconds) an in-app
 // notification toast stays visible before auto-dismissing when
