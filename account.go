@@ -255,6 +255,32 @@ func (s *accountSession) rosterName(bareJID string) string {
 	return bareJID
 }
 
+// ownResources returns the resource parts of this account's other currently
+// online devices (e.g. "kage-a1b2", a phone's "Conversations.xyz") - learned
+// the same way any contact's resources are, via setRosterPresence, since a
+// server sends an account presence about its own other connected resources
+// (RFC 6121 §4.4.2) same as for a roster contact's. Used by
+// rejectAndNotifyOwnDevices to reach every sibling resource directly, since
+// a message addressed only to our bare JID isn't reliably fanned out to all
+// of them by every server.
+func (s *accountSession) ownResources() []string {
+	entries := s.roster.Load()
+	if entries == nil {
+		return nil
+	}
+	e, ok := (*entries)[s.account.JID]
+	if !ok {
+		return nil
+	}
+	resources := make([]string, 0, len(e.Resources))
+	for _, r := range e.Resources {
+		if r.Presence != ui.PresenceOffline {
+			resources = append(resources, r.Resource)
+		}
+	}
+	return resources
+}
+
 // connectAndSuperviseAccount loads one configured account's local
 // roster/history from disk first — fast, no network — and reports it to the
 // UI immediately so local chats/messages appear on screen right away. Only

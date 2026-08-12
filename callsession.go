@@ -422,17 +422,33 @@ func (s *accountSession) answerCall(ctx context.Context) error {
 
 // rejectAndNotifyOwnDevices sends a XEP-0353 <reject/> to the caller (remote)
 // declining the call, then, mirroring answerCall's AcceptCall self-notify,
-// sends another <reject/> to our own bare JID so every other resource of
-// this account that's also ringing on the same propose (see ringingFrom's
-// caller-side counterpart: <propose/> fans out to all our devices too)
-// learns one of us already declined and stops ringing, instead of only
-// falling silent once the caller eventually gives up and retracts.
+// tells every other online resource of this account that it can stop
+// ringing on the same fanned-out propose. That self-notify used to go only
+// to our own bare JID, same as AcceptCall - but unlike a <retract/> to the
+// peer's bare JID (see retractFromAllRinging), there was no way to verify
+// the server actually redelivers a bare-JID message to *every* resource,
+// and evidently at least one doesn't: other devices kept ringing after a
+// decline. So this sends directly to each sibling resource's full JID too,
+// using the same live presence tracking (setRosterPresence) that already
+// keeps sess.roster's entry for our own bare JID up to date with which of
+// our resources are online - the self-presence every server pushes about
+// an account's own other connected resources (RFC 6121 4.4.2).
 func (c *callSession) rejectAndNotifyOwnDevices(ctx context.Context, remote string) {
 	if err := c.client.RejectCall(ctx, remote, c.sid); err != nil {
 		slog.Warn("rejecting call", "sid", c.sid, "err", err)
 	}
-	if err := c.client.RejectCall(ctx, c.client.JID.Bare().String(), c.sid); err != nil {
+	bare := c.client.JID.Bare().String()
+	if err := c.client.RejectCall(ctx, bare, c.sid); err != nil {
 		slog.Warn("notifying own devices of declined call", "sid", c.sid, "err", err)
+	}
+	ownResource := c.client.JID.Resourcepart()
+	for _, res := range c.sess.ownResources() {
+		if res == ownResource || res == "" {
+			continue
+		}
+		if err := c.client.RejectCall(ctx, bare+"/"+res, c.sid); err != nil {
+			slog.Warn("notifying own device of declined call", "sid", c.sid, "resource", res, "err", err)
+		}
 	}
 }
 
@@ -681,14 +697,24 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 		s.callMu.Unlock()
 		// Busy: decline rather than leave the caller ringing forever. No call
 		// waiting in this slice - just let the TUI show what it missed. Also
-		// tell our own other devices (this propose fanned out to them too,
-		// see rejectAndNotifyOwnDevices) so they don't keep ringing on a call
-		// we've already declined as busy.
+		// tell our own other devices directly (see rejectAndNotifyOwnDevices
+		// for why a bare-JID message alone isn't enough) so they don't keep
+		// ringing on a call we've already declined as busy.
 		if err := client.RejectCall(ctx, ev.From, ev.SID); err != nil {
 			slog.Warn("rejecting call while busy", "sid", ev.SID, "err", err)
 		}
-		if err := client.RejectCall(ctx, client.JID.Bare().String(), ev.SID); err != nil {
+		bare := client.JID.Bare().String()
+		if err := client.RejectCall(ctx, bare, ev.SID); err != nil {
 			slog.Warn("notifying own devices of busy decline", "sid", ev.SID, "err", err)
+		}
+		ownResource := client.JID.Resourcepart()
+		for _, res := range s.ownResources() {
+			if res == ownResource || res == "" {
+				continue
+			}
+			if err := client.RejectCall(ctx, bare+"/"+res, ev.SID); err != nil {
+				slog.Warn("notifying own device of busy decline", "sid", ev.SID, "resource", res, "err", err)
+			}
 		}
 		broadcast(srv, evMissedCall, missedCallEvent{AccountIdx: accountIdx, From: from, SID: ev.SID})
 		return
