@@ -91,6 +91,16 @@ type callSession struct {
 	sid       string
 	incoming  bool
 
+	// ringingFrom collects the full JID of every one of the peer's resources
+	// that sent a <ringing/> for this call (XEP-0353 fans <propose/> out to
+	// all their devices, so more than one can start ringing). A <retract/>
+	// addressed to the bare JID alone isn't reliably redelivered to every
+	// resource - not every server broadcasts a bare-JID message to all of a
+	// contact's connected resources - so hangupCall/rejectCall also retract
+	// directly to each JID here, otherwise devices that never proceeded keep
+	// ringing after the call is called off. Guarded by mu.
+	ringingFrom []string
+
 	mu    sync.Mutex
 	state callState
 	pc    *call.PeerConnection
@@ -410,6 +420,26 @@ func (s *accountSession) answerCall(ctx context.Context) error {
 	return nil
 }
 
+// retractFromAllRinging sends a XEP-0353 <retract/> to the peer's bare JID
+// (the "should reach every resource" address) plus directly to every full
+// JID that's individually confirmed ringing (see ringingFrom) - belt and
+// suspenders against servers that don't fan a bare-JID message out to all of
+// a contact's connected resources, which otherwise left devices that never
+// answered ringing forever after the call was called off.
+func (c *callSession) retractFromAllRinging(ctx context.Context) {
+	if err := c.client.RetractCall(ctx, c.peer, c.sid); err != nil {
+		slog.Warn("retracting call", "sid", c.sid, "err", err)
+	}
+	c.mu.Lock()
+	ringingFrom := append([]string(nil), c.ringingFrom...)
+	c.mu.Unlock()
+	for _, full := range ringingFrom {
+		if err := c.client.RetractCall(ctx, full, c.sid); err != nil {
+			slog.Warn("retracting call to ringing resource", "sid", c.sid, "to", full, "err", err)
+		}
+	}
+}
+
 // hangupCall ends the current call from our side, using whichever of the two
 // wire mechanisms applies: a XEP-0353 retract if the Jingle session never
 // started, a session-terminate once it did.
@@ -424,9 +454,7 @@ func (s *accountSession) hangupCall(ctx context.Context) error {
 
 	switch state {
 	case callProposing, callRingingRemote:
-		if err := c.client.RetractCall(ctx, c.peer, c.sid); err != nil {
-			slog.Warn("retracting call", "sid", c.sid, "err", err)
-		}
+		c.retractFromAllRinging(ctx)
 	case callRingingLocal:
 		// An incoming call we haven't answered yet: no Jingle session exists
 		// to terminate, only the XEP-0353 propose to decline - same wire
@@ -467,9 +495,7 @@ func (s *accountSession) rejectCall(ctx context.Context) error {
 		// session-terminate to send yet, and remoteJID isn't even known
 		// until the callee proceeds). Without this case, calling rejectCall
 		// on an outgoing call silently sent nothing at all.
-		if err := c.client.RetractCall(ctx, c.peer, c.sid); err != nil {
-			slog.Warn("retracting call", "sid", c.sid, "err", err)
-		}
+		c.retractFromAllRinging(ctx)
 	case remote != "":
 		if err := c.client.SendSessionTerminate(ctx, remote, c.sid, &xmpp.JingleReason{Decline: &struct{}{}}); err != nil {
 			slog.Warn("declining call", "sid", c.sid, "err", err)
@@ -532,13 +558,30 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 
 	switch ev.Action {
 	case xmpp.JMIRinging:
-		// Only meaningful for the caller, still proposing: a callee that sent
-		// its own <ringing/> can get it back as a carbon of its own stanza
-		// (XEP-0280 self-copy), and without this guard that self-echo used to
-		// unconditionally re-broadcast ringing-remote over the correct
-		// ringing-local state moments after handlePropose set it, so the TUI
+		// Only meaningful for the caller: a callee that sent its own
+		// <ringing/> can get it back as a carbon of its own stanza (XEP-0280
+		// self-copy, "from" left as our own address by the copy), which used
+		// to unconditionally re-broadcast ringing-remote over the correct
+		// ringing-local state moments after handlePropose set it - the TUI
 		// showed the caller's "hang up only" bar instead of answer/reject.
+		if bareJID(ev.From) == s.account.JID {
+			return
+		}
 		c.mu.Lock()
+		// <propose/> fans out to every resource of the callee, so more than
+		// one can answer with <ringing/> - track each so hangupCall/
+		// rejectCall can retract directly to devices a bare-JID retract
+		// might not reach (see ringingFrom's doc comment).
+		alreadyTracked := false
+		for _, from := range c.ringingFrom {
+			if from == ev.From {
+				alreadyTracked = true
+				break
+			}
+		}
+		if !alreadyTracked {
+			c.ringingFrom = append(c.ringingFrom, ev.From)
+		}
 		wasProposing := c.state == callProposing
 		if wasProposing {
 			c.state = callRingingRemote
