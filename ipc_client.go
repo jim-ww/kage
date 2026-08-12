@@ -308,6 +308,11 @@ func (c *ipcClient) ScreenShare(accountIdx int, sharing, useCamera bool) tea.Msg
 	return ui.CallActionResultMsg{Action: "screenshare", AccountIdx: accountIdx, Err: err}
 }
 
+func (c *ipcClient) ReopenVideo(accountIdx int) tea.Msg {
+	err := c.conn.Call(rpcReopenVideo, reopenVideoParams{AccountIdx: accountIdx}, nil)
+	return ui.CallActionResultMsg{Action: "reopenvideo", AccountIdx: accountIdx, Err: err}
+}
+
 // listAccounts is the bootstrap call used once at startup, before ui.New,
 // to get every configured account's current state (not part of any ui
 // interface - main calls it directly).

@@ -284,6 +284,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m.startVideoPrompt(), nil, true
 		case matchesLetter(msg, 's') && m.call.state == "connected":
 			return m, m.toggleScreenShare(), true
+		case matchesLetter(msg, 'r') && m.call.state == "connected":
+			return m, m.reopenRemoteVideo(), true
 		}
 	}
 

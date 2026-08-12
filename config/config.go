@@ -118,9 +118,14 @@ type Config struct {
 	// NoticeDuration is seconds an in-app notification toast stays
 	// visible before auto-dismissing; DefaultNoticeDurationSeconds when
 	// unset.
-	NoticeDuration int           `yaml:"notice_duration,omitempty"`
-	Storage        StorageConfig `yaml:"storage,omitempty"`
-	Accounts       []Account     `yaml:"accounts,omitempty"`
+	NoticeDuration int `yaml:"notice_duration,omitempty"`
+	// VideoQuality picks the capture profile for outgoing screen-share/camera
+	// video: "very_low", "low", "medium" (DefaultVideoQuality when unset), or
+	// "high". Controls resolution/bitrate for both wf-recorder (screen) and
+	// ffmpeg (camera) - see call.VideoQualityFromString.
+	VideoQuality string        `yaml:"video_quality,omitempty"`
+	Storage      StorageConfig `yaml:"storage,omitempty"`
+	Accounts     []Account     `yaml:"accounts,omitempty"`
 
 	// Path is the config file this was actually loaded from, or the
 	// default write location if none was found — always non-empty, so
@@ -151,6 +156,10 @@ const DefaultMaxMessagesPerChat = 200
 // notice_duration isn't set in config.yaml.
 const DefaultNoticeDurationSeconds = 3
 
+// DefaultVideoQuality is the capture profile used when video_quality isn't
+// set in config.yaml.
+const DefaultVideoQuality = "medium"
+
 // defaultConfig returns the Config to pre-fill before unmarshaling a file on
 // top of it, so an absent yaml key leaves the default in place. Theme/
 // Keybinds are deliberately left zero — see Config's doc.
@@ -160,6 +169,7 @@ func defaultConfig() Config {
 		HistoryPageSize:     DefaultHistoryPageSize,
 		MaxMessagesPerChat:  DefaultMaxMessagesPerChat,
 		NoticeDuration:      DefaultNoticeDurationSeconds,
+		VideoQuality:        DefaultVideoQuality,
 	}
 }
 

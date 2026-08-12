@@ -171,6 +171,12 @@ type callSession struct {
 	// live to collide on the same mid and get the whole call terminated).
 	receivingRemoteVideo bool
 
+	// remoteVideoTrack is the peer's currently active incoming video track,
+	// set for as long as playRemoteVideo is reading it - lets reopenRemoteVideo
+	// (the "peer closed mpv by accident, press the key again" recovery path)
+	// request a fresh keyframe without needing its own copy of the track.
+	remoteVideoTrack *webrtc.TrackRemote
+
 	// autoStartVideo/autoStartVideoUseCamera: set once at call creation by
 	// startVideoCall (VideoCallToggle's action - camera/screen chosen before
 	// dialing), consumed exactly once by onConnectionState the first time
@@ -482,6 +488,17 @@ func (s *accountSession) setScreenShare(sharing, useCamera bool) error {
 	}
 	c.stopScreenShare()
 	return nil
+}
+
+// reopenVideo re-requests a keyframe for the current call's incoming video
+// (see callSession.reopenRemoteVideo) - the "peer closed mpv by accident"
+// recovery action.
+func (s *accountSession) reopenVideo() error {
+	c := s.currentCall()
+	if c == nil {
+		return fmt.Errorf("no call in progress")
+	}
+	return c.reopenRemoteVideo()
 }
 
 // --- incoming signaling -------------------------------------------------
@@ -1334,22 +1351,17 @@ func (c *callSession) currentState() callState {
 // lands (see applyContentAccept), so the video m-line only ever gets
 // negotiated with real media about to flow, never idle from the start (see
 // call.NewPeerConnection's doc comment for why that matters). No-op if
-// already sharing or a content-add is already in flight. Refuses (with an
-// error) to run while we're already receiving the peer's own video - adding
-// a second video content on top of one they already negotiated was observed
-// live to collide on the same mid and get the whole call terminated
-// (see receivingRemoteVideo's doc); video calls that bundle video into the
-// original offer (initiateSession) never hit this, only the mid-call toggle
-// can.
+// already sharing or a content-add is already in flight. Runs fine while
+// we're already receiving the peer's own video too - each direction gets its
+// own content/mid (see call.PeerConnection.AddVideoTrack, which always
+// allocates a fresh transceiver rather than repurposing the recvonly one
+// applyContentAdd left in place for the peer's stream), so both sides can be
+// sending video on the same call simultaneously.
 func (c *callSession) startVideoShare(useCamera bool) error {
 	c.mu.Lock()
 	if c.sharing || c.pendingShare {
 		c.mu.Unlock()
 		return nil
-	}
-	if c.receivingRemoteVideo {
-		c.mu.Unlock()
-		return fmt.Errorf("already receiving the peer's video - adding our own isn't supported while that's active")
 	}
 	pc, state, remote := c.pc, c.state, c.remoteJID
 	c.videoUseCamera = useCamera
@@ -1538,12 +1550,13 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	useCamera := c.videoUseCamera
 	c.mu.Unlock()
 
+	quality := currentVideoQuality()
 	var share call.VideoSource
 	var err error
 	if useCamera {
-		share, err = call.NewCamera(defaultCameraDevice)
+		share, err = call.NewCamera(defaultCameraDevice, quality)
 	} else {
-		share, err = call.NewScreenShare()
+		share, err = call.NewScreenShare(quality)
 	}
 	if err != nil {
 		slog.Warn("starting video capture", "sid", c.sid, "camera", useCamera, "err", err)
@@ -1577,6 +1590,21 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.broadcastState(c.currentState(), "")
 }
 
+// reopenRemoteVideo re-requests a keyframe for the peer's currently active
+// incoming video track, letting playRemoteVideo's viewer==nil branch reopen
+// mpv once it arrives - the recovery path for a peer who closed the mpv
+// window by accident and wants it back, without tearing down or
+// renegotiating the video content itself.
+func (c *callSession) reopenRemoteVideo() error {
+	c.mu.Lock()
+	pc, track := c.pc, c.remoteVideoTrack
+	c.mu.Unlock()
+	if pc == nil || track == nil {
+		return fmt.Errorf("no active incoming video to reopen")
+	}
+	return pc.SendPLI(track.SSRC())
+}
+
 // stopScreenShare tears down the capture process, if one is running.
 func (c *callSession) stopScreenShare() {
 	c.mu.Lock()
@@ -1602,10 +1630,12 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 
 	c.mu.Lock()
 	c.receivingRemoteVideo = true
+	c.remoteVideoTrack = track
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
 		c.receivingRemoteVideo = false
+		c.remoteVideoTrack = nil
 		c.mu.Unlock()
 	}()
 
@@ -1697,6 +1727,13 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				slog.Debug("screen share: assembled sample", "sid", c.sid, "sample", samples, "bytes", len(sample.Data), "saw_keyframe", sawKeyframe)
 			}
 			if viewer == nil {
+				// Only open a fresh viewer once we've actually seen a keyframe
+				// since the last one closed - feeding an interframe-only stream
+				// into a brand new mpv process never decodes into a visible
+				// picture.
+				if !sawKeyframe {
+					continue
+				}
 				v, err := call.NewScreenViewer(c.peer+" — screen share", videoCodec)
 				if err != nil {
 					slog.Warn("starting screen share viewer", "sid", c.sid, "err", err)
@@ -1706,8 +1743,16 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				slog.Debug("screen share: mpv viewer launched", "sid", c.sid)
 			}
 			if err := viewer.WriteFrame(sample.Data); err != nil {
-				slog.Debug("screen share: writing to mpv failed", "sid", c.sid, "err", err)
-				return
+				// mpv exited (e.g. the peer closed the window by accident) -
+				// this doesn't end the call's video: keep draining the track
+				// so reopenRemoteVideo (bound to a key in the UI) can request a
+				// fresh keyframe and reopen a new viewer without restarting
+				// the whole share.
+				slog.Debug("screen share: writing to mpv failed, closing viewer", "sid", c.sid, "err", err)
+				viewer.Close()
+				viewer = nil
+				sawKeyframe = false
+				continue
 			}
 		}
 

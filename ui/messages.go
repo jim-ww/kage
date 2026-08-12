@@ -621,6 +621,11 @@ type CallController interface {
 	RejectCall(accountIdx int) tea.Msg
 	MuteCall(accountIdx int, muted bool) tea.Msg
 	ScreenShare(accountIdx int, sharing, useCamera bool) tea.Msg
+	// ReopenVideo re-requests a keyframe for the current call's incoming
+	// video, reopening the mpv viewer if the peer closed it by accident -
+	// the video itself never stopped flowing, so this doesn't touch
+	// signaling, just prompts the encoder for a fresh keyframe.
+	ReopenVideo(accountIdx int) tea.Msg
 }
 
 // CallActionResultMsg reports the result of a CallController method call

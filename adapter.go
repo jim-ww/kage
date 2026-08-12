@@ -1147,3 +1147,14 @@ func (a *adapter) ScreenShare(accountIdx int, sharing, useCamera bool) error {
 	}
 	return sess.setScreenShare(sharing, useCamera)
 }
+
+// ReopenVideo re-requests a keyframe for accountIdx's current call's
+// incoming video, reopening the mpv viewer if the peer closed it by
+// accident (see callSession.reopenRemoteVideo).
+func (a *adapter) ReopenVideo(accountIdx int) error {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return sess.reopenVideo()
+}

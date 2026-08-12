@@ -46,6 +46,7 @@ const (
 	rpcRejectCall            = "RejectCall"
 	rpcMuteCall              = "MuteCall"
 	rpcScreenShare           = "ScreenShare"
+	rpcReopenVideo           = "ReopenVideo"
 	rpcGetCallState          = "GetCallState"
 )
 
@@ -179,6 +180,9 @@ type screenShareParams struct {
 	AccountIdx int
 	Sharing    bool
 	UseCamera  bool // ignored when Sharing is false
+}
+type reopenVideoParams struct {
+	AccountIdx int
 }
 
 // getCallStateResult reports whatever call is currently in progress on any

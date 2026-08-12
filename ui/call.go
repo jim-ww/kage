@@ -101,6 +101,8 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 	}
 	gen := 0
 	startedAt := time.Time{}
+	wasSharing := m.call != nil && m.call.sharing
+	sameStream := false
 	// A CallStateMsg for the same call (same gen) that's already connected
 	// keeps its startedAt — every quality-sampler tick rebroadcasts
 	// "connected" (see callSession.sampleQuality), and each one replacing
@@ -111,6 +113,7 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		if m.call.sid == msg.SID && !m.call.startedAt.IsZero() {
 			startedAt = m.call.startedAt
 			gen = m.call.gen // same logical call state stream, not a new call
+			sameStream = true
 		}
 	}
 	if !msg.StartedAt.IsZero() {
@@ -134,13 +137,17 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 	if !wasActive {
 		m.updateSizes()
 	}
-	// Any fresh call state - sharing having started, or the call ending -
-	// makes a stale "camera or screen?" prompt meaningless. A dial prompt
-	// is answered before m.call exists at all, so a call now existing means
-	// it was either just placed by that same prompt or is a separate
-	// incoming call - either way, done being asked.
-	m.videoSourcePrompt = false
-	m.videoDialPrompt = false
+	// Sharing having just started, or the call ending, makes a stale "camera
+	// or screen?" prompt meaningless - clear it then. But a redundant
+	// rebroadcast of the same still-connected state (sameStream, e.g. every
+	// qualitySampleInterval tick from callSession.sampleQuality) must NOT
+	// clear it: doing so unconditionally here used to close the prompt
+	// within a few seconds of opening it, often before the user had time to
+	// press c/s - see qualitySampleInterval in callsession.go.
+	if !sameStream || (msg.Sharing && !wasSharing) || msg.State == "ended" || msg.State == "failed" {
+		m.videoSourcePrompt = false
+		m.videoDialPrompt = false
+	}
 	if msg.State == "ended" || msg.State == "failed" {
 		return m, callClearTimer(msg.AccountIdx, gen)
 	}
@@ -190,7 +197,7 @@ func (m Model) callBarLine() string {
 		if m.call.sharing {
 			share = "🖥 sharing  [s] stop"
 		}
-		return "📞 " + who + "  " + dur + "  " + mic + "  " + quality + "   [m] mute  " + share + "  [h] hang up"
+		return "📞 " + who + "  " + dur + "  " + mic + "  " + quality + "   [m] mute  " + share + "  [r] reopen video  [h] hang up"
 	case "ended":
 		if m.call.reason != "" {
 			return "call ended: " + m.call.reason
@@ -326,6 +333,17 @@ func (m Model) toggleScreenShare() tea.Cmd {
 	}
 	accountIdx, sharing := m.call.accountIdx, !m.call.sharing
 	return func() tea.Msg { return m.callController.ScreenShare(accountIdx, sharing, false) }
+}
+
+// reopenRemoteVideo re-requests the peer's video keyframe, reopening the
+// mpv viewer if it was closed by accident (the [r] hint in callBarLine) -
+// a no-op server-side if there's no incoming video to reopen.
+func (m Model) reopenRemoteVideo() tea.Cmd {
+	if m.callController == nil || m.call == nil {
+		return nil
+	}
+	accountIdx := m.call.accountIdx
+	return func() tea.Msg { return m.callController.ReopenVideo(accountIdx) }
 }
 
 // startVideoPrompt opens (or, if already sharing, is a no-op for) the

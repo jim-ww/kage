@@ -36,6 +36,60 @@ func (b *syncBuffer) String() string {
 // sane over a STUN-brokered path the way FrameMillis does for audio.
 const videoCaptureFramerate = 15
 
+// VideoQuality selects the capture profile (resolution/bitrate) used by both
+// ScreenShare (wf-recorder) and Camera (ffmpeg/v4l2) - see
+// VideoQualityFromString for the config.yaml string this maps from.
+type VideoQuality int
+
+const (
+	VideoQualityMedium VideoQuality = iota
+	VideoQualityVeryLow
+	VideoQualityLow
+	VideoQualityHigh
+)
+
+// VideoQualityFromString maps config.yaml's video_quality string onto a
+// VideoQuality, defaulting to VideoQualityMedium for "" or anything
+// unrecognized - the same lenient-default treatment other string config
+// options (e.g. FilePickerSortField) get.
+func VideoQualityFromString(s string) VideoQuality {
+	switch s {
+	case "very_low":
+		return VideoQualityVeryLow
+	case "low":
+		return VideoQualityLow
+	case "high":
+		return VideoQualityHigh
+	default:
+		return VideoQualityMedium
+	}
+}
+
+// videoQualityProfile is the concrete capture parameters one VideoQuality
+// bucket maps to: camWidth/camHeight for the webcam's requested capture
+// size, crf for libx264's quality target (lower = higher bitrate/quality),
+// and wfBitrateKbps for wf-recorder's screen capture (which has no
+// resolution to pick - it always captures the real output size - so quality
+// is controlled by bitrate alone there).
+type videoQualityProfile struct {
+	camWidth, camHeight int
+	crf                 int
+	wfBitrateKbps       int
+}
+
+func (q VideoQuality) profile() videoQualityProfile {
+	switch q {
+	case VideoQualityVeryLow:
+		return videoQualityProfile{camWidth: 320, camHeight: 240, crf: 32, wfBitrateKbps: 300}
+	case VideoQualityLow:
+		return videoQualityProfile{camWidth: 640, camHeight: 480, crf: 26, wfBitrateKbps: 800}
+	case VideoQualityHigh:
+		return videoQualityProfile{camWidth: 1920, camHeight: 1080, crf: 18, wfBitrateKbps: 4000}
+	default: // VideoQualityMedium
+		return videoQualityProfile{camWidth: 1280, camHeight: 720, crf: 20, wfBitrateKbps: 1800}
+	}
+}
+
 // VideoSource is anything that can be started, pumped for encoded frames via
 // Run, and torn down via Stop - the shape callsession.go's screen-share
 // machinery needs, satisfied identically by ScreenShare (wf-recorder) and
@@ -176,14 +230,16 @@ type ScreenShare struct {
 
 // NewScreenShare starts wf-recorder and returns once the subprocess is
 // running. Run must be called (typically in its own goroutine) to actually
-// pump captured NAL units.
-func NewScreenShare() (*ScreenShare, error) {
+// pump captured NAL units. quality picks the capture bitrate (see
+// VideoQuality).
+func NewScreenShare(quality VideoQuality) (*ScreenShare, error) {
+	profile := quality.profile()
 	cmd := exec.Command(
 		"wf-recorder",
 		"-y", // "-f -" still prompts to overwrite "-" as if it were a real file without this
 		"-c", "libx264",
 		"-p", "tune=zerolatency",
-		// "-p","preset=fast",
+		"-p", fmt.Sprintf("b=%dk", profile.wfBitrateKbps),
 		"-m", "h264",
 		"-r", fmt.Sprint(videoCaptureFramerate),
 		"-f", "/dev/stdout",
@@ -206,13 +262,15 @@ type Camera struct {
 
 // NewCamera starts ffmpeg capturing from device (e.g. "/dev/video0") and
 // returns once the subprocess is running. Run must be called (typically in
-// its own goroutine) to actually pump captured NAL units.
-func NewCamera(device string) (*Camera, error) {
+// its own goroutine) to actually pump captured NAL units. quality picks the
+// capture resolution/bitrate (see VideoQuality).
+func NewCamera(device string, quality VideoQuality) (*Camera, error) {
+	profile := quality.profile()
 	cmd := exec.Command(
 		"ffmpeg",
 		"-f", "v4l2",
 		"-framerate", fmt.Sprint(videoCaptureFramerate),
-		"-video_size", "1280x720",
+		"-video_size", fmt.Sprintf("%dx%d", profile.camWidth, profile.camHeight),
 		"-i", device,
 		// Most webcams deliver MJPEG/YUYV (4:2:2), not 4:2:0 - encoding that
 		// as-is lets libx264 silently pick a higher profile than the
@@ -227,7 +285,7 @@ func NewCamera(device string) (*Camera, error) {
 		"-profile:v", "baseline",
 		"-preset", "superfast",
 		"-tune", "zerolatency",
-		"-crf", "20",
+		"-crf", fmt.Sprint(profile.crf),
 		"-f", "h264",
 		"-",
 	)

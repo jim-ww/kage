@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/jim-ww/kage/call"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/storage"
@@ -17,6 +18,15 @@ import (
 // notify-or-not check (events.go) — only meaningful in --background mode;
 // the TUI process never reads it.
 var notifyEnabled atomic.Bool
+
+// videoQuality mirrors cfg.VideoQuality for beginScreenShareCapture
+// (callsession.go), which has no other path back to the loaded config —
+// same reasoning as notifyEnabled above.
+var videoQuality atomic.Int32
+
+func currentVideoQuality() call.VideoQuality {
+	return call.VideoQuality(videoQuality.Load())
+}
 
 // tuiFocused and tuiActiveChat mirror the attached TUI client's window
 // focus and currently-open chat (see ui.FocusReporter / adapter.SetFocusState),
@@ -59,6 +69,7 @@ func newBackend() *backend { return &backend{} }
 
 func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
+	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 
 	if !cfg.GPGDisabled {
 		ensureGPGKeys(&cfg)
@@ -145,6 +156,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 // like cfg.NotificationsDisabled.
 func (b *backend) Reload(cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
+	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 }
 
 func (b *backend) Shutdown() {

@@ -349,6 +349,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.ScreenShare(p.AccountIdx, p.Sharing, p.UseCamera)
 
+	case rpcReopenVideo:
+		p, err := unmarshalParams[reopenVideoParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.ReopenVideo(p.AccountIdx)
+
 	case rpcListAccounts:
 		return d.listAccounts(context.Background()), nil
 
