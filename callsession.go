@@ -532,11 +532,21 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 
 	switch ev.Action {
 	case xmpp.JMIRinging:
+		// Only meaningful for the caller, still proposing: a callee that sent
+		// its own <ringing/> can get it back as a carbon of its own stanza
+		// (XEP-0280 self-copy), and without this guard that self-echo used to
+		// unconditionally re-broadcast ringing-remote over the correct
+		// ringing-local state moments after handlePropose set it, so the TUI
+		// showed the caller's "hang up only" bar instead of answer/reject.
 		c.mu.Lock()
-		if c.state == callProposing {
+		wasProposing := c.state == callProposing
+		if wasProposing {
 			c.state = callRingingRemote
 		}
 		c.mu.Unlock()
+		if !wasProposing {
+			return
+		}
 		c.startRing(ringbackFreqsHz, ringbackPattern)
 		c.broadcastState(callRingingRemote, "")
 
