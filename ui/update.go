@@ -262,20 +262,8 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		m.chats, cmd = m.chats.Update(msg)
 		cmds = append(cmds, cmd)
 		if m.chats.Index() != prev {
-			chatIdx := m.currentChatIndex()
-			if chatIdx < 0 {
-				m.selectedMsg = 0
-				m.refreshViewport()
-				break
-			}
-			msgs := m.currentMessages()
-			if len(msgs) > 0 {
-				m.selectedMsg = len(msgs) - 1
-			} else {
-				m.selectedMsg = 0
-			}
-			m.refreshViewport()
-			m.viewport.GotoBottom()
+			m.chatSwitchGen++
+			cmds = append(cmds, chatSwitchTimer(m.chatSwitchGen))
 		}
 	case viewChat:
 		// Dragging a file onto most terminal emulators isn't a distinct

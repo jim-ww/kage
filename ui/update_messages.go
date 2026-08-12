@@ -729,6 +729,25 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, lastMsgCmd, true
 
+	case chatSwitchSettledMsg:
+		if msg.gen != m.chatSwitchGen {
+			return m, nil, true
+		}
+		chatIdx := m.currentChatIndex()
+		if chatIdx < 0 {
+			m.selectedMsg = 0
+			m.refreshViewport()
+			return m, nil, true
+		}
+		if msgs := m.currentMessages(); len(msgs) > 0 {
+			m.selectedMsg = len(msgs) - 1
+		} else {
+			m.selectedMsg = 0
+		}
+		m.refreshViewport()
+		m.viewport.GotoBottom()
+		return m, nil, true
+
 	case flashClearMsg:
 		if msg.gen == m.flashGen {
 			m.flashMsgIdx = -1

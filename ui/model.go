@@ -278,6 +278,12 @@ type Model struct {
 	typingActiveTo string
 	typingGen      int
 
+	// chatSwitchGen increments every time the chat-list selection moves;
+	// see chatSwitchTimer/chatSwitchSettledMsg — debounces the message
+	// panel's full re-render so holding the cursor key doesn't re-render
+	// every chat skipped through along the way.
+	chatSwitchGen int
+
 	// add-account form state, active while addingAccount is true.
 	// addAccountRegister toggles the form between logging into an existing
 	// account and registering a new one (XEP-0077) on the server before

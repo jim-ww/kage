@@ -311,6 +311,30 @@ func flashTimer(gen int) tea.Cmd {
 	})
 }
 
+// chatSwitchDebounce is how long the chat-list selection must sit still
+// before the message panel actually re-renders the newly selected chat.
+// Rendering a chat's full message list (renderMessagesWithOffsets, up to
+// maxMessagesPerChat messages of ansi-wrapping/styling) isn't free, and
+// holding the up/down key repeats it once per intermediate row skipped
+// through on the way to wherever the key repeat actually lands — visibly
+// lagging the list cursor itself, since Update() is synchronous. Short
+// enough that a single deliberate move still feels instant.
+const chatSwitchDebounce = 40 * time.Millisecond
+
+// chatSwitchSettledMsg fires chatSwitchDebounce after the chat-list
+// selection last moved. gen must still match Model.chatSwitchGen when it
+// arrives — otherwise the selection moved again since this timer was
+// scheduled, and this message is stale.
+type chatSwitchSettledMsg struct {
+	gen int
+}
+
+func chatSwitchTimer(gen int) tea.Cmd {
+	return tea.Tick(chatSwitchDebounce, func(time.Time) tea.Msg {
+		return chatSwitchSettledMsg{gen: gen}
+	})
+}
+
 // hoverDevicesDelay is how long the mouse must sit still over a chat-list
 // row before that contact's online devices are shown in place of its
 // normal description — long enough that a mouse just passing over the list
