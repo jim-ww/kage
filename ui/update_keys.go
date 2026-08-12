@@ -496,15 +496,17 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			// paging actually moved the viewport — e.g. short chats that
 			// fit on screen have nothing to page, and pgup/pgdown must
 			// leave the current selection untouched in that case.
-			if len(m.msgOffsets) > 0 && m.viewport.YOffset() != oldOffset {
-				atTrueTop, atTrueBottom := m.scrollBoundaryStatus()
-				m.recenterRenderWindowForScroll()
-				if atTrueTop {
-					cmds = append(cmds, m.maybeLoadOlderHistory())
-				}
-				if atTrueBottom {
-					cmds = append(cmds, m.maybeLoadNewerHistory())
-				}
+			newOffset := m.viewport.YOffset()
+			if len(m.msgOffsets) > 0 && newOffset != oldOffset {
+				m.selectedMsg = m.msgIndexAtOffset(newOffset)
+				m.refreshViewport()
+				m.viewport.SetYOffset(newOffset)
+			}
+			if newOffset == 0 {
+				cmds = append(cmds, m.maybeLoadOlderHistory())
+			}
+			if m.viewport.AtBottom() {
+				cmds = append(cmds, m.maybeLoadNewerHistory())
 			}
 			return m, tea.Batch(cmds...), true
 		}

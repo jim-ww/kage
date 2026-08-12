@@ -897,12 +897,15 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	if m.zone.Get(zonePaneViewport).InBounds(msg) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
-		atTrueTop, atTrueBottom := m.scrollBoundaryStatus()
-		m.recenterRenderWindowForScroll()
-		if atTrueTop {
+		if len(m.msgOffsets) > 0 {
+			m.selectedMsg = m.msgIndexAtOffset(m.viewport.YOffset())
+			m.refreshViewport()
+			m.viewport.SetYOffset(m.viewport.YOffset())
+		}
+		if m.viewport.YOffset() == 0 {
 			cmd = tea.Batch(cmd, m.maybeLoadOlderHistory())
 		}
-		if atTrueBottom {
+		if m.viewport.AtBottom() {
 			cmd = tea.Batch(cmd, m.maybeLoadNewerHistory())
 		}
 		return m, cmd

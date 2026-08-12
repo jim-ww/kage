@@ -20,9 +20,8 @@ func (m *Model) refreshViewport() {
 		m.viewport.SetContent(m.styles.plainText.Render("connecting..."))
 		return
 	}
-	content, offsets, front := m.renderMessagesWithOffsets()
+	content, offsets := m.renderMessagesWithOffsets()
 	m.msgOffsets = offsets
-	m.renderWindowStart = front
 	m.viewportLines = strings.Split(content, "\n")
 	m.viewport.SetContentLines(m.viewportLines)
 }
@@ -50,16 +49,13 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 	msgs := m.currentMessages()
 
 	for _, idx := range []int{oldIdx, newIdx} {
-		rel := idx - m.renderWindowStart
-		if idx < 0 || idx >= len(msgs) || rel < 0 || rel >= len(m.msgOffsets) {
-			// Outside the current render window (see renderWindowMessages) —
-			// nothing to patch; its lines simply aren't in the buffer.
+		if idx < 0 || idx >= len(msgs) || idx >= len(m.msgOffsets) {
 			continue
 		}
-		start := m.msgOffsets[rel]
+		start := m.msgOffsets[idx]
 		end := len(m.viewportLines)
-		if rel+1 < len(m.msgOffsets) {
-			end = m.msgOffsets[rel+1]
+		if idx+1 < len(m.msgOffsets) {
+			end = m.msgOffsets[idx+1]
 		}
 		if start < 0 || end > len(m.viewportLines) || start > end {
 			m.refreshViewport()
@@ -94,17 +90,7 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 // key presses in chats with many messages, the same issue
 // refreshViewportSelection already fixed for mouse motion.
 func (m *Model) refreshViewportScrollTo(oldIdx, msgIdx int) {
-	if m.needsWindowRecenter(msgIdx) {
-		// msgIdx is at/beyond the render window's edge (see
-		// renderWindowMessages) — refreshViewportSelection's per-message
-		// patch can't reach a message that isn't in the window at all, so a
-		// full rebuild (still bounded by the window, not total messages) is
-		// required here instead. Callers always set m.selectedMsg to msgIdx
-		// before calling this, so the rebuilt window centers on it.
-		m.refreshViewport()
-	} else {
-		m.refreshViewportSelection(oldIdx, msgIdx)
-	}
+	m.refreshViewportSelection(oldIdx, msgIdx)
 	m.applyScrollMargin(msgIdx)
 }
 
@@ -118,45 +104,18 @@ func (m *Model) refreshViewportFullScrollTo(msgIdx int) {
 	m.applyScrollMargin(msgIdx)
 }
 
-// needsWindowRecenter reports whether msgIdx is close enough to (or beyond)
-// the current render window's edge — see renderWindowMessages/
-// renderWindowMargin — that refreshViewportSelection's per-message patch
-// can no longer be trusted to reach it, and a full refreshViewport (which
-// recenters the window) is needed instead. Always false while the whole
-// chat still fits in one window (front stays 0, nothing to recenter).
-func (m *Model) needsWindowRecenter(msgIdx int) bool {
-	total := len(m.currentMessages())
-	if total <= renderWindowMessages || len(m.msgOffsets) == 0 {
-		return false
-	}
-	front := m.renderWindowStart
-	end := front + len(m.msgOffsets)
-	rel := msgIdx - front
-	if rel < 0 || rel >= len(m.msgOffsets) {
-		return true
-	}
-	if front > 0 && msgIdx < front+renderWindowMargin {
-		return true
-	}
-	if end < total && msgIdx >= end-renderWindowMargin {
-		return true
-	}
-	return false
-}
-
 // applyScrollMargin is the scrolloff logic shared by
 // refreshViewportScrollTo/refreshViewportFullScrollTo — see
 // refreshViewportScrollTo's doc comment.
 func (m *Model) applyScrollMargin(msgIdx int) {
-	rel := msgIdx - m.renderWindowStart
-	if rel < 0 || rel >= len(m.msgOffsets) {
+	if msgIdx < 0 || msgIdx >= len(m.msgOffsets) {
 		return
 	}
 
-	start := m.msgOffsets[rel]
+	start := m.msgOffsets[msgIdx]
 	end := len(m.viewportLines) - 1
-	if rel+1 < len(m.msgOffsets) {
-		end = m.msgOffsets[rel+1] - 1
+	if msgIdx+1 < len(m.msgOffsets) {
+		end = m.msgOffsets[msgIdx+1] - 1
 	}
 
 	height := m.viewport.Height()
@@ -174,95 +133,6 @@ func (m *Model) applyScrollMargin(msgIdx int) {
 	}
 }
 
-// scrollBoundaryStatus reports whether the viewport's current scroll
-// position is at the true start/end of every message loaded for this chat
-// — not just the edge of the currently rendered window (see
-// renderWindowMessages). yOffset()==0/AtBottom() alone only means "top/
-// bottom of what's rendered right now", which is a different thing once a
-// chat has grown past the window: reaching it doesn't mean there's nothing
-// more loaded above/below, just that the window itself needs to slide.
-// Must be read before recenterRenderWindowForScroll, which is what changes
-// what the render window covers. Used by wheel/page scrolling to decide
-// whether to actually fire maybeLoadOlderHistory/maybeLoadNewerHistory
-// (which page in more messages from storage/PinnedHistory) — firing those
-// while merely at the render window's edge, with plenty more already
-// loaded just outside it, was silently interrupting normal scrolling with
-// spurious loads and, worse, made scrolling back the other way look stuck
-// once loadingOlderHistory/HistoryMore bookkeeping got confused by it.
-func (m *Model) scrollBoundaryStatus() (atTrueTop, atTrueBottom bool) {
-	if len(m.msgOffsets) == 0 {
-		return false, false
-	}
-	atTrueTop = m.viewport.YOffset() == 0 && m.renderWindowStart == 0
-	atTrueBottom = m.viewport.AtBottom() && m.renderWindowStart+len(m.msgOffsets) == len(m.currentMessages())
-	return atTrueTop, atTrueBottom
-}
-
-// recenterRenderWindowForScroll keeps m.selectedMsg in sync with whichever
-// message free-scrolling (mouse wheel, PageUp/PageDown) just brought to the
-// top of the viewport, recentering the render window (see
-// renderWindowMessages) once the viewport is stuck against the *current
-// window's own* top/bottom edge (m.viewport.AtTop/AtBottom) with more
-// already-loaded messages beyond it.
-//
-// This checks AtTop/AtBottom rather than how close the top message is to
-// the window's edge (a margin in message-count terms, as
-// needsWindowRecenter/applyScrollMargin use for cursor moves): a tall
-// viewport relative to renderWindowMessages can exhaust the window's own
-// scrollable line range — and so report AtBottom() — while the top-of-
-// viewport message is still nowhere near the window's far edge (most of
-// the window is on screen at once). Triggering only off message-distance
-// missed that entirely and left scrolling permanently stuck the moment a
-// wheel/page scroll first reached the window's clamped end, with plenty
-// more already loaded beyond it.
-//
-// Unlike applyScrollMargin (used for cursor moves — MsgUp/MsgDown/
-// HalfPage — which deliberately snaps into a scrolloff margin), this
-// re-anchors the viewport on the exact message currently at whichever edge
-// it's stuck against, at that same edge, so a recenter never visibly jumps
-// the scroll position out from under a smooth free-scroll and scrolling in
-// the same direction keeps working on the very next tick — the actual
-// reported symptoms (scrolling up a bit then back down landing on
-// unrelated messages, and scrolling appearing to get stuck) once a chat's
-// loaded history grew past one render window.
-func (m *Model) recenterRenderWindowForScroll() {
-	if len(m.msgOffsets) == 0 {
-		return
-	}
-	m.selectedMsg = m.msgIndexAtOffset(m.viewport.YOffset())
-
-	total := len(m.currentMessages())
-	front := m.renderWindowStart
-	end := front + len(m.msgOffsets)
-
-	var anchor int
-	atBottom := m.viewport.AtBottom()
-	switch {
-	case atBottom && end < total:
-		anchor = end - 1 // window's last message, currently at the viewport's bottom edge
-	case m.viewport.AtTop() && front > 0:
-		anchor = front // window's first message, currently at the viewport's top edge
-	default:
-		return // not stuck against either window edge — nothing to recenter
-	}
-
-	m.selectedMsg = anchor
-	m.refreshViewport()
-	rel := anchor - m.renderWindowStart
-	if rel < 0 || rel >= len(m.msgOffsets) {
-		return
-	}
-	if atBottom {
-		lineEnd := len(m.viewportLines) - 1
-		if rel+1 < len(m.msgOffsets) {
-			lineEnd = m.msgOffsets[rel+1] - 1
-		}
-		m.viewport.SetYOffset(max(0, lineEnd-m.viewport.Height()+1))
-	} else {
-		m.viewport.SetYOffset(m.msgOffsets[rel])
-	}
-}
-
 // msgIndexAtOffset returns the index of the topmost message at or above the
 // given viewport line offset, used to keep message selection in sync after
 // free-scrolling (paging) through the viewport.
@@ -274,7 +144,7 @@ func (m Model) msgIndexAtOffset(yOffset int) int {
 		}
 		idx = i
 	}
-	return idx + m.renderWindowStart
+	return idx
 }
 
 // visibleMessageCount returns how many messages currently have at least one

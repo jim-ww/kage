@@ -50,7 +50,7 @@ func TestRenderMessagesWithOffsetsMatchesLineSplit(t *testing.T) {
 		},
 	}
 
-	content, offsets, _ := m.renderMessagesWithOffsets()
+	content, offsets := m.renderMessagesWithOffsets()
 	lines := strings.Split(content, "\n")
 
 	if len(offsets) != len(msgs) {
