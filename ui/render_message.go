@@ -166,14 +166,22 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 	headerPlain := fmt.Sprintf("%s %s[%s ] ", dirGlyph, name, timeLabel)
 	header := m.styles.renderMessageHeader(name, timeLabel, msg.IsMe)
-	indent := strings.Repeat(" ", lipgloss.Width(headerPlain))
-	wrapWidth := totalWidth - lipgloss.Width(prefix) - lipgloss.Width(indent)
+	// prefixWidth/indentWidth are each computed once and reused below —
+	// lipgloss.Width does a full Unicode grapheme-cluster scan (see
+	// ansi.stringWidth), which shows up as a real cost once you're doing it
+	// for every rendered message on every render; indent in particular is a
+	// string of plain ASCII spaces we just built ourselves, so its width is
+	// trivially indentWidth without re-measuring it at all.
+	prefixWidth := lipgloss.Width(prefix)
+	indentWidth := lipgloss.Width(headerPlain)
+	indent := strings.Repeat(" ", indentWidth)
+	wrapWidth := totalWidth - prefixWidth - indentWidth
 	wrapWidth = max(wrapWidth, 8)
 
 	var lines []string
 	if msg.ReplyTo != nil {
 		reply := m.replyPreview(*msg.ReplyTo, allMsgs)
-		replyWrapped := strings.SplitSeq(ansi.Wrap(reply, max(8, totalWidth-lipgloss.Width(prefix)-2), " "), "\n")
+		replyWrapped := strings.SplitSeq(ansi.Wrap(reply, max(8, totalWidth-prefixWidth-2), " "), "\n")
 		for line := range replyWrapped {
 			// The selection/hover marker (">") belongs on the message's
 			// content line, not the quoted reply line above it - so the
