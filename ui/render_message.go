@@ -137,8 +137,10 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		for line := range replyWrapped {
 			// The selection/hover marker (">") belongs on the message's
 			// content line, not the quoted reply line above it - so the
-			// reply line always gets the plain indent here.
-			lines = append(lines, "  "+m.styles.messageReply.Render(line))
+			// reply line always gets the plain indent here. Marked with its
+			// own zone (nested inside the outer zoneMessage) so a click here
+			// jumps to the quoted message instead of replying to this one.
+			lines = append(lines, m.zone.Mark(zoneMessageReply(msgIdx), "  "+m.styles.messageReply.Render(line)))
 		}
 	}
 

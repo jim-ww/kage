@@ -52,6 +52,7 @@ func zoneFilePickerRow(i int) string     { return fmt.Sprintf("file-picker-row-%
 func zoneAccountRow(i int) string        { return fmt.Sprintf("account-row-%d", i) }
 func zoneChatItem(i int) string          { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string           { return fmt.Sprintf("msg-%d", i) }
+func zoneMessageReply(i int) string      { return fmt.Sprintf("msg-reply-%d", i) }
 func zoneEmojiSuggestion(i int) string   { return fmt.Sprintf("emoji-suggest-%d", i) }
 func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove-%d", i) }
 func zoneMsgInfoAttachment(i int) string { return fmt.Sprintf("msg-info-attachment-%d", i) }
@@ -596,6 +597,16 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.selectedView == viewChat {
 		msgs := m.currentMessages()
+		for i, mm := range msgs {
+			if mm.ReplyTo != nil && m.zone.Get(zoneMessageReply(i)).InBounds(msg) {
+				m.notifyTypingStopped()
+				m.lastClickedMsgIdx = -1
+				m.lastClickTime = time.Time{}
+				m.selectedMsg = *mm.ReplyTo
+				m.refreshViewportFullScrollTo(*mm.ReplyTo)
+				return m, nil
+			}
+		}
 		for i := range msgs {
 			if m.zone.Get(zoneMessage(i)).InBounds(msg) {
 				clickTime := time.Now()
