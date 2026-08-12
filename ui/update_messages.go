@@ -704,6 +704,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, lastMsgCmd, true
 
+	case flashClearMsg:
+		if msg.gen == m.flashGen {
+			m.flashMsgIdx = -1
+			m.refreshViewport()
+		}
+		return m, nil, true
+
 	case typingPauseMsg:
 		if m.sender != nil && m.typingActiveTo == msg.addr && m.typingGen == msg.gen {
 			if err := m.sender.SetTyping(m.currentAccount, msg.addr, false); err == nil {

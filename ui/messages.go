@@ -294,6 +294,23 @@ func typingPauseTimer(addr string, gen int) tea.Cmd {
 	})
 }
 
+// flashDuration is how long a message stays highlighted after jumping to it
+// (e.g. clicking a reply quote) before the highlight clears itself.
+const flashDuration = 600 * time.Millisecond
+
+// flashClearMsg fires flashDuration after a message was flashed. Gen must
+// still match Model.flashGen when it arrives — otherwise a later flash
+// already superseded this one and clearing here would cut it short.
+type flashClearMsg struct {
+	gen int
+}
+
+func flashTimer(gen int) tea.Cmd {
+	return tea.Tick(flashDuration, func(time.Time) tea.Msg {
+		return flashClearMsg{gen: gen}
+	})
+}
+
 // hoverDevicesDelay is how long the mouse must sit still over a chat-list
 // row before that contact's online devices are shown in place of its
 // normal description — long enough that a mouse just passing over the list

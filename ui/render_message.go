@@ -190,6 +190,17 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		lines = append(lines, "  "+indent+m.styles.plainText.Render(renderReactions(msg.Reactions)))
 	}
 
+	if m.flashMsgIdx >= 0 && msgIdx == m.flashMsgIdx {
+		// Strip each line's own ANSI styling first: nesting messageFlash's
+		// background around already-styled text would just lose the
+		// background at the first reset code the inner styling emits (e.g.
+		// after the header's foreground color), leaving the rest of the line
+		// unhighlighted.
+		for i, line := range lines {
+			lines[i] = m.styles.messageFlash.Render(ansi.Strip(line))
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
 

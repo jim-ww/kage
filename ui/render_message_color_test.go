@@ -15,7 +15,7 @@ import (
 // reset. Each body line must now carry its own foreground code directly.
 func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
 	styles := newUIStyles(DefaultTheme())
-	m := Model{styles: styles, showNames: true}
+	m := Model{styles: styles, showNames: true, flashMsgIdx: -1}
 	msg := Message{
 		Author:  "bob",
 		Content: "this is a fairly long message that should wrap across multiple lines in the chat viewport for testing",

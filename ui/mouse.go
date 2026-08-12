@@ -603,8 +603,10 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				m.lastClickedMsgIdx = -1
 				m.lastClickTime = time.Time{}
 				m.selectedMsg = *mm.ReplyTo
+				m.flashMsgIdx = *mm.ReplyTo
+				m.flashGen++
 				m.refreshViewportFullScrollTo(*mm.ReplyTo)
-				return m, nil
+				return m, flashTimer(m.flashGen)
 			}
 		}
 		for i := range msgs {
