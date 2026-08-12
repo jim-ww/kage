@@ -26,9 +26,9 @@
       in {
         packages.default = pkgs.buildGoModule {
           pname = "kage";
-          version = "0.3.0";
+          version = "0.4.0";
           src = pkgs.lib.cleanSource ./.;
-          vendorHash = "sha256-tsqzNZlmk35+Li9pWzRQ1RUkI+5BOf0NEwM5mw4YMTY=";
+          vendorHash = "sha256-IumHiUHNi0tUx/iABETRR6sLJ45mJE4/FVUuiDhuHPo=";
 
           env.CGO_ENABLED = 1;
 
