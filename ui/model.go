@@ -128,6 +128,18 @@ type Model struct {
 	// auto-dereferences for method calls either way.
 	chats *list.Model
 
+	// sidebarRenderCache memoizes the sidebar's styled/bordered output (see
+	// view.go's renderSidebar) keyed on the exact strings/sizes/colors that
+	// went into it, not on tracking every place chat-list state can change
+	// (there are ~20 call sites across the package that mutate m.chats,
+	// and auditing all of them — and remembering to keep auditing them as
+	// the codebase grows — is exactly the kind of invisible contract that
+	// silently rots). Comparing by value instead means a cache hit can
+	// never be stale: if the inputs are byte-identical, the styled output
+	// necessarily is too, no matter what changed it or whether some future
+	// mutation site wasn't accounted for.
+	sidebarRenderCache *sidebarCacheEntry
+
 	input    *textarea.Model
 	viewport viewport.Model
 
@@ -453,6 +465,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		accounts:               accounts,
 		currentAccount:         startAccount,
 		chats:                  &l,
+		sidebarRenderCache:     &sidebarCacheEntry{},
 		input:                  &ti,
 		draftHistory:           []string{""},
 		viewport:               viewport.New(),

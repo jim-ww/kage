@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
@@ -64,14 +65,18 @@ func (m Model) View() tea.View {
 	case len(m.chats.Items()) == 0 && m.currentAccountConnecting():
 		sidebarBody = m.styles.accountNormal.Render("connecting...")
 	}
-	sidebarInner := lipgloss.JoinVertical(
-		lipgloss.Left,
-		statusLine,
-		m.styles.sidebarInner(scw, max(0, m.height-sidebarStatusHeight), sidebarBody),
-	)
 	sidebar := ""
 	if sw > 0 {
-		sidebar = m.zone.Mark(zonePaneSidebar, m.styles.sidebarBox(sw, m.height, sidebarBorder, sidebarInner))
+		innerHeight := max(0, m.height-sidebarStatusHeight)
+		sidebar = m.zone.Mark(zonePaneSidebar, m.renderSidebar(sidebarCacheEntry{
+			statusLine: statusLine,
+			body:       sidebarBody,
+			width:      scw,
+			height:     innerHeight,
+			boxWidth:   sw,
+			boxHeight:  m.height,
+			border:     sidebarBorder,
+		}))
 	}
 
 	chatArea := ""
@@ -135,6 +140,49 @@ func (m Model) View() tea.View {
 		v.MouseMode = tea.MouseModeAllMotion
 	}
 	return v
+}
+
+// sidebarCacheEntry is the exact set of inputs that determine the sidebar's
+// styled/bordered output (see renderSidebar) — everything sidebarBox/
+// sidebarInner/JoinVertical actually read. border is image/color.Color,
+// which for every concrete color type this app uses (lipgloss's named/hex
+// colors) is a comparable value type, so == is a real equality check here,
+// not just an interface-identity check.
+type sidebarCacheEntry struct {
+	statusLine string
+	body       string
+	width      int
+	height     int
+	boxWidth   int
+	boxHeight  int
+	border     color.Color
+	rendered   string
+}
+
+// renderSidebar renders the sidebar (accounts/status bar + chat list,
+// bordered) for the given inputs, reusing the previous frame's styled
+// output when every input is byte-identical to it — the box-drawing and
+// join steps involve several lipgloss Style.Render calls (each of which
+// does its own Unicode grapheme-cluster width scan), and those don't need
+// to happen again for a frame that changed nothing about the sidebar, e.g.
+// almost any mouse motion or key press while a message (not the chat list)
+// is what's actually being interacted with. See Model.sidebarRenderCache's
+// doc comment for why this compares by value instead of tracking mutations.
+func (m Model) renderSidebar(want sidebarCacheEntry) string {
+	c := m.sidebarRenderCache
+	if c.statusLine == want.statusLine && c.body == want.body && c.width == want.width &&
+		c.height == want.height && c.boxWidth == want.boxWidth && c.boxHeight == want.boxHeight &&
+		c.border == want.border {
+		return c.rendered
+	}
+	inner := lipgloss.JoinVertical(
+		lipgloss.Left,
+		want.statusLine,
+		m.styles.sidebarInner(want.width, want.height, want.body),
+	)
+	want.rendered = m.styles.sidebarBox(want.boxWidth, want.boxHeight, want.border, inner)
+	*c = want
+	return want.rendered
 }
 
 // renderChatArea builds the chat status bar + viewport/popup + input box
