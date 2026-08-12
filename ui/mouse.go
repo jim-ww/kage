@@ -40,6 +40,7 @@ const (
 	zoneCallVideo             = "call-video-button"
 	zoneCallVideoCamera       = "call-video-camera-button"
 	zoneCallVideoScreen       = "call-video-screen-button"
+	zoneCallReopenVideo       = "call-reopen-video-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
 )
 
@@ -307,6 +308,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		if m.zone.Get(zoneCallVideoScreen).InBounds(mouse) {
 			return zoneCallVideoScreen
 		}
+		if m.zone.Get(zoneCallReopenVideo).InBounds(mouse) {
+			return zoneCallReopenVideo
+		}
 	}
 	if m.zone.Get(zoneJumpToBottom).InBounds(mouse) {
 		return zoneJumpToBottom
@@ -501,6 +505,9 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.zone.Get(zoneCallHangup).InBounds(msg) {
 			return m, m.hangupCurrentCall()
+		}
+		if m.zone.Get(zoneCallReopenVideo).InBounds(msg) {
+			return m, m.reopenRemoteVideo()
 		}
 		if m.videoSourcePrompt {
 			if m.zone.Get(zoneCallVideoCamera).InBounds(msg) {

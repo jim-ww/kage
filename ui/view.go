@@ -252,6 +252,12 @@ func (m Model) renderCallBar(width int) string {
 			verb = "connecting to"
 		}
 		text := "📞 " + verb + " " + m.call.peer + "...   "
+		if m.call.fingerprintChanged {
+			text += "⚠ peer's call key changed since last time!   "
+		}
+		if m.call.sas != "" {
+			text += "🔑 " + m.call.sas + "   "
+		}
 		hangup := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
 		return m.styles.callBarLine(width, text+hangup)
 
@@ -271,15 +277,25 @@ func (m Model) renderCallBar(width int) string {
 			quality = "📶 " + m.call.quality
 		}
 		text := "📞 " + m.call.peer + "  " + dur + "  " + mic + "  " + quality + "   "
+		if m.call.fingerprintChanged {
+			text += "⚠ peer's call key changed since last time!   "
+		}
+		if m.call.sas != "" {
+			text += "🔑 " + m.call.sas + "   "
+		}
 		if m.videoSourcePrompt {
 			text += "start video from:   "
 			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[c] camera", m.isHovered(zoneCallVideoCamera)))
 			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[s] screen", m.isHovered(zoneCallVideoScreen)))
 			return m.styles.callBarLine(width, text+cameraBtn+" "+screenBtn+" [esc] cancel")
 		}
+		if m.call.sharing {
+			text += "🖥 sharing   "
+		}
 		muteBtn := m.zone.Mark(zoneCallMute, m.styles.renderCallBarButton(muteLabel, m.isHovered(zoneCallMute)))
 		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
-		buttons := muteBtn + " " + hangupBtn
+		reopenBtn := m.zone.Mark(zoneCallReopenVideo, m.styles.renderCallBarButton("[r] reopen video", m.isHovered(zoneCallReopenVideo)))
+		buttons := muteBtn + " " + reopenBtn + " " + hangupBtn
 		if !m.call.sharing {
 			videoBtn := m.zone.Mark(zoneCallVideo, m.styles.renderCallBarButton("[v] video", m.isHovered(zoneCallVideo)))
 			buttons += " " + videoBtn

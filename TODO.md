@@ -1,3 +1,5 @@
+- chat: go to replied message
+- select & yank text in draft with mouse
 - add default encryption for chats config option, default omemov1
 - option to choose mic + mid call
 - edit msg: must not send edit if there were no changes
