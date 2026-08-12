@@ -231,6 +231,12 @@ func (m Model) renderChatArea(colors uiColors) string {
 // matching callBarActive so View() only reserves space for it when needed.
 func (m Model) renderCallBar(width int) string {
 	if m.call == nil {
+		if m.videoDialPrompt {
+			text := "📹 start video call from:   "
+			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[c] camera", m.isHovered(zoneCallVideoCamera)))
+			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[s] screen", m.isHovered(zoneCallVideoScreen)))
+			return m.styles.callBarLine(width, text+cameraBtn+" "+screenBtn+" [esc] cancel")
+		}
 		return ""
 	}
 	switch m.call.state {
@@ -265,9 +271,20 @@ func (m Model) renderCallBar(width int) string {
 			quality = "📶 " + m.call.quality
 		}
 		text := "📞 " + m.call.peer + "  " + dur + "  " + mic + "  " + quality + "   "
+		if m.videoSourcePrompt {
+			text += "start video from:   "
+			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[c] camera", m.isHovered(zoneCallVideoCamera)))
+			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[s] screen", m.isHovered(zoneCallVideoScreen)))
+			return m.styles.callBarLine(width, text+cameraBtn+" "+screenBtn+" [esc] cancel")
+		}
 		muteBtn := m.zone.Mark(zoneCallMute, m.styles.renderCallBarButton(muteLabel, m.isHovered(zoneCallMute)))
 		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
-		return m.styles.callBarLine(width, text+muteBtn+" "+hangupBtn)
+		buttons := muteBtn + " " + hangupBtn
+		if !m.call.sharing {
+			videoBtn := m.zone.Mark(zoneCallVideo, m.styles.renderCallBarButton("[v] video", m.isHovered(zoneCallVideo)))
+			buttons += " " + videoBtn
+		}
+		return m.styles.callBarLine(width, text+buttons)
 
 	case "ended", "failed":
 		// Terminal state: nothing left to click, just the plain self-clearing

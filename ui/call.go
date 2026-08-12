@@ -134,6 +134,13 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 	if !wasActive {
 		m.updateSizes()
 	}
+	// Any fresh call state - sharing having started, or the call ending -
+	// makes a stale "camera or screen?" prompt meaningless. A dial prompt
+	// is answered before m.call exists at all, so a call now existing means
+	// it was either just placed by that same prompt or is a separate
+	// incoming call - either way, done being asked.
+	m.videoSourcePrompt = false
+	m.videoDialPrompt = false
 	if msg.State == "ended" || msg.State == "failed" {
 		return m, callClearTimer(msg.AccountIdx, gen)
 	}
@@ -145,7 +152,7 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 // while it's still shown (see callClearMsg), so the bar doesn't disappear
 // and reappear (and the layout doesn't jump) right as a call ends.
 func (m Model) callBarActive() bool {
-	return m.call != nil
+	return m.call != nil || m.videoDialPrompt
 }
 
 // callBarLine renders the current call state as a single line for the
@@ -232,6 +239,44 @@ func (m Model) startCallToCurrentChat() tea.Cmd {
 	return func() tea.Msg { return m.callController.StartCall(accountIdx, chat.Address) }
 }
 
+// startVideoCallToCurrentChat opens the pre-dial "camera or screen?" prompt
+// for VideoCallToggle, or hangs up whatever call is already in progress
+// (mirroring startCallToCurrentChat) — the actual StartVideoCall RPC only
+// fires once the user picks a source, via startVideoCall below.
+func (m Model) startVideoCallToCurrentChat() (Model, tea.Cmd) {
+	if m.callController == nil {
+		cmd := m.showNotification("calling unavailable")
+		return m, cmd
+	}
+	if m.call != nil && m.callInProgress() {
+		accountIdx := m.currentAccount
+		return m, func() tea.Msg { return m.callController.HangupCall(accountIdx) }
+	}
+	if _, ok := m.currentChat(); !ok {
+		cmd := m.showNotification("no chat selected")
+		return m, cmd
+	}
+	m.videoDialPrompt = true
+	return m, nil
+}
+
+// startVideoCall answers the pre-dial "camera or screen?" prompt, closing it
+// and placing a video call to the currently open chat with the chosen
+// source.
+func (m Model) startVideoCall(useCamera bool) (Model, tea.Cmd) {
+	m.videoDialPrompt = false
+	if m.callController == nil {
+		return m, nil
+	}
+	chat, ok := m.currentChat()
+	if !ok || chat.Address == "" {
+		cmd := m.showNotification("no chat selected")
+		return m, cmd
+	}
+	accountIdx := m.currentAccount
+	return m, func() tea.Msg { return m.callController.StartVideoCall(accountIdx, chat.Address, useCamera) }
+}
+
 // answerRingingCall/rejectRingingCall/hangupCurrentCall/toggleMuteCall are
 // the call-bar action helpers — shared by both the keybind handlers
 // (update_keys.go) and the mouse-click handlers (mouse.go) so the RPC-calling
@@ -273,11 +318,36 @@ func (m Model) toggleMuteCall() tea.Cmd {
 }
 
 // toggleScreenShare flips whether we're sending our own screen on the
-// current (connected) call.
+// current (connected) call. Starting always means the screen (useCamera
+// false) — for a camera prompt, see startVideoPrompt/startVideo.
 func (m Model) toggleScreenShare() tea.Cmd {
 	if m.callController == nil || m.call == nil {
 		return nil
 	}
 	accountIdx, sharing := m.call.accountIdx, !m.call.sharing
-	return func() tea.Msg { return m.callController.ScreenShare(accountIdx, sharing) }
+	return func() tea.Msg { return m.callController.ScreenShare(accountIdx, sharing, false) }
+}
+
+// startVideoPrompt opens (or, if already sharing, is a no-op for) the
+// "camera or screen?" call-bar prompt that VideoToggle triggers - the actual
+// RPC only fires once the user picks a source, via startVideo. Returning the
+// mutated Model directly (not a tea.Cmd) since this only changes local UI
+// state, the same pattern confirmTarget uses for its popups.
+func (m Model) startVideoPrompt() Model {
+	if m.call == nil || m.call.state != "connected" || m.call.sharing {
+		return m
+	}
+	m.videoSourcePrompt = true
+	return m
+}
+
+// startVideo answers the "camera or screen?" prompt, closing it and sending
+// our own video from the chosen source on the current (connected) call.
+func (m Model) startVideo(useCamera bool) (Model, tea.Cmd) {
+	m.videoSourcePrompt = false
+	if m.callController == nil || m.call == nil {
+		return m, nil
+	}
+	accountIdx := m.call.accountIdx
+	return m, func() tea.Msg { return m.callController.ScreenShare(accountIdx, true, useCamera) }
 }

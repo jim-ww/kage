@@ -40,6 +40,7 @@ const (
 	rpcListAccounts          = "ListAccounts"
 	rpcSetFocusState         = "SetFocusState"
 	rpcStartCall             = "StartCall"
+	rpcStartVideoCall        = "StartVideoCall"
 	rpcAnswerCall            = "AnswerCall"
 	rpcHangupCall            = "HangupCall"
 	rpcRejectCall            = "RejectCall"
@@ -165,6 +166,11 @@ type startCallParams struct {
 	AccountIdx int
 	To         string
 }
+type startVideoCallParams struct {
+	AccountIdx int
+	To         string
+	UseCamera  bool
+}
 type muteCallParams struct {
 	AccountIdx int
 	Muted      bool
@@ -172,6 +178,7 @@ type muteCallParams struct {
 type screenShareParams struct {
 	AccountIdx int
 	Sharing    bool
+	UseCamera  bool // ignored when Sharing is false
 }
 
 // getCallStateResult reports whatever call is currently in progress on any

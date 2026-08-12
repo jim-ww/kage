@@ -152,13 +152,33 @@ type callSession struct {
 	// has no session-level flag here - it's just whatever video arrives on
 	// OnTrack, played via playRemoteVideo/ScreenViewer independently.
 	// pendingShare is true from the moment a content-add offering video is
-	// sent until the peer's content-accept lands - startScreenShare only
+	// sent until the peer's content-accept lands - startVideoShare only
 	// actually starts wf-recorder once negotiation completes (see
 	// applyContentAccept), so an idle-forever video m-line never gets
 	// negotiated in the first place (see call.PeerConnection.AddVideoTrack).
 	sharing      bool
 	pendingShare bool
-	screenShare  *call.ScreenShare
+	// videoUseCamera records which source startVideoShare was asked for, so
+	// beginScreenShareCapture (invoked later, once the peer's content-accept
+	// lands) knows whether to spin up call.NewCamera or call.NewScreenShare.
+	videoUseCamera bool
+	videoSource    call.VideoSource
+
+	// receivingRemoteVideo is true for as long as playRemoteVideo is
+	// actively reading the peer's own video track - startVideoShare refuses
+	// to run while it's set (see that doc for why: a second video content
+	// added on top of an already-negotiated one from the peer was observed
+	// live to collide on the same mid and get the whole call terminated).
+	receivingRemoteVideo bool
+
+	// autoStartVideo/autoStartVideoUseCamera: set once at call creation by
+	// startVideoCall (VideoCallToggle's action - camera/screen chosen before
+	// dialing), consumed exactly once by onConnectionState the first time
+	// this call reaches callConnected, then cleared. A plain startCall call
+	// leaves autoStartVideo false, so nothing here changes for a normal
+	// voice call.
+	autoStartVideo          bool
+	autoStartVideoUseCamera bool
 
 	// remoteContents is the peer's description of every Jingle content
 	// established so far (initially just audio, from session-initiate/
@@ -297,30 +317,45 @@ func (s *accountSession) clearCall(c *callSession) {
 // XEP-0353 propose that makes the peer's devices ring. The Jingle IQ
 // exchange only begins once one of them answers with <proceed/>.
 func (s *accountSession) startCall(ctx context.Context, srv *ipc.Server, accountIdx int, to string) error {
+	_, err := s.doStartCall(ctx, srv, accountIdx, to, false, false)
+	return err
+}
+
+// startVideoCall places a call exactly like startCall, but additionally
+// arms autoStartVideo so the moment it reaches callConnected, onConnectionState
+// starts sending our own video (camera or screen, see useCamera) without a
+// separate ScreenShare call - VideoCallToggle's action.
+func (s *accountSession) startVideoCall(ctx context.Context, srv *ipc.Server, accountIdx int, to string, useCamera bool) error {
+	_, err := s.doStartCall(ctx, srv, accountIdx, to, true, useCamera)
+	return err
+}
+
+func (s *accountSession) doStartCall(ctx context.Context, srv *ipc.Server, accountIdx int, to string, autoVideo, autoVideoUseCamera bool) (*callSession, error) {
 	client, err := s.liveClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	s.callMu.Lock()
 	if s.call != nil {
 		s.callMu.Unlock()
-		return fmt.Errorf("a call is already in progress")
+		return nil, fmt.Errorf("a call is already in progress")
 	}
 	c := &callSession{
 		srv: srv, accountIdx: accountIdx, sess: s, client: client,
 		peer: bareJID(to), sid: callSID(), state: callProposing,
 		contentName: jingleContentName, done: make(chan struct{}),
+		autoStartVideo: autoVideo, autoStartVideoUseCamera: autoVideoUseCamera,
 	}
 	s.call = c
 	s.callMu.Unlock()
 
-	if err := client.ProposeCall(ctx, c.peer, c.sid); err != nil {
+	if err := client.ProposeCall(ctx, c.peer, c.sid, autoVideo); err != nil {
 		c.end(ctx, "failed", err.Error())
-		return err
+		return nil, err
 	}
 	c.broadcastState(callProposing, "")
-	return nil
+	return c, nil
 }
 
 // --- TUI-driven transitions ---------------------------------------------
@@ -434,16 +469,16 @@ func (s *accountSession) muteCall(muted bool) error {
 	return nil
 }
 
-// setScreenShare starts or stops capturing and sending our own screen on
-// the current call's (always-negotiated, see call.NewPeerConnection) video
-// track.
-func (s *accountSession) setScreenShare(sharing bool) error {
+// setScreenShare starts or stops capturing and sending our own video (screen
+// or camera, see useCamera) on the current call's (always-negotiated, see
+// call.NewPeerConnection) video track. useCamera is ignored when stopping.
+func (s *accountSession) setScreenShare(sharing, useCamera bool) error {
 	c := s.currentCall()
 	if c == nil {
 		return fmt.Errorf("no call in progress")
 	}
 	if sharing {
-		return c.startScreenShare()
+		return c.startVideoShare(useCamera)
 	}
 	c.stopScreenShare()
 	return nil
@@ -677,6 +712,33 @@ func (c *callSession) initiateSession(ctx context.Context) error {
 	if err := c.setupPeer(ctx); err != nil {
 		return err
 	}
+
+	c.mu.Lock()
+	autoVideo, autoCamera := c.autoStartVideo, c.autoStartVideoUseCamera
+	c.mu.Unlock()
+	// A video call (startVideoCall/VideoCallToggle) bundles its video track
+	// into this very first offer, rather than sending it later as a
+	// content-add once the audio-only call is already connected. The two
+	// ought to be equivalent per XEP-0166, but a real peer (Conversations)
+	// was observed live mishandling the content-add path specifically -
+	// reacting to it with its own ICE restart that uses inconsistent
+	// credentials across its own bundled m-lines and never completes,
+	// silently dropping the call's video with no error on either side. Video
+	// negotiated in the original offer/answer never hits that path at all.
+	if autoVideo {
+		if err := c.pc.AddVideoTrack(); err != nil {
+			return fmt.Errorf("adding video track: %w", err)
+		}
+		c.mu.Lock()
+		c.videoUseCamera = autoCamera
+		// Consumed here, bundled into the offer below - onConnectionState's
+		// own autoStartVideo check (the content-add path) must not also
+		// fire once this call connects, or we'd try to add a second video
+		// m-line on top of the one already negotiated.
+		c.autoStartVideo = false
+		c.mu.Unlock()
+	}
+
 	offer, err := c.pc.CreateOffer()
 	if err != nil {
 		return err
@@ -777,6 +839,15 @@ func (c *callSession) applyAnswer(ctx context.Context, jingle xmpp.JingleIQ) err
 	c.mu.Lock()
 	c.remoteContents = jingle.Contents
 	c.mu.Unlock()
+
+	// A video call (see initiateSession) bundled its video track into the
+	// original offer rather than a later content-add - if the callee's
+	// answer accepted it, this is the equivalent of applyContentAccept's
+	// job for that path: negotiation just completed, so it's finally safe
+	// to actually start capturing and sending frames.
+	if _, ok := firstContentOfKind(jingle.Contents, "video"); ok {
+		c.beginScreenShareCapture(pc)
+	}
 	return nil
 }
 
@@ -907,6 +978,16 @@ func (c *callSession) onConnectionState(ctx context.Context, state webrtc.PeerCo
 		}
 		c.startQualitySampler()
 		c.broadcastState(callConnected, "")
+
+		c.mu.Lock()
+		autoVideo, autoCamera := c.autoStartVideo, c.autoStartVideoUseCamera
+		c.autoStartVideo = false
+		c.mu.Unlock()
+		if autoVideo {
+			if err := c.startVideoShare(autoCamera); err != nil {
+				slog.Warn("auto-starting video", "sid", c.sid, "camera", autoCamera, "err", err)
+			}
+		}
 	case webrtc.PeerConnectionStateFailed:
 		c.handleICEFailure(ctx)
 	case webrtc.PeerConnectionStateDisconnected:
@@ -1239,7 +1320,7 @@ func (c *callSession) playRemote(track *webrtc.TrackRemote) {
 }
 
 // currentState returns c.state under lock, for broadcastState calls made
-// from places (like startScreenShare) that changed something other than the
+// from places (like startVideoShare) that changed something other than the
 // lifecycle state and just want to re-broadcast the unchanged one.
 func (c *callSession) currentState() callState {
 	c.mu.Lock()
@@ -1247,25 +1328,37 @@ func (c *callSession) currentState() callState {
 	return c.state
 }
 
-// startScreenShare adds the video track and sends a XEP-0166 content-add
-// offering it - wf-recorder only actually starts once the peer's
-// content-accept lands (see applyContentAccept), so the video m-line only
-// ever gets negotiated with real media about to flow, never idle from the
-// start (see call.NewPeerConnection's doc comment for why that matters).
-// No-op if already sharing or a content-add is already in flight.
-func (c *callSession) startScreenShare() error {
+// startVideoShare adds the video track and sends a XEP-0166 content-add
+// offering it - the capture process (wf-recorder or, for useCamera, ffmpeg
+// reading the webcam) only actually starts once the peer's content-accept
+// lands (see applyContentAccept), so the video m-line only ever gets
+// negotiated with real media about to flow, never idle from the start (see
+// call.NewPeerConnection's doc comment for why that matters). No-op if
+// already sharing or a content-add is already in flight. Refuses (with an
+// error) to run while we're already receiving the peer's own video - adding
+// a second video content on top of one they already negotiated was observed
+// live to collide on the same mid and get the whole call terminated
+// (see receivingRemoteVideo's doc); video calls that bundle video into the
+// original offer (initiateSession) never hit this, only the mid-call toggle
+// can.
+func (c *callSession) startVideoShare(useCamera bool) error {
 	c.mu.Lock()
 	if c.sharing || c.pendingShare {
 		c.mu.Unlock()
 		return nil
 	}
+	if c.receivingRemoteVideo {
+		c.mu.Unlock()
+		return fmt.Errorf("already receiving the peer's video - adding our own isn't supported while that's active")
+	}
 	pc, state, remote := c.pc, c.state, c.remoteJID
+	c.videoUseCamera = useCamera
 	c.mu.Unlock()
 	if pc == nil || state != callConnected {
 		return fmt.Errorf("call is not connected")
 	}
 
-	slog.Debug("screen share: starting", "sid", c.sid)
+	slog.Debug("screen share: starting", "sid", c.sid, "camera", useCamera)
 	if err := pc.AddVideoTrack(); err != nil {
 		return fmt.Errorf("adding video track: %w", err)
 	}
@@ -1300,7 +1393,7 @@ func (c *callSession) startScreenShare() error {
 // applyContentAdd is the responder side of a peer starting a screen share:
 // merge the new video content onto what's already established, apply the
 // resulting full offer, and answer with content-accept. We don't add our
-// own video track here - only the side that called startScreenShare sends;
+// own video track here - only the side that called startVideoShare sends;
 // this side just receives (pion's CreateAnswer sets recvonly for a
 // transceiver with no local track).
 func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ) {
@@ -1432,18 +1525,34 @@ func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.Jingle
 	}
 }
 
-// beginScreenShareCapture launches wf-recorder and starts pumping captured
-// frames onto the now-fully-negotiated video track.
+// defaultCameraDevice is the only camera device kage tries - no UI or config
+// exists yet to pick among several, so the common single-webcam case is all
+// that's supported for now.
+const defaultCameraDevice = "/dev/video0"
+
+// beginScreenShareCapture launches the capture process (wf-recorder for a
+// screen share, ffmpeg/v4l2 for a camera - see c.videoUseCamera) and starts
+// pumping captured frames onto the now-fully-negotiated video track.
 func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
-	share, err := call.NewScreenShare()
+	c.mu.Lock()
+	useCamera := c.videoUseCamera
+	c.mu.Unlock()
+
+	var share call.VideoSource
+	var err error
+	if useCamera {
+		share, err = call.NewCamera(defaultCameraDevice)
+	} else {
+		share, err = call.NewScreenShare()
+	}
 	if err != nil {
-		slog.Warn("starting screen share capture", "sid", c.sid, "err", err)
+		slog.Warn("starting video capture", "sid", c.sid, "camera", useCamera, "err", err)
 		return
 	}
-	slog.Debug("screen share: capture started", "sid", c.sid, "video_sender_ssrc", pc.VideoSenderSSRC())
+	slog.Debug("screen share: capture started", "sid", c.sid, "camera", useCamera, "video_sender_ssrc", pc.VideoSenderSSRC())
 
 	c.mu.Lock()
-	c.screenShare = share
+	c.videoSource = share
 	c.sharing = true
 	c.mu.Unlock()
 
@@ -1454,9 +1563,9 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 			slog.Warn("screen share capture ended", "sid", c.sid, "err", err)
 		}
 		c.mu.Lock()
-		stillOurs := c.screenShare == share
+		stillOurs := c.videoSource == share
 		if stillOurs {
-			c.screenShare = nil
+			c.videoSource = nil
 			c.sharing = false
 		}
 		c.mu.Unlock()
@@ -1468,11 +1577,11 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.broadcastState(c.currentState(), "")
 }
 
-// stopScreenShare tears down wf-recorder, if it's running.
+// stopScreenShare tears down the capture process, if one is running.
 func (c *callSession) stopScreenShare() {
 	c.mu.Lock()
-	share := c.screenShare
-	c.screenShare = nil
+	share := c.videoSource
+	c.videoSource = nil
 	c.sharing = false
 	c.mu.Unlock()
 	if share != nil {
@@ -1490,6 +1599,15 @@ func (c *callSession) stopScreenShare() {
 // isn't sharing) never pops up an empty mpv window.
 func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.TrackRemote) {
 	slog.Debug("screen share: remote video track registered, waiting for packets", "sid", c.sid, "track_id", track.ID(), "ssrc", track.SSRC())
+
+	c.mu.Lock()
+	c.receivingRemoteVideo = true
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.receivingRemoteVideo = false
+		c.mu.Unlock()
+	}()
 
 	// Request a keyframe now, not just once we're ready to decode: the
 	// sender's encoder was very likely already running before this track
@@ -1655,9 +1773,9 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 		c.mu.Lock()
 		slog.Debug("call ending", "sid", c.sid, "prior_state", c.state.String(), "new_state", state, "reason", reason, "was_sharing", c.sharing)
 		c.state = callEnded
-		pc, mic, spk, share := c.pc, c.mic, c.spk, c.screenShare
+		pc, mic, spk, share := c.pc, c.mic, c.spk, c.videoSource
 		c.pc, c.mic, c.spk, c.enc, c.dec = nil, nil, nil, nil, nil
-		c.screenShare, c.sharing = nil, false
+		c.videoSource, c.sharing = nil, false
 		if c.disconnectTimer != nil {
 			c.disconnectTimer.Stop()
 			c.disconnectTimer = nil

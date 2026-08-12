@@ -307,6 +307,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.StartCall(p.AccountIdx, p.To)
 
+	case rpcStartVideoCall:
+		p, err := unmarshalParams[startVideoCallParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.StartVideoCall(p.AccountIdx, p.To, p.UseCamera)
+
 	case rpcAnswerCall:
 		p, err := unmarshalParams[accountIdxParams](params)
 		if err != nil {
@@ -340,7 +347,7 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		if err != nil {
 			return nil, err
 		}
-		return nil, d.a.ScreenShare(p.AccountIdx, p.Sharing)
+		return nil, d.a.ScreenShare(p.AccountIdx, p.Sharing, p.UseCamera)
 
 	case rpcListAccounts:
 		return d.listAccounts(context.Background()), nil

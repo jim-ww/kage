@@ -377,15 +377,21 @@ func (c *Client) sendJMI(ctx context.Context, to string, build func(*jmiMessage)
 // precedes the full Jingle session-initiate IQ exchange, letting all of the
 // callee's devices show an incoming-call notification immediately. sid is
 // the session ID that the subsequent Jingle IQs (once the callee's chosen
-// device proceeds) will use.
-func (c *Client) ProposeCall(ctx context.Context, to, sid string) error {
+// device proceeds) will use. withVideo must be true iff the session-initiate
+// that follows will offer a video content too (a video call, video bundled
+// in from the start - see callSession.initiateSession) - a compliant peer
+// checks the two against each other and rejects the session outright on any
+// mismatch (observed live against Conversations: "session proposal ...
+// included media [audio] but your session-initiate was [audio, video]").
+// Video added later via a XEP-0166 content-add, once the session is already
+// established, isn't part of this check at all and doesn't need withVideo.
+func (c *Client) ProposeCall(ctx context.Context, to, sid string, withVideo bool) error {
 	return c.sendJMI(ctx, to, func(m *jmiMessage) {
-		// Video (for screen sharing) is negotiated later via a XEP-0166
-		// content-add once the session is already established, not upfront -
-		// the propose only needs to list what session-initiate will actually
-		// offer immediately (audio), which is all a compliant peer checks
-		// against.
-		m.Propose = &jmiProposeElem{ID: sid, Descriptions: []jmiDescription{{Media: "audio"}}}
+		descriptions := []jmiDescription{{Media: "audio"}}
+		if withVideo {
+			descriptions = append(descriptions, jmiDescription{Media: "video"})
+		}
+		m.Propose = &jmiProposeElem{ID: sid, Descriptions: descriptions}
 	})
 }
 

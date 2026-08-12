@@ -38,7 +38,7 @@ func TestScreenShareRunGroupsNALsIntoFrames(t *testing.T) {
 		pw.Close()
 	}()
 
-	s := &ScreenShare{stdout: pr, stderr: &syncBuffer{}, done: make(chan struct{})}
+	s := &ScreenShare{&annexBSource{label: "screen share", stdout: pr, stderr: &syncBuffer{}, done: make(chan struct{})}}
 
 	var frames [][]byte
 	err := s.Run(func(frame []byte, _ time.Duration) error {

@@ -230,14 +230,58 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 	}
 
-	// ── Call bar intercepts h (hang up) / m (mute) while a call is in
-	// progress but not ringing-local (that's y/n above) ────────────────
+	// ── "camera or screen?" prompt (VideoToggle on a connected, not yet
+	// sharing call) intercepts c/s/esc while open, swallowing everything
+	// else so a stray keystroke can't fall through to e.g. toggleScreenShare
+	// below with the prompt still (confusingly) up ─────────────────────
+	if m.videoSourcePrompt {
+		switch {
+		case matchesLetter(msg, 'c'):
+			var cmd tea.Cmd
+			m, cmd = m.startVideo(true)
+			return m, cmd, true
+		case matchesLetter(msg, 's'):
+			var cmd tea.Cmd
+			m, cmd = m.startVideo(false)
+			return m, cmd, true
+		case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
+			m.videoSourcePrompt = false
+			return m, nil, true
+		}
+		return m, nil, true
+	}
+
+	// ── "camera or screen?" pre-dial prompt (VideoCallToggle with no call
+	// in progress) intercepts c/s/esc while open, same shape as
+	// videoSourcePrompt above but answered before a call exists at all ──
+	if m.videoDialPrompt {
+		switch {
+		case matchesLetter(msg, 'c'):
+			var cmd tea.Cmd
+			m, cmd = m.startVideoCall(true)
+			return m, cmd, true
+		case matchesLetter(msg, 's'):
+			var cmd tea.Cmd
+			m, cmd = m.startVideoCall(false)
+			return m, cmd, true
+		case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
+			m.videoDialPrompt = false
+			return m, nil, true
+		}
+		return m, nil, true
+	}
+
+	// ── Call bar intercepts h (hang up) / m (mute) / v (video) / s (screen
+	// share) while a call is in progress but not ringing-local (that's y/n
+	// above) ────────────────────────────────────────────────────────────
 	if m.call != nil && m.callInProgress() && m.call.state != "ringing-local" {
 		switch {
 		case matchesLetter(msg, 'h'):
 			return m, m.hangupCurrentCall(), true
 		case matchesLetter(msg, 'm') && m.call.state == "connected":
 			return m, m.toggleMuteCall(), true
+		case matchesLetter(msg, 'v') && m.call.state == "connected" && !m.call.sharing:
+			return m.startVideoPrompt(), nil, true
 		case matchesLetter(msg, 's') && m.call.state == "connected":
 			return m, m.toggleScreenShare(), true
 		}
@@ -339,6 +383,13 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	case matchesKey(msg, m.keys.CallToggle):
 		if m.selectedView == viewChat || m.callInProgress() {
 			return m, m.startCallToCurrentChat(), true
+		}
+
+	case matchesKey(msg, m.keys.VideoCallToggle):
+		if m.selectedView == viewChat || m.callInProgress() {
+			var cmd tea.Cmd
+			m, cmd = m.startVideoCallToCurrentChat()
+			return m, cmd, true
 		}
 
 	case matchesKey(msg, m.keys.ChangeStoragePassword):

@@ -37,6 +37,9 @@ const (
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
 	zoneCallHangup            = "call-hangup-button"
+	zoneCallVideo             = "call-video-button"
+	zoneCallVideoCamera       = "call-video-camera-button"
+	zoneCallVideoScreen       = "call-video-screen-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
 )
 
@@ -295,6 +298,15 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		if m.zone.Get(zoneCallHangup).InBounds(mouse) {
 			return zoneCallHangup
 		}
+		if m.zone.Get(zoneCallVideo).InBounds(mouse) {
+			return zoneCallVideo
+		}
+		if m.zone.Get(zoneCallVideoCamera).InBounds(mouse) {
+			return zoneCallVideoCamera
+		}
+		if m.zone.Get(zoneCallVideoScreen).InBounds(mouse) {
+			return zoneCallVideoScreen
+		}
 	}
 	if m.zone.Get(zoneJumpToBottom).InBounds(mouse) {
 		return zoneJumpToBottom
@@ -467,6 +479,17 @@ func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 // more specific inside it.
 func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.callBarActive() {
+		if m.videoDialPrompt {
+			if m.zone.Get(zoneCallVideoCamera).InBounds(msg) {
+				m, cmd := m.startVideoCall(true)
+				return m, cmd
+			}
+			if m.zone.Get(zoneCallVideoScreen).InBounds(msg) {
+				m, cmd := m.startVideoCall(false)
+				return m, cmd
+			}
+			return m, nil
+		}
 		if m.zone.Get(zoneCallAnswer).InBounds(msg) {
 			return m, m.answerRingingCall()
 		}
@@ -478,6 +501,18 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.zone.Get(zoneCallHangup).InBounds(msg) {
 			return m, m.hangupCurrentCall()
+		}
+		if m.videoSourcePrompt {
+			if m.zone.Get(zoneCallVideoCamera).InBounds(msg) {
+				m, cmd := m.startVideo(true)
+				return m, cmd
+			}
+			if m.zone.Get(zoneCallVideoScreen).InBounds(msg) {
+				m, cmd := m.startVideo(false)
+				return m, cmd
+			}
+		} else if m.zone.Get(zoneCallVideo).InBounds(msg) {
+			return m.startVideoPrompt(), nil
 		}
 	}
 

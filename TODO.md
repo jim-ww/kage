@@ -1,6 +1,4 @@
-- cant initiate calls: infinite calling
-- edit must not show as edited if there were no changes
-- add proper login/register modal
+- edit msg: must not send edit if there were no changes
 - uploading your own files must not download them from server (must be downloaded)
 - notification appears sooner then message
 - notifications appear when chat is focused?

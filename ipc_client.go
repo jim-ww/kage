@@ -278,6 +278,11 @@ func (c *ipcClient) StartCall(accountIdx int, to string) tea.Msg {
 	return ui.CallActionResultMsg{Action: "start", AccountIdx: accountIdx, Err: err}
 }
 
+func (c *ipcClient) StartVideoCall(accountIdx int, to string, useCamera bool) tea.Msg {
+	err := c.conn.Call(rpcStartVideoCall, startVideoCallParams{AccountIdx: accountIdx, To: to, UseCamera: useCamera}, nil)
+	return ui.CallActionResultMsg{Action: "start", AccountIdx: accountIdx, Err: err}
+}
+
 func (c *ipcClient) AnswerCall(accountIdx int) tea.Msg {
 	err := c.conn.Call(rpcAnswerCall, accountIdxParams{AccountIdx: accountIdx}, nil)
 	return ui.CallActionResultMsg{Action: "answer", AccountIdx: accountIdx, Err: err}
@@ -298,8 +303,8 @@ func (c *ipcClient) MuteCall(accountIdx int, muted bool) tea.Msg {
 	return ui.CallActionResultMsg{Action: "mute", AccountIdx: accountIdx, Err: err}
 }
 
-func (c *ipcClient) ScreenShare(accountIdx int, sharing bool) tea.Msg {
-	err := c.conn.Call(rpcScreenShare, screenShareParams{AccountIdx: accountIdx, Sharing: sharing}, nil)
+func (c *ipcClient) ScreenShare(accountIdx int, sharing, useCamera bool) tea.Msg {
+	err := c.conn.Call(rpcScreenShare, screenShareParams{AccountIdx: accountIdx, Sharing: sharing, UseCamera: useCamera}, nil)
 	return ui.CallActionResultMsg{Action: "screenshare", AccountIdx: accountIdx, Err: err}
 }
 

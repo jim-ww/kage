@@ -1092,6 +1092,16 @@ func (a *adapter) StartCall(accountIdx int, to string) error {
 	return sess.startCall(context.Background(), a.srv, accountIdx, to)
 }
 
+// StartVideoCall places a call and starts sending our own video (camera or
+// screen, see useCamera) the moment it connects.
+func (a *adapter) StartVideoCall(accountIdx int, to string, useCamera bool) error {
+	sess, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	return sess.startVideoCall(context.Background(), a.srv, accountIdx, to, useCamera)
+}
+
 // AnswerCall accepts the call currently ringing on accountIdx.
 func (a *adapter) AnswerCall(accountIdx int) error {
 	sess, ok := a.session(accountIdx)
@@ -1128,12 +1138,12 @@ func (a *adapter) MuteCall(accountIdx int, muted bool) error {
 	return sess.muteCall(muted)
 }
 
-// ScreenShare starts or stops sending our own screen on accountIdx's current
-// call.
-func (a *adapter) ScreenShare(accountIdx int, sharing bool) error {
+// ScreenShare starts or stops sending our own video (screen or camera, see
+// useCamera) on accountIdx's current call.
+func (a *adapter) ScreenShare(accountIdx int, sharing, useCamera bool) error {
 	sess, ok := a.session(accountIdx)
 	if !ok {
 		return fmt.Errorf("unknown account %d", accountIdx)
 	}
-	return sess.setScreenShare(sharing)
+	return sess.setScreenShare(sharing, useCamera)
 }

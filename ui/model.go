@@ -300,6 +300,18 @@ type Model struct {
 	// just ended (briefly, to show the reason) — see ui/call.go. nil means
 	// idle: no call, nothing to render.
 	call *callUIState
+
+	// videoSourcePrompt is true while the call bar is asking "camera or
+	// screen?" after the [v] video button was pressed on a connected call
+	// that isn't already sharing video — see ui/call.go's startVideoPrompt.
+	videoSourcePrompt bool
+
+	// videoDialPrompt is true while the call bar is asking "camera or
+	// screen?" after VideoCallToggle was pressed with no call in progress —
+	// unlike videoSourcePrompt, this is answered *before* a call exists at
+	// all: picking a source both places the call and starts sending that
+	// source the moment it connects (see ui/call.go's startVideoDialPrompt).
+	videoDialPrompt bool
 }
 
 // DisplayOptions bundles the message-rendering config toggles.

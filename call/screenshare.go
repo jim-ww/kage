@@ -31,63 +31,67 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// screenShareFramerate is a conservative cap for screen-share capture -
+// videoCaptureFramerate is a conservative cap for screen/camera capture -
 // rarely needs more than this to read comfortably, and keeps bandwidth/CPU
 // sane over a STUN-brokered path the way FrameMillis does for audio.
-const screenShareFramerate = 15
+const videoCaptureFramerate = 15
 
-// ScreenShare captures the current output via wf-recorder (wlroots'
-// screencopy protocol) as a raw H.264 Annex-B bytestream - no container, so
-// the stream can be split into NAL units and pushed onto a WebRTC video
-// track directly, the same way call/audio.go's Mic feeds Opus frames to the
-// peer connection.
-type ScreenShare struct {
+// VideoSource is anything that can be started, pumped for encoded frames via
+// Run, and torn down via Stop - the shape callsession.go's screen-share
+// machinery needs, satisfied identically by ScreenShare (wf-recorder) and
+// Camera (ffmpeg/v4l2) so the Jingle content-add/content-accept negotiation
+// and the WriteVideoSample pump don't need to know or care which one is
+// actually feeding them.
+type VideoSource interface {
+	// Run reads encoded frames until the source's process exits or Stop is
+	// called, calling write once per complete access unit. Blocks - callers
+	// run it in its own goroutine.
+	Run(write func(frame []byte, sinceLast time.Duration) error) error
+	Stop()
+}
+
+// annexBSource is the process-management and NAL-framing plumbing shared by
+// every capture source that produces a raw H.264 Annex-B bytestream on
+// stdout: wf-recorder for screen capture, ffmpeg/v4l2 for a webcam. They
+// differ only in the command line that produces that stream.
+type annexBSource struct {
+	label  string // for log lines, e.g. "screen share", "camera"
 	cmd    *exec.Cmd
 	stdout io.ReadCloser
 	stderr *syncBuffer
 	done   chan struct{}
 }
 
-// NewScreenShare starts wf-recorder and returns once the subprocess is
-// running. Run must be called (typically in its own goroutine) to actually
-// pump captured NAL units.
-func NewScreenShare() (*ScreenShare, error) {
-	cmd := exec.Command(
-		"wf-recorder",
-		"-y", // "-f -" still prompts to overwrite "-" as if it were a real file without this
-		"-c", "libx264",
-		"-p", "tune=zerolatency",
-		// "-p","preset=fast",
-		"-m", "h264",
-		"-r", fmt.Sprint(screenShareFramerate),
-		"-f", "/dev/stdout",
-	)
+// startAnnexBSource starts cmd (which must write a raw H.264 Annex-B stream
+// to stdout) and returns once the subprocess is running. Run must be called
+// (typically in its own goroutine) to actually pump captured NAL units.
+func startAnnexBSource(label string, cmd *exec.Cmd) (*annexBSource, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("opening wf-recorder stdout: %w", err)
+		return nil, fmt.Errorf("opening %s stdout: %w", cmd.Path, err)
 	}
-	// wf-recorder logs everything of interest - screencopy/portal permission
-	// failures in particular - to stderr, not stdout. Left unset, exec
-	// discards it, so a wf-recorder that fails to actually capture anything
-	// exits with output indistinguishable from a clean, deliberate stop (see
-	// Run's EOF handling below).
+	// The capture process logs everything of interest - screencopy/portal
+	// permission failures, camera device errors - to stderr, not stdout.
+	// Left unset, exec discards it, so a process that fails to actually
+	// capture anything exits with output indistinguishable from a clean,
+	// deliberate stop (see Run's EOF handling below).
 	stderr := &syncBuffer{}
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting wf-recorder: %w", err)
+		return nil, fmt.Errorf("starting %s: %w", cmd.Path, err)
 	}
-	return &ScreenShare{cmd: cmd, stdout: stdout, stderr: stderr, done: make(chan struct{})}, nil
+	return &annexBSource{label: label, cmd: cmd, stdout: stdout, stderr: stderr, done: make(chan struct{})}, nil
 }
 
-// Run reads Annex-B NAL units off wf-recorder's stdout, groups them into
-// complete access units (frames), and calls write once per frame (start
+// Run reads Annex-B NAL units off the capture process's stdout, groups them
+// into complete access units (frames), and calls write once per frame (start
 // codes included, one or more NALs concatenated - e.g. SPS/PPS followed by
 // the slice) until the stream ends or Stop is called. A frame is flushed as
-// soon as its VCL NAL (slice, type 1 or 5 - wf-recorder/x264 emits one slice
-// per picture, no slice partitioning) has been seen, since any SPS/PPS/SEI
-// NALs for that picture always precede it. Blocks until done - callers run
-// it in its own goroutine.
-func (s *ScreenShare) Run(write func(frame []byte, sinceLast time.Duration) error) error {
+// soon as its VCL NAL (slice, type 1 or 5 - x264 emits one slice per
+// picture, no slice partitioning) has been seen, since any SPS/PPS/SEI NALs
+// for that picture always precede it. Blocks until done - callers run it in
+// its own goroutine.
+func (s *annexBSource) Run(write func(frame []byte, sinceLast time.Duration) error) error {
 	buf := make([]byte, 0, 1<<20)
 	tmp := make([]byte, 1<<16)
 	frame := make([]byte, 0, 1<<16)
@@ -123,7 +127,7 @@ func (s *ScreenShare) Run(write func(frame []byte, sinceLast time.Duration) erro
 				frame = make([]byte, 0, 1<<16)
 				frames++
 				if frames == 1 || frames%60 == 0 {
-					slog.Debug("screen share: encoded frame", "frames", frames, "bytes", len(out), "since_last", sinceLast)
+					slog.Debug(s.label+": encoded frame", "frames", frames, "bytes", len(out), "since_last", sinceLast)
 				}
 				if werr := write(out, sinceLast); werr != nil {
 					return werr
@@ -134,17 +138,104 @@ func (s *ScreenShare) Run(write func(frame []byte, sinceLast time.Duration) erro
 			if err == io.EOF {
 				// A clean Stop() closes s.done first, so a caller-initiated
 				// stop returns via the select above before we ever see EOF
-				// here - EOF reaching this point means wf-recorder exited on
-				// its own, which is always worth surfacing (0 frames
-				// especially: portal/screencopy permission failures exit
-				// this way with nothing on stdout and the real reason only
-				// on stderr).
-				slog.Debug("screen share: wf-recorder stream ended", "frames", frames, "stderr", s.stderr.String())
+				// here - EOF reaching this point means the capture process
+				// exited on its own, which is always worth surfacing (0
+				// frames especially: permission/device failures exit this
+				// way with nothing on stdout and the real reason only on
+				// stderr).
+				slog.Debug(s.label+": capture process stream ended", "frames", frames, "stderr", s.stderr.String())
 				return nil
 			}
 			return err
 		}
 	}
+}
+
+// Stop terminates the capture process and unblocks Run.
+func (s *annexBSource) Stop() {
+	select {
+	case <-s.done:
+		return
+	default:
+		close(s.done)
+	}
+	if s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+	}
+	_ = s.cmd.Wait()
+}
+
+// ScreenShare captures the current output via wf-recorder (wlroots'
+// screencopy protocol) as a raw H.264 Annex-B bytestream - no container, so
+// the stream can be split into NAL units and pushed onto a WebRTC video
+// track directly, the same way call/audio.go's Mic feeds Opus frames to the
+// peer connection.
+type ScreenShare struct {
+	*annexBSource
+}
+
+// NewScreenShare starts wf-recorder and returns once the subprocess is
+// running. Run must be called (typically in its own goroutine) to actually
+// pump captured NAL units.
+func NewScreenShare() (*ScreenShare, error) {
+	cmd := exec.Command(
+		"wf-recorder",
+		"-y", // "-f -" still prompts to overwrite "-" as if it were a real file without this
+		"-c", "libx264",
+		"-p", "tune=zerolatency",
+		// "-p","preset=fast",
+		"-m", "h264",
+		"-r", fmt.Sprint(videoCaptureFramerate),
+		"-f", "/dev/stdout",
+	)
+	src, err := startAnnexBSource("screen share", cmd)
+	if err != nil {
+		return nil, err
+	}
+	return &ScreenShare{src}, nil
+}
+
+// Camera captures a video4linux2 device (a webcam) via ffmpeg, encoding to
+// the same raw H.264 Annex-B bytestream ScreenShare produces - the rest of
+// the screen-share pipeline (framing, WriteVideoSample, Jingle
+// content-add/-accept) doesn't need to know which one is feeding it (see
+// VideoSource).
+type Camera struct {
+	*annexBSource
+}
+
+// NewCamera starts ffmpeg capturing from device (e.g. "/dev/video0") and
+// returns once the subprocess is running. Run must be called (typically in
+// its own goroutine) to actually pump captured NAL units.
+func NewCamera(device string) (*Camera, error) {
+	cmd := exec.Command(
+		"ffmpeg",
+		"-f", "v4l2",
+		"-framerate", fmt.Sprint(videoCaptureFramerate),
+		"-video_size", "1280x720",
+		"-i", device,
+		// Most webcams deliver MJPEG/YUYV (4:2:2), not 4:2:0 - encoding that
+		// as-is lets libx264 silently pick a higher profile than the
+		// baseline-ish one call/peer.go declares in SDP
+		// (profile-level-id=42e01f), which a peer's decoder then can't
+		// parse: RTP arrives, nothing ever gets decoded, no error either
+		// side. Forcing 4:2:0 here keeps the actual bitstream profile
+		// consistent with what's negotiated, the same as wf-recorder's
+		// screen capture already is.
+		"-pix_fmt", "yuv420p",
+		"-c:v", "libx264",
+		"-profile:v", "baseline",
+		"-preset", "superfast",
+		"-tune", "zerolatency",
+		"-crf", "20",
+		"-f", "h264",
+		"-",
+	)
+	src, err := startAnnexBSource("camera", cmd)
+	if err != nil {
+		return nil, err
+	}
+	return &Camera{src}, nil
 }
 
 // isVCLNAL reports whether nal (start code included, 3- or 4-byte) is a
@@ -163,20 +254,6 @@ func isVCLNAL(nal []byte) bool {
 	default:
 		return false
 	}
-}
-
-// Stop terminates wf-recorder and unblocks Run.
-func (s *ScreenShare) Stop() {
-	select {
-	case <-s.done:
-		return
-	default:
-		close(s.done)
-	}
-	if s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-	}
-	_ = s.cmd.Wait()
 }
 
 // splitNextNAL extracts the first complete Annex-B NAL unit (start code
