@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -22,6 +23,17 @@ func TestComputeSASDifferentForDifferentFingerprints(t *testing.T) {
 	c := "99:88:77:66:55:44"
 	if computeSAS(a, b) == computeSAS(a, c) {
 		t.Fatal("SAS should differ when either fingerprint changes (that's the whole point)")
+	}
+}
+
+func TestComputeSASNoPanicAcrossFingerprints(t *testing.T) {
+	// computeSAS used to index sasAlphabet with val&0x1f, but the alphabet
+	// has 31 entries, not 32 - any fingerprint pair whose hash landed on the
+	// missing index panicked. Sweep enough fingerprints to hit that value.
+	for i := 0; i < 10000; i++ {
+		a := fmt.Sprintf("AA:BB:CC:%04d", i)
+		b := fmt.Sprintf("DD:EE:FF:%04d", i)
+		_ = computeSAS(a, b)
 	}
 }
 

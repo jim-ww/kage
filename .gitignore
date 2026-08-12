@@ -10,3 +10,4 @@ devtest/prosody/*.pid
 CLAUDE.md
 # Added by goreleaser init:
 dist/
+*-debug.log

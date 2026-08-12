@@ -57,10 +57,11 @@ func computeSAS(fpA, fpB string) string {
 	// sasAlphabet - the same shape as a ZRTP SAS.
 	val := uint32(sum[0])<<16 | uint32(sum[1])<<8 | uint32(sum[2])
 	val >>= 4
+	n := uint32(len(sasAlphabet))
 	var out [4]byte
 	for i := 3; i >= 0; i-- {
-		out[i] = sasAlphabet[val&0x1f]
-		val >>= 5
+		out[i] = sasAlphabet[val%n]
+		val /= n
 	}
 	return string(out[0:2]) + "-" + string(out[2:4])
 }
