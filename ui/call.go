@@ -181,16 +181,16 @@ func (m Model) callBarLine() string {
 	who := m.call.peer
 	switch m.call.state {
 	case "ringing-local":
-		return "📞 incoming call: " + who + "   [y] answer  [n] reject"
+		return "📞 incoming call: " + who + "·[y] answer·[n] reject"
 	case "proposing", "ringing-remote":
-		return "📞 calling " + who + "...   [h] hang up"
+		return "📞 calling " + who + "...·[h] hang up"
 	case "negotiating":
-		line := "📞 connecting to " + who + "...   [h] hang up"
+		line := "📞 connecting to " + who + "...·[h] hang up"
 		if m.call.fingerprintChanged {
-			line += "   ⚠ peer's call key changed since last time!"
+			line += "·⚠ peer's call key changed since last time!"
 		}
 		if m.call.sas != "" {
-			line += "   🔑 " + m.call.sas
+			line += "·🔑 " + m.call.sas
 		}
 		return line
 	case "connected":
@@ -208,17 +208,17 @@ func (m Model) callBarLine() string {
 		}
 		share := "[s] share screen"
 		if m.call.sharing {
-			share = "🖥 sharing  [s] stop"
+			share = "🖥 sharing·[s] stop"
 		}
-		line := "📞 " + who + "  " + dur + "  " + mic + "  " + quality + "   [m] mute  " + share + "  [r] reopen video  [h] hang up"
+		line := "📞 " + who + "·" + dur + "·" + mic + "·" + quality + "·[m] mute·" + share + "·[r] reopen video·[h] hang up"
 		if m.call.fingerprintChanged {
 			// Loud and separate from the SAS itself - this is the automatic
 			// half of the MITM mitigation (TOFU), worth noticing even by
 			// someone who never checks the SAS.
-			line += "   ⚠ peer's call key changed since last time!"
+			line += "·⚠ peer's call key changed since last time!"
 		}
 		if m.call.sas != "" {
-			line += "   🔑 " + m.call.sas
+			line += "·🔑 " + m.call.sas
 		}
 		return line
 	case "ended":

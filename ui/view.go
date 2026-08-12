@@ -232,31 +232,31 @@ func (m Model) renderChatArea(colors uiColors) string {
 func (m Model) renderCallBar(width int) string {
 	if m.call == nil {
 		if m.videoDialPrompt {
-			text := "📹 start video call from:   "
+			text := "📹 start video call from:·"
 			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[c] camera", m.isHovered(zoneCallVideoCamera)))
 			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[s] screen", m.isHovered(zoneCallVideoScreen)))
-			return m.styles.callBarLine(width, text+cameraBtn+" "+screenBtn+" [esc] cancel")
+			return m.styles.callBarLine(width, text+cameraBtn+m.styles.callBarText("·")+screenBtn+m.styles.callBarText("·[esc] cancel"))
 		}
 		return ""
 	}
 	switch m.call.state {
 	case "ringing-local":
-		text := "📞 incoming call: " + m.call.peer + "   "
+		text := "📞 incoming call: " + m.call.peer + "·"
 		answer := m.zone.Mark(zoneCallAnswer, m.styles.renderCallBarButton("[y] answer", m.isHovered(zoneCallAnswer)))
 		reject := m.zone.Mark(zoneCallReject, m.styles.renderCallBarButton("[n] reject", m.isHovered(zoneCallReject)))
-		return m.styles.callBarLine(width, text+answer+reject)
+		return m.styles.callBarLine(width, text+answer+m.styles.callBarText("·")+reject)
 
 	case "proposing", "ringing-remote", "negotiating":
 		verb := "calling"
 		if m.call.state == "negotiating" {
 			verb = "connecting to"
 		}
-		text := "📞 " + verb + " " + m.call.peer + "...   "
+		text := "📞 " + verb + " " + m.call.peer + "...·"
 		if m.call.fingerprintChanged {
-			text += "⚠ peer's call key changed since last time!   "
+			text += "⚠ peer's call key changed since last time!·"
 		}
 		if m.call.sas != "" {
-			text += "🔑 " + m.call.sas + "   "
+			text += "🔑 " + m.call.sas + "·"
 		}
 		hangup := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
 		return m.styles.callBarLine(width, text+hangup)
@@ -276,29 +276,30 @@ func (m Model) renderCallBar(width int) string {
 		if m.call.quality != "" {
 			quality = "📶 " + m.call.quality
 		}
-		text := "📞 " + m.call.peer + "  " + dur + "  " + mic + "  " + quality + "   "
+		text := "📞 " + m.call.peer + "·" + dur + "·" + mic + "·" + quality + "·"
 		if m.call.fingerprintChanged {
-			text += "⚠ peer's call key changed since last time!   "
+			text += "⚠ peer's call key changed since last time!·"
 		}
 		if m.call.sas != "" {
-			text += "🔑 " + m.call.sas + "   "
+			text += "🔑 " + m.call.sas + "·"
 		}
 		if m.videoSourcePrompt {
-			text += "start video from:   "
+			text += "start video from:·"
 			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[c] camera", m.isHovered(zoneCallVideoCamera)))
 			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[s] screen", m.isHovered(zoneCallVideoScreen)))
-			return m.styles.callBarLine(width, text+cameraBtn+" "+screenBtn+" [esc] cancel")
+			return m.styles.callBarLine(width, text+cameraBtn+m.styles.callBarText("·")+screenBtn+m.styles.callBarText("·[esc] cancel"))
 		}
 		if m.call.sharing {
-			text += "🖥 sharing   "
+			text += "🖥 sharing·"
 		}
+		dot := m.styles.callBarText("·")
 		muteBtn := m.zone.Mark(zoneCallMute, m.styles.renderCallBarButton(muteLabel, m.isHovered(zoneCallMute)))
 		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
 		reopenBtn := m.zone.Mark(zoneCallReopenVideo, m.styles.renderCallBarButton("[r] reopen video", m.isHovered(zoneCallReopenVideo)))
-		buttons := muteBtn + " " + reopenBtn + " " + hangupBtn
+		buttons := muteBtn + dot + reopenBtn + dot + hangupBtn
 		if !m.call.sharing {
 			videoBtn := m.zone.Mark(zoneCallVideo, m.styles.renderCallBarButton("[v] video", m.isHovered(zoneCallVideo)))
-			buttons += " " + videoBtn
+			buttons += dot + videoBtn
 		}
 		return m.styles.callBarLine(width, text+buttons)
 
@@ -430,7 +431,7 @@ func overlayAt(base, content string, x, y int) string {
 	return strings.Join(baseLines, "\n")
 }
 
-// wrapFooterHint word-wraps a helpHint string (entries joined by " · ", each
+// wrapFooterHint word-wraps a helpHint string (entries joined by "·", each
 // entry internally held together with non-breaking spaces — see helpHint) to
 // width, keeping at most maxLines rows. A single line's width, even on a
 // wide terminal, isn't enough to list every binding for a busy view like
@@ -686,10 +687,10 @@ func (m Model) renderOpenPopup() string {
 		verb = "save as"
 		title = "Save as — pick one"
 	}
-	footer := "[1-9] " + verb + "  ·  [esc] cancel"
+	footer := "[1-9] " + verb + " · [esc] cancel"
 	if pages := openPageCount(len(m.openItems)); pages > 1 {
 		title = fmt.Sprintf("%s (page %d/%d)", title, m.openPage+1, pages)
-		footer = "[1-9] " + verb + "  ·  [←/→] page  ·  [esc] cancel"
+		footer = "[1-9] " + verb + " · [←/→] page · [esc] cancel"
 	}
 
 	body := m.styles.listPopup(title, rows, footer)
@@ -711,7 +712,7 @@ func (m Model) renderFilePickerPopup() string {
 
 	sortKey := caretKey(m.keys.SortFilePicker.Help().Key)
 	title := "Attach file — " + m.filePicker.CurrentDirectory
-	footer := "[enter] open/select  ·  [" + sortKey + "] sort: " + m.filePicker.SortLabel() + "  ·  [esc] cancel"
+	footer := "[enter] open/select · [" + sortKey + "] sort: " + m.filePicker.SortLabel() + " · [esc] cancel"
 
 	// Set the picker's minimum row width to at least the title/footer's
 	// width so short filenames don't leave size/date stranded mid-line —
@@ -763,7 +764,7 @@ func (m Model) renderAddAccountPopup() string {
 		rows = append(rows, "", m.styles.popupDanger.Render(m.addAccountErr))
 	}
 
-	footer := fmt.Sprintf("[tab] next field  ·  [ctrl+r] switch to %s  ·  [enter] %s  ·  [esc] cancel", altMode(m.addAccountRegister), verb)
+	footer := fmt.Sprintf("[tab] next field · [ctrl+r] switch to %s · [enter] %s · [esc] cancel", altMode(m.addAccountRegister), verb)
 	body := m.styles.listPopup(title, rows, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
@@ -801,7 +802,7 @@ func (m Model) renderChangePasswordPopup() string {
 		rows = append(rows, "", m.styles.popupDanger.Render(s.err))
 	}
 
-	footer := "[tab] next field  ·  [enter] change  ·  [esc] cancel"
+	footer := "[tab] next field · [enter] change · [esc] cancel"
 	body := m.styles.listPopup("Change storage password", rows, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
@@ -813,7 +814,7 @@ func (m Model) renderRenameChatPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	footer := "[enter] save  ·  [esc] cancel"
+	footer := "[enter] save · [esc] cancel"
 	body := m.styles.listPopup("Rename chat", []string{m.renameInput.View()}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
@@ -825,7 +826,7 @@ func (m Model) renderSaveAsPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	footer := "[enter] save  ·  [esc] cancel"
+	footer := "[enter] save · [esc] cancel"
 	body := m.styles.listPopup("Save as", []string{m.saveAsInput.View()}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 
@@ -937,7 +938,7 @@ func (m Model) renderReactHint(target string) string {
 		styled := m.styles.emojiSuggestionLabel(label, i == m.emojiSuggestIdx, m.isHovered(zoneEmojiSuggestion(i)))
 		codes[i] = m.zone.Mark(zoneEmojiSuggestion(i), styled)
 	}
-	hint += "  →  " + strings.Join(codes, " ") + "  [←/→] pick · [tab/enter/click] accept"
+	hint += "  →  " + strings.Join(codes, " ") + "  [←/→] pick·[tab/enter/click] accept"
 	return m.styles.messageReply.Render(hint)
 }
 
@@ -957,10 +958,10 @@ func (m Model) renderChatStatusBar(width int) string {
 		label = chat.Name
 	}
 	if chat.Typing {
-		label += "  ·  typing..."
+		label += " · typing..."
 	}
 	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) && m.accounts[m.currentAccount].SyncingHistory {
-		label += "  ·  syncing history..."
+		label += " · syncing history..."
 	}
 	// nickMe-color the text ourselves rather than let chatStatusLine wrap
 	// the whole string in one Foreground — presenceGlyph's own Render call

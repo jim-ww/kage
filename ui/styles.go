@@ -415,6 +415,23 @@ func (s uiStyles) callBarLine(width int, content string) string {
 	return s.callBar.Width(width).Render(content)
 }
 
+// callBarText renders a literal fragment of the call bar (a "·" separator,
+// or any other plain text) against callBar's own background - needed
+// whenever that fragment sits directly next to a renderCallBarButton result
+// in the same concatenated string. Each button call renders (and resets)
+// its own ANSI styling independently; a raw, unstyled string glued in
+// between inherits whatever the terminal's ANSI state happens to be after
+// that reset (i.e. no background at all) rather than callBar's background -
+// the outer callBarLine wrap only colors literal runs it's the sole
+// styler of, not text sandwiched between two already-rendered substrings.
+func (s uiStyles) callBarText(text string) string {
+	return lipgloss.NewStyle().
+		Foreground(s.colors.appBg).
+		Background(s.colors.accentCyan).
+		Bold(true).
+		Render(text)
+}
+
 // renderCallBarButton renders one of the call bar's [key] label buttons —
 // same small hover-reversed pattern as renderStoragePasswordButton, just
 // against callBar's background instead of the account bar's.
