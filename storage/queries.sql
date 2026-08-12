@@ -433,6 +433,20 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND jid = sqlc.arg(jid);
 
 
+-- name: UpsertCallPeerFingerprint :exec
+INSERT INTO callPeerFingerprints (accountJID, jid, fingerprint)
+VALUES (sqlc.arg(account_jid), sqlc.arg(jid), sqlc.arg(fingerprint))
+ON CONFLICT (accountJID, jid) DO UPDATE
+SET fingerprint = excluded.fingerprint;
+
+
+-- name: GetCallPeerFingerprint :one
+SELECT fingerprint
+FROM callPeerFingerprints
+WHERE accountJID = sqlc.arg(account_jid)
+	AND jid = sqlc.arg(jid);
+
+
 -- name: GetLocalKeySalt :one
 SELECT salt
 FROM localKeySalt

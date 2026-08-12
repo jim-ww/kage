@@ -191,16 +191,18 @@ type reopenVideoParams struct {
 // live transition (see daemonServer.getCallState/ipcClient.GetCallState).
 // Active is false and the rest of the fields are zero when no call is up.
 type getCallStateResult struct {
-	Active     bool
-	AccountIdx int
-	Peer       string // bare JID
-	SID        string
-	State      string
-	Reason     string
-	Muted      bool
-	Quality    string
-	Sharing    bool
-	StartedAt  time.Time
+	Active             bool
+	AccountIdx         int
+	Peer               string // bare JID
+	SID                string
+	State              string
+	Reason             string
+	Muted              bool
+	Quality            string
+	Sharing            bool
+	StartedAt          time.Time
+	SAS                string
+	FingerprintChanged bool
 }
 
 // incomingCallEvent tells attached clients that a peer is ringing us
@@ -228,6 +230,14 @@ type callStateEvent struct {
 	Muted      bool
 	Quality    string // "", "good", "fair", "poor" - "" until the first sample lands
 	Sharing    bool   // true while we're actively sending our own screen
+	// SAS is the short authentication string derived from both ends' DTLS
+	// fingerprints (see computeSAS) - "" until negotiation completes.
+	SAS string
+	// FingerprintChanged is true if the peer's DTLS fingerprint on this call
+	// doesn't match the one pinned from a previous call with them (see
+	// checkAndPinCallFingerprint) - a signal worth surfacing loudly, since it
+	// can mean a signaling server is swapping fingerprints to MITM the call.
+	FingerprintChanged bool
 }
 
 // missedCallEvent tells attached clients that a peer proposed a call while

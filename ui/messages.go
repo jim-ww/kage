@@ -671,6 +671,16 @@ type CallStateMsg struct {
 	// attaching to a call already in progress) sets it explicitly so the
 	// duration displayed doesn't reset to 00:00.
 	StartedAt time.Time
+	// SAS is the short authentication string derived from both ends' DTLS
+	// fingerprints - "" until negotiation completes. Meant to be read aloud
+	// and compared over a trusted channel; matches iff neither fingerprint
+	// was tampered with in transit.
+	SAS string
+	// FingerprintChanged is true if the peer's DTLS fingerprint differs from
+	// the one pinned from a previous call with them (trust-on-first-use) -
+	// worth a loud warning, since it can mean a signaling server is
+	// swapping fingerprints to sit in the middle of the call.
+	FingerprintChanged bool
 }
 
 // MissedCallMsg is sent when a peer proposed a call while this account

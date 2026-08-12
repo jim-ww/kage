@@ -32,6 +32,9 @@ type callUIState struct {
 	quality   string    // "", "good", "fair", "poor"
 	sharing   bool      // true while we're actively sending our own screen
 	startedAt time.Time // set the first time state becomes "connected"
+
+	sas                string // short authentication string, "" until negotiated
+	fingerprintChanged bool   // peer's DTLS fingerprint doesn't match the pinned one
 }
 
 // callClearMsg fires callEndedDisplay after a call reaches a terminal state.
@@ -133,6 +136,9 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		quality:    msg.Quality,
 		sharing:    msg.Sharing,
 		startedAt:  startedAt,
+
+		sas:                msg.SAS,
+		fingerprintChanged: msg.FingerprintChanged,
 	}
 	if !wasActive {
 		m.updateSizes()
@@ -179,7 +185,14 @@ func (m Model) callBarLine() string {
 	case "proposing", "ringing-remote":
 		return "📞 calling " + who + "...   [h] hang up"
 	case "negotiating":
-		return "📞 connecting to " + who + "...   [h] hang up"
+		line := "📞 connecting to " + who + "...   [h] hang up"
+		if m.call.fingerprintChanged {
+			line += "   ⚠ peer's call key changed since last time!"
+		}
+		if m.call.sas != "" {
+			line += "   🔑 " + m.call.sas
+		}
+		return line
 	case "connected":
 		dur := "00:00"
 		if !m.call.startedAt.IsZero() {
@@ -197,7 +210,17 @@ func (m Model) callBarLine() string {
 		if m.call.sharing {
 			share = "🖥 sharing  [s] stop"
 		}
-		return "📞 " + who + "  " + dur + "  " + mic + "  " + quality + "   [m] mute  " + share + "  [r] reopen video  [h] hang up"
+		line := "📞 " + who + "  " + dur + "  " + mic + "  " + quality + "   [m] mute  " + share + "  [r] reopen video  [h] hang up"
+		if m.call.fingerprintChanged {
+			// Loud and separate from the SAS itself - this is the automatic
+			// half of the MITM mitigation (TOFU), worth noticing even by
+			// someone who never checks the SAS.
+			line += "   ⚠ peer's call key changed since last time!"
+		}
+		if m.call.sas != "" {
+			line += "   🔑 " + m.call.sas
+		}
+		return line
 	case "ended":
 		if m.call.reason != "" {
 			return "call ended: " + m.call.reason

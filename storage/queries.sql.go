@@ -162,6 +162,25 @@ func (q *Queries) DeleteRosterByJID(ctx context.Context, arg DeleteRosterByJIDPa
 	return err
 }
 
+const getCallPeerFingerprint = `-- name: GetCallPeerFingerprint :one
+SELECT fingerprint
+FROM callPeerFingerprints
+WHERE accountJID = ?1
+	AND jid = ?2
+`
+
+type GetCallPeerFingerprintParams struct {
+	AccountJid string `db:"account_jid"`
+	Jid        string `db:"jid"`
+}
+
+func (q *Queries) GetCallPeerFingerprint(ctx context.Context, arg GetCallPeerFingerprintParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getCallPeerFingerprint, arg.AccountJid, arg.Jid)
+	var fingerprint string
+	err := row.Scan(&fingerprint)
+	return fingerprint, err
+}
+
 const getCapsByJID = `-- name: GetCapsByJID :one
 SELECT
 	hash,
@@ -2053,6 +2072,24 @@ type UpdateMessageBodyByRowIDParams struct {
 
 func (q *Queries) UpdateMessageBodyByRowID(ctx context.Context, arg UpdateMessageBodyByRowIDParams) error {
 	_, err := q.db.ExecContext(ctx, updateMessageBodyByRowID, arg.Body, arg.ID)
+	return err
+}
+
+const upsertCallPeerFingerprint = `-- name: UpsertCallPeerFingerprint :exec
+INSERT INTO callPeerFingerprints (accountJID, jid, fingerprint)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, jid) DO UPDATE
+SET fingerprint = excluded.fingerprint
+`
+
+type UpsertCallPeerFingerprintParams struct {
+	AccountJid  string `db:"account_jid"`
+	Jid         string `db:"jid"`
+	Fingerprint string `db:"fingerprint"`
+}
+
+func (q *Queries) UpsertCallPeerFingerprint(ctx context.Context, arg UpsertCallPeerFingerprintParams) error {
+	_, err := q.db.ExecContext(ctx, upsertCallPeerFingerprint, arg.AccountJid, arg.Jid, arg.Fingerprint)
 	return err
 }
 

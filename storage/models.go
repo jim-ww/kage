@@ -8,6 +8,12 @@ import (
 	"database/sql"
 )
 
+type Callpeerfingerprint struct {
+	Accountjid  string `db:"accountjid"`
+	Jid         string `db:"jid"`
+	Fingerprint string `db:"fingerprint"`
+}
+
 type Chatdraft struct {
 	Accountjid string `db:"accountjid"`
 	Rosterjid  string `db:"rosterjid"`

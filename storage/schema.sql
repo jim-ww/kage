@@ -80,6 +80,20 @@ CREATE TABLE IF NOT EXISTS pgpPeerKeys (
 	PRIMARY KEY (accountJID, jid)
 ) WITHOUT ROWID;
 
+-- Trust-on-first-use cache of a call peer's DTLS-SRTP certificate
+-- fingerprint (XEP-0320, see xmpp.DTLSFingerprint) - remembered per bare JID
+-- after a call's fingerprint is first seen, so a later call from the same
+-- contact carrying a *different* fingerprint (e.g. their signaling server
+-- swapping it in transit) can be flagged instead of silently trusted. See
+-- callFingerprintMismatch in callsession.go.
+CREATE TABLE IF NOT EXISTS callPeerFingerprints (
+	accountJID  TEXT NOT NULL,
+	jid         TEXT NOT NULL,
+	fingerprint TEXT NOT NULL,
+
+	PRIMARY KEY (accountJID, jid)
+) WITHOUT ROWID;
+
 -- The salt for deriving the AES-256 key message bodies are sealed under at
 -- rest (crypto/localstore) from the local storage password — one key for
 -- the whole database, shared by every account. The salt itself isn't

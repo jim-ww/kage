@@ -343,6 +343,7 @@ func (c *ipcClient) getCallState() (*ui.CallStateMsg, error) {
 	return &ui.CallStateMsg{
 		AccountIdx: res.AccountIdx, Peer: res.Peer, SID: res.SID, State: res.State,
 		Reason: res.Reason, Muted: res.Muted, Quality: res.Quality, Sharing: res.Sharing, StartedAt: res.StartedAt,
+		SAS: res.SAS, FingerprintChanged: res.FingerprintChanged,
 	}, nil
 }
 

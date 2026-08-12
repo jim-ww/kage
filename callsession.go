@@ -177,6 +177,20 @@ type callSession struct {
 	// request a fresh keyframe without needing its own copy of the track.
 	remoteVideoTrack *webrtc.TrackRemote
 
+	// localFingerprint/remoteFingerprint are the two ends' DTLS-SRTP
+	// certificate fingerprints (XEP-0320), fingerprintSAS is the short
+	// authentication string derived from both (see computeSAS), and
+	// fingerprintChanged is true if remoteFingerprint didn't match this
+	// contact's previously pinned one (see checkAndPinCallFingerprint) - the
+	// TOFU + manual-verification mitigation for a malicious/compromised
+	// signaling server swapping fingerprints to MITM the call (see
+	// call_fingerprint.go). Set once negotiation completes: acceptSession
+	// for the callee, applyAnswer for the caller.
+	localFingerprint   string
+	remoteFingerprint  string
+	fingerprintSAS     string
+	fingerprintChanged bool
+
 	// autoStartVideo/autoStartVideoUseCamera: set once at call creation by
 	// startVideoCall (VideoCallToggle's action - camera/screen chosen before
 	// dialing), consumed exactly once by onConnectionState the first time
@@ -765,6 +779,11 @@ func (c *callSession) initiateSession(ctx context.Context) error {
 		return err
 	}
 	c.rememberTransport(contents)
+	// Stashed for applyAnswer, once the callee's session-accept carries
+	// their half of the fingerprint comparison (see checkFingerprints).
+	c.mu.Lock()
+	c.localFingerprint = firstFingerprint(contents)
+	c.mu.Unlock()
 
 	c.mu.Lock()
 	remote := c.remoteJID
@@ -815,6 +834,8 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 		}
 	}
 	c.rememberTransport(contents)
+	c.checkFingerprints(firstFingerprint(contents), firstFingerprint(jingle.Contents))
+	c.broadcastState(c.currentState(), "")
 
 	c.mu.Lock()
 	// The peer's description of every content established so far - the base
@@ -855,7 +876,10 @@ func (c *callSession) applyAnswer(ctx context.Context, jingle xmpp.JingleIQ) err
 
 	c.mu.Lock()
 	c.remoteContents = jingle.Contents
+	localFP := c.localFingerprint
 	c.mu.Unlock()
+	c.checkFingerprints(localFP, firstFingerprint(jingle.Contents))
+	c.broadcastState(c.currentState(), "")
 
 	// A video call (see initiateSession) bundled its video track into the
 	// original offer rather than a later content-add - if the callee's
@@ -866,6 +890,27 @@ func (c *callSession) applyAnswer(ctx context.Context, jingle xmpp.JingleIQ) err
 		c.beginScreenShareCapture(pc)
 	}
 	return nil
+}
+
+// checkFingerprints computes the SAS and TOFU-checks remoteFP against this
+// contact's pinned fingerprint (see checkAndPinCallFingerprint), storing the
+// result on c for callBarLine to display. No-op if either fingerprint is
+// missing (shouldn't happen - sdpFromJingleContents/jingleContentsFromSDP
+// both require one - but a call session with nothing to compare is better
+// than a false "changed" alarm from an empty string).
+func (c *callSession) checkFingerprints(localFP, remoteFP string) {
+	if localFP == "" || remoteFP == "" {
+		return
+	}
+	sas := computeSAS(localFP, remoteFP)
+	changed := checkAndPinCallFingerprint(context.Background(), c.sess.db, c.sess.account.JID, c.peer, remoteFP)
+	c.mu.Lock()
+	c.localFingerprint, c.remoteFingerprint = localFP, remoteFP
+	c.fingerprintSAS, c.fingerprintChanged = sas, changed
+	c.mu.Unlock()
+	if changed {
+		slog.Warn("call peer's DTLS fingerprint differs from the previously pinned one", "sid", c.sid, "peer", c.peer)
+	}
 }
 
 // rememberTransport records our own ICE credentials and content name from
@@ -1942,10 +1987,12 @@ func (c *callSession) logCall(state, reason string) {
 func (c *callSession) broadcastState(state callState, reason string) {
 	c.mu.Lock()
 	muted, quality, sharing := c.muted, c.quality, c.sharing
+	sas, fpChanged := c.fingerprintSAS, c.fingerprintChanged
 	c.mu.Unlock()
 	broadcast(c.srv, evCallState, callStateEvent{
 		AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid, State: state.String(), Reason: reason,
 		Muted: muted, Quality: quality, Sharing: sharing,
+		SAS: sas, FingerprintChanged: fpChanged,
 	})
 }
 

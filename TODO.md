@@ -1,3 +1,5 @@
+- add default encryption for chats config option, default omemov1
+- option to choose mic + mid call
 - edit msg: must not send edit if there were no changes
 - uploading your own files must not download them from server (must be downloaded)
 - notification appears sooner then message
@@ -10,8 +12,6 @@
 - add keyboard navigation to modals (and ways to open them)
 - account manager: fix adding duplicate accounts
 - make sure user can paste to all textinputs (e.g. account add JID/password)
-- screen-sharing in calls
-- video calls
 
 - resubscribe action does nothing?
 - filepicker: make binds as buttons at bottom clickable

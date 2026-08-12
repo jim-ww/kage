@@ -462,6 +462,7 @@ func (d *daemonServer) getCallState() getCallStateResult {
 		}
 		c.mu.Lock()
 		state, muted, quality, sharing, connectedAt := c.state, c.muted, c.quality, c.sharing, c.connectedAt
+		sas, fpChanged := c.fingerprintSAS, c.fingerprintChanged
 		c.mu.Unlock()
 		if state == callIdle || state == callEnded {
 			continue
@@ -471,6 +472,7 @@ func (d *daemonServer) getCallState() getCallStateResult {
 			best = getCallStateResult{
 				Active: true, AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid,
 				State: state.String(), Muted: muted, Quality: quality, Sharing: sharing, StartedAt: connectedAt,
+				SAS: sas, FingerprintChanged: fpChanged,
 			}
 		}
 	}
