@@ -60,7 +60,7 @@ func newRenderWindowTestModel(t *testing.T, n int) *Model {
 		height:             24,
 		sidebarHidden:      true,
 		zone:               zm,
-		chats:              l,
+		chats:              &l,
 		maxMessagesPerChat: 1000,
 		accounts: []Account{{
 			Chats:    []list.Item{chat},

@@ -32,7 +32,7 @@ func newScrollTestModel(t *testing.T, n, viewportHeight int) *Model {
 		height:        24,
 		sidebarHidden: true,
 		zone:          zm,
-		chats:         l,
+		chats:         &l,
 		accounts: []Account{
 			{
 				Chats:    []list.Item{chat},

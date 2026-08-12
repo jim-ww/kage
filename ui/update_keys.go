@@ -20,7 +20,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// global bindings like ChatOpen first and never reach the list.
 	if m.selectedView == viewChats && m.chats.FilterState() == list.Filtering {
 		var cmd tea.Cmd
-		m.chats, cmd = m.chats.Update(msg)
+		*m.chats, cmd = m.chats.Update(msg)
 		return m, cmd, true
 	}
 
@@ -147,7 +147,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 		if matchesKey(msg, m.keys.SortFilePicker) {
 			var sortCmd tea.Cmd
-			m.filePicker, sortCmd = m.filePicker.CycleSort()
+			*m.filePicker, sortCmd = m.filePicker.CycleSort()
 			if m.filePickerSortSetter != nil {
 				if err := m.filePickerSortSetter.SetFilePickerSort(m.filePicker.SortField.String(), m.filePicker.SortAscending); err != nil {
 					return m, tea.Batch(sortCmd, m.showNotification("saving file picker sort: "+err.Error())), true
@@ -156,7 +156,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, sortCmd, true
 		}
 		var pickerCmd tea.Cmd
-		m.filePicker, pickerCmd = m.filePicker.Update(msg)
+		*m.filePicker, pickerCmd = m.filePicker.Update(msg)
 		if selected, path := m.filePicker.DidSelectFile(msg); selected {
 			// Stage the file instead of uploading it immediately — nothing
 			// touches the network until the message is actually sent (see
@@ -678,7 +678,7 @@ func (m Model) updateRenameChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	default:
 		var cmd tea.Cmd
-		m.renameInput, cmd = m.renameInput.Update(msg)
+		*m.renameInput, cmd = m.renameInput.Update(msg)
 		return m, cmd
 	}
 }
@@ -696,7 +696,7 @@ func (m Model) updateSearchChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	default:
 		var cmd tea.Cmd
-		m.searchInput, cmd = m.searchInput.Update(msg)
+		*m.searchInput, cmd = m.searchInput.Update(msg)
 		return m, cmd
 	}
 }
@@ -715,7 +715,7 @@ func (m Model) updateSaveAsForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	default:
 		var cmd tea.Cmd
-		m.saveAsInput, cmd = m.saveAsInput.Update(msg)
+		*m.saveAsInput, cmd = m.saveAsInput.Update(msg)
 		return m, cmd
 	}
 }

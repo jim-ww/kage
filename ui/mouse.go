@@ -877,7 +877,7 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			key = tea.KeyPressMsg{Code: tea.KeyUp}
 		}
 		var cmd tea.Cmd
-		m.filePicker, cmd = m.filePicker.Update(key)
+		*m.filePicker, cmd = m.filePicker.Update(key)
 		return m, cmd
 	}
 

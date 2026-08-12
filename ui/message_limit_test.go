@@ -158,7 +158,7 @@ func newLimitTestModel(t *testing.T, n, limit int) *Model {
 		height:             24,
 		sidebarHidden:      true,
 		zone:               zm,
-		chats:              l,
+		chats:              &l,
 		maxMessagesPerChat: limit,
 		accounts: []Account{
 			{

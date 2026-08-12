@@ -41,7 +41,7 @@ func TestRenderMessagesWithOffsetsMatchesLineSplit(t *testing.T) {
 		height:        24,
 		sidebarHidden: true,
 		zone:          zm,
-		chats:         l,
+		chats:         &l,
 		accounts: []Account{
 			{
 				Chats:    []list.Item{chat},

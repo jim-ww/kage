@@ -114,9 +114,21 @@ type Model struct {
 
 	accounts       []Account
 	currentAccount int
-	chats          list.Model
+	// chats, input, filePicker, renameInput, searchInput, saveAsInput, and
+	// addAccountInputs are pointers rather than embedded values: Model is
+	// passed by value throughout this package (View, chatAreaWidth,
+	// renderMessage, dozens of other read-only helpers), and each of these
+	// bubbles components is itself several KB — embedded by value they
+	// nearly doubled Model's size, so every one of those value-receiver
+	// calls (several per rendered message, dozens per frame) was copying
+	// tens of KB it didn't need to. A pointer field costs 8 bytes in that
+	// copy instead. Update-style reassignment (`m.chats, cmd =
+	// m.chats.Update(msg)`) becomes `*m.chats, cmd = m.chats.Update(msg)`;
+	// every other call site (`m.chats.Foo()`) is unaffected since Go
+	// auto-dereferences for method calls either way.
+	chats *list.Model
 
-	input    textarea.Model
+	input    *textarea.Model
 	viewport viewport.Model
 
 	// draftHistory is the compose box's undo/redo stack for the current
@@ -164,7 +176,7 @@ type Model struct {
 	openItemsAttachCount int          // how many leading entries of openItems are real attachments (vs. a plain link found in Content) - openableItems always puts attachments first
 	openPage             int          // current page (of openItemsPerPage items) in the open picker
 	openMode             pickerMode   // what picking an item from openItems actually does: open or save
-	filePicker           filepicker.Model
+	filePicker           *filepicker.Model
 	pickingFile          bool                // true while the Bubble file picker is open
 	pendingAttachments   []pendingAttachment // files staged (via the file picker) to go out with the next sent message; nothing is uploaded until send
 	selectedAttachment   int                 // index into pendingAttachments highlighted for Tab/Backspace/ctrl+o; -1 when empty
@@ -243,7 +255,7 @@ type Model struct {
 	// clears it (falls back to showing the JID).
 	renamingChat  bool
 	renameChatIdx int
-	renameInput   textinput.Model
+	renameInput   *textinput.Model
 
 	// search-in-chat query prompt state, active while searchingChat is true.
 	// Opened by SearchChat (Ctrl+/) while viewChat is focused; submitting
@@ -252,7 +264,7 @@ type Model struct {
 	// the chat's entire persisted history, not just what's currently loaded
 	// in memory — see searchResultsState.
 	searchingChat bool
-	searchInput   textinput.Model
+	searchInput   *textinput.Model
 
 	// searchResults is non-nil while the search-results popup (opened once a
 	// search-in-chat query completes) is showing. See searchResultsState.
@@ -264,7 +276,7 @@ type Model struct {
 	// download once a destination path is submitted.
 	savingAs     bool
 	saveAsTarget string
-	saveAsInput  textinput.Model
+	saveAsInput  *textinput.Model
 
 	// changePasswordState is non-nil while the "change local storage
 	// password" popup is open — see ui/storage_password.go.
@@ -292,7 +304,7 @@ type Model struct {
 	// in register mode, and skipped when cycling focus in login mode.
 	addingAccount      bool
 	addAccountRegister bool
-	addAccountInputs   [4]textinput.Model // JID, password, confirm password (register only), gpg key ID (optional)
+	addAccountInputs   *[4]textinput.Model // JID, password, confirm password (register only), gpg key ID (optional)
 	addAccountFocus    int
 	addAccountErr      string
 	addAccountBusy     bool
@@ -440,8 +452,8 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		hover:                  hv,
 		accounts:               accounts,
 		currentAccount:         startAccount,
-		chats:                  l,
-		input:                  ti,
+		chats:                  &l,
+		input:                  &ti,
 		draftHistory:           []string{""},
 		viewport:               viewport.New(),
 		editingMsgIdx:          -1,
@@ -480,7 +492,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		sidebarWidthOverride:   initialSidebarWidth,
 		sidebarHidden:          initialSidebarHidden,
 		inputHeightOverride:    initialInputHeight,
-		filePicker:             picker,
+		filePicker:             &picker,
 	}
 	if initialCallState != nil {
 		m, _ = m.handleCallStateMsg(*initialCallState)
@@ -501,7 +513,7 @@ const addAccountFieldWidth = 42
 // visible before auto-dismissing when DisplayOptions.NoticeDuration is unset.
 const DefaultNoticeDuration = 3 * time.Second
 
-func (m Model) newAddAccountForm() [4]textinput.Model {
+func (m Model) newAddAccountForm() *[4]textinput.Model {
 	var fields [4]textinput.Model
 
 	jidInput := textinput.New()
@@ -539,7 +551,7 @@ func (m Model) newAddAccountForm() [4]textinput.Model {
 	applyTextInputStyles(&gpgInput, m.styles.colors)
 	fields[3] = gpgInput
 
-	return fields
+	return &fields
 }
 
 // OpenAddAccountForm switches to the accounts panel and opens the

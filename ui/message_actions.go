@@ -225,7 +225,7 @@ func (m *Model) actionRenameChat() tea.Cmd {
 	ti.Focus()
 
 	m.renameChatIdx = m.currentChatIndex()
-	m.renameInput = ti
+	m.renameInput = &ti
 	m.renamingChat = true
 	return textinput.Blink
 }
@@ -300,7 +300,7 @@ func (m *Model) actionSearchChat() tea.Cmd {
 	applyTextInputStyles(&ti, m.styles.colors)
 	ti.Focus()
 
-	m.searchInput = ti
+	m.searchInput = &ti
 	m.searchingChat = true
 	return textinput.Blink
 }
@@ -488,7 +488,7 @@ func (m *Model) openSaveAsPrompt(target string) tea.Cmd {
 	ti.Focus()
 
 	m.saveAsTarget = target
-	m.saveAsInput = ti
+	m.saveAsInput = &ti
 	m.savingAs = true
 	return textinput.Blink
 }

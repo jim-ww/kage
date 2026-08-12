@@ -225,12 +225,12 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	}
 	if m.renamingChat {
 		var cmd tea.Cmd
-		m.renameInput, cmd = m.renameInput.Update(msg)
+		*m.renameInput, cmd = m.renameInput.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
 	if m.searchingChat {
 		var cmd tea.Cmd
-		m.searchInput, cmd = m.searchInput.Update(msg)
+		*m.searchInput, cmd = m.searchInput.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
 	if m.searchResults != nil && m.searchResults.filtering {
@@ -240,7 +240,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	}
 	if m.savingAs {
 		var cmd tea.Cmd
-		m.saveAsInput, cmd = m.saveAsInput.Update(msg)
+		*m.saveAsInput, cmd = m.saveAsInput.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
 	if m.pickingFile {
@@ -248,7 +248,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		// bypass the key-interception block above and must still reach the
 		// picker. Without this, the picker remains permanently empty.
 		var cmd tea.Cmd
-		m.filePicker, cmd = m.filePicker.Update(msg)
+		*m.filePicker, cmd = m.filePicker.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
 
@@ -259,7 +259,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		// Account focus is handled by global keys only.
 	case viewChats:
 		prev := m.chats.Index()
-		m.chats, cmd = m.chats.Update(msg)
+		*m.chats, cmd = m.chats.Update(msg)
 		cmds = append(cmds, cmd)
 		if m.chats.Index() != prev {
 			m.chatSwitchGen++
@@ -298,7 +298,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			isDownKey = keyMsg.String() == "down"
 		}
-		m.input, cmd = m.input.Update(msg)
+		*m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
 		if wasMultiline && isDownKey && m.input.Value() == oldValue &&
 			m.input.Line() == beforeLine && m.input.Column() == beforeCol {
