@@ -354,6 +354,7 @@ type jmiProposeElem struct {
 // state fields.
 type jmiMessage struct {
 	stanza.Message
+	Store   *struct{}       `xml:"urn:xmpp:hints store"`
 	Propose *jmiProposeElem `xml:"urn:xmpp:jingle-message:0 propose"`
 	Ringing *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 ringing"`
 	Proceed *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 proceed"`
@@ -362,13 +363,20 @@ type jmiMessage struct {
 	Retract *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 retract"`
 }
 
-// sendJMI addresses and sends a single XEP-0353 element to "to".
+// sendJMI addresses and sends a single XEP-0353 element to "to". Per the
+// XEP's business rules, every JMI message MUST be type="chat" and carry a
+// XEP-0334 <store/> hint - without type="chat" a bodyless message like this
+// isn't eligible for Message Carbons (XEP-0280) forwarding at all under
+// XEP-0280's own eligibility rules, so other resources/devices of either
+// party (including non-kage clients, which enforce this strictly) never see
+// it and can be left ringing forever after the call is answered/declined/
+// retracted elsewhere.
 func (c *Client) sendJMI(ctx context.Context, to string, build func(*jmiMessage)) error {
 	toJID, err := jid.Parse(to)
 	if err != nil {
 		return fmt.Errorf("parsing recipient %q: %w", to, err)
 	}
-	msg := jmiMessage{Message: stanza.Message{To: toJID, ID: randomID()}}
+	msg := jmiMessage{Message: stanza.Message{To: toJID, ID: randomID(), Type: stanza.ChatMessage}, Store: &struct{}{}}
 	build(&msg)
 	return c.session.Encode(ctx, msg)
 }
