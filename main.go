@@ -201,6 +201,8 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	}
 	client.conn = conn
 	defer conn.Close()
+	quitting := make(chan struct{})
+	defer close(quitting)
 
 	uiAccounts, err := client.listAccounts()
 	if err != nil {
@@ -254,9 +256,12 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	// than hanging on every subsequent action. A live "reconnecting..."
 	// banner is a nicer UX but out of scope for this pass.
 	go func() {
-		<-conn.Done()
-		fmt.Fprintln(os.Stderr, "kage's background service disconnected; please restart kage")
-		p.Send(tea.Quit())
+		select {
+		case <-conn.Done():
+			fmt.Fprintln(os.Stderr, "kage's background service disconnected; please restart kage")
+			p.Send(tea.Quit())
+		case <-quitting:
+		}
 	}()
 
 	finalModel, err := p.Run()

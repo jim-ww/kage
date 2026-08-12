@@ -6,12 +6,9 @@
 - make smaller message limit (in chat)
 - message in chat appear 2 times. race?
 
-- ui freezing in some cases, CPU usage goes up. on paste, or after editing certain amount of text?
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
-- ^shift+U bind doesnt work (omemo devices)
 - sometimes status shows as offline, when other client is online. could be either status send/receive problem
 - add keyboard navigation to modals (and ways to open them)
-- "kage's background service disconnected; please restart kage" is always printed on quit
 - account manager: fix adding duplicate accounts
 - make sure user can paste to all textinputs (e.g. account add JID/password)
 - screen-sharing in calls
