@@ -1,4 +1,3 @@
-- non-sent local-only messages
 - omemo messages problems
 - call initiating problems
 - non-focused state of app, with open chat doesnt send notifications

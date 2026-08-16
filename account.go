@@ -941,6 +941,18 @@ func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 					}
 				}
 				s.client.Store(client)
+				// setupOmemo builds s.omemoMgrV1/V2 with a Transport closure bound
+				// to whatever *xmpp.Client was live at the time - and that client
+				// is now dead (this is a reconnect after the previous one broke).
+				// Without rebuilding them here, every OMEMO device-list/bundle
+				// fetch or publish (including the resync below, and any later
+				// DeviceListChangedEvent handling) silently keeps trying to write
+				// to the closed session and failing, so a peer whose device list
+				// changed during the outage - or was never learned because the
+				// outage swallowed the one sync that would have caught it - stays
+				// invisible until the app is fully restarted.
+				setupOmemo(ctx, s)
+				resyncPeerDeviceLists(ctx, s, derefRoster(s.roster.Load()))
 				probeRosterPresence(ctx, client, derefRoster(s.roster.Load()))
 				slog.Debug("account reconnected", "jid", s.account.JID)
 				a.flushOutbox(ctx, s)
