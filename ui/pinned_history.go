@@ -69,11 +69,21 @@ func (m *Model) growPinnedWindow(accountIdx, chatIdx int, older bool) bool {
 	}
 
 	m.accounts[accountIdx].Messages[chatIdx] = windowed
-	m.accounts[accountIdx].HistoryMore[chatIdx] = newStart > 0
+	// Reaching PinnedHistory's near edge (newStart == 0) only means "no
+	// older messages" when PinnedHistory holds the chat's entire history
+	// (a search jump). When it's just the overflow retained from paging
+	// storage (see OlderHistoryMsg), there may still be more further back
+	// that hasn't been fetched yet — clearing HistoryMore here would freeze
+	// further paging even though a real fetch would still find more, which
+	// is exactly what made fast repeated ctrl+u/ctrl+d paging get stuck.
+	if m.accounts[accountIdx].PinnedHistoryComplete[chatIdx] {
+		m.accounts[accountIdx].HistoryMore[chatIdx] = newStart > 0
+	}
 
 	if newStart == 0 && newEnd == len(full) {
 		delete(m.accounts[accountIdx].PinnedHistory, chatIdx)
 		delete(m.accounts[accountIdx].PinnedWindow, chatIdx)
+		delete(m.accounts[accountIdx].PinnedHistoryComplete, chatIdx)
 	} else {
 		m.accounts[accountIdx].PinnedWindow[chatIdx] = [2]int{newStart, newEnd}
 	}
@@ -107,8 +117,43 @@ func (m *Model) unstickPinnedWindow(accountIdx, chatIdx int) bool {
 
 	windowed, dropped := trimMessagesFront(full, m.maxMessagesPerChat)
 	m.accounts[accountIdx].Messages[chatIdx] = windowed
-	m.accounts[accountIdx].HistoryMore[chatIdx] = dropped > 0
+	switch {
+	case dropped > 0:
+		// Content remains above this window (at least what's about to be
+		// stashed into TrimmedFront below) — definitely more to page into.
+		m.accounts[accountIdx].HistoryMore[chatIdx] = true
+	case m.accounts[accountIdx].PinnedHistoryComplete[chatIdx]:
+		// full was the chat's entire history and it all fit in one
+		// window — genuinely nothing more exists anywhere.
+		m.accounts[accountIdx].HistoryMore[chatIdx] = false
+	default:
+		// full was only paging-overflow retention (not the whole chat) and
+		// happened to fit in one window — that says nothing about whether
+		// storage has more beyond it, so leave whatever the last real fetch
+		// reported alone. Forcing this false here was the same "stuck"
+		// bug growPinnedWindow had, just hit via jumpToLatestMessage/the
+		// "jump to latest" button instead of ctrl+u/ctrl+d directly.
+	}
+	if dropped > 0 {
+		// The jump lands on full's tail directly rather than sliding there
+		// via growPinnedWindow, so everything between the old window and the
+		// tail (full[:dropped]) is being skipped over in one step. Storage's
+		// cursor has already advanced past all of it (it came from paged
+		// storage fetches or a full search-jump decrypt, not live traffic),
+		// so simply discarding it here — like the old code did — would open
+		// exactly the gap a later older-history fetch could never recover:
+		// stash it in TrimmedFront so that fetch folds it back in instead
+		// (see TrimmedFront's doc comment).
+		if m.accounts[accountIdx].TrimmedFront == nil {
+			m.accounts[accountIdx].TrimmedFront = make(map[int][]Message)
+		}
+		stashed := make([]Message, 0, dropped+len(m.accounts[accountIdx].TrimmedFront[chatIdx]))
+		stashed = append(stashed, full[:dropped]...)
+		stashed = append(stashed, m.accounts[accountIdx].TrimmedFront[chatIdx]...)
+		m.accounts[accountIdx].TrimmedFront[chatIdx] = stashed
+	}
 	delete(m.accounts[accountIdx].PinnedHistory, chatIdx)
 	delete(m.accounts[accountIdx].PinnedWindow, chatIdx)
+	delete(m.accounts[accountIdx].PinnedHistoryComplete, chatIdx)
 	return true
 }

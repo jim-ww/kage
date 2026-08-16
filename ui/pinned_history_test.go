@@ -22,6 +22,89 @@ func newPinnedTestModel(t *testing.T, total, limit, target int) Model {
 	return m
 }
 
+// newPagingOverflowTestModel builds a model whose single chat's loaded
+// window is exactly what OlderHistoryMsg's own overflow retention produces
+// when repeated older-history fetches push a chat's window past
+// maxMessagesPerChat — as opposed to newPinnedTestModel's search-jump
+// scenario. Critically, PinnedHistoryComplete is left unset: full is only
+// what's been paged in from storage so far, not the chat's entire history,
+// and hasMore reflects that there's genuinely more still sitting in storage
+// beyond it.
+func newPagingOverflowTestModel(t *testing.T, total, limit int, hasMore bool) Model {
+	t.Helper()
+	full := make([]Message, total)
+	for i := range full {
+		full[i] = Message{ID: string(rune('a' + i%26))}
+	}
+	m := newTestModelWithMessages(nil, &fakeHistorySearcher{})
+	m.maxMessagesPerChat = limit
+	m.accounts[0].Messages[0] = full[total-limit:]
+	m.accounts[0].PinnedHistory = map[int][]Message{0: full}
+	m.accounts[0].PinnedWindow = map[int][2]int{0: {total - limit, total}}
+	m.accounts[0].HistoryMore = map[int]bool{0: hasMore}
+	return m
+}
+
+// TestGrowPinnedWindowPreservesHistoryMoreForPagingOverflow guards the
+// pagination "stuck" bug: reaching PinnedHistory's near edge only means "no
+// older messages" when PinnedHistory holds the chat's entire history (a
+// search jump). For paging-overflow retention, reaching that edge just means
+// nothing more is currently in memory — storage may still hold more (as it
+// does here, hasMore=true) — so HistoryMore must survive the grow instead of
+// being cleared, or fast repeated older-paging (ctrl+u) would freeze there
+// forever instead of firing a real fetch for the rest.
+func TestGrowPinnedWindowPreservesHistoryMoreForPagingOverflow(t *testing.T) {
+	m := newPagingOverflowTestModel(t, 250, 100, true)
+	chatIdx := 0
+
+	for m.growPinnedWindow(0, chatIdx, true) {
+	}
+	win := m.accounts[0].PinnedWindow[chatIdx]
+	if win[0] != 0 {
+		t.Fatalf("window start = %d, want 0 (exhausted in-memory older content)", win[0])
+	}
+	if !m.accounts[0].HistoryMore[chatIdx] {
+		t.Fatal("HistoryMore was cleared even though storage still has more beyond PinnedHistory — this is what got fast ctrl+u paging stuck")
+	}
+}
+
+// TestUnstickPinnedWindowPreservesHistoryMoreWhenOverflowFitsOneWindow
+// guards the "jump to latest" analogue of
+// TestGrowPinnedWindowPreservesHistoryMoreForPagingOverflow: if a chat has
+// only been paged into a small amount of paging-overflow retention (small
+// enough that it all fits in one maxMessagesPerChat window, dropped == 0)
+// and the user hits "jump to latest" at that point, unstickPinnedWindow must
+// not conclude "no more history" just because nothing is left over in
+// memory — storage may still hold plenty more beyond it (hasMore=true
+// here). Getting this wrong froze ctrl+u paging after a jump-to-latest even
+// though plain ctrl+u/ctrl+d paging (growPinnedWindow) worked fine.
+func TestUnstickPinnedWindowPreservesHistoryMoreWhenOverflowFitsOneWindow(t *testing.T) {
+	chatIdx := 0
+	full := make([]Message, 60) // fits comfortably under the 100 cap below
+	for i := range full {
+		full[i] = Message{ID: string(rune('a' + i%26))}
+	}
+	m := newTestModelWithMessages(nil, &fakeHistorySearcher{})
+	m.maxMessagesPerChat = 100
+	m.accounts[0].Messages[chatIdx] = full
+	m.accounts[0].PinnedHistory = map[int][]Message{chatIdx: full}
+	m.accounts[0].PinnedWindow = map[int][2]int{chatIdx: {0, len(full)}}
+	// Not PinnedHistoryComplete: this mimics OlderHistoryMsg's own overflow
+	// retention (paging in progress), not a search jump — hasMore=true
+	// reflects that storage genuinely has more beyond what's been paged in.
+	m.accounts[0].HistoryMore = map[int]bool{chatIdx: true}
+
+	if !m.unstickPinnedWindow(0, chatIdx) {
+		t.Fatal("unstickPinnedWindow returned false, want true (PinnedHistory was set)")
+	}
+	if !m.accounts[0].HistoryMore[chatIdx] {
+		t.Fatal("HistoryMore was cleared even though storage still has more beyond the retained overflow — this is what got ctrl+u paging stuck after jump-to-latest")
+	}
+	if _, ok := m.accounts[0].PinnedHistory[chatIdx]; ok {
+		t.Fatal("PinnedHistory should be dropped after unsticking")
+	}
+}
+
 // TestGrowPinnedWindowOlder guards paging "up" (older) through a pinned
 // window: it reveals more of the retained PinnedHistory while keeping the
 // window capped at maxMessagesPerChat throughout (never growing

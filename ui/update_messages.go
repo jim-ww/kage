@@ -411,11 +411,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			}
 			m.accounts[msg.AccountIdx].PinnedHistory[chatIdx] = combined
 			m.accounts[msg.AccountIdx].PinnedWindow[chatIdx] = [2]int{0, len(windowed)}
+			// combined is only what's been paged in from storage so far, not
+			// the whole chat — see PinnedHistoryComplete's doc comment.
+			delete(m.accounts[msg.AccountIdx].PinnedHistoryComplete, chatIdx)
 		} else if pinned {
 			// Shrank back to fit in one window (e.g. maxMessagesPerChat was
 			// raised) — nothing left to page across.
 			delete(m.accounts[msg.AccountIdx].PinnedHistory, chatIdx)
 			delete(m.accounts[msg.AccountIdx].PinnedWindow, chatIdx)
+			delete(m.accounts[msg.AccountIdx].PinnedHistoryComplete, chatIdx)
 		}
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = windowed
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {

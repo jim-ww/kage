@@ -381,8 +381,14 @@ func (m *Model) loadSearchResult(msgIdx int) {
 			m.accounts[sr.accountIdx].PinnedHistory = make(map[int][]Message)
 			m.accounts[sr.accountIdx].PinnedWindow = make(map[int][2]int)
 		}
+		if m.accounts[sr.accountIdx].PinnedHistoryComplete == nil {
+			m.accounts[sr.accountIdx].PinnedHistoryComplete = make(map[int]bool)
+		}
 		m.accounts[sr.accountIdx].PinnedHistory[chatIdx] = sr.messages
 		m.accounts[sr.accountIdx].PinnedWindow[chatIdx] = [2]int{front, end}
+		// sr.messages is the chat's entire history (search had to decrypt it
+		// all) — see PinnedHistoryComplete's doc comment.
+		m.accounts[sr.accountIdx].PinnedHistoryComplete[chatIdx] = true
 	}
 
 	if sr.accountIdx != m.currentAccount || chatIdx != m.currentChatIndex() {

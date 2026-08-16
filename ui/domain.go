@@ -148,6 +148,17 @@ type Account struct {
 	// within PinnedHistory[chatIdx], meaningful only while that entry
 	// exists.
 	PinnedWindow map[int][2]int
+	// PinnedHistoryComplete marks, per chat index, whether
+	// PinnedHistory[chatIdx] holds the chat's *entire* history (set by
+	// loadSearchResult, which had to decrypt everything to search it) as
+	// opposed to just whatever's been paged in from storage so far (set by
+	// OlderHistoryMsg's own overflow retention — see combined in its
+	// handling). growPinnedWindow only treats reaching PinnedHistory's near
+	// edge as "no older messages" (clearing HistoryMore) when this is true;
+	// otherwise older messages may still exist in storage beyond what's
+	// currently retained in memory, and HistoryMore must be left alone so a
+	// real older-history fetch fires once the in-memory window is exhausted.
+	PinnedHistoryComplete map[int]bool
 
 	// TrimmedFront holds, per chat index, messages dropped off the *front*
 	// of Messages[chatIdx] by trimMessagesFront (live incoming traffic, sent
