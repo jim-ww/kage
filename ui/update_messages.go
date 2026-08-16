@@ -36,6 +36,26 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	return trimmed, drop
 }
 
+// trimTailAndStashFront trims msgs the same way trimMessagesFront does, but
+// additionally retains whatever got dropped in accounts[accountIdx].TrimmedFront[chatIdx]
+// (oldest-first, appended after anything already stashed there since the
+// last older-history fetch) so a later OlderHistoryMsg prepend can fold it
+// back in instead of silently skipping it. Use this instead of calling
+// trimMessagesFront directly for any tail-growth path (live incoming
+// messages, sent messages, MAM catch-up).
+func (m *Model) trimTailAndStashFront(accountIdx, chatIdx int, msgs []Message) []Message {
+	trimmed, drop := trimMessagesFront(msgs, m.maxMessagesPerChat)
+	if drop == 0 {
+		return trimmed
+	}
+	dropped := msgs[:drop]
+	if m.accounts[accountIdx].TrimmedFront == nil {
+		m.accounts[accountIdx].TrimmedFront = make(map[int][]Message)
+	}
+	m.accounts[accountIdx].TrimmedFront[chatIdx] = append(m.accounts[accountIdx].TrimmedFront[chatIdx], dropped...)
+	return trimmed
+}
+
 // trimMessagesBack drops the newest messages from msgs so at most limit
 // remain, used when an older-history page is prepended (see OlderHistoryMsg
 // handling) and the chat has grown past the configured cap — the mirror
@@ -232,7 +252,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			msgs = append(msgs, newMsg)
 			lastContent = MessagePreviewContent(newMsg)
 		}
-		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
+		msgs = m.trimTailAndStashFront(msg.AccountIdx, chatIdx, msgs)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		var cmds []tea.Cmd
 		cmds = append(cmds, m.setChatLastMessage(msg.AccountIdx, chatIdx, lastContent))
@@ -271,7 +291,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			newMsg.ReplyTo = &replyIdx
 		}
 		msgs = append(msgs, newMsg)
-		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
+		msgs = m.trimTailAndStashFront(msg.AccountIdx, chatIdx, msgs)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
@@ -309,7 +329,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			newMsg.ReplyTo = &replyIdx
 		}
 		msgs = append(msgs, newMsg)
-		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
+		msgs = m.trimTailAndStashFront(msg.AccountIdx, chatIdx, msgs)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		if m.isChatFocused(msg.AccountIdx, chatIdx) {
@@ -347,17 +367,32 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if !pinned {
 			existing = m.accounts[msg.AccountIdx].Messages[chatIdx]
 		}
+		// Anything trimmed off the live tail's front since the last fetch
+		// (see TrimmedFront's doc comment) sits chronologically between the
+		// freshly fetched older page and existing — fold it back in here so
+		// it isn't silently skipped.
+		trimmedFront := m.accounts[msg.AccountIdx].TrimmedFront[chatIdx]
+		delete(m.accounts[msg.AccountIdx].TrimmedFront, chatIdx)
+		prefixLen := len(msg.Messages) + len(trimmedFront)
 		// Prepending shifts every already-loaded message's position by
-		// len(msg.Messages); their ReplyTo indices (set when that page was
-		// built) point within the slice as it existed before this shift, so
-		// they need to move with it.
+		// prefixLen; their ReplyTo indices (set when that page was built)
+		// point within the slice as it existed before this shift, so they
+		// need to move with it. trimmedFront's own ReplyTo indices only need
+		// to move past msg.Messages, since they were already self-consistent
+		// relative to each other when trimMessagesFront dropped them.
+		for i := range trimmedFront {
+			if trimmedFront[i].ReplyTo != nil {
+				shifted := *trimmedFront[i].ReplyTo + len(msg.Messages)
+				trimmedFront[i].ReplyTo = &shifted
+			}
+		}
 		for i := range existing {
 			if existing[i].ReplyTo != nil {
-				shifted := *existing[i].ReplyTo + len(msg.Messages)
+				shifted := *existing[i].ReplyTo + prefixLen
 				existing[i].ReplyTo = &shifted
 			}
 		}
-		combined := append(msg.Messages, existing...)
+		combined := append(append(append([]Message{}, msg.Messages...), trimmedFront...), existing...)
 		// Trimmed off the *newest* end (trimMessagesBack), not the oldest —
 		// the whole point of scrolling up was to see this older content, so
 		// keeping it and dropping what's now furthest from view is the
@@ -385,10 +420,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = windowed
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			// Prepended messages shift every existing index up by
-			// len(msg.Messages) — keep the selection on the same message
-			// rather than letting it silently jump, clamped in case it (or
-			// the message it pointed at) was itself trimmed off the end.
-			m.selectedMsg = min(m.selectedMsg+len(msg.Messages), len(windowed)-1)
+			// prefixLen — keep the selection on the same message rather than
+			// letting it silently jump, clamped in case it (or the message
+			// it pointed at) was itself trimmed off the end.
+			m.selectedMsg = min(m.selectedMsg+prefixLen, len(windowed)-1)
 			m.refreshViewportFullScrollTo(m.selectedMsg)
 		}
 		return m, nil, true
@@ -770,7 +805,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
 		msgs := append(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Messages...)
-		msgs, _ = trimMessagesFront(msgs, m.maxMessagesPerChat)
+		msgs = m.trimTailAndStashFront(msg.AccountIdx, chatIdx, msgs)
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msg.Messages[len(msg.Messages)-1]))
 		if m.isChatFocused(msg.AccountIdx, chatIdx) {

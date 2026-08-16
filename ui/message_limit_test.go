@@ -201,6 +201,74 @@ func TestIncomingMessageTrimsToLimit(t *testing.T) {
 	}
 }
 
+// TestOlderHistoryFoldsInLiveTailTrim guards the pagination gap bug: once
+// live-tail growth (IncomingMessageMsg, here) has trimmed messages off the
+// front of the loaded window, a subsequent older-history fetch used to merge
+// the freshly fetched (older) page directly onto that already-trimmed
+// front — silently skipping every message trimMessagesFront had dropped in
+// between. TrimmedFront (see its doc comment) retains what was dropped so
+// OlderHistoryMsg can fold it back into the merge instead of losing it.
+func TestOlderHistoryFoldsInLiveTailTrim(t *testing.T) {
+	m := newLimitTestModel(t, 3, 3) // messages a, b, c
+
+	updated, _, handled := m.handleEventMsg(IncomingMessageMsg{
+		AccountIdx: 0,
+		From:       "bob@example.com",
+		Message:    Message{ID: "new", Author: "bob", Content: "hi", SentAt: time.Now()},
+	})
+	if !handled {
+		t.Fatal("IncomingMessageMsg was not handled")
+	}
+	// Window is now b, c, new; "a" was trimmed off the front and must be
+	// sitting in TrimmedFront rather than gone.
+	if got := updated.accounts[0].TrimmedFront[0]; len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("TrimmedFront[0] = %v, want [a]", got)
+	}
+
+	updated2, _, handled := updated.handleEventMsg(OlderHistoryMsg{
+		AccountIdx: 0,
+		From:       "bob@example.com",
+		Messages:   []Message{{ID: "z"}},
+		HasMore:    false,
+	})
+	if !handled {
+		t.Fatal("OlderHistoryMsg was not handled")
+	}
+
+	got := updated2.accounts[0].Messages[0]
+	wantIDs := []string{"z", "a", "b"}
+	gotIDs := make([]string, len(got))
+	for i, m := range got {
+		gotIDs[i] = m.ID
+	}
+	if len(got) != 3 || gotIDs[0] != wantIDs[0] || gotIDs[1] != wantIDs[1] || gotIDs[2] != wantIDs[2] {
+		t.Fatalf("got IDs %v, want %v (chronological with no gap)", gotIDs, wantIDs)
+	}
+	if _, stillPending := updated2.accounts[0].TrimmedFront[0]; stillPending {
+		t.Fatal("TrimmedFront[0] should be cleared once folded into the merge")
+	}
+	// c and new (dropped off the newest end by the merge's own cap) must
+	// still be reachable, not lost — same guarantee as
+	// TestOlderHistoryTrimmedTailReachableByScrollingDown.
+	pinned, ok := updated2.accounts[0].PinnedHistory[0]
+	if !ok {
+		t.Fatal("expected PinnedHistory to retain the trimmed-off newest end")
+	}
+	pinnedIDs := make([]string, len(pinned))
+	for i, m := range pinned {
+		pinnedIDs[i] = m.ID
+	}
+	wantPinned := []string{"z", "a", "b", "c", "new"}
+	if len(pinnedIDs) != len(wantPinned) {
+		t.Fatalf("PinnedHistory IDs = %v, want %v", pinnedIDs, wantPinned)
+	}
+	for i, want := range wantPinned {
+		if pinnedIDs[i] != want {
+			t.Fatalf("PinnedHistory IDs = %v, want %v", pinnedIDs, wantPinned)
+		}
+	}
+}
+
 // TestOlderHistoryTrimmedFromNewestEnd guards OlderHistoryMsg's own cap:
 // prepending a fetched older page keeps the oldest end (what scrolling up
 // was trying to reveal) and drops from the newest end once the chat exceeds

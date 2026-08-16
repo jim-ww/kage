@@ -149,6 +149,17 @@ type Account struct {
 	// exists.
 	PinnedWindow map[int][2]int
 
+	// TrimmedFront holds, per chat index, messages dropped off the *front*
+	// of Messages[chatIdx] by trimMessagesFront (live incoming traffic, sent
+	// messages, or MAM catch-up growing the tail past maxMessagesPerChat),
+	// oldest first, since the last "load older" fetch. Without retaining
+	// these, a subsequent OlderHistoryMsg prepend would merge the freshly
+	// fetched (older) page directly onto the now-trimmed front of
+	// Messages[chatIdx], silently skipping this exact range — the chat
+	// history "gap" bug. OlderHistoryMsg folds this back in as part of its
+	// prepend baseline and clears the entry.
+	TrimmedFront map[int][]Message
+
 	// Connecting is true from New()/AddAccount until the account's dial,
 	// roster fetch, and local history load complete asynchronously in the
 	// background — see AccountConnectedMsg/AccountConnectErrorMsg.
