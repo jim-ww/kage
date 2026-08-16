@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/jim-ww/kage/crypto/localstore"
@@ -96,17 +97,29 @@ func decryptOutboxBody(row storage.Outbox, localKey []byte) string {
 }
 
 // outboxRowToMessage converts a stored outbox row for a plain new-message
-// send (not a reaction/retraction/correction/staged-attachment - see
-// pendingOutboxMessagesByPeer, which filters to only those before calling
-// this) into a Pending ui.Message for chat history - the DB-backed
-// counterpart of sendCurrentInput's local echo, shown identically (Pending,
-// no ID, no Encrypted marking yet) until MessageSendResolvedMsg reports what
-// actually happened to it.
+// send or a staged-attachment send (not a reaction/retraction/correction -
+// see pendingOutboxMessagesByPeer, which filters to only those before
+// calling this) into a Pending ui.Message for chat history - the DB-backed
+// counterpart of sendCurrentInput's/startAttachedSend's local echo, shown
+// identically (Pending, no ID, no Encrypted marking yet) until
+// MessageSendResolvedMsg reports what actually happened to it. A
+// staged-attachment row's real URL isn't known yet (the upload itself
+// hasn't happened) - shown as the caption text plus the local file's name
+// so there's still something recognizable on screen instead of nothing.
 func outboxRowToMessage(row storage.Outbox, localKey []byte) ui.Message {
+	content := decryptOutboxBody(row, localKey)
+	if row.Filepath.Valid && row.Filepath.String != "" {
+		name := filepath.Base(row.Filepath.String)
+		if content != "" {
+			content += "\n[queued: " + name + "]"
+		} else {
+			content = "[queued: " + name + "]"
+		}
+	}
 	return ui.Message{
 		LocalID: row.Localid,
 		Author:  "me",
-		Content: decryptOutboxBody(row, localKey),
+		Content: content,
 		SentAt:  time.Unix(row.Createdat, 0),
 		IsMe:    true,
 		Pending: !row.Failed,

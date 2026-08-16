@@ -235,11 +235,14 @@ func TestPendingOutboxMessagesByPeer(t *testing.T) {
 		t.Fatalf("pendingOutboxMessagesByPeer: %v", err)
 	}
 
-	if got := len(byPeer["bob@example.com"]); got != 1 {
-		t.Fatalf("bob@example.com pending count = %d, want 1 (reaction/retraction/correction/attachment excluded)", got)
+	if got := len(byPeer["bob@example.com"]); got != 2 {
+		t.Fatalf("bob@example.com pending count = %d, want 2 (plain send + staged attachment; reaction/retraction/correction excluded)", got)
 	}
 	if got := byPeer["bob@example.com"][0]; got.LocalID != "local-1" || !got.Pending || !got.IsMe || got.Content != "hello" {
 		t.Errorf("bob@example.com[0] = %+v, want LocalID=local-1 Pending=true IsMe=true Content=hello", got)
+	}
+	if got := byPeer["bob@example.com"][1]; got.LocalID != "local-3" || !got.Pending || !got.IsMe || got.Content != "caption\n[queued: report.pdf]" {
+		t.Errorf("bob@example.com[1] = %+v, want LocalID=local-3 Pending=true IsMe=true Content=%q", got, "caption\n[queued: report.pdf]")
 	}
 	if got := len(byPeer["carol@example.com"]); got != 1 {
 		t.Fatalf("carol@example.com pending count = %d, want 1", got)

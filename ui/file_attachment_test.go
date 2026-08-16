@@ -426,14 +426,82 @@ func TestAttachedSendQueuesWhenOffline(t *testing.T) {
 	if sender.lastUploadText != "check these out" {
 		t.Fatalf("first UploadFile text = %q, want the typed text", sender.lastUploadText)
 	}
+	if result.QueuedLocalID == "" {
+		t.Fatal("QueuedLocalID is empty, want a LocalID so the placeholder can later be resolved by MessageSendResolvedMsg")
+	}
+	if result.QueuedPath != pathA {
+		t.Fatalf("QueuedPath = %q, want %q (the file that actually got queued)", result.QueuedPath, pathA)
+	}
 
 	next, cmd := m.Update(result)
 	m = next.(Model)
 	if cmd == nil {
 		t.Fatal("Update(ComposedSendResultMsg{Queued: true}) returned nil cmd, want a notification")
 	}
-	if len(m.accounts[0].Messages[0]) != 0 {
-		t.Fatalf("got %d messages, want 0 (nothing shown until the queued attachment actually sends)", len(m.accounts[0].Messages[0]))
+	got := m.accounts[0].Messages[0]
+	if len(got) != 1 {
+		t.Fatalf("got %d messages, want 1 (a local Pending placeholder for the queued attachment)", len(got))
+	}
+	if !got[0].Pending || !got[0].IsMe || got[0].LocalID != result.QueuedLocalID {
+		t.Fatalf("placeholder = %+v, want Pending=true IsMe=true LocalID=%q", got[0], result.QueuedLocalID)
+	}
+}
+
+// TestQueuedAttachmentResolvesPlaceholderWithoutDuplicating guards the
+// "non-sent local-only message" bug: adapter.flushOutbox used to resolve a
+// successfully-sent queued attachment by broadcasting a brand new
+// IncomingMessageMsg instead of patching the Pending placeholder
+// TestAttachedSendQueuesWhenOffline shows in place — leaving that
+// placeholder stuck Pending forever (never cleared, since nothing ever
+// referenced its LocalID) while a second, separate message for the same
+// send appeared next to it. MessageSendResolvedMsg with Content/Attachments
+// set (what flushOutbox now sends) must instead patch the existing
+// placeholder by LocalID, in place, with no duplicate.
+func TestQueuedAttachmentResolvesPlaceholderWithoutDuplicating(t *testing.T) {
+	m := newTestModelWithSender(&fakeFileSender{uploadQueued: true}, nil)
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: nil}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+
+	next, _, handled := m.handleEventMsg(ComposedSendResultMsg{
+		AccountIdx: 0, To: chat.Address,
+		Queued: true, QueuedLocalID: "local-file-1", QueuedPath: "/tmp/photo.jpg", QueuedText: "check this out",
+	})
+	if !handled {
+		t.Fatal("ComposedSendResultMsg was not handled")
+	}
+	m = next
+	if got := len(m.accounts[0].Messages[0]); got != 1 {
+		t.Fatalf("after queuing: got %d messages, want 1 (the placeholder)", got)
+	}
+
+	// The upload+send actually happens later, on reconnect - flushOutbox
+	// resolves it by the same LocalID, with the real content/URL now known.
+	next, _, handled = m.handleEventMsg(MessageSendResolvedMsg{
+		AccountIdx: 0, To: chat.Address,
+		LocalID: "local-file-1", ID: "real-stanza-id",
+		Content:     "check this out\nhttps://upload.example/photo.jpg",
+		Attachments: []string{"https://upload.example/photo.jpg"},
+	})
+	if !handled {
+		t.Fatal("MessageSendResolvedMsg was not handled")
+	}
+	m = next
+
+	got := m.accounts[0].Messages[0]
+	if len(got) != 1 {
+		t.Fatalf("after resolving: got %d messages, want 1 (patched in place, not duplicated): %+v", len(got), got)
+	}
+	if got[0].Pending {
+		t.Error("Pending = true after resolution, want false")
+	}
+	if got[0].ID != "real-stanza-id" {
+		t.Errorf("ID = %q, want %q", got[0].ID, "real-stanza-id")
+	}
+	if len(got[0].Attachments) != 1 || got[0].Attachments[0] != "https://upload.example/photo.jpg" {
+		t.Errorf("Attachments = %v, want the real uploaded URL", got[0].Attachments)
 	}
 }
 

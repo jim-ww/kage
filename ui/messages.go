@@ -227,7 +227,20 @@ type ComposedSendResultMsg struct {
 	Paths      []string // every staged local path this batch attempted, for clearing their transfer-progress entries regardless of how far the batch got
 	Messages   []SentMessage
 	Queued     bool // true: account was offline, every not-yet-sent file in this batch was queued rather than attempted
-	Err        error
+
+	// QueuedLocalID/QueuedPath/QueuedText are set alongside Queued: the
+	// file (and its caption text, if it was the first in the batch) that
+	// got queued, so the handler can show a local Pending placeholder for
+	// it — the same local-echo treatment a plain-text queued send already
+	// gets in sendCurrentInput — instead of just a toast. QueuedLocalID
+	// also carries through to the outbox row (FileSender.UploadFile passes
+	// it on), so adapter.flushOutbox can resolve this exact placeholder by
+	// LocalID once the queued upload+send actually happens.
+	QueuedLocalID string
+	QueuedPath    string
+	QueuedText    string
+
+	Err error
 }
 
 // SentMessage is one message startAttachedSend successfully sent.
@@ -286,6 +299,15 @@ type MessageSendResolvedMsg struct {
 	Encrypted  bool
 	EncMethod  string
 	Err        string // non-empty means the queued send ultimately failed
+
+	// Attachments/Content, when Attachments is non-nil, replace the
+	// placeholder's — used only for a resolved staged-attachment send,
+	// whose real URL wasn't known until the upload actually happened (a
+	// plain-text placeholder already shows its final content from the
+	// moment it was composed, so this is left nil there and the placeholder's
+	// existing Content/Attachments are kept as-is).
+	Content     string
+	Attachments []string
 }
 
 // OutboxDeletedMsg is sent into the Bubble Tea loop when a still-Pending

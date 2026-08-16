@@ -104,6 +104,11 @@ func (m *Model) startAttachedSend(text string, to string, reply SendOptions) tea
 				msgText = text
 			}
 			sendOpts := reply
+			// A LocalID up front, same as sendCurrentInput's live-echo path -
+			// needed whether this ends up queued (identifies the outbox row,
+			// and the placeholder built for it below) or sent live (identifies
+			// nothing here, but costs nothing to always set).
+			sendOpts.LocalID = newLocalID()
 			// upload+send is one atomic unit if the account is offline
 			// (fileSender.UploadFile queues both together, see its
 			// docstring) - pass msgText/sendOpts through so it has
@@ -118,6 +123,9 @@ func (m *Model) startAttachedSend(text string, to string, reply SendOptions) tea
 				// hit the same offline account, so stop here rather than
 				// queuing files one at a time across separate flush passes.
 				result.Queued = true
+				result.QueuedLocalID = sendOpts.LocalID
+				result.QueuedPath = path
+				result.QueuedText = msgText
 				return result
 			}
 			if upload.Err != nil {

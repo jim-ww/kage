@@ -797,10 +797,23 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 		if err != nil {
 			// The upload itself failed (not an offline/queued outcome) -
 			// same as a plain send's real-failure case, this row is done,
-			// not worth retrying forever.
+			// not worth retrying forever. Persisted the same way a.send's own
+			// defer does for a plain-message failure (see markOutboxFailed's
+			// doc comment) - this fails before ever reaching a.send, so
+			// nothing else does it here - and resolved by LocalID so the
+			// placeholder startAttachedSend showed flips from Pending to
+			// Failed instead of sitting unresolved forever.
 			slog.Warn("uploading queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", err)
 			if delErr := s.deleteOutboxRow(ctx, q.dbID); delErr != nil {
 				slog.Warn("deleting failed outbox attachment entry", "jid", s.account.JID, "to", q.to, "err", delErr)
+			}
+			if pErr := s.markOutboxFailed(ctx, q.to, q.body, q.opts, err.Error()); pErr != nil {
+				slog.Warn("persisting failed attachment send", "jid", s.account.JID, "to", q.to, "err", pErr)
+			}
+			if q.opts.LocalID != "" {
+				broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+					AccountIdx: s.accountIdx, To: q.to, LocalID: q.opts.LocalID, Err: err.Error(),
+				})
 			}
 			continue
 		}
@@ -814,23 +827,44 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 		if delErr := s.deleteOutboxRow(ctx, q.dbID); delErr != nil {
 			slog.Warn("deleting flushed outbox attachment entry", "jid", s.account.JID, "to", q.to, "err", delErr)
 		}
-		if sendErr != nil {
+		switch {
+		case errors.Is(sendErr, ui.ErrQueued):
+			// Went offline again between the upload finishing and this send -
+			// a.send already re-enqueued it (as a fresh plain-text row, now
+			// containing the real URL since the upload itself already
+			// succeeded) - the UI's placeholder is still accurately Pending.
+		case sendErr != nil:
 			slog.Warn("sending queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", sendErr)
-			continue
+			if q.opts.LocalID != "" {
+				broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+					AccountIdx: s.accountIdx, To: q.to, LocalID: q.opts.LocalID, Err: sendErr.Error(),
+				})
+			}
+		default:
+			// Resolves the Pending placeholder startAttachedSend showed when
+			// this was first queued (see MessageSendResolvedMsg.LocalID) -
+			// not a new IncomingMessageMsg, which would just duplicate it: the
+			// placeholder is already sitting in chat history, only its
+			// ID/Encrypted/EncMethod/Content/Attachments need to catch up now
+			// that the real URL is known.
+			if q.opts.LocalID != "" {
+				encrypted, method := false, ""
+				switch mode := resolveEncryptionMode(ctx, s, q.to); mode {
+				case "gpg":
+					encrypted, method = true, "gpg"
+				case "omemo-v1", "omemo-v2":
+					encrypted, method = true, mode
+				case "none", "":
+				default:
+					encrypted, method = true, "omemo"
+				}
+				broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+					AccountIdx: s.accountIdx, To: q.to, LocalID: q.opts.LocalID,
+					ID: id, Encrypted: encrypted, EncMethod: method,
+					Content: body, Attachments: []string{url},
+				})
+			}
 		}
-		broadcast(a.srv, evIncomingMessage, ui.IncomingMessageMsg{
-			AccountIdx: s.accountIdx,
-			From:       q.to,
-			ReplyToID:  q.opts.ReplyToID,
-			Message: ui.Message{
-				ID:          id,
-				Author:      "me",
-				Content:     body,
-				SentAt:      time.Now(),
-				IsMe:        true,
-				Attachments: []string{url},
-			},
-		})
 	}
 }
 

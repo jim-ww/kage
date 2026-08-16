@@ -243,20 +243,19 @@ func (s *accountSession) insertOutboxEntry(ctx context.Context, to, body string,
 	})
 }
 
-// pendingOutboxMessagesByPeer loads every plain new-message send currently
-// sitting in the outbox - both still-queued (Pending) and given-up
-// (Failed) - and groups them by recipient (toAttr), oldest first, as
-// ui.Messages ready to append onto that chat's already-loaded history. The
-// DB-backed outbox's rows are otherwise invisible to the chat view until a
-// queued one is actually sent (MessageSendResolvedMsg) or the app happens to
-// be running when flushOutbox gets to it, and a failed one is never
-// otherwise reported at all once the TUI process that saw it live is gone -
-// see markOutboxFailed's doc comment. Reactions/retractions/corrections and
-// staged-attachment entries are skipped: they don't correspond to a new
-// chat-history row (a reaction/retraction/correction targets one that's
-// already showing; an attachment's own optimistic-echo flow is handled
-// separately, see adapter.flushOutbox's file branch) - markOutboxFailed
-// never writes one of these anyway, only enqueueOutbox does.
+// pendingOutboxMessagesByPeer loads every plain new-message or
+// staged-attachment send currently sitting in the outbox - both
+// still-queued (Pending) and given-up (Failed) - and groups them by
+// recipient (toAttr), oldest first, as ui.Messages ready to append onto
+// that chat's already-loaded history. The DB-backed outbox's rows are
+// otherwise invisible to the chat view until a queued one is actually sent
+// (MessageSendResolvedMsg) or the app happens to be running when
+// flushOutbox gets to it, and a failed one is never otherwise reported at
+// all once the TUI process that saw it live is gone - see
+// markOutboxFailed's doc comment. Reactions/retractions/corrections are
+// skipped: they don't correspond to a new chat-history row, they target one
+// that's already showing - markOutboxFailed never writes one of these
+// anyway, only enqueueOutbox does.
 func pendingOutboxMessagesByPeer(ctx context.Context, queries *storage.Queries, acct config.Account, localKey []byte) (map[string][]ui.Message, error) {
 	rows, err := queries.ListOutboxByAccount(ctx, acct.JID)
 	if err != nil {
@@ -264,9 +263,6 @@ func pendingOutboxMessagesByPeer(ctx context.Context, queries *storage.Queries, 
 	}
 	byPeer := make(map[string][]ui.Message)
 	for _, r := range rows {
-		if r.Filepath.Valid && r.Filepath.String != "" {
-			continue
-		}
 		if r.Replaceid.Valid || r.Retractid.Valid || r.Reactiontargetid.Valid {
 			continue
 		}

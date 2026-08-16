@@ -162,7 +162,41 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				return m, m.showNotification("send failed: " + msg.Err.Error()), true
 			}
 			if msg.Queued {
-				return m, m.showNotification("offline — attachment(s) queued, will send on reconnect"), true
+				// Same local-echo treatment a plain-text queued send already
+				// gets (see sendCurrentInput) — otherwise this message has no
+				// on-screen representation at all until the upload+send
+				// actually happens on reconnect, which could be an arbitrarily
+				// long time away (see MessageSendResolvedMsg's Content/
+				// Attachments fields, which patch this placeholder once
+				// resolved).
+				chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
+				cmd := m.showNotification("offline — attachment(s) queued, will send on reconnect")
+				if chatIdx < 0 || msg.QueuedLocalID == "" {
+					return m, cmd, true
+				}
+				content := msg.QueuedText
+				name := "[queued: " + filepath.Base(msg.QueuedPath) + "]"
+				if content != "" {
+					content += "\n" + name
+				} else {
+					content = name
+				}
+				placeholder := Message{
+					LocalID: msg.QueuedLocalID,
+					Author:  "me",
+					Content: content,
+					SentAt:  time.Now(),
+					IsMe:    true,
+					Pending: true,
+				}
+				msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
+				cmd = tea.Batch(cmd, m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(placeholder)))
+				if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+					m.selectedMsg = len(msgs) - 1
+					m.refreshViewport()
+					m.viewport.GotoBottom()
+				}
+				return m, cmd, true
 			}
 			return m, nil, true
 		}
@@ -423,11 +457,16 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			msgs[idx].ID = msg.ID
 			msgs[idx].Encrypted = msg.Encrypted
 			msgs[idx].EncMethod = msg.EncMethod
+			if msg.Attachments != nil {
+				msgs[idx].Content = msg.Content
+				msgs[idx].Attachments = msg.Attachments
+			}
 		}
+		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msgs[idx]))
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.refreshViewport()
 		}
-		return m, cmd, true
+		return m, tea.Batch(cmd, lastMsgCmd), true
 
 	case OutboxDeletedMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
