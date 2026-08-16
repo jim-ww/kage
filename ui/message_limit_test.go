@@ -45,95 +45,6 @@ func TestTrimMessagesFront(t *testing.T) {
 	}
 }
 
-func TestTrimMessagesBack(t *testing.T) {
-	msgs := make([]Message, 5)
-	for i := range msgs {
-		msgs[i] = Message{ID: string(rune('a' + i))}
-	}
-	replyToFirst := 0
-	msgs[1].ReplyTo = &replyToFirst // survives (both within the kept front), index unchanged
-	replyToLast := 4
-	msgs[2].ReplyTo = &replyToLast // points at a message that will be dropped
-
-	trimmed, dropped := trimMessagesBack(msgs, 3)
-	if dropped != 2 {
-		t.Fatalf("dropped = %d, want 2", dropped)
-	}
-	if len(trimmed) != 3 || trimmed[0].ID != "a" || trimmed[2].ID != "c" {
-		t.Fatalf("unexpected trimmed slice: %+v", trimmed)
-	}
-	if trimmed[1].ReplyTo == nil || *trimmed[1].ReplyTo != 0 {
-		t.Fatalf("ReplyTo within the kept front should be unchanged, got %v", trimmed[1].ReplyTo)
-	}
-	if trimmed[2].ReplyTo != nil { // was "c", pointed at dropped "e"
-		t.Fatalf("ReplyTo to a dropped message should be nil, got %v", *trimmed[2].ReplyTo)
-	}
-
-	// no-op when under the limit
-	same, dropped := trimMessagesBack(msgs, 10)
-	if dropped != 0 || len(same) != 5 {
-		t.Fatalf("expected no trimming under the limit, got dropped=%d len=%d", dropped, len(same))
-	}
-
-	// disabled
-	same, dropped = trimMessagesBack(msgs, 0)
-	if dropped != 0 || len(same) != 5 {
-		t.Fatalf("limit <= 0 should disable trimming, got dropped=%d len=%d", dropped, len(same))
-	}
-}
-
-func TestTrimMessagesAround(t *testing.T) {
-	msgs := make([]Message, 20)
-	for i := range msgs {
-		msgs[i] = Message{ID: string(rune('a' + i))}
-	}
-	replyToOutside := 0
-	msgs[10].ReplyTo = &replyToOutside // points well before the window, should drop
-	replyToInside := 9
-	msgs[10].ReplyTo = &replyToInside // survives (index 9 is inside the window), should shift
-
-	// target=10, limit=5 -> window centered on 10: [8,13)
-	trimmed, newTarget, front := trimMessagesAround(msgs, 10, 5)
-	if front != 8 {
-		t.Fatalf("front = %d, want 8", front)
-	}
-	if len(trimmed) != 5 || trimmed[0].ID != "i" || trimmed[4].ID != "m" {
-		t.Fatalf("unexpected trimmed slice: %+v", trimmed)
-	}
-	if newTarget != 2 || trimmed[newTarget].ID != "k" {
-		t.Fatalf("newTarget = %d (%q), want 2 (%q)", newTarget, trimmed[newTarget].ID, "k")
-	}
-	if trimmed[newTarget].ReplyTo == nil || *trimmed[newTarget].ReplyTo != 1 { // "j" (idx 9) shifted to idx 1
-		t.Fatalf("ReplyTo should have shifted to 1, got %v", trimmed[newTarget].ReplyTo)
-	}
-
-	// target near the start clamps the window to [0, limit) rather than
-	// going negative.
-	trimmed, newTarget, front = trimMessagesAround(msgs, 1, 5)
-	if front != 0 || newTarget != 1 || trimmed[0].ID != "a" {
-		t.Fatalf("start-clamped window: newTarget=%d front=%d trimmed[0]=%q, want 1/0/%q", newTarget, front, trimmed[0].ID, "a")
-	}
-
-	// target near the end clamps the window to [len-limit, len) rather than
-	// running off the end.
-	trimmed, newTarget, front = trimMessagesAround(msgs, 19, 5)
-	if front != 15 || trimmed[len(trimmed)-1].ID != "t" || trimmed[newTarget].ID != "t" {
-		t.Fatalf("end-clamped window: front=%d newTarget=%d trimmed=%+v", front, newTarget, trimmed)
-	}
-
-	// no-op when under the limit
-	same, newTarget, front := trimMessagesAround(msgs, 10, 30)
-	if front != 0 || newTarget != 10 || len(same) != 20 {
-		t.Fatalf("expected no trimming under the limit, got front=%d newTarget=%d len=%d", front, newTarget, len(same))
-	}
-
-	// disabled
-	same, newTarget, front = trimMessagesAround(msgs, 10, 0)
-	if front != 0 || newTarget != 10 || len(same) != 20 {
-		t.Fatalf("limit <= 0 should disable trimming, got front=%d newTarget=%d len=%d", front, newTarget, len(same))
-	}
-}
-
 // newLimitTestModel builds a Model with a single chat holding n messages and
 // maxMessagesPerChat set to limit.
 func newLimitTestModel(t *testing.T, n, limit int) *Model {
@@ -143,7 +54,7 @@ func newLimitTestModel(t *testing.T, n, limit int) *Model {
 	msgs := make([]Message, n)
 	base := time.Now()
 	for i := range msgs {
-		msgs[i] = Message{ID: string(rune('a' + i)), Author: "bob", Content: "hi", SentAt: base.Add(time.Duration(i) * time.Second)}
+		msgs[i] = Message{ID: string(rune('a' + i)), StoreID: int64(i + 1), Author: "bob", Content: "hi", SentAt: base.Add(time.Duration(i) * time.Second)}
 	}
 
 	chat := Chat{Name: "bob", Address: "bob@example.com"}
@@ -166,7 +77,8 @@ func newLimitTestModel(t *testing.T, n, limit int) *Model {
 				Messages: map[int][]Message{0: msgs},
 			},
 		},
-		selectedView: viewChat,
+		selectedView:         viewChat,
+		loadingHistoryWindow: make(map[int]bool),
 	}
 	m.viewport.SetWidth(80)
 	m.viewport.SetHeight(24)
@@ -176,7 +88,8 @@ func newLimitTestModel(t *testing.T, n, limit int) *Model {
 
 // TestIncomingMessageTrimsToLimit verifies that a live incoming message past
 // the configured cap evicts the oldest loaded message instead of growing the
-// in-memory slice unbounded.
+// in-memory slice unbounded, and marks HistoryMore so that message is known
+// to still be reachable (via an older-history fetch) rather than just lost.
 func TestIncomingMessageTrimsToLimit(t *testing.T) {
 	m := newLimitTestModel(t, 3, 3)
 
@@ -199,186 +112,97 @@ func TestIncomingMessageTrimsToLimit(t *testing.T) {
 	if updated.selectedMsg != 2 {
 		t.Fatalf("selectedMsg = %d, want 2 (last)", updated.selectedMsg)
 	}
+	if !updated.accounts[0].HistoryMore[0] {
+		t.Fatal("HistoryMore should be true — trimming dropped a message that's still in storage")
+	}
 }
 
-// TestOlderHistoryFoldsInLiveTailTrim guards the pagination gap bug: once
-// live-tail growth (IncomingMessageMsg, here) has trimmed messages off the
-// front of the loaded window, a subsequent older-history fetch used to merge
-// the freshly fetched (older) page directly onto that already-trimmed
-// front — silently skipping every message trimMessagesFront had dropped in
-// between. TrimmedFront (see its doc comment) retains what was dropped so
-// OlderHistoryMsg can fold it back into the merge instead of losing it.
-func TestOlderHistoryFoldsInLiveTailTrim(t *testing.T) {
-	m := newLimitTestModel(t, 3, 3) // messages a, b, c
+// TestIncomingMessageSkipsAppendWhenViewingMidHistory guards against a live
+// message arriving while the chat's loaded window isn't the live tail
+// (HistoryNewer set — paged up, or landed on a search result): it must not
+// be spliced onto the end of that unrelated window, just counted unread.
+func TestIncomingMessageSkipsAppendWhenViewingMidHistory(t *testing.T) {
+	m := newLimitTestModel(t, 3, 3)
+	m.accounts[0].HistoryNewer = map[int]bool{0: true}
+	before := append([]Message{}, m.accounts[0].Messages[0]...)
 
 	updated, _, handled := m.handleEventMsg(IncomingMessageMsg{
 		AccountIdx: 0,
 		From:       "bob@example.com",
-		Message:    Message{ID: "new", Author: "bob", Content: "hi", SentAt: time.Now()},
+		Message:    Message{ID: "live", Content: "just arrived"},
 	})
 	if !handled {
 		t.Fatal("IncomingMessageMsg was not handled")
 	}
-	// Window is now b, c, new; "a" was trimmed off the front and must be
-	// sitting in TrimmedFront rather than gone.
-	if got := updated.accounts[0].TrimmedFront[0]; len(got) != 1 || got[0].ID != "a" {
-		t.Fatalf("TrimmedFront[0] = %v, want [a]", got)
-	}
 
-	updated2, _, handled := updated.handleEventMsg(OlderHistoryMsg{
-		AccountIdx: 0,
-		From:       "bob@example.com",
-		Messages:   []Message{{ID: "z"}},
-		HasMore:    false,
-	})
-	if !handled {
-		t.Fatal("OlderHistoryMsg was not handled")
+	after := updated.accounts[0].Messages[0]
+	if len(after) != len(before) {
+		t.Fatalf("window changed size while viewing mid-history: %d -> %d", len(before), len(after))
 	}
-
-	got := updated2.accounts[0].Messages[0]
-	wantIDs := []string{"z", "a", "b"}
-	gotIDs := make([]string, len(got))
-	for i, m := range got {
-		gotIDs[i] = m.ID
-	}
-	if len(got) != 3 || gotIDs[0] != wantIDs[0] || gotIDs[1] != wantIDs[1] || gotIDs[2] != wantIDs[2] {
-		t.Fatalf("got IDs %v, want %v (chronological with no gap)", gotIDs, wantIDs)
-	}
-	if _, stillPending := updated2.accounts[0].TrimmedFront[0]; stillPending {
-		t.Fatal("TrimmedFront[0] should be cleared once folded into the merge")
-	}
-	// c and new (dropped off the newest end by the merge's own cap) must
-	// still be reachable, not lost — same guarantee as
-	// TestOlderHistoryTrimmedTailReachableByScrollingDown.
-	pinned, ok := updated2.accounts[0].PinnedHistory[0]
-	if !ok {
-		t.Fatal("expected PinnedHistory to retain the trimmed-off newest end")
-	}
-	pinnedIDs := make([]string, len(pinned))
-	for i, m := range pinned {
-		pinnedIDs[i] = m.ID
-	}
-	wantPinned := []string{"z", "a", "b", "c", "new"}
-	if len(pinnedIDs) != len(wantPinned) {
-		t.Fatalf("PinnedHistory IDs = %v, want %v", pinnedIDs, wantPinned)
-	}
-	for i, want := range wantPinned {
-		if pinnedIDs[i] != want {
-			t.Fatalf("PinnedHistory IDs = %v, want %v", pinnedIDs, wantPinned)
+	for i := range after {
+		if after[i].ID != before[i].ID {
+			t.Fatalf("window content changed at index %d: %q -> %q", i, before[i].ID, after[i].ID)
 		}
+	}
+	chat := updated.accounts[0].Chats[0].(Chat)
+	if chat.Unread != 1 {
+		t.Fatalf("chat.Unread = %d, want 1", chat.Unread)
 	}
 }
 
-// TestOlderHistoryTrimmedFromNewestEnd guards OlderHistoryMsg's own cap:
-// prepending a fetched older page keeps the oldest end (what scrolling up
-// was trying to reveal) and drops from the newest end once the chat exceeds
-// maxMessagesPerChat, the mirror image of trimMessagesFront's live-tail-growth
-// cap. What's dropped here is retained as PinnedHistory/PinnedWindow (the
-// same mechanism a search jump uses), so it's still reachable by scrolling
-// back down — see TestOlderHistoryTrimmedTailReachableByScrollingDown.
-func TestOlderHistoryTrimmedFromNewestEnd(t *testing.T) {
-	m := newLimitTestModel(t, 3, 3)
-	m.selectedMsg = 0
+// TestHistoryWindowMsgReplacesMessagesAndRestoresSelection guards
+// HistoryWindowMsg's core contract: the response fully replaces whatever was
+// loaded before (no merge with the old window), and the selection follows
+// whichever message was anchored on (Model.pendingWindowAnchor) by ID, not
+// by index — a full replace makes any old index meaningless.
+func TestHistoryWindowMsgReplacesMessagesAndRestoresSelection(t *testing.T) {
+	m := newLimitTestModel(t, 5, 5) // a, b, c, d, e
+	m.pendingWindowAnchor = map[int]string{0: "c"}
+	m.loadingHistoryWindow[0] = true
 
-	older := []Message{{ID: "x"}, {ID: "y"}}
-	updated, _, handled := m.handleEventMsg(OlderHistoryMsg{
-		AccountIdx: 0,
-		From:       "bob@example.com",
-		Messages:   older,
-		HasMore:    false,
+	newWindow := []Message{{ID: "x"}, {ID: "c"}, {ID: "y"}}
+	updated, _, handled := m.handleEventMsg(HistoryWindowMsg{
+		AccountIdx: 0, From: "bob@example.com",
+		Messages: newWindow, HasOlder: true, HasNewer: true,
 	})
 	if !handled {
-		t.Fatal("OlderHistoryMsg was not handled")
+		t.Fatal("HistoryWindowMsg was not handled")
 	}
 
 	got := updated.accounts[0].Messages[0]
-	if len(got) != 3 {
-		t.Fatalf("len(Messages) = %d, want 3 (capped at maxMessagesPerChat)", len(got))
+	if len(got) != 3 || got[0].ID != "x" || got[1].ID != "c" || got[2].ID != "y" {
+		t.Fatalf("Messages = %+v, want the response's window verbatim", got)
 	}
-	wantIDs := []string{"x", "y", "a"}
-	for i, want := range wantIDs {
-		if got[i].ID != want {
-			t.Fatalf("got[%d].ID = %q, want %q (full IDs: %v)", i, got[i].ID, want, got)
-		}
+	if updated.selectedMsg != 1 {
+		t.Fatalf("selectedMsg = %d, want 1 (the anchor message %q)", updated.selectedMsg, "c")
 	}
-}
-
-// TestOlderHistoryStaysCappedAcrossManyPages guards the actual reported
-// symptom: repeatedly scrolling all the way up through a long chat (each
-// older-history fetch its own OlderHistoryMsg, same as real paginated
-// scrolling) must keep the loaded window bounded at maxMessagesPerChat the
-// whole way, not grow with every page — that unbounded growth was what made
-// rendering/scrolling get progressively slower the further back you went.
-func TestOlderHistoryStaysCappedAcrossManyPages(t *testing.T) {
-	m := newLimitTestModel(t, 50, 200)
-	cur := *m
-
-	for page := 0; page < 100; page++ {
-		older := make([]Message, 50)
-		for i := range older {
-			older[i] = Message{ID: "p"}
-		}
-		updated, _, handled := cur.handleEventMsg(OlderHistoryMsg{
-			AccountIdx: 0,
-			From:       "bob@example.com",
-			Messages:   older,
-			HasMore:    true,
-		})
-		if !handled {
-			t.Fatalf("page %d: OlderHistoryMsg was not handled", page)
-		}
-		cur = updated
-		if got := len(cur.accounts[0].Messages[0]); got > 200 {
-			t.Fatalf("page %d: len(Messages) = %d, want capped at 200", page, got)
-		}
+	if !updated.accounts[0].HistoryMore[0] || !updated.accounts[0].HistoryNewer[0] {
+		t.Fatal("HistoryMore/HistoryNewer should match the response's HasOlder/HasNewer")
+	}
+	if updated.loadingHistoryWindow[0] {
+		t.Fatal("loadingHistoryWindow should be cleared once the response arrives")
+	}
+	if _, stillPending := updated.pendingWindowAnchor[0]; stillPending {
+		t.Fatal("pendingWindowAnchor should be cleared once consumed")
 	}
 }
 
-// TestOlderHistoryTrimmedTailReachableByScrollingDown guards the regression
-// this cap previously reintroduced: trimming an older-history page's newest
-// end used to just discard it with no way back, since ordinary (non-search)
-// scrolling has no "load newer" fetch — the moment a chat grew past
-// maxMessagesPerChat while scrolling up, scrolling back down would silently
-// stop loading anything at all. The trimmed tail must be recoverable via
-// growPinnedWindow (maybeLoadNewerHistory), the same mechanism a search jump
-// already relies on.
-func TestOlderHistoryTrimmedTailReachableByScrollingDown(t *testing.T) {
+// TestHistoryWindowMsgFallsBackToLastMessageWhenAnchorMissing guards the
+// fallback path: if the anchor message somehow isn't in the returned window
+// (shouldn't normally happen — see loadHistoryWindow), the selection lands
+// on the last message rather than out of range or left stale.
+func TestHistoryWindowMsgFallsBackToLastMessageWhenAnchorMissing(t *testing.T) {
 	m := newLimitTestModel(t, 3, 3)
-	m.selectedMsg = 0
-	chatIdx := 0
+	m.pendingWindowAnchor = map[int]string{0: "does-not-exist"}
 
-	older := []Message{{ID: "x"}, {ID: "y"}}
-	updated, _, handled := m.handleEventMsg(OlderHistoryMsg{
-		AccountIdx: 0,
-		From:       "bob@example.com",
-		Messages:   older,
-		HasMore:    false,
+	updated, _, handled := m.handleEventMsg(HistoryWindowMsg{
+		AccountIdx: 0, From: "bob@example.com",
+		Messages: []Message{{ID: "x"}, {ID: "y"}},
 	})
 	if !handled {
-		t.Fatal("OlderHistoryMsg was not handled")
+		t.Fatal("HistoryWindowMsg was not handled")
 	}
-	got := updated.accounts[0].Messages[chatIdx]
-	if len(got) != 3 || got[0].ID != "x" || got[2].ID != "a" {
-		t.Fatalf("unexpected window after trim: %+v", got)
-	}
-	if _, ok := updated.accounts[0].PinnedHistory[chatIdx]; !ok {
-		t.Fatal("trimmed tail should be retained as PinnedHistory")
-	}
-
-	// growPinnedWindow slides by half the window per call (see its doc
-	// comment), so reaching the tail takes a few scrolls — same as a real
-	// user repeatedly hitting the bottom of the loaded window. What matters
-	// is that each call actually loads something (the regression was that
-	// nothing loaded at all), eventually reaching the true tail ("c") that
-	// was visible before the user ever scrolled up.
-	for i := 0; i < 10 && got[len(got)-1].ID != "c"; i++ {
-		updated.selectedMsg = len(got) - 1
-		if cmd := updated.maybeLoadNewerHistory(); cmd != nil {
-			t.Fatal("maybeLoadNewerHistory should resolve via growPinnedWindow, not a network fetch")
-		}
-		got = updated.accounts[0].Messages[chatIdx]
-	}
-	if got[len(got)-1].ID != "c" {
-		t.Fatalf("expected to reach the true tail by scrolling down, got %+v", got)
+	if updated.selectedMsg != 1 {
+		t.Fatalf("selectedMsg = %d, want 1 (fallback to last message)", updated.selectedMsg)
 	}
 }

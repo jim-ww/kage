@@ -27,9 +27,9 @@ type Model struct {
 
 	// maxMessagesPerChat caps how many messages are kept in
 	// accounts[i].Messages[chatIdx] — older messages are trimmed off as new
-	// ones are appended (live traffic, MAM sync) or prepended ("load
-	// older"), see trimMessagesFront/trimMessagesBack in update_messages.go.
-	// <= 0 means no cap.
+	// ones are appended at the live tail (see appendAndTrim in
+	// update_messages.go), and it's the window size every
+	// HistoryLoader.LoadHistoryWindow request asks for. <= 0 means no cap.
 	maxMessagesPerChat int
 
 	// mouseEnabled gates all mouse handling: when false, MouseMode is left
@@ -252,10 +252,18 @@ type Model struct {
 	idle    bool
 	idleGen int
 
-	// loadingOlderHistory marks chat indices with a LoadOlderHistory fetch
-	// currently in flight, so scrolling/MsgUp near the top of a long history
-	// doesn't fire duplicate requests while the first is still pending.
-	loadingOlderHistory map[int]bool
+	// loadingHistoryWindow marks chat indices with a
+	// HistoryLoader.LoadHistoryWindow fetch currently in flight, so
+	// scrolling/MsgUp near the edge of a long history doesn't fire duplicate
+	// requests while the first is still pending.
+	loadingHistoryWindow map[int]bool
+
+	// pendingWindowAnchor holds, per chat index, the message ID a
+	// loadingHistoryWindow fetch was anchored on — read back once
+	// HistoryWindowMsg arrives to restore the selection to that same message
+	// within the freshly loaded window (see its handling in
+	// update_messages.go).
+	pendingWindowAnchor map[int]string
 
 	// pendingOpenChatAddress is the peer JID to auto-open once its owning
 	// account's chats have loaded (see AccountConnectedMsg/AccountLiveMsg
@@ -503,7 +511,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		callController:         callController,
 		focused:                true,
 		openChatAccountIdx:     -1,
-		loadingOlderHistory:    make(map[int]bool),
+		loadingHistoryWindow:   make(map[int]bool),
 		pendingOpenChatAddress: openLastChatAddress,
 		sidebarWidthOverride:   initialSidebarWidth,
 		sidebarHidden:          initialSidebarHidden,

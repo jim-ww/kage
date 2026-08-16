@@ -10,6 +10,7 @@ import (
 	"github.com/jim-ww/kage/crypto/gpg"
 	"github.com/jim-ww/kage/crypto/localstore"
 	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/ui"
 )
 
 func TestLoadLocalKeyDeterministicAcrossOpens(t *testing.T) {
@@ -242,11 +243,12 @@ func TestLoadHistoryHandlesPlaintextAndEncryptedRows(t *testing.T) {
 	}
 }
 
-// TestLoadHistoryPagePaginatesOldestFirst verifies loadHistoryPage's keyset
-// pagination: each call returns the next older page in chronological order,
-// hasMore stays true until the oldest stored message is reached, and the
-// last page is exactly what's left.
-func TestLoadHistoryPagePaginatesOldestFirst(t *testing.T) {
+// TestLoadHistoryWindow verifies loadHistoryWindow's two shapes: anchor ==
+// nil returns the live tail (hasNewer always false, hasOlder true iff more
+// remains before it), and an anchored call builds a window symmetric around
+// that anchor (a heuristic older/newer half each) with the anchor message
+// itself always included.
+func TestLoadHistoryWindow(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kage.db")
 	db, q, err := storage.Open(path)
@@ -271,42 +273,59 @@ func TestLoadHistoryPagePaginatesOldestFirst(t *testing.T) {
 			t.Fatalf("InsertMessage %d: %v", i, err)
 		}
 	}
+	// Read them back through loadHistoryWindow itself (nil anchor, whole
+	// history fits) purely to get each message's real StoreID/Delay to
+	// anchor on below — InsertMessage doesn't hand those back directly.
+	msgs, _, _ := loadHistoryWindow(ctx, s, chatAddr, chatAddr, nil, 10)
+	if len(msgs) != 5 {
+		t.Fatalf("setup: got %d messages back, want 5", len(msgs))
+	}
 
-	origPageSize := historyPageSize
-	historyPageSize = 2
-	defer func() { historyPageSize = origPageSize }()
-
-	// Each successive page is *older* than the last (newest page first) —
-	// mirrors how the UI prepends each "load older" fetch to what's already
-	// displayed, to reconstruct the full chronological list.
-	var got []string
-	for page := 0; ; page++ {
-		msgs, hasMore := loadHistoryPage(ctx, s, chatAddr, chatAddr)
-		if page == 0 && len(msgs) != 2 {
-			t.Fatalf("page 0: got %d messages, want 2", len(msgs))
-		}
-		ids := make([]string, len(msgs))
-		for i, m := range msgs {
+	idsOf := func(got []ui.Message) []string {
+		ids := make([]string, len(got))
+		for i, m := range got {
 			ids[i] = m.ID
 		}
-		got = append(ids, got...)
-		if !hasMore {
-			break
+		return ids
+	}
+	wantIDs := func(t *testing.T, got []ui.Message, want ...string) {
+		t.Helper()
+		gotIDs := idsOf(got)
+		if len(gotIDs) != len(want) {
+			t.Fatalf("got %v, want %v", gotIDs, want)
 		}
-		if page > 5 {
-			t.Fatal("loadHistoryPage never reported hasMore=false — pagination stuck in a loop")
+		for i := range want {
+			if gotIDs[i] != want[i] {
+				t.Fatalf("got %v, want %v", gotIDs, want)
+			}
 		}
 	}
 
-	want := []string{"m0", "m1", "m2", "m3", "m4"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
+	t.Run("nil anchor returns the live tail", func(t *testing.T) {
+		got, hasOlder, hasNewer := loadHistoryWindow(ctx, s, chatAddr, chatAddr, nil, 2)
+		wantIDs(t, got, "m3", "m4")
+		if !hasOlder {
+			t.Fatal("hasOlder = false, want true — m0/m1/m2 exist before this window")
 		}
-	}
+		if hasNewer {
+			t.Fatal("hasNewer = true, want false — this is the live tail, nothing is newer")
+		}
+	})
+
+	t.Run("anchored window centers on the anchor and includes it", func(t *testing.T) {
+		anchor := &ui.HistoryAnchor{Delay: msgs[1].SentAt.Unix(), StoreID: msgs[1].StoreID}
+		got, hasOlder, hasNewer := loadHistoryWindow(ctx, s, chatAddr, chatAddr, anchor, 4)
+		// olderHalf=2 (only m0 exists before m1: correctly detected as
+		// exhausted since it didn't fill the requested 2), newerHalf=2
+		// (m1, m2: filled exactly, so hasNewer is true — m3/m4 do exist).
+		wantIDs(t, got, "m0", "m1", "m2")
+		if hasOlder {
+			t.Fatal("hasOlder = true, want false — only m0 exists before the anchor, and it was returned")
+		}
+		if !hasNewer {
+			t.Fatal("hasNewer = false, want true — m3/m4 exist beyond this window")
+		}
+	})
 }
 
 // TestReadStoredBodyErrorsWithoutKey verifies that an encrypted row can't be

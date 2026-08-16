@@ -11,7 +11,7 @@ import (
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
-// spyHistoryLoader records every LoadOlderHistory call, standing in for a
+// spyHistoryLoader records every LoadHistoryWindow call, standing in for a
 // real network fetch — used to confirm a fetch only fires once scrolling
 // genuinely reaches the top of all loaded messages, not merely somewhere
 // mid-scroll.
@@ -20,14 +20,14 @@ type spyHistoryLoader struct {
 	calls int
 }
 
-func (s *spyHistoryLoader) LoadOlderHistory(accountIdx int, to string) tea.Cmd {
+func (s *spyHistoryLoader) LoadHistoryWindow(accountIdx int, to string, anchor *HistoryAnchor) tea.Cmd {
 	s.calls++
 	return nil
 }
 
 // newScrollBoundaryTestModel builds a Model with n loaded messages in a
 // single chat, with a spyHistoryLoader wired in and
-// accounts[0].HistoryMore[0] set so a maybeLoadOlderHistory call is
+// accounts[0].HistoryMore[0] set so a maybeLoadHistoryWindow call is
 // observable and would actually attempt a fetch if triggered.
 func newScrollBoundaryTestModel(t *testing.T, n int) (*Model, *spyHistoryLoader) {
 	t.Helper()
@@ -38,7 +38,7 @@ func newScrollBoundaryTestModel(t *testing.T, n int) (*Model, *spyHistoryLoader)
 	msgs := make([]Message, n)
 	base := time.Now()
 	for i := range msgs {
-		msgs[i] = Message{ID: fmt.Sprintf("msg-%03d", i), Author: "bob", Content: fmt.Sprintf("content-%03d", i), SentAt: base.Add(time.Duration(i) * time.Second)}
+		msgs[i] = Message{ID: fmt.Sprintf("msg-%03d", i), StoreID: int64(i + 1), Author: "bob", Content: fmt.Sprintf("content-%03d", i), SentAt: base.Add(time.Duration(i) * time.Second)}
 	}
 	chat := Chat{Name: "bob", Address: "bob@example.com"}
 	m.accounts = []Account{{
@@ -109,14 +109,14 @@ func TestWheelScrollFetchesOlderHistoryOnlyAtTrueTop(t *testing.T) {
 		wheelUpInViewport(t, m)
 	}
 	if loader.calls != 0 {
-		t.Fatalf("LoadOlderHistory called %d times after only a few wheel notches, well before the top", loader.calls)
+		t.Fatalf("LoadHistoryWindow called %d times after only a few wheel notches, well before the top", loader.calls)
 	}
 
 	for i := 0; i < 200 && loader.calls == 0; i++ {
 		wheelUpInViewport(t, m)
 	}
 	if loader.calls == 0 {
-		t.Fatal("LoadOlderHistory was never called after scrolling all the way to the true top of loaded history")
+		t.Fatal("LoadHistoryWindow was never called after scrolling all the way to the true top of loaded history")
 	}
 	if !m.viewport.AtTop() {
 		t.Fatal("expected the viewport to actually be at the top when the fetch fired")

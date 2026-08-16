@@ -12,8 +12,14 @@ import (
 
 // Message is one chat message in an Account's timeline.
 type Message struct {
-	ID          string // stanza ID; enables XEP-0308 correction and XEP-0461 reply targeting
-	Author      string
+	ID     string // stanza ID; enables XEP-0308 correction and XEP-0461 reply targeting
+	Author string
+	// StoreID is the message's storage rowid, zero for anything not loaded
+	// from (or not yet round-tripped through) storage — a locally-composed
+	// message before it's been persisted, for instance. Used purely as a
+	// pagination anchor (see HistoryAnchor) to ask storage for a fresh
+	// window of history centered on this exact message; never rendered.
+	StoreID     int64
 	Content     string
 	SentAt      time.Time
 	IsMe        bool
@@ -127,49 +133,18 @@ type Account struct {
 	Alias string
 
 	// HistoryMore marks, per chat index, whether older messages exist in
-	// storage beyond what's currently loaded in Messages — set from the
-	// initial paginated load and updated after each "load older" fetch.
-	// Absent (or false) means either the chat has no more history, or
-	// nothing is known yet (treated the same: no further fetch attempted).
-	HistoryMore map[int]bool
-
-	// PinnedHistory holds, per chat index, the full decrypted history behind
-	// a window loaded via a search-result jump (see loadSearchResult) —
-	// storage-backed paging only ever loads older messages from the live
-	// tail, so a jump into the middle of a long chat's history has no way to
-	// page further in either direction from storage alone. Since a search
-	// already had to decrypt the whole chat to find matches, PinnedHistory
-	// keeps that result around just long enough to slide the loaded window
-	// across it locally (see growPinnedWindow); it's removed once the
-	// window has grown to touch both of its edges, handing back off to
-	// ordinary storage-backed older-history fetches / live-tail appending.
-	PinnedHistory map[int][]Message
-	// PinnedWindow is [start, end) — Messages[chatIdx]'s current position
-	// within PinnedHistory[chatIdx], meaningful only while that entry
-	// exists.
-	PinnedWindow map[int][2]int
-	// PinnedHistoryComplete marks, per chat index, whether
-	// PinnedHistory[chatIdx] holds the chat's *entire* history (set by
-	// loadSearchResult, which had to decrypt everything to search it) as
-	// opposed to just whatever's been paged in from storage so far (set by
-	// OlderHistoryMsg's own overflow retention — see combined in its
-	// handling). growPinnedWindow only treats reaching PinnedHistory's near
-	// edge as "no older messages" (clearing HistoryMore) when this is true;
-	// otherwise older messages may still exist in storage beyond what's
-	// currently retained in memory, and HistoryMore must be left alone so a
-	// real older-history fetch fires once the in-memory window is exhausted.
-	PinnedHistoryComplete map[int]bool
-
-	// TrimmedFront holds, per chat index, messages dropped off the *front*
-	// of Messages[chatIdx] by trimMessagesFront (live incoming traffic, sent
-	// messages, or MAM catch-up growing the tail past maxMessagesPerChat),
-	// oldest first, since the last "load older" fetch. Without retaining
-	// these, a subsequent OlderHistoryMsg prepend would merge the freshly
-	// fetched (older) page directly onto the now-trimmed front of
-	// Messages[chatIdx], silently skipping this exact range — the chat
-	// history "gap" bug. OlderHistoryMsg folds this back in as part of its
-	// prepend baseline and clears the entry.
-	TrimmedFront map[int][]Message
+	// storage beyond the oldest message currently in Messages. HistoryNewer
+	// is its mirror for the newest message currently in Messages — false
+	// whenever Messages already reaches the live tail (the common case; only
+	// a mid-history window, from paging up or a search jump, can have this
+	// true). Both are set fresh by every HistoryLoader.LoadHistoryWindow
+	// response, and are the *only* source of truth for "is there more to
+	// page into" in either direction — nothing else derives or overrides
+	// them, which is what keeps every window transition (paging,
+	// jump-to-latest, search jump) going through the same one code path
+	// instead of each needing its own bookkeeping.
+	HistoryMore  map[int]bool
+	HistoryNewer map[int]bool
 
 	// Connecting is true from New()/AddAccount until the account's dial,
 	// roster fetch, and local history load complete asynchronously in the

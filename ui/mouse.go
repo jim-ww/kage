@@ -537,8 +537,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.zone.Get(zoneJumpToBottom).InBounds(msg) {
-		m.jumpToLatestMessage()
-		return m, nil
+		return m, m.jumpToLatestMessage()
 	}
 
 	for i := range m.emojiSuggestions {

@@ -36,88 +36,26 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	return trimmed, drop
 }
 
-// trimTailAndStashFront trims msgs the same way trimMessagesFront does, but
-// additionally retains whatever got dropped in accounts[accountIdx].TrimmedFront[chatIdx]
-// (oldest-first, appended after anything already stashed there since the
-// last older-history fetch) so a later OlderHistoryMsg prepend can fold it
-// back in instead of silently skipping it. Use this instead of calling
-// trimMessagesFront directly for any tail-growth path (live incoming
-// messages, sent messages, MAM catch-up).
-func (m *Model) trimTailAndStashFront(accountIdx, chatIdx int, msgs []Message) []Message {
+// appendAndTrim appends newMsgs to accounts[accountIdx].Messages[chatIdx]
+// (the live tail: incoming messages, our own sent messages, MAM catch-up)
+// and caps it back down to maxMessagesPerChat via trimMessagesFront. Unlike
+// a HistoryLoader window load, this never touches HistoryNewer — the tail is
+// still the tail — but does set HistoryMore whenever trimming actually
+// dropped something, since storage now holds messages older than what's
+// left in memory (recoverable at any time via an ordinary older-history
+// fetch — nothing needs to be specially retained here, storage already has
+// it).
+func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) []Message {
+	msgs := append(m.accounts[accountIdx].Messages[chatIdx], newMsgs...)
 	trimmed, drop := trimMessagesFront(msgs, m.maxMessagesPerChat)
-	if drop == 0 {
-		return trimmed
+	if drop > 0 {
+		if m.accounts[accountIdx].HistoryMore == nil {
+			m.accounts[accountIdx].HistoryMore = make(map[int]bool)
+		}
+		m.accounts[accountIdx].HistoryMore[chatIdx] = true
 	}
-	dropped := msgs[:drop]
-	if m.accounts[accountIdx].TrimmedFront == nil {
-		m.accounts[accountIdx].TrimmedFront = make(map[int][]Message)
-	}
-	m.accounts[accountIdx].TrimmedFront[chatIdx] = append(m.accounts[accountIdx].TrimmedFront[chatIdx], dropped...)
+	m.accounts[accountIdx].Messages[chatIdx] = trimmed
 	return trimmed
-}
-
-// trimMessagesBack drops the newest messages from msgs so at most limit
-// remain, used when an older-history page is prepended (see OlderHistoryMsg
-// handling) and the chat has grown past the configured cap — the mirror
-// image of trimMessagesFront: scrolling up to see older content means the
-// oldest end (what was just fetched) is what the caller wants to keep, and
-// the newest end (now furthest from where the user's looking) is what's
-// safe to give up. Returns the trimmed slice and how many messages were
-// dropped so the caller can adjust any index (selectedMsg) that pointed
-// into the old slice. limit <= 0 disables trimming.
-func trimMessagesBack(msgs []Message, limit int) ([]Message, int) {
-	if limit <= 0 || len(msgs) <= limit {
-		return msgs, 0
-	}
-	drop := len(msgs) - limit
-	trimmed := make([]Message, limit)
-	copy(trimmed, msgs[:limit])
-	for i := range trimmed {
-		if trimmed[i].ReplyTo == nil {
-			continue
-		}
-		if *trimmed[i].ReplyTo >= limit {
-			trimmed[i].ReplyTo = nil
-		}
-	}
-	return trimmed, drop
-}
-
-// trimMessagesAround keeps at most limit messages from msgs, centered on
-// target — unlike trimMessagesFront (which always keeps the newest tail),
-// used when target itself is what matters (a search-result jump into
-// possibly very old history) rather than "whatever's most recent". Without
-// this, jumping to a match loads the chat's entire persisted history into
-// the in-memory window regardless of how far back it is, which is what
-// makes the message list sluggish (every render/scroll walks/wraps however
-// many thousand messages that chat has, not the same bounded window every
-// other load path already respects via trimMessagesFront). Returns the
-// trimmed slice, target's new index within it, and how many messages were
-// dropped off the front (so the caller knows older history still exists
-// beyond the window). limit <= 0 or len(msgs) <= limit disables trimming.
-func trimMessagesAround(msgs []Message, target, limit int) (trimmed []Message, newTarget, front int) {
-	if limit <= 0 || len(msgs) <= limit {
-		return msgs, target, 0
-	}
-	start := target - limit/2
-	start = max(0, min(start, len(msgs)-limit))
-	end := start + limit
-
-	trimmed = make([]Message, limit)
-	copy(trimmed, msgs[start:end])
-	for i := range trimmed {
-		if trimmed[i].ReplyTo == nil {
-			continue
-		}
-		rt := *trimmed[i].ReplyTo
-		if rt < start || rt >= end {
-			trimmed[i].ReplyTo = nil
-		} else {
-			shifted := rt - start
-			trimmed[i].ReplyTo = &shifted
-		}
-	}
-	return trimmed, target - start, start
 }
 
 // handleEventMsg handles every non-key message Update can receive (window
@@ -235,8 +173,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		existing := m.accounts[msg.AccountIdx].Messages[chatIdx]
 		var lastContent string
+		newMsgs := make([]Message, 0, len(msg.Messages))
 		for _, sent := range msg.Messages {
 			newMsg := Message{
 				ID:          sent.ID,
@@ -246,14 +185,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				IsMe:        true,
 				Attachments: sent.Attachments,
 			}
-			if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
+			if replyIdx := messageIndexByID(existing, msg.ReplyToID); replyIdx >= 0 {
 				newMsg.ReplyTo = &replyIdx
 			}
-			msgs = append(msgs, newMsg)
+			newMsgs = append(newMsgs, newMsg)
 			lastContent = MessagePreviewContent(newMsg)
 		}
-		msgs = m.trimTailAndStashFront(msg.AccountIdx, chatIdx, msgs)
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsgs...)
 		var cmds []tea.Cmd
 		cmds = append(cmds, m.setChatLastMessage(msg.AccountIdx, chatIdx, lastContent))
 		if msg.Err != nil {
@@ -278,7 +216,6 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
 		newMsg := Message{
 			ID:          msg.ID,
 			Author:      "me",
@@ -287,12 +224,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			IsMe:        true,
 			Attachments: []string{msg.URL},
 		}
-		if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
+		if replyIdx := messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.ReplyToID); replyIdx >= 0 {
 			newMsg.ReplyTo = &replyIdx
 		}
-		msgs = append(msgs, newMsg)
-		msgs = m.trimTailAndStashFront(msg.AccountIdx, chatIdx, msgs)
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
@@ -306,14 +241,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if chatIdx < 0 {
 			return m, nil, true
 		}
-		if _, pinned := m.accounts[msg.AccountIdx].PinnedHistory[chatIdx]; pinned {
-			// Currently browsing an old part of this chat via a search-result
-			// jump (see loadSearchResult) — the loaded window isn't anchored
-			// to the live tail, so splicing a just-arrived message onto its
-			// end would show it next to unrelated old messages instead of
-			// where it belongs. Just count it unread rather than force the
-			// pinned browse closed out from under the user; it'll show up
-			// normally once growPinnedWindow reaches the true tail again.
+		if m.accounts[msg.AccountIdx].HistoryNewer[chatIdx] {
+			// Currently viewing a mid-history window (paged up, or a
+			// search-result jump) — Messages[chatIdx] isn't the live tail, so
+			// splicing a just-arrived message onto its end would show it next
+			// to unrelated older messages instead of where it belongs. Just
+			// count it unread; it'll show up normally next time the window
+			// loads the true tail (paging back down, or jump-to-latest).
 			var cmd tea.Cmd
 			if !msg.Message.IsMe && !msg.Message.DecryptFailed {
 				cmd = m.incrementChatUnread(msg.AccountIdx, chatIdx, 1)
@@ -323,14 +257,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
 		newMsg := msg.Message
-		if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
+		if replyIdx := messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.ReplyToID); replyIdx >= 0 {
 			newMsg.ReplyTo = &replyIdx
 		}
-		msgs = append(msgs, newMsg)
-		msgs = m.trimTailAndStashFront(msg.AccountIdx, chatIdx, msgs)
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		if m.isChatFocused(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
@@ -341,93 +272,43 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, cmd, true
 
-	case OlderHistoryMsg:
+	case HistoryWindowMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
 			return m, nil, true
 		}
-		delete(m.loadingOlderHistory, chatIdx)
+		delete(m.loadingHistoryWindow, chatIdx)
+		anchorID := m.pendingWindowAnchor[chatIdx]
+		delete(m.pendingWindowAnchor, chatIdx)
 		if m.accounts[msg.AccountIdx].HistoryMore == nil {
 			m.accounts[msg.AccountIdx].HistoryMore = make(map[int]bool)
 		}
-		m.accounts[msg.AccountIdx].HistoryMore[chatIdx] = msg.HasMore
-		if len(msg.Messages) == 0 {
-			return m, nil, true
+		if m.accounts[msg.AccountIdx].HistoryNewer == nil {
+			m.accounts[msg.AccountIdx].HistoryNewer = make(map[int]bool)
 		}
+		m.accounts[msg.AccountIdx].HistoryMore[chatIdx] = msg.HasOlder
+		m.accounts[msg.AccountIdx].HistoryNewer[chatIdx] = msg.HasNewer
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		// If an earlier page already trimmed this chat's newest end into
-		// PinnedHistory (see below), that full retained history — not just
-		// the currently windowed slice — is the real baseline to prepend
-		// onto; otherwise a second older-history fetch would merge against
-		// only the visible window and silently forget everything already
-		// trimmed off.
-		existing, pinned := m.accounts[msg.AccountIdx].PinnedHistory[chatIdx]
-		if !pinned {
-			existing = m.accounts[msg.AccountIdx].Messages[chatIdx]
-		}
-		// Anything trimmed off the live tail's front since the last fetch
-		// (see TrimmedFront's doc comment) sits chronologically between the
-		// freshly fetched older page and existing — fold it back in here so
-		// it isn't silently skipped.
-		trimmedFront := m.accounts[msg.AccountIdx].TrimmedFront[chatIdx]
-		delete(m.accounts[msg.AccountIdx].TrimmedFront, chatIdx)
-		prefixLen := len(msg.Messages) + len(trimmedFront)
-		// Prepending shifts every already-loaded message's position by
-		// prefixLen; their ReplyTo indices (set when that page was built)
-		// point within the slice as it existed before this shift, so they
-		// need to move with it. trimmedFront's own ReplyTo indices only need
-		// to move past msg.Messages, since they were already self-consistent
-		// relative to each other when trimMessagesFront dropped them.
-		for i := range trimmedFront {
-			if trimmedFront[i].ReplyTo != nil {
-				shifted := *trimmedFront[i].ReplyTo + len(msg.Messages)
-				trimmedFront[i].ReplyTo = &shifted
-			}
-		}
-		for i := range existing {
-			if existing[i].ReplyTo != nil {
-				shifted := *existing[i].ReplyTo + prefixLen
-				existing[i].ReplyTo = &shifted
-			}
-		}
-		combined := append(append(append([]Message{}, msg.Messages...), trimmedFront...), existing...)
-		// Trimmed off the *newest* end (trimMessagesBack), not the oldest —
-		// the whole point of scrolling up was to see this older content, so
-		// keeping it and dropping what's now furthest from view is the
-		// right end to give up. Unlike a plain trim, the dropped tail isn't
-		// lost: it's kept as PinnedHistory/PinnedWindow (the same mechanism
-		// a search jump uses), so scrolling back down still works —
-		// maybeLoadNewerHistory/growPinnedWindow slides the window across
-		// it instead of needing a "load newer" fetch that doesn't exist.
-		windowed, drop := trimMessagesBack(combined, m.maxMessagesPerChat)
-		if drop > 0 {
-			if m.accounts[msg.AccountIdx].PinnedHistory == nil {
-				m.accounts[msg.AccountIdx].PinnedHistory = make(map[int][]Message)
-			}
-			if m.accounts[msg.AccountIdx].PinnedWindow == nil {
-				m.accounts[msg.AccountIdx].PinnedWindow = make(map[int][2]int)
-			}
-			m.accounts[msg.AccountIdx].PinnedHistory[chatIdx] = combined
-			m.accounts[msg.AccountIdx].PinnedWindow[chatIdx] = [2]int{0, len(windowed)}
-			// combined is only what's been paged in from storage so far, not
-			// the whole chat — see PinnedHistoryComplete's doc comment.
-			delete(m.accounts[msg.AccountIdx].PinnedHistoryComplete, chatIdx)
-		} else if pinned {
-			// Shrank back to fit in one window (e.g. maxMessagesPerChat was
-			// raised) — nothing left to page across.
-			delete(m.accounts[msg.AccountIdx].PinnedHistory, chatIdx)
-			delete(m.accounts[msg.AccountIdx].PinnedWindow, chatIdx)
-			delete(m.accounts[msg.AccountIdx].PinnedHistoryComplete, chatIdx)
-		}
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = windowed
+		// A HistoryWindowMsg is always a fresh, complete window — it fully
+		// replaces whatever was loaded before, never merges with it. Nothing
+		// needs to be preserved from the old window: storage still has
+		// everything it ever had, so any point in this chat's history is
+		// just another anchor away.
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = msg.Messages
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
-			// Prepended messages shift every existing index up by
-			// prefixLen — keep the selection on the same message rather than
-			// letting it silently jump, clamped in case it (or the message
-			// it pointed at) was itself trimmed off the end.
-			m.selectedMsg = min(m.selectedMsg+prefixLen, len(windowed)-1)
+			// Keep the selection on the same message it was on before the
+			// reload — found by ID rather than carried across as an index,
+			// since a full replace makes any old index meaningless. Falls
+			// back to the last message if the anchor somehow isn't in the
+			// new window (shouldn't normally happen: the anchor is always
+			// included in what was requested).
+			if idx := messageIndexByID(msg.Messages, anchorID); idx >= 0 {
+				m.selectedMsg = idx
+			} else {
+				m.selectedMsg = len(msg.Messages) - 1
+			}
 			m.refreshViewportFullScrollTo(m.selectedMsg)
 		}
 		return m, nil, true
@@ -808,9 +689,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		msgs := append(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Messages...)
-		msgs = m.trimTailAndStashFront(msg.AccountIdx, chatIdx, msgs)
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, msg.Messages...)
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msg.Messages[len(msg.Messages)-1]))
 		if m.isChatFocused(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1

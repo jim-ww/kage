@@ -28,7 +28,7 @@ const (
 	rpcChangeStoragePassword = "ChangeStoragePassword"
 	rpcSendFile              = "SendFile"
 	rpcUploadFile            = "UploadFile"
-	rpcLoadOlderHistory      = "LoadOlderHistory"
+	rpcLoadHistoryWindow     = "LoadHistoryWindow"
 	rpcSearchHistory         = "SearchHistory"
 	rpcAddContact            = "AddContact"
 	rpcRemoveContact         = "RemoveContact"
@@ -87,6 +87,7 @@ type sendParams struct {
 	To, Body   string
 	Opts       ui.SendOptions
 }
+
 // sendResult's Queued flag carries ui.ErrQueued's meaning ("not sent yet,
 // but will be automatically") across the RPC boundary as data rather than as
 // an error - an *ipc.Conn.Call error only round-trips as a message string,
@@ -148,9 +149,10 @@ type uploadFileParams struct {
 	Text       string
 	Opts       ui.SendOptions
 }
-type loadOlderHistoryParams struct {
+type loadHistoryWindowParams struct {
 	AccountIdx int
 	To         string
+	Anchor     *ui.HistoryAnchor
 }
 type searchHistoryParams struct {
 	AccountIdx int

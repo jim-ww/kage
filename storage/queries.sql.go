@@ -1379,6 +1379,7 @@ func (q *Queries) ListLatestArchiveIDs(ctx context.Context, accountJid string) (
 
 const listMessagesByRoster = `-- name: ListMessagesByRoster :many
 SELECT
+	id,
 	sent,
 	toAttr,
 	fromAttr,
@@ -1415,6 +1416,7 @@ type ListMessagesByRosterParams struct {
 }
 
 type ListMessagesByRosterRow struct {
+	ID               int64          `db:"id"`
 	Sent             bool           `db:"sent"`
 	Toattr           sql.NullString `db:"toattr"`
 	Fromattr         sql.NullString `db:"fromattr"`
@@ -1446,6 +1448,134 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 	for rows.Next() {
 		var i ListMessagesByRosterRow
 		if err := rows.Scan(
+			&i.ID,
+			&i.Sent,
+			&i.Toattr,
+			&i.Fromattr,
+			&i.Idattr,
+			&i.Body,
+			&i.Encrypted,
+			&i.E2eencrypted,
+			&i.E2eemethod,
+			&i.Stanzatype,
+			&i.Delay,
+			&i.Replytoidattr,
+			&i.Retracted,
+			&i.Edited,
+			&i.Delivered,
+			&i.Serveracked,
+			&i.Ooburls,
+			&i.Calldirection,
+			&i.Calloutcome,
+			&i.Calldurationsecs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMessagesByRosterAtOrAfter = `-- name: ListMessagesByRosterAtOrAfter :many
+SELECT
+	id,
+	sent,
+	toAttr,
+	fromAttr,
+	idAttr,
+	body,
+	encrypted,
+	e2eEncrypted,
+	e2eeMethod,
+	stanzaType,
+	delay,
+	replyToIdAttr,
+	retracted,
+	edited,
+	delivered,
+	serverAcked,
+	oobURLs,
+	callDirection,
+	callOutcome,
+	callDurationSecs
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND stanzaType = COALESCE(
+		NULLIF(?3, ''),
+		stanzaType
+	)
+	AND (
+		delay > ?4
+		OR (delay = ?4 AND id >= ?5)
+	)
+ORDER BY delay ASC, id ASC
+LIMIT ?6
+`
+
+type ListMessagesByRosterAtOrAfterParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+	StanzaType interface{}    `db:"stanza_type"`
+	AfterDelay int64          `db:"after_delay"`
+	AfterID    int64          `db:"after_id"`
+	PageLimit  int64          `db:"page_limit"`
+}
+
+type ListMessagesByRosterAtOrAfterRow struct {
+	ID               int64          `db:"id"`
+	Sent             bool           `db:"sent"`
+	Toattr           sql.NullString `db:"toattr"`
+	Fromattr         sql.NullString `db:"fromattr"`
+	Idattr           sql.NullString `db:"idattr"`
+	Body             sql.NullString `db:"body"`
+	Encrypted        bool           `db:"encrypted"`
+	E2eencrypted     bool           `db:"e2eencrypted"`
+	E2eemethod       sql.NullString `db:"e2eemethod"`
+	Stanzatype       string         `db:"stanzatype"`
+	Delay            int64          `db:"delay"`
+	Replytoidattr    sql.NullString `db:"replytoidattr"`
+	Retracted        bool           `db:"retracted"`
+	Edited           bool           `db:"edited"`
+	Delivered        bool           `db:"delivered"`
+	Serveracked      bool           `db:"serveracked"`
+	Ooburls          sql.NullString `db:"ooburls"`
+	Calldirection    sql.NullString `db:"calldirection"`
+	Calloutcome      sql.NullString `db:"calloutcome"`
+	Calldurationsecs sql.NullInt64  `db:"calldurationsecs"`
+}
+
+// ListMessagesByRosterAtOrAfter is ListMessagesByRosterBefore's mirror: one
+// page of a chat's history at-or-newer than the (after_delay, after_id)
+// cursor, oldest-first, keyset-paginated the same way. Together, the two
+// queries build one "window" of a chat centered on an arbitrary anchor
+// message: this one gets everything from the anchor forward,
+// ListMessagesByRosterBefore gets everything strictly before it — see
+// loadHistoryWindow in history.go, which is the only caller of either.
+func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMessagesByRosterAtOrAfterParams) ([]ListMessagesByRosterAtOrAfterRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMessagesByRosterAtOrAfter,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.StanzaType,
+		arg.AfterDelay,
+		arg.AfterID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMessagesByRosterAtOrAfterRow
+	for rows.Next() {
+		var i ListMessagesByRosterAtOrAfterRow
+		if err := rows.Scan(
+			&i.ID,
 			&i.Sent,
 			&i.Toattr,
 			&i.Fromattr,

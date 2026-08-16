@@ -179,6 +179,7 @@ WHERE accountJID = sqlc.arg(account_jid)
 
 -- name: ListMessagesByRoster :many
 SELECT
+	id,
 	sent,
 	toAttr,
 	fromAttr,
@@ -251,6 +252,50 @@ WHERE accountJID = sqlc.arg(account_jid)
 		OR (delay = sqlc.arg(before_delay) AND id < sqlc.arg(before_id))
 	)
 ORDER BY delay DESC, id DESC
+LIMIT sqlc.arg(page_limit);
+
+
+-- ListMessagesByRosterAtOrAfter is ListMessagesByRosterBefore's mirror: one
+-- page of a chat's history at-or-newer than the (after_delay, after_id)
+-- cursor, oldest-first, keyset-paginated the same way. Together, the two
+-- queries build one "window" of a chat centered on an arbitrary anchor
+-- message: this one gets everything from the anchor forward,
+-- ListMessagesByRosterBefore gets everything strictly before it — see
+-- loadHistoryWindow in history.go, which is the only caller of either.
+-- name: ListMessagesByRosterAtOrAfter :many
+SELECT
+	id,
+	sent,
+	toAttr,
+	fromAttr,
+	idAttr,
+	body,
+	encrypted,
+	e2eEncrypted,
+	e2eeMethod,
+	stanzaType,
+	delay,
+	replyToIdAttr,
+	retracted,
+	edited,
+	delivered,
+	serverAcked,
+	oobURLs,
+	callDirection,
+	callOutcome,
+	callDurationSecs
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND stanzaType = COALESCE(
+		NULLIF(sqlc.arg(stanza_type), ''),
+		stanzaType
+	)
+	AND (
+		delay > sqlc.arg(after_delay)
+		OR (delay = sqlc.arg(after_delay) AND id >= sqlc.arg(after_id))
+	)
+ORDER BY delay ASC, id ASC
 LIMIT sqlc.arg(page_limit);
 
 

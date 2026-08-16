@@ -96,9 +96,9 @@ func (m *Model) refreshViewportScrollTo(oldIdx, msgIdx int) {
 
 // refreshViewportFullScrollTo is refreshViewportScrollTo's full-re-render
 // counterpart, for callers where every message's offset may have shifted
-// (e.g. OlderHistoryMsg prepending a page) so the incremental
-// refreshViewportSelection patch — which assumes only oldIdx/msgIdx's own
-// lines changed — cannot be used.
+// (e.g. HistoryWindowMsg replacing the whole loaded window) so the
+// incremental refreshViewportSelection patch — which assumes only
+// oldIdx/msgIdx's own lines changed — cannot be used.
 func (m *Model) refreshViewportFullScrollTo(msgIdx int) {
 	m.refreshViewport()
 	m.applyScrollMargin(msgIdx)

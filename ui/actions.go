@@ -46,26 +46,33 @@ func (m Model) scrolledPastFirstPage() bool {
 // selection to the newest loaded message — used by the floating "jump to
 // latest" button shown whenever the viewport has scrolled away from the
 // bottom (via message navigation, paging, or landing on a search result).
-func (m *Model) jumpToLatestMessage() {
-	// If the loaded window came from a search-result jump (PinnedHistory
-	// set for this chat), its tail isn't necessarily the chat's true latest
-	// message — unstick it in one step (not a loop of growPinnedWindow
-	// calls, which would re-render an ever-larger window on every one of
-	// however many steps it takes to reach the tail of a long history) so
-	// "latest" actually means latest.
-	if chatIdx := m.currentChatIndex(); chatIdx >= 0 && m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
-		m.unstickPinnedWindow(m.currentAccount, chatIdx)
+// If the currently loaded window isn't the live tail (HistoryNewer set —
+// paged up, or landed on a search result), that's a real fetch anchored on
+// nil (see HistoryAnchor's doc comment: nil means "the true latest window"),
+// same as opening the chat fresh. Otherwise it's already showing the tail,
+// so this is just a local selection/scroll move — no round trip needed.
+func (m *Model) jumpToLatestMessage() tea.Cmd {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return nil
+	}
+	if m.accounts[m.currentAccount].HistoryNewer[chatIdx] && m.historyLoader != nil && !m.loadingHistoryWindow[chatIdx] {
+		if chat, ok := m.currentChat(); ok {
+			m.loadingHistoryWindow[chatIdx] = true
+			return m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, nil)
+		}
 	}
 
 	msgs := m.currentMessages()
 	if len(msgs) == 0 {
 		m.viewport.GotoBottom()
-		return
+		return nil
 	}
 	old := m.selectedMsg
 	m.selectedMsg = len(msgs) - 1
 	m.refreshViewportSelection(old, m.selectedMsg)
 	m.viewport.GotoBottom()
+	return nil
 }
 
 func (m *Model) actionMakeDefaultAccount(index int) tea.Cmd {

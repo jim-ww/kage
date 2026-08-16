@@ -376,12 +376,17 @@ func newTestModelWithMessages(msgs []Message, searcher HistorySearcher) Model {
 // window with the selection on the matched message.
 func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 	fullHistory := []Message{
-		{Content: "hello there"},
-		{Content: "nothing to see"},
-		{Content: "hello again"},
+		{ID: "msg0", StoreID: 1, Content: "hello there"},
+		{ID: "msg1", StoreID: 2, Content: "nothing to see"},
+		{ID: "msg2", StoreID: 3, Content: "hello again"},
 	}
 	searcher := &fakeHistorySearcher{messages: fullHistory, matches: []int{0, 2}}
 	m := newTestModelWithMessages(fullHistory[:1], searcher)
+	loader := &fakeHistoryLoader{
+		fakeSuccessSender: &fakeSuccessSender{},
+		response:          HistoryWindowMsg{Messages: fullHistory},
+	}
+	m.historyLoader = loader
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl})
 	m = next.(Model)
@@ -416,11 +421,17 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 		t.Fatalf("searchResults.matches = %v, want 2 matches", m.searchResults.matches)
 	}
 
-	next, _ = m.Update(keyText("enter"))
+	next, pickCmd := m.Update(keyText("enter"))
 	m = next.(Model)
 	if m.searchResults != nil {
 		t.Fatal("searchResults still open after picking a result")
 	}
+	windowMsg := nonIdleCmd(pickCmd)
+	if windowMsg == nil {
+		t.Fatal("picking a result returned no cmd to load its window")
+	}
+	next, _ = m.Update(windowMsg)
+	m = next.(Model)
 	if m.selectedMsg != 0 {
 		t.Fatalf("selectedMsg after picking first result = %d, want 0", m.selectedMsg)
 	}

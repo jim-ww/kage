@@ -189,18 +189,18 @@ func (a *adapter) session(accountIdx int) (*accountSession, bool) {
 	return a.sessions[accountIdx], true
 }
 
-// LoadOlderHistory implements ui.HistoryLoader: fetches the next older page
-// of to's persisted history (see loadHistoryPage) as a tea.Cmd, off the main
-// goroutine, since it's a disk read plus decrypt of up to a page's worth of
-// messages.
-func (a *adapter) LoadOlderHistory(accountIdx int, to string) tea.Cmd {
+// LoadHistoryWindow implements ui.HistoryLoader: fetches a fresh window of
+// to's persisted history around anchor (see loadHistoryWindow) as a
+// tea.Cmd, off the main goroutine, since it's a disk read plus decrypt of up
+// to a window's worth of messages.
+func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.HistoryAnchor) tea.Cmd {
 	sess, ok := a.session(accountIdx)
 	if !ok {
 		return nil
 	}
 	return func() tea.Msg {
-		msgs, hasMore := loadHistoryPage(context.Background(), sess, to, sess.rosterName(to))
-		return ui.OlderHistoryMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasMore: hasMore}
+		msgs, hasOlder, hasNewer := loadHistoryWindow(context.Background(), sess, to, sess.rosterName(to), anchor, historyPageSize)
+		return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasOlder: hasOlder, HasNewer: hasNewer}
 	}
 }
 

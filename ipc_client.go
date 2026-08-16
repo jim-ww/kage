@@ -188,12 +188,12 @@ func (c *ipcClient) UploadFile(accountIdx int, to, path, text string, opts ui.Se
 	return msg
 }
 
-func (c *ipcClient) LoadOlderHistory(accountIdx int, to string) tea.Cmd {
+func (c *ipcClient) LoadHistoryWindow(accountIdx int, to string, anchor *ui.HistoryAnchor) tea.Cmd {
 	return func() tea.Msg {
-		var msg ui.OlderHistoryMsg
-		if err := c.conn.Call(rpcLoadOlderHistory, loadOlderHistoryParams{AccountIdx: accountIdx, To: to}, &msg); err != nil {
-			slog.Warn("loading older history", "err", err)
-			return ui.OlderHistoryMsg{AccountIdx: accountIdx, From: to}
+		var msg ui.HistoryWindowMsg
+		if err := c.conn.Call(rpcLoadHistoryWindow, loadHistoryWindowParams{AccountIdx: accountIdx, To: to, Anchor: anchor}, &msg); err != nil {
+			slog.Warn("loading history window", "err", err)
+			return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to}
 		}
 		return msg
 	}

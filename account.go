@@ -53,14 +53,6 @@ type accountSession struct {
 
 	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
 
-	// histMu guards histPos: loadHistoryPage's "load older" keyset
-	// pagination cursor per chat (roster JID), advanced each time a page is
-	// fetched. Only ever touched from the Bubble Tea event loop today (via
-	// adapter.LoadOlderHistory), but guarded since accountSession's other
-	// mutable state is all concurrency-safe by construction.
-	histMu  sync.Mutex
-	histPos map[string]historyCursor
-
 	// omemoMu serializes OMEMO decrypt+persist across the live path
 	// (events.go's handleIncomingMessage) and MAM backfill
 	// (syncArchiveForContact's processMAMItem): both run as separate
@@ -673,8 +665,8 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 			mode = "omemo-v1"
 		}
 		histStart := time.Now()
-		hist, hasMore := loadHistoryPage(ctx, sess, r.Jid, name)
-		slog.Debug("loadHistoryPage done", "jid", acct.JID, "peer", r.Jid, "elapsed", time.Since(histStart), "messages", len(hist), "more", hasMore)
+		hist, hasMore, _ := loadHistoryWindow(ctx, sess, r.Jid, name, nil, historyPageSize)
+		slog.Debug("loadHistoryWindow done", "jid", acct.JID, "peer", r.Jid, "elapsed", time.Since(histStart), "messages", len(hist), "more", hasMore)
 		// Still-queued sends left over from before the app last closed (see
 		// pendingOutboxMessagesByPeer's doc comment) belong at the tail,
 		// after everything already delivered - flushOutbox will actually
@@ -792,7 +784,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 			continue
 		}
 		idx := existingChatCount + len(newChats)
-		hist, hasMore := loadHistoryPage(ctx, sess, c.JID, name)
+		hist, hasMore, _ := loadHistoryWindow(ctx, sess, c.JID, name, nil, historyPageSize)
 		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources}
 		if len(hist) > 0 {
 			newMessages[idx] = hist
@@ -802,7 +794,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		newChats = append(newChats, chat)
 		newHistoryMore[idx] = hasMore
 	}
-	// The roster IQ fetch above (and loadHistoryPage's DB round-trips) can
+	// The roster IQ fetch above (and loadHistoryWindow's DB round-trips) can
 	// take long enough for this account's own event-loop goroutine to
 	// process a live PresenceEvent for one of these contacts concurrently,
 	// via setRosterPresence - which updates sess.roster in place. Blindly

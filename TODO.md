@@ -1,4 +1,3 @@
-- pagination problems: pagination can merge 2 invalid points of history (more latest, older one) skipping significant bit between
 - non-sent local-only messages
 - omemo messages problems
 - call initiating problems

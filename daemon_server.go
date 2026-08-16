@@ -185,16 +185,16 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return msg, nil
 
-	case rpcLoadOlderHistory:
-		p, err := unmarshalParams[loadOlderHistoryParams](params)
+	case rpcLoadHistoryWindow:
+		p, err := unmarshalParams[loadHistoryWindowParams](params)
 		if err != nil {
 			return nil, err
 		}
-		cmd := d.a.LoadOlderHistory(p.AccountIdx, p.To)
+		cmd := d.a.LoadHistoryWindow(p.AccountIdx, p.To, p.Anchor)
 		if cmd == nil {
 			return nil, fmt.Errorf("unknown account %d", p.AccountIdx)
 		}
-		return cmd().(ui.OlderHistoryMsg), nil
+		return cmd().(ui.HistoryWindowMsg), nil
 
 	case rpcSearchHistory:
 		p, err := unmarshalParams[searchHistoryParams](params)

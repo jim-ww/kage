@@ -1,41 +1,82 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
-// TestLoadSearchResultWindowsLargeHistory guards loadSearchResult against
-// dumping a search's entire (possibly huge) decrypted history into the
-// chat's in-memory window: with maxMessagesPerChat set, the loaded window
-// must be capped and centered on the picked match, not the full history.
-func TestLoadSearchResultWindowsLargeHistory(t *testing.T) {
+// fakeHistoryLoader stands in for a real HistoryLoader: records the anchor
+// each LoadHistoryWindow call was made with and replies with a canned
+// response — used to test the ui-side glue (building the right anchor,
+// applying the response) without needing real storage.
+type fakeHistoryLoader struct {
+	*fakeSuccessSender
+	lastAnchor *HistoryAnchor
+	response   HistoryWindowMsg
+}
+
+func (f *fakeHistoryLoader) LoadHistoryWindow(accountIdx int, to string, anchor *HistoryAnchor) tea.Cmd {
+	f.lastAnchor = anchor
+	resp := f.response
+	resp.AccountIdx = accountIdx
+	resp.From = to
+	return func() tea.Msg { return resp }
+}
+
+// TestLoadSearchResultFiresAnchoredWindowLoad guards loadSearchResult's
+// anchor-based reload: it must anchor the HistoryLoader request on the
+// picked match (not dump the search's entire decrypted history into the
+// chat's in-memory window directly), and the response's window/HasOlder
+// must land in Account state with the selection following the matched
+// message by ID.
+func TestLoadSearchResultFiresAnchoredWindowLoad(t *testing.T) {
 	fullHistory := make([]Message, 1000)
 	for i := range fullHistory {
-		fullHistory[i] = Message{Content: "msg"}
+		fullHistory[i] = Message{ID: fmt.Sprintf("m%d", i), StoreID: int64(i + 1), Content: "msg"}
 	}
 	fullHistory[500].Content = "needle"
 
+	windowed := make([]Message, 100)
+	copy(windowed, fullHistory[450:550])
+
+	loader := &fakeHistoryLoader{
+		fakeSuccessSender: &fakeSuccessSender{},
+		response:          HistoryWindowMsg{Messages: windowed, HasOlder: true, HasNewer: true},
+	}
 	m := newTestModelWithMessages(fullHistory[:1], &fakeHistorySearcher{})
+	m.historyLoader = loader
 	m.maxMessagesPerChat = 100
 	m.searchResults = &searchResultsState{
 		accountIdx: 0, chatAddress: "bob@example.test",
 		messages: fullHistory, matches: []int{500},
 	}
 
-	m.loadSearchResult(500)
+	cmd := m.loadSearchResult(500)
+	if cmd == nil {
+		t.Fatal("loadSearchResult returned a nil cmd")
+	}
+	if loader.lastAnchor == nil || loader.lastAnchor.StoreID != fullHistory[500].StoreID {
+		t.Fatalf("LoadHistoryWindow anchor = %+v, want StoreID %d (the matched message)", loader.lastAnchor, fullHistory[500].StoreID)
+	}
 
-	got := m.accounts[0].Messages[0]
+	updated, _, handled := m.handleEventMsg(cmd())
+	if !handled {
+		t.Fatal("HistoryWindowMsg was not handled")
+	}
+
+	got := updated.accounts[0].Messages[0]
 	if len(got) != 100 {
-		t.Fatalf("loaded window has %d messages, want capped to maxMessagesPerChat=100", len(got))
+		t.Fatalf("loaded window has %d messages, want the 100 the loader responded with", len(got))
 	}
-	if got[m.selectedMsg].Content != "needle" {
-		t.Fatalf("selectedMsg = %d does not point at the matched message: %+v", m.selectedMsg, got[m.selectedMsg])
+	if got[updated.selectedMsg].Content != "needle" {
+		t.Fatalf("selectedMsg = %d does not point at the matched message: %+v", updated.selectedMsg, got[updated.selectedMsg])
 	}
-	if !m.accounts[0].HistoryMore[0] {
-		t.Fatal("HistoryMore should be true — older history exists beyond the windowed load")
+	if !updated.accounts[0].HistoryMore[0] {
+		t.Fatal("HistoryMore should be true — the loader reported HasOlder")
 	}
 }
 

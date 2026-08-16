@@ -19,10 +19,10 @@ import (
 // account's real JID.
 const meReactorJID = "me"
 
-// historyRow is the subset of a messages row loadHistory/loadHistoryPage
-// need, shared between ListMessagesByRoster's and ListMessagesByRosterBefore's
-// (differently-shaped, sqlc-generated) row types so the decrypt/build logic
-// below isn't duplicated per query.
+// historyRow is the subset of a messages row loadHistory/loadHistoryWindow
+// need, shared between ListMessagesByRoster/ListMessagesByRosterBefore/
+// ListMessagesByRosterAtOrAfter's (differently-shaped, sqlc-generated) row
+// types so the decrypt/build logic below isn't duplicated per query.
 type historyRow struct {
 	ID               int64
 	Sent             bool
@@ -84,10 +84,11 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 	for _, row := range rows {
 		if row.Stanzatype == "call" {
 			msgs = append(msgs, ui.Message{
-				ID:     row.Idattr.String,
-				Author: chatName,
-				SentAt: time.Unix(row.Delay, 0),
-				IsMe:   row.Sent,
+				ID:      row.Idattr.String,
+				StoreID: row.ID,
+				Author:  chatName,
+				SentAt:  time.Unix(row.Delay, 0),
+				IsMe:    row.Sent,
 				CallLog: &ui.CallLogInfo{
 					Direction: row.Calldirection.String,
 					Outcome:   row.Calloutcome.String,
@@ -128,6 +129,7 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 		}
 		msgs = append(msgs, ui.Message{
 			ID:          row.Idattr.String,
+			StoreID:     row.ID,
 			Author:      author,
 			Content:     pt,
 			SentAt:      time.Unix(row.Delay, 0),
@@ -156,8 +158,9 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 
 // loadHistory reads chatAddr's entire persisted history back from storage,
 // decrypting each body with the local storage key (crypto/localstore). Used
-// where the full history is genuinely needed (tests, export); interactive
-// chat loading uses the paginated loadHistoryPage instead so very long
+// where the full history is genuinely needed (tests, export, and search —
+// SearchHistory has to scan every message's content); interactive chat
+// loading uses the windowed loadHistoryWindow instead so very long
 // histories don't get decrypted/rendered all at once.
 func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName string) []ui.Message {
 	rows, err := s.db.ListMessagesByRoster(ctx, storage.ListMessagesByRosterParams{
@@ -172,7 +175,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 	hrows := make([]historyRow, len(rows))
 	for i, r := range rows {
 		hrows[i] = historyRow{
-			Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
+			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
 			Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
 			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
@@ -181,76 +184,91 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 	return buildMessages(ctx, s, chatAddr, chatName, hrows)
 }
 
-// historyPageSize messages are fetched at a time by loadHistoryPage; set
+// historyPageSize messages are fetched at a time by loadHistoryWindow; set
 // from config.Config.HistoryPageSize by main before any account connects.
 var historyPageSize = 200
 
-// historyCursor is a chat's "load older" keyset pagination position: the
-// (delay, id) of the oldest message loaded so far. The zero value means
-// "nothing loaded yet" and fetches the most recent page.
-type historyCursor struct {
-	delay, id int64
-	exhausted bool // true once a page came back shorter than requested — no older rows remain
+// beforeRowToHistoryRow and afterRowToHistoryRow convert
+// ListMessagesByRosterBefore/AtOrAfter's (identically-shaped but distinctly
+// typed, since sqlc generates one row type per query) rows to the common
+// historyRow shape loadHistoryWindow builds a window out of.
+func beforeRowToHistoryRow(r storage.ListMessagesByRosterBeforeRow) historyRow {
+	return historyRow{
+		ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
+		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
+		Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
+	}
 }
 
-// loadHistoryPage loads the next (older) page of chatAddr's history,
-// starting from s's cursor for chatAddr (or the most recent page, if none is
-// set yet), and advances that cursor past what it returned. Returned
-// messages are in chronological order, ready to prepend to whatever's
-// already loaded. hasMore is false once the oldest stored message has been
-// reached.
-func loadHistoryPage(ctx context.Context, s *accountSession, chatAddr, chatName string) (msgs []ui.Message, hasMore bool) {
-	s.histMu.Lock()
-	cur, ok := s.histPos[chatAddr]
-	s.histMu.Unlock()
-	if ok && cur.exhausted {
-		return nil, false
+func afterRowToHistoryRow(r storage.ListMessagesByRosterAtOrAfterRow) historyRow {
+	return historyRow{
+		ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
+		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
+		Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
+	}
+}
+
+// loadHistoryWindow loads a fresh window of chatAddr's history: up to limit
+// messages, entirely replacing whatever the caller had loaded before (see
+// ui.HistoryWindowMsg's doc comment) — there is no merging or pagination
+// state carried between calls, every call is self-contained.
+//
+// anchor == nil returns the chat's most recent (live tail) window —
+// hasNewer is always false in that case, there's nothing newer than latest.
+// Otherwise the window is built around anchor: up to half strictly older
+// than it, half at-or-newer, so anchor's own message always ends up inside
+// the returned window (used to restore the selection after the load — see
+// Model.pendingWindowAnchor). hasOlder/hasNewer are a cheap heuristic (did
+// that half come back full) rather than an extra existence check — normal
+// keyset-pagination practice, worst case a later fetch just comes back
+// empty.
+func loadHistoryWindow(ctx context.Context, s *accountSession, chatAddr, chatName string, anchor *ui.HistoryAnchor, limit int) (msgs []ui.Message, hasOlder, hasNewer bool) {
+	if anchor == nil {
+		rows, err := s.db.ListMessagesByRosterBefore(ctx, storage.ListMessagesByRosterBeforeParams{
+			AccountJid: s.account.JID, RosterJid: nullString(chatAddr),
+			BeforeDelay: math.MaxInt64, BeforeID: math.MaxInt64, PageLimit: int64(limit),
+		})
+		if err != nil {
+			slog.Warn("loading history window", "chat", chatAddr, "err", err)
+			return nil, false, false
+		}
+		hrows := make([]historyRow, len(rows))
+		for i, r := range rows {
+			hrows[len(rows)-1-i] = beforeRowToHistoryRow(r) // rows arrive newest-first
+		}
+		return buildMessages(ctx, s, chatAddr, chatName, hrows), len(rows) == limit, false
 	}
 
-	beforeDelay, beforeID := int64(math.MaxInt64), int64(math.MaxInt64)
-	if ok {
-		beforeDelay, beforeID = cur.delay, cur.id
-	}
+	newerHalf := max(1, limit/2) // >=1 so the anchor itself (always matched by AtOrAfter) has a slot
+	olderHalf := max(0, limit-newerHalf)
 
-	rows, err := s.db.ListMessagesByRosterBefore(ctx, storage.ListMessagesByRosterBeforeParams{
-		AccountJid:  s.account.JID,
-		RosterJid:   nullString(chatAddr),
-		BeforeDelay: beforeDelay,
-		BeforeID:    beforeID,
-		PageLimit:   int64(historyPageSize),
+	olderRows, err := s.db.ListMessagesByRosterBefore(ctx, storage.ListMessagesByRosterBeforeParams{
+		AccountJid: s.account.JID, RosterJid: nullString(chatAddr),
+		BeforeDelay: anchor.Delay, BeforeID: anchor.StoreID, PageLimit: int64(olderHalf),
 	})
 	if err != nil {
-		slog.Warn("loading history page", "chat", chatAddr, "err", err)
-		return nil, false
+		slog.Warn("loading history window (older half)", "chat", chatAddr, "err", err)
+		return nil, false, false
+	}
+	newerRows, err := s.db.ListMessagesByRosterAtOrAfter(ctx, storage.ListMessagesByRosterAtOrAfterParams{
+		AccountJid: s.account.JID, RosterJid: nullString(chatAddr),
+		AfterDelay: anchor.Delay, AfterID: anchor.StoreID, PageLimit: int64(newerHalf),
+	})
+	if err != nil {
+		slog.Warn("loading history window (newer half)", "chat", chatAddr, "err", err)
+		return nil, false, false
 	}
 
-	next := historyCursor{exhausted: len(rows) < historyPageSize}
-	// rows arrive newest-first; reverse into chronological order and build
-	// historyRow in the same pass.
-	hrows := make([]historyRow, len(rows))
-	for i, r := range rows {
-		hrows[len(rows)-1-i] = historyRow{
-			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
-			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
-			Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
-			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
-		}
+	hrows := make([]historyRow, 0, len(olderRows)+len(newerRows))
+	for i := len(olderRows) - 1; i >= 0; i-- { // olderRows arrive newest-first
+		hrows = append(hrows, beforeRowToHistoryRow(olderRows[i]))
 	}
-	if len(rows) > 0 {
-		oldest := rows[len(rows)-1]
-		next.delay, next.id = oldest.Delay, oldest.ID
-	} else if ok {
-		next.delay, next.id = cur.delay, cur.id
+	for _, r := range newerRows { // newerRows already arrive oldest-first
+		hrows = append(hrows, afterRowToHistoryRow(r))
 	}
-
-	s.histMu.Lock()
-	if s.histPos == nil {
-		s.histPos = make(map[string]historyCursor)
-	}
-	s.histPos[chatAddr] = next
-	s.histMu.Unlock()
-
-	return buildMessages(ctx, s, chatAddr, chatName, hrows), !next.exhausted
+	return buildMessages(ctx, s, chatAddr, chatName, hrows), len(olderRows) == olderHalf && olderHalf > 0, len(newerRows) == newerHalf
 }
 
 // replaceReactions fully replaces reactorJID's reaction set on msgID (scoped

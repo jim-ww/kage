@@ -68,53 +68,65 @@ func (m Model) chatIndexByAddress(accountIdx int, address string) int {
 	return -1
 }
 
-// maybeLoadOlderHistory fires a HistoryLoader fetch for the current chat's
-// next older page, if one is configured, more history is known to exist,
-// and a fetch isn't already in flight for this chat. Called when the
-// message selection/viewport reaches the top of what's currently loaded.
-//
-// If the window currently loaded came from a search-result jump
-// (Account.PinnedHistory is set for this chat — see loadSearchResult), the
-// next older page is already sitting in memory: growPinnedWindow slides the
-// window across it directly instead of going out to a HistoryLoader fetch,
-// which would use the wrong (unrelated) storage cursor for a chat opened at
-// an arbitrary point in its history rather than from the live tail.
-func (m *Model) maybeLoadOlderHistory() tea.Cmd {
+// maybeLoadHistoryWindow fires a HistoryLoader.LoadHistoryWindow request
+// anchored on edgeMsg (the message at whichever edge of the currently loaded
+// window was just reached), if one is configured, storage is known to hold
+// more in that direction, and a fetch isn't already in flight for this chat.
+// edgeMsg.StoreID == 0 means it isn't a storage-backed message yet (a
+// Pending/just-composed one) — nothing to anchor a storage query on, so this
+// is a no-op; that's fine, since such a message can only be at the *newer*
+// edge, and there's by definition nothing newer to load anyway.
+func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
 		return nil
 	}
-	if m.growPinnedWindow(m.currentAccount, chatIdx, true) {
+	if m.historyLoader == nil || edgeMsg.StoreID == 0 || m.loadingHistoryWindow[chatIdx] {
 		return nil
 	}
-	if m.historyLoader == nil {
+	acct := m.accounts[m.currentAccount]
+	if older && !acct.HistoryMore[chatIdx] {
 		return nil
 	}
-	if !m.accounts[m.currentAccount].HistoryMore[chatIdx] || m.loadingOlderHistory[chatIdx] {
+	if !older && !acct.HistoryNewer[chatIdx] {
 		return nil
 	}
 	chat, ok := m.currentChat()
 	if !ok {
 		return nil
 	}
-	m.loadingOlderHistory[chatIdx] = true
-	return m.historyLoader.LoadOlderHistory(m.currentAccount, chat.Address)
+	m.loadingHistoryWindow[chatIdx] = true
+	if m.pendingWindowAnchor == nil {
+		m.pendingWindowAnchor = make(map[int]string)
+	}
+	m.pendingWindowAnchor[chatIdx] = edgeMsg.ID
+	anchor := &HistoryAnchor{Delay: edgeMsg.SentAt.Unix(), StoreID: edgeMsg.StoreID}
+	return m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, anchor)
 }
 
-// maybeLoadNewerHistory slides the loaded window forward across the current
-// chat's PinnedHistory (see growPinnedWindow), if one exists — the only
-// case where "load newer" is possible at all, since storage-backed paging
-// only ever loads older messages from the live tail (there's nothing to
-// fetch newer than "whatever's already streaming in live"). A no-op
+// maybeLoadOlderHistory fires a HistoryLoader request for the current chat's
+// next older window, if more history is known to exist beyond what's
+// currently loaded. Called when the message selection/viewport reaches the
+// top of what's currently loaded.
+func (m *Model) maybeLoadOlderHistory() tea.Cmd {
+	msgs := m.currentMessages()
+	if len(msgs) == 0 {
+		return nil
+	}
+	return m.maybeLoadHistoryWindow(true, msgs[0])
+}
+
+// maybeLoadNewerHistory fires a HistoryLoader request for the current chat's
+// next newer window — only possible when the currently loaded window isn't
+// already the live tail (paged up, or landed on a search result). A no-op
 // otherwise. Called when the message selection/viewport reaches the bottom
 // of what's currently loaded.
 func (m *Model) maybeLoadNewerHistory() tea.Cmd {
-	chatIdx := m.currentChatIndex()
-	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+	msgs := m.currentMessages()
+	if len(msgs) == 0 {
 		return nil
 	}
-	m.growPinnedWindow(m.currentAccount, chatIdx, false)
-	return nil
+	return m.maybeLoadHistoryWindow(false, msgs[len(msgs)-1])
 }
 
 // setChatLastMessage updates the chat list preview text for the chat at

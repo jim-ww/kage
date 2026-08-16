@@ -31,8 +31,8 @@ func (m Model) renderSearchChatPopup() string {
 // chat's entire persisted history (Messages) plus which indices into it
 // matched the query (Matches) once HistorySearchResultMsg arrives. Only
 // Matches — narrowed further by author (see filteredMatches) — are
-// shown/paginated as rows; Messages exists so picking one can load the whole
-// chat wholesale (see loadSearchResult) without a second round trip.
+// shown/paginated as rows; Messages exists so picking one has something to
+// anchor the fresh HistoryLoader window load on (see loadSearchResult).
 type searchResultsState struct {
 	accountIdx  int
 	chatAddress string
@@ -319,8 +319,9 @@ func (m Model) updateSearchResultsKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	switch {
 	case matchesKey(msg, m.keys.SelectSend):
 		if sr.cursor >= 0 && sr.cursor < rowCount {
-			m.loadSearchResult(matches[start+sr.cursor])
+			cmd := m.loadSearchResult(matches[start+sr.cursor])
 			m.searchResults = nil
+			return m, cmd, true
 		}
 		return m, nil, true
 	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo), matchesKey(msg, m.keys.SearchChat):
@@ -346,56 +347,24 @@ func newSearchResultsFilterInput(m Model, value string) textinput.Model {
 	return ti
 }
 
-// loadSearchResult loads a window of sr's (already-fetched) history around
-// msgIdx as the current chat's in-memory window, and moves the
-// selection/viewport there. Windowed rather than loading sr.messages
-// wholesale — a search scans the chat's entire persisted history, but
-// dumping all of it into the in-memory window regardless of how large that
-// chat is would make every render/scroll walk however many thousand
-// messages it has, ignoring the same maxMessagesPerChat cap every other
-// load path respects (see trimMessagesAround). sr.messages itself (the full
-// decrypted history the search already had to scan) is retained as
-// PinnedHistory so paging further up/down from this window doesn't need a
-// "load newer" storage query that doesn't exist — see growPinnedWindow.
-func (m *Model) loadSearchResult(msgIdx int) {
+// loadSearchResult fires a HistoryLoader request for a fresh window anchored
+// on sr.messages[msgIdx] — the same anchor-based load every other window
+// transition uses (see HistoryAnchor's doc comment), just with the anchor
+// coming from a search match instead of a scroll edge.
+func (m *Model) loadSearchResult(msgIdx int) tea.Cmd {
 	sr := m.searchResults
 	chatIdx := m.chatIndexByAddress(sr.accountIdx, sr.chatAddress)
-	if chatIdx < 0 {
-		return
+	if chatIdx < 0 || m.historyLoader == nil {
+		return nil
 	}
-
-	windowed, newIdx, front := trimMessagesAround(sr.messages, msgIdx, m.maxMessagesPerChat)
-	end := front + len(windowed)
-
-	if m.accounts[sr.accountIdx].Messages == nil {
-		m.accounts[sr.accountIdx].Messages = make(map[int][]Message)
+	target := sr.messages[msgIdx]
+	if m.pendingWindowAnchor == nil {
+		m.pendingWindowAnchor = make(map[int]string)
 	}
-	m.accounts[sr.accountIdx].Messages[chatIdx] = windowed
-	if m.accounts[sr.accountIdx].HistoryMore == nil {
-		m.accounts[sr.accountIdx].HistoryMore = make(map[int]bool)
-	}
-	m.accounts[sr.accountIdx].HistoryMore[chatIdx] = front > 0
-
-	if front > 0 || end < len(sr.messages) {
-		if m.accounts[sr.accountIdx].PinnedHistory == nil {
-			m.accounts[sr.accountIdx].PinnedHistory = make(map[int][]Message)
-			m.accounts[sr.accountIdx].PinnedWindow = make(map[int][2]int)
-		}
-		if m.accounts[sr.accountIdx].PinnedHistoryComplete == nil {
-			m.accounts[sr.accountIdx].PinnedHistoryComplete = make(map[int]bool)
-		}
-		m.accounts[sr.accountIdx].PinnedHistory[chatIdx] = sr.messages
-		m.accounts[sr.accountIdx].PinnedWindow[chatIdx] = [2]int{front, end}
-		// sr.messages is the chat's entire history (search had to decrypt it
-		// all) — see PinnedHistoryComplete's doc comment.
-		m.accounts[sr.accountIdx].PinnedHistoryComplete[chatIdx] = true
-	}
-
-	if sr.accountIdx != m.currentAccount || chatIdx != m.currentChatIndex() {
-		return
-	}
-	m.selectedMsg = newIdx
-	m.refreshViewportFullScrollTo(newIdx)
+	m.pendingWindowAnchor[chatIdx] = target.ID
+	m.loadingHistoryWindow[chatIdx] = true
+	anchor := &HistoryAnchor{Delay: target.SentAt.Unix(), StoreID: target.StoreID}
+	return m.historyLoader.LoadHistoryWindow(sr.accountIdx, sr.chatAddress, anchor)
 }
 
 // handleSearchResultsClick handles mouse clicks while the search-results
@@ -421,8 +390,9 @@ func (m Model) handleSearchResultsClick(msg tea.MouseClickMsg) (tea.Model, tea.C
 	if i := m.rowUnderMouse(msg, end-start, zoneSearchResultRow); i >= 0 {
 		sr.cursor = i
 		if msg.Mouse().Button == tea.MouseLeft {
-			m.loadSearchResult(matches[start+i])
+			cmd := m.loadSearchResult(matches[start+i])
 			m.searchResults = nil
+			return m, cmd
 		}
 	}
 	return m, nil

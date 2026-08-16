@@ -69,23 +69,41 @@ type FileSender interface {
 	UploadFile(accountIdx int, to, path, text string, opts SendOptions) tea.Msg
 }
 
-// HistoryLoader fetches the next older page of a chat's persisted history —
-// implemented outside ui by an adapter that knows about local storage, kept
-// off the main goroutine as a tea.Cmd since it's a disk read plus decrypt of
-// up to a page's worth of messages. "to" is the chat's peer address (bare or
-// full JID, whatever the chat is keyed by).
-type HistoryLoader interface {
-	LoadOlderHistory(accountIdx int, to string) tea.Cmd
+// HistoryAnchor pins a HistoryLoader.LoadHistoryWindow request to a specific
+// message — Delay/StoreID are exactly Message.SentAt.Unix()/Message.StoreID
+// of whichever currently-loaded message triggered the fetch (the one at the
+// edge of the window that was reached). A nil anchor means "no message to
+// anchor on, give me the chat's most recent window" — the initial chat open,
+// or jumping to the true latest message.
+type HistoryAnchor struct {
+	Delay   int64
+	StoreID int64
 }
 
-// OlderHistoryMsg reports the result of HistoryLoader.LoadOlderHistory:
-// Messages (already in chronological order) to prepend to the chat matching
-// AccountIdx/From, and whether further older history remains beyond that.
-type OlderHistoryMsg struct {
+// HistoryLoader fetches a window of a chat's persisted history centered on
+// anchor — half the window older than it, half newer-or-equal — implemented
+// outside ui by an adapter that knows about local storage, kept off the main
+// goroutine as a tea.Cmd since it's a disk read plus decrypt of up to a
+// window's worth of messages. "to" is the chat's peer address (bare or full
+// JID, whatever the chat is keyed by). This one method covers every way a
+// chat's loaded window changes: paging up/down, jumping to the latest
+// message, and jumping to a search result — they differ only in which
+// anchor (or none) they pass.
+type HistoryLoader interface {
+	LoadHistoryWindow(accountIdx int, to string, anchor *HistoryAnchor) tea.Cmd
+}
+
+// HistoryWindowMsg reports the result of HistoryLoader.LoadHistoryWindow:
+// Messages (chronological order) entirely replaces whatever was loaded for
+// the chat matching AccountIdx/From — this is a fresh window, not a page to
+// merge with the old one. HasOlder/HasNewer report whether more history
+// exists in storage beyond either edge of Messages.
+type HistoryWindowMsg struct {
 	AccountIdx int
 	From       string
 	Messages   []Message
-	HasMore    bool
+	HasOlder   bool
+	HasNewer   bool
 }
 
 // HistorySearcher searches a chat's entire persisted history for messages
@@ -100,11 +118,13 @@ type HistorySearcher interface {
 
 // HistorySearchResultMsg reports the result of HistorySearcher.SearchHistory.
 // Messages is the chat's entire persisted history, already decrypted and in
-// chronological order — exactly what ui.Model would hold if the chat were
-// fully loaded — and Matches indexes into it for every message whose content
-// contains Query (case-insensitive). Selecting a match and pressing enter
-// loads Messages wholesale as the chat's new in-memory window and jumps the
-// cursor to Matches[i], so no further paging is needed for that chat.
+// chronological order, and Matches indexes into it for every message whose
+// content contains Query (case-insensitive) — used only to list/preview
+// matches in the results popup. Selecting one fires a fresh
+// HistoryLoader.LoadHistoryWindow anchored on that message rather than using
+// Messages/Matches directly, so the loaded window stays consistent with how
+// every other window load works (and paging up/down from it afterward is
+// ordinary storage-backed paging, not a special in-memory case).
 type HistorySearchResultMsg struct {
 	AccountIdx int
 	From       string
