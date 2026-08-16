@@ -1,5 +1,10 @@
+- pagination problems: pagination can merge 2 invalid points of history (more latest, older one) skipping significant bit between
 - non-sent local-only messages
-- pagination breaking
+- omemo messages problems
+- call initiating problems
+- non-focused state of app, with open chat doesnt send notifications
+
+
 - calls not finishing intitializing, after call accept
 - speed up connection to xmpp server?
 - clicking retries should highlight replied-to message
