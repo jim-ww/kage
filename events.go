@@ -289,6 +289,18 @@ func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Man
 		return
 	}
 
+	// EncryptKeyTransport only reaches devices already in the manager's
+	// cached device list for peerBareJID (recipientDevices -> devicesFor,
+	// which only self-refreshes when that cache is completely empty) - if
+	// sender's specific device isn't in it (the exact class of staleness
+	// this whole area is prone to), the reply below silently never reaches
+	// the one device that actually needs it, while still reporting success.
+	// Force a fresh fetch first so sender is there as long as its device
+	// list still publishes it.
+	if err := mgr.SyncDevices(ctx, peerBareJID); err != nil {
+		slog.Debug("healing broken omemo session: resyncing peer device list failed", "peer", peerBareJID, "device", sender.ID, "err", err)
+	}
+
 	enc, deviceErrs, err := mgr.EncryptKeyTransport(ctx, peerBareJID)
 	if err != nil {
 		slog.Warn("healing broken omemo session: rebuilding session failed", "peer", peerBareJID, "device", sender.ID, "err", err)
@@ -296,6 +308,21 @@ func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Man
 	}
 	for _, de := range deviceErrs {
 		slog.Debug("healing broken omemo session: one device failed (others still sent)", "peer", peerBareJID, "device_id", de.Device.ID, "err", de.Err)
+	}
+	reachedSender := false
+	for _, k := range enc.Keys {
+		if k.Device == sender.ID {
+			reachedSender = true
+			break
+		}
+	}
+	if !reachedSender {
+		// Not fatal - the key-transport still refreshes sessions with the
+		// peer's other devices and our own - but this is exactly the
+		// failure mode that looks like a successful heal in the logs while
+		// leaving the one broken device stuck retrying its stale prekey
+		// message forever, so it must be visible, not silent.
+		slog.Warn("healing broken omemo session: key-transport reply didn't include the broken device (not in known device list)", "peer", peerBareJID, "device", sender.ID)
 	}
 
 	client := s.client.Load()
