@@ -203,6 +203,22 @@ func SetStoragePlaintextPassword(path, password string) error {
 	return writeFileConfig(path, cfg)
 }
 
+// ClearStoragePassword removes both storage.password and
+// storage.password_cmd from the config file at path — used when the local
+// storage password is changed to empty, i.e. local storage encryption is
+// being turned off. Since both fields are `omitempty`, zeroing them here
+// drops the keys from config.yaml entirely on the next write rather than
+// leaving a `password: ""` behind.
+func ClearStoragePassword(path string) error {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return err
+	}
+	cfg.Storage.Password = ""
+	cfg.Storage.PasswordCmd = ""
+	return writeFileConfig(path, cfg)
+}
+
 func loadOrEmpty(path string) (Config, error) {
 	cfg, _, err := loadConfigFile(path)
 	return cfg, err

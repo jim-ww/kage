@@ -16,7 +16,12 @@ import (
 // ChangeStoragePassword implements ui.StoragePasswordChanger: re-encrypts
 // every locally-encrypted message body and draft under a new password,
 // derived from a freshly generated salt, then persists the new password
-// (keyring if configured, else plaintext in config.yaml).
+// (keyring if configured, else plaintext in config.yaml). An empty
+// newPassword instead turns local storage encryption *off*: every row gets
+// decrypted under the current key and written back as plaintext, and any
+// stored password (keyring and/or config.yaml) is cleared rather than set.
+// The ui layer is expected to have already confirmed this with the user —
+// see ui/storage_password.go's confirmDisableStorageEncryption flow.
 //
 // Safety: the whole re-encryption (every row, plus the new salt) happens
 // inside a single sqlite transaction — either every row ends up sealed under
@@ -40,16 +45,17 @@ func (a *adapter) ChangeStoragePassword(newPassword string) error {
 	if a.db == nil || a.queries == nil {
 		return fmt.Errorf("storage isn't available")
 	}
-	if newPassword == "" {
-		return fmt.Errorf("password can't be empty")
-	}
 
 	ctx := context.Background()
-	newSalt, err := localstore.NewSalt()
-	if err != nil {
-		return fmt.Errorf("generating new salt: %w", err)
+	var newKey, newSalt []byte
+	if newPassword != "" {
+		var err error
+		newSalt, err = localstore.NewSalt()
+		if err != nil {
+			return fmt.Errorf("generating new salt: %w", err)
+		}
+		newKey = localstore.DeriveKey(newPassword, newSalt)
 	}
-	newKey := localstore.DeriveKey(newPassword, newSalt)
 
 	if err := rotateStorageKey(ctx, a.db, a.queries, a.localKey, newKey, newSalt); err != nil {
 		return fmt.Errorf("re-encrypting local storage: %w", err)
@@ -80,7 +86,11 @@ func (a *adapter) ChangeStoragePassword(newPassword string) error {
 // rotateStorageKey does the actual decrypt-under-old/reseal-under-new sweep
 // across every encrypted messages/chatDraft row plus the new salt, all
 // inside one transaction — see ChangeStoragePassword's doc comment for the
-// safety rationale.
+// safety rationale. A nil newKey means "turn encryption off": rows are
+// decrypted and written back as plaintext with encrypted=false instead of
+// being resealed, and the salt (now unused) is left as-is rather than
+// cleared, since it stops being read the moment loadLocalKey sees no
+// password configured.
 func rotateStorageKey(ctx context.Context, db *sql.DB, queries *storage.Queries, oldKey, newKey, newSalt []byte) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -89,6 +99,7 @@ func rotateStorageKey(ctx context.Context, db *sql.DB, queries *storage.Queries,
 	defer tx.Rollback() //nolint:errcheck // no-op once Commit has succeeded
 
 	qtx := queries.WithTx(tx)
+	toPlaintext := newKey == nil
 
 	msgs, err := qtx.ListEncryptedMessageBodies(ctx)
 	if err != nil {
@@ -99,13 +110,17 @@ func rotateStorageKey(ctx context.Context, db *sql.DB, queries *storage.Queries,
 		if err != nil {
 			return fmt.Errorf("decrypting message %d under the current password: %w", m.ID, err)
 		}
-		ct, err := localstore.Seal(newKey, pt)
-		if err != nil {
-			return fmt.Errorf("re-encrypting message %d: %w", m.ID, err)
+		ct := pt
+		if !toPlaintext {
+			ct, err = localstore.Seal(newKey, pt)
+			if err != nil {
+				return fmt.Errorf("re-encrypting message %d: %w", m.ID, err)
+			}
 		}
 		if err := qtx.UpdateMessageBodyByRowID(ctx, storage.UpdateMessageBodyByRowIDParams{
-			ID:   m.ID,
-			Body: sql.NullString{String: ct, Valid: true},
+			ID:        m.ID,
+			Body:      sql.NullString{String: ct, Valid: true},
+			Encrypted: !toPlaintext,
 		}); err != nil {
 			return fmt.Errorf("saving re-encrypted message %d: %w", m.ID, err)
 		}
@@ -120,22 +135,27 @@ func rotateStorageKey(ctx context.Context, db *sql.DB, queries *storage.Queries,
 		if err != nil {
 			return fmt.Errorf("decrypting draft for %s under the current password: %w", d.Rosterjid, err)
 		}
-		ct, err := localstore.Seal(newKey, pt)
-		if err != nil {
-			return fmt.Errorf("re-encrypting draft for %s: %w", d.Rosterjid, err)
+		ct := pt
+		if !toPlaintext {
+			ct, err = localstore.Seal(newKey, pt)
+			if err != nil {
+				return fmt.Errorf("re-encrypting draft for %s: %w", d.Rosterjid, err)
+			}
 		}
 		if err := qtx.SetChatDraft(ctx, storage.SetChatDraftParams{
 			AccountJid: d.Accountjid,
 			RosterJid:  d.Rosterjid,
 			Body:       ct,
-			Encrypted:  true,
+			Encrypted:  !toPlaintext,
 		}); err != nil {
 			return fmt.Errorf("saving re-encrypted draft for %s: %w", d.Rosterjid, err)
 		}
 	}
 
-	if err := qtx.SetLocalKeySalt(ctx, newSalt); err != nil {
-		return fmt.Errorf("saving new salt: %w", err)
+	if !toPlaintext {
+		if err := qtx.SetLocalKeySalt(ctx, newSalt); err != nil {
+			return fmt.Errorf("saving new salt: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -149,8 +169,20 @@ func rotateStorageKey(ctx context.Context, db *sql.DB, queries *storage.Queries,
 // in config.yaml — same precedence ResolveStoragePassword reads back with.
 // A keyring failure (no Secret Service running, etc.) falls back to the
 // plaintext config write rather than erroring outright, same tolerance
-// Account.ResolvePassword already extends elsewhere in this codebase.
+// Account.ResolvePassword already extends elsewhere in this codebase. An
+// empty password clears both locations instead of writing an empty value to
+// either, so config.yaml ends up with no storage.password/password_cmd keys
+// at all rather than a stray `password: ""`.
 func persistStoragePassword(cfgPath string, useKeyring bool, password string) error {
+	if password == "" {
+		if useKeyring {
+			// Best-effort, like the keyring write path below: a missing
+			// Secret Service shouldn't block clearing config.yaml.
+			_ = config.ClearStorageKeyringPassword()
+		}
+		return config.ClearStoragePassword(cfgPath)
+	}
+
 	if useKeyring {
 		if err := config.SetStorageKeyringPassword(password); err == nil {
 			return nil

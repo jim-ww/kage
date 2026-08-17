@@ -789,7 +789,7 @@ WHERE encrypted = TRUE;
 
 -- name: UpdateMessageBodyByRowID :exec
 UPDATE messages
-SET body = sqlc.arg(body)
+SET body = sqlc.arg(body), encrypted = sqlc.arg(encrypted)
 WHERE id = sqlc.arg(id);
 
 

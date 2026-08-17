@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -103,4 +104,14 @@ func ResolveStoragePassword(cfg StorageConfig, useKeyring bool) (password string
 // looks it up from.
 func SetStorageKeyringPassword(password string) error {
 	return keyring.Set(keyringService, storageKeyringAccount, password)
+}
+
+// ClearStorageKeyringPassword removes the local-storage password from the OS
+// keyring, if any is set there. A "not found" error is treated as success —
+// the end state (nothing in the keyring) is the same either way.
+func ClearStorageKeyringPassword() error {
+	if err := keyring.Delete(keyringService, storageKeyringAccount); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		return err
+	}
+	return nil
 }

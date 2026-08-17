@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jim-ww/kage/config"
@@ -180,18 +182,75 @@ func TestRotateStorageKeyRollsBackOnFailure(t *testing.T) {
 	}
 }
 
-// TestChangeStoragePasswordRejectsEmptyPassword checks the empty-password
-// guard rejects before touching the database at all.
-func TestChangeStoragePasswordRejectsEmptyPassword(t *testing.T) {
+// TestRotateStorageKeyToPlaintext checks the nil-newKey path used to turn
+// local storage encryption off: every previously-encrypted row is decrypted
+// and written back as plaintext with encrypted=false, and the (now-unused)
+// salt is left untouched rather than cleared.
+func TestRotateStorageKeyToPlaintext(t *testing.T) {
 	dir := t.TempDir()
 	db, queries, err := storage.Open(filepath.Join(dir, "kage.db"))
 	if err != nil {
 		t.Fatalf("opening storage: %v", err)
 	}
-	a := &adapter{db: db, queries: queries, localKey: newTestKey(1)}
+	ctx := context.Background()
 
-	if err := a.ChangeStoragePassword(""); err == nil {
-		t.Fatal("expected an error for an empty new password")
+	oldKey := newTestKey(1)
+
+	sealedHello, err := localstore.Seal(oldKey, "hello")
+	if err != nil {
+		t.Fatalf("sealing fixture: %v", err)
+	}
+	if _, err := queries.InsertMessage(ctx, storage.InsertMessageParams{
+		AccountJid: "me@example.com", Sent: true, IDAttr: nullString("id-1"),
+		Body: sql.NullString{String: sealedHello, Valid: true}, Encrypted: true,
+		StanzaType: "normal", RosterJid: nullString("bob@example.com"),
+	}); err != nil {
+		t.Fatalf("InsertMessage (encrypted): %v", err)
+	}
+
+	sealedDraft, err := localstore.Seal(oldKey, "unsent draft")
+	if err != nil {
+		t.Fatalf("sealing draft fixture: %v", err)
+	}
+	if err := queries.SetChatDraft(ctx, storage.SetChatDraftParams{
+		AccountJid: "me@example.com", RosterJid: "bob@example.com", Body: sealedDraft, Encrypted: true,
+	}); err != nil {
+		t.Fatalf("SetChatDraft: %v", err)
+	}
+
+	originalSalt := []byte("original-salt-16")
+	if err := queries.SetLocalKeySalt(ctx, originalSalt); err != nil {
+		t.Fatalf("SetLocalKeySalt (seeding): %v", err)
+	}
+
+	if err := rotateStorageKey(ctx, db, queries, oldKey, nil, nil); err != nil {
+		t.Fatalf("rotateStorageKey: %v", err)
+	}
+
+	msgs, err := queries.ListMessagesByRoster(ctx, storage.ListMessagesByRosterParams{
+		AccountJid: "me@example.com", RosterJid: nullString("bob@example.com"),
+	})
+	if err != nil {
+		t.Fatalf("ListMessagesByRoster: %v", err)
+	}
+	if len(msgs) != 1 || msgs[0].Encrypted || msgs[0].Body.String != "hello" {
+		t.Fatalf("message not migrated to plaintext: %+v", msgs)
+	}
+
+	drafts, err := queries.ListChatDrafts(ctx, "me@example.com")
+	if err != nil {
+		t.Fatalf("ListChatDrafts: %v", err)
+	}
+	if len(drafts) != 1 || drafts[0].Encrypted || drafts[0].Body != "unsent draft" {
+		t.Fatalf("draft not migrated to plaintext: %+v", drafts)
+	}
+
+	salt, err := queries.GetLocalKeySalt(ctx)
+	if err != nil {
+		t.Fatalf("GetLocalKeySalt: %v", err)
+	}
+	if string(salt) != string(originalSalt) {
+		t.Fatalf("salt should be left untouched, got %q", salt)
 	}
 }
 
@@ -211,5 +270,37 @@ func TestPersistStoragePasswordWritesPlaintextConfig(t *testing.T) {
 	}
 	if cfg.Storage.Password != "new-storage-password" {
 		t.Fatalf("config.Storage.Password = %q, want %q", cfg.Storage.Password, "new-storage-password")
+	}
+}
+
+// TestPersistStoragePasswordClearsConfigOnEmpty checks that an empty
+// password removes storage.password/password_cmd from config.yaml (rather
+// than writing an empty value), leaving no trace of local storage
+// encryption ever having been configured.
+func TestPersistStoragePasswordClearsConfigOnEmpty(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	if err := persistStoragePassword(cfgPath, false, "old-storage-password"); err != nil {
+		t.Fatalf("persistStoragePassword (seeding): %v", err)
+	}
+	if err := persistStoragePassword(cfgPath, false, ""); err != nil {
+		t.Fatalf("persistStoragePassword (clearing): %v", err)
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reloading config: %v", err)
+	}
+	if cfg.Storage.Password != "" || cfg.Storage.PasswordCmd != "" {
+		t.Fatalf("config.Storage = %+v, want both fields cleared", cfg.Storage)
+	}
+
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("reading config.yaml: %v", err)
+	}
+	if strings.Contains(string(raw), "password") {
+		t.Fatalf("config.yaml still mentions a password: %s", raw)
 	}
 }

@@ -53,15 +53,38 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 		t.Fatal("ChangeStoragePassword keybind should open the popup in viewAccounts")
 	}
 
-	// Submitting with nothing typed is rejected before touching the changer.
+	// Submitting with nothing typed opens a confirmation popup instead of
+	// calling the changer right away.
 	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
-	if m.changePasswordState.err == "" {
-		t.Fatal("expected an error for an empty password")
+	if m.confirmTarget != confirmDisableStorageEncryption {
+		t.Fatal("expected a confirmation popup for an empty password")
 	}
 	if len(changer.calls) != 0 {
-		t.Fatal("changer should not have been called for an empty password")
+		t.Fatal("changer should not have been called before confirming")
 	}
+
+	// Confirming calls through with an empty password.
+	next, disableCmd := m.Update(tea.KeyPressMsg{Code: 'y'})
+	m = next.(Model)
+	if m.confirmTarget != confirmNone {
+		t.Fatal("confirmation popup should close after confirming")
+	}
+	if !m.changePasswordState.busy {
+		t.Fatal("popup should be marked busy while the change is in flight")
+	}
+	disableMsg := nonIdleCmd(disableCmd)
+	disableResult, ok := disableMsg.(StoragePasswordChangedMsg)
+	if !ok {
+		t.Fatalf("cmd produced %T, want StoragePasswordChangedMsg", disableMsg)
+	}
+	if len(changer.calls) != 1 || changer.calls[0] != "" {
+		t.Fatalf("changer.calls = %v, want [\"\"]", changer.calls)
+	}
+	// Deliver the result and reopen the popup for the rest of the test.
+	nm, _, _ := m.handleEventMsg(disableResult)
+	m = nm
+	m.changePasswordState = m.newChangePasswordForm()
 
 	for _, r := range "newpass" {
 		next, _ = m.Update(tea.KeyPressMsg{Text: string(r), Code: r})
@@ -79,8 +102,8 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	if m.changePasswordState.err == "" {
 		t.Fatal("expected an error for mismatched passwords")
 	}
-	if len(changer.calls) != 0 {
-		t.Fatal("changer should not have been called for mismatched passwords")
+	if len(changer.calls) != 1 {
+		t.Fatal("changer should not have been called again for mismatched passwords")
 	}
 
 	// Fix the confirm field to match, then submit for real.
@@ -108,12 +131,12 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	if result.Err != nil {
 		t.Fatalf("unexpected error from the fake changer: %v", result.Err)
 	}
-	if len(changer.calls) != 1 || changer.calls[0] != "newpass" {
-		t.Fatalf("changer.calls = %v, want [\"newpass\"]", changer.calls)
+	if len(changer.calls) != 2 || changer.calls[1] != "newpass" {
+		t.Fatalf("changer.calls = %v, want second call to be \"newpass\"", changer.calls)
 	}
 
 	// Deliver the result message the same way Update() would.
-	nm, _, _ := m.handleEventMsg(result)
+	nm, _, _ = m.handleEventMsg(result)
 	if nm.changePasswordState != nil {
 		t.Fatal("popup should close on success")
 	}

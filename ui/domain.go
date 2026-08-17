@@ -375,6 +375,7 @@ const (
 	confirmDeleteChat
 	confirmRemoveAccount
 	confirmQuit
+	confirmDisableStorageEncryption
 )
 
 // SendOptions carries optional wire metadata for MessageSender.Send — kept as

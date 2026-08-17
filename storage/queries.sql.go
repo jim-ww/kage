@@ -2442,17 +2442,18 @@ func (q *Queries) UpdateMessageBodyByID(ctx context.Context, arg UpdateMessageBo
 
 const updateMessageBodyByRowID = `-- name: UpdateMessageBodyByRowID :exec
 UPDATE messages
-SET body = ?1
-WHERE id = ?2
+SET body = ?1, encrypted = ?2
+WHERE id = ?3
 `
 
 type UpdateMessageBodyByRowIDParams struct {
-	Body sql.NullString `db:"body"`
-	ID   int64          `db:"id"`
+	Body      sql.NullString `db:"body"`
+	Encrypted bool           `db:"encrypted"`
+	ID        int64          `db:"id"`
 }
 
 func (q *Queries) UpdateMessageBodyByRowID(ctx context.Context, arg UpdateMessageBodyByRowIDParams) error {
-	_, err := q.db.ExecContext(ctx, updateMessageBodyByRowID, arg.Body, arg.ID)
+	_, err := q.db.ExecContext(ctx, updateMessageBodyByRowID, arg.Body, arg.Encrypted, arg.ID)
 	return err
 }
 

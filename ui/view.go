@@ -625,6 +625,9 @@ func (m Model) deletePrompt(width int) string {
 			detail = m.accounts[m.currentAccount].DisplayName()
 		}
 		return m.styles.deletePrompt(width, "Remove account?", detail+" — disconnects and drops it from config; local history is kept")
+	case confirmDisableStorageEncryption:
+		return m.styles.deletePrompt(width, "Disable local storage encryption?",
+			"Every stored message and draft will be rewritten to disk in plain text.")
 	default:
 		detail := ""
 		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
@@ -874,12 +877,17 @@ func (m Model) renderChangePasswordPopup() string {
 	s := m.changePasswordState
 	rows := []string{
 		m.styles.popupDanger.Render("Write this down. If you lose it, your local message history is unrecoverable."),
+		"Leave both fields blank to turn local storage encryption off.",
 		"",
 		s.inputs[0].View(),
 		s.inputs[1].View(),
 	}
 	if s.busy {
-		rows = append(rows, "", "re-encrypting local storage...")
+		if s.inputs[0].Value() == "" {
+			rows = append(rows, "", "disabling local storage encryption...")
+		} else {
+			rows = append(rows, "", "re-encrypting local storage...")
+		}
 	} else if s.err != "" {
 		rows = append(rows, "", m.styles.popupDanger.Render(s.err))
 	}

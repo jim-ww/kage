@@ -83,6 +83,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				cmds = append(cmds, m.deleteSelectedChat())
 			case confirmRemoveAccount:
 				cmds = append(cmds, m.removeCurrentAccount())
+			case confirmDisableStorageEncryption:
+				cmds = append(cmds, m.startStoragePasswordChange(""))
 			}
 			m.confirmTarget = confirmNone
 			m.refreshViewport()

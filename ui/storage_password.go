@@ -88,11 +88,13 @@ func (m Model) updateChangePasswordForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// submitChangePassword validates the two fields and, if they check out,
-// kicks off the async re-encryption via StoragePasswordChanger — the actual
-// transactional rotation (and the daemon-restart-required aftermath) lives
-// entirely on the other side of that interface; see main.go's
-// adapter.ChangeStoragePassword.
+// submitChangePassword validates the two fields. A non-empty pair that
+// matches kicks off the async re-encryption right away (see
+// startStoragePasswordChange); an empty pair (both fields blank) is a
+// request to turn local storage encryption *off* entirely, which is
+// destructive enough (every message/draft gets rewritten to disk in plain
+// text) to gate behind an explicit confirmation popup instead of submitting
+// immediately - see confirmDisableStorageEncryption in update_keys.go.
 func (m *Model) submitChangePassword() tea.Cmd {
 	s := m.changePasswordState
 	if s.busy {
@@ -100,14 +102,25 @@ func (m *Model) submitChangePassword() tea.Cmd {
 	}
 	newPassword := s.inputs[0].Value()
 	confirm := s.inputs[1].Value()
-	if newPassword == "" {
-		s.err = "password can't be empty"
-		return nil
-	}
 	if newPassword != confirm {
 		s.err = "passwords don't match"
 		return nil
 	}
+	if newPassword == "" {
+		s.err = ""
+		m.confirmTarget = confirmDisableStorageEncryption
+		return nil
+	}
+	return m.startStoragePasswordChange(newPassword)
+}
+
+// startStoragePasswordChange kicks off the async re-encryption via
+// StoragePasswordChanger — the actual transactional rotation (and the
+// daemon-restart-required aftermath) lives entirely on the other side of
+// that interface; see main.go's adapter.ChangeStoragePassword. newPassword
+// may be "" to turn local storage encryption off (see submitChangePassword).
+func (m *Model) startStoragePasswordChange(newPassword string) tea.Cmd {
+	s := m.changePasswordState
 	if m.storagePasswordChanger == nil {
 		s.err = "storage password changing isn't available"
 		return nil
