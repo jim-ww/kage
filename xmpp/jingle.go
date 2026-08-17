@@ -57,15 +57,26 @@ const (
 
 	// JingleActionContentModify (XEP-0166 §7.2.9) asks to change an existing
 	// content's senders (e.g. upgrade a receive-only video content to
-	// bidirectional). kage never originates one, only replies to a peer's:
-	// we don't have a camera pipeline to become a sender with, so the only
-	// correct reply (per the same section) is to echo the content back with
-	// its senders value unchanged - an explicit decline, rather than silence
-	// the peer might read as acceptance (observed live: Conversations logged
-	// "remote has accepted our upgrade to senders=both" after kage silently
-	// dropped its content-modify, since we didn't yet have a case for it at
-	// all).
+	// bidirectional). kage never originates one, only ever receives them -
+	// and can't actually honor one either way (no pipeline to become a
+	// second sender on an already-negotiated content, see call/peer.go's
+	// VideoMid doc). Echoing the content back with its senders value
+	// unchanged, as an explicit decline, was tried first and doesn't work:
+	// at least one real peer (Conversations) proceeds as if the upgrade
+	// succeeded regardless of what the decline says (observed live:
+	// "remote has accepted our upgrade to senders=both" right after kage's
+	// echoed decline went out) - so kage now responds to any content-modify
+	// with JingleActionContentRemove instead (see applyContentModify),
+	// withdrawing the content outright rather than leaving both sides
+	// disagreeing about who sends what for the rest of the call.
 	JingleActionContentModify = "content-modify"
+
+	// JingleActionContentRemove (XEP-0166 §7.2.8) withdraws a content from
+	// an already-established session. kage sends this in reply to a peer's
+	// content-modify it can't honor (see JingleActionContentModify) - it
+	// doesn't handle receiving one itself yet, since nothing today removes
+	// a content kage is receiving.
+	JingleActionContentRemove = "content-remove"
 )
 
 // JingleIQ is the <jingle/> payload of a Jingle IQ (XEP-0166). SID is the
@@ -318,12 +329,13 @@ func (c *Client) SendContentAccept(ctx context.Context, to, sid string, content 
 	})
 }
 
-// SendContentModify replies to a peer's content-modify - see
-// JingleActionContentModify's doc for why kage only ever echoes the
-// content's senders value back unchanged, never actually changing it.
-func (c *Client) SendContentModify(ctx context.Context, to, sid string, content JingleContent) error {
+// SendContentRemove sends a XEP-0166 content-remove, withdrawing content
+// (named by creator/name only, no description/transport needed) from an
+// already-established session - see JingleActionContentModify's doc for why
+// kage sends this in reply to a content-modify it can't honor.
+func (c *Client) SendContentRemove(ctx context.Context, to, sid string, content JingleContent) error {
 	return c.sendJingleIQ(ctx, to, JingleIQ{
-		Action:   JingleActionContentModify,
+		Action:   JingleActionContentRemove,
 		SID:      sid,
 		Contents: []JingleContent{content},
 	})

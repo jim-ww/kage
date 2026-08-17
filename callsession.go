@@ -1696,17 +1696,27 @@ func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.Jingle
 	c.beginScreenShareCapture(pc)
 }
 
-// applyContentModify replies to a peer's XEP-0166 content-modify (e.g.
+// applyContentModify responds to a peer's XEP-0166 content-modify (e.g.
 // Conversations trying to upgrade a receive-only video content to
-// bidirectional so it can send its own camera back) by echoing the
-// content's senders value from before the request, unchanged - see
-// xmpp.JingleActionContentModify's doc for why silence here is actively
-// wrong (a real peer, observed live, read it as acceptance and proceeded on
-// a senders value kage's own PeerConnection never actually adopted, leaving
-// the two sides disagreeing about who sends what for the rest of the call).
+// bidirectional so it can send its own camera back) by withdrawing the
+// content outright: send a content-remove and, if it's our own outbound
+// video (the content startVideoShare is sending on), stop capturing and
+// sending too, the same local teardown a user-initiated stop does (see
+// stopScreenShare). kage has no way to honor the request either way - pion
+// gives an already-negotiated transceiver no path to become bidirectional
+// without re-assigning its mid (see call.PeerConnection.VideoMid's doc) -
+// and echoing a decline back doesn't reliably communicate that: at least
+// one real peer (Conversations) proceeds as if the upgrade succeeded
+// regardless of what the decline says (observed live: "remote has accepted
+// our upgrade to senders=both" right after kage's echoed decline went out),
+// leaving both sides silently disagreeing about who sends what for the rest
+// of the call - a content-remove is unambiguous instead.
 func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.JingleIQ) {
 	c.mu.Lock()
-	remote, remoteContents := c.remoteJID, c.remoteContents
+	remote, remoteContents, ourVideoMid := c.remoteJID, c.remoteContents, ""
+	if c.pc != nil {
+		ourVideoMid = c.pc.VideoMid()
+	}
 	c.mu.Unlock()
 
 	for _, req := range jingle.Contents {
@@ -1714,22 +1724,32 @@ func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.Jingle
 		// <description/> - matching jingleContentsFromSDP's own assumption
 		// that echoed content names are stable identifiers, not something to
 		// re-derive from a description that may not even be present here.
-		var current xmpp.JingleContent
 		var ok bool
 		for _, rc := range remoteContents {
 			if rc.Name == req.Name {
-				current, ok = rc, true
+				ok = true
 				break
 			}
 		}
 		if !ok {
 			continue
 		}
-		slog.Debug("screen share: declining content-modify, keeping senders unchanged", "sid", c.sid, "content", req.Name, "requested_senders", req.Senders, "kept_senders", current.Senders)
-		decline := xmpp.JingleContent{Creator: req.Creator, Name: req.Name, Senders: current.Senders}
-		if err := c.client.SendContentModify(ctx, remote, c.sid, decline); err != nil {
-			slog.Warn("declining content-modify", "sid", c.sid, "err", err)
+		slog.Debug("screen share: can't honor content-modify, withdrawing content", "sid", c.sid, "content", req.Name, "requested_senders", req.Senders)
+		remove := xmpp.JingleContent{Creator: req.Creator, Name: req.Name}
+		if err := c.client.SendContentRemove(ctx, remote, c.sid, remove); err != nil {
+			slog.Warn("withdrawing content after unsupported content-modify", "sid", c.sid, "err", err)
 		}
+		if req.Name != "" && req.Name == ourVideoMid {
+			c.stopScreenShare()
+		}
+		c.mu.Lock()
+		for i, rc := range c.remoteContents {
+			if rc.Name == req.Name {
+				c.remoteContents = append(c.remoteContents[:i], c.remoteContents[i+1:]...)
+				break
+			}
+		}
+		c.mu.Unlock()
 	}
 }
 

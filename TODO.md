@@ -1,4 +1,7 @@
+- call logs might not be shown
 - non-focused state of app, with open chat doesnt send notifications
+- some modals are overflowing out of window (e.g. localstorage password change)
+
 - speed up connection to xmpp server?
 - select & yank text in draft with mouse
 - add default encryption for chats config option, default omemov1
@@ -7,7 +10,6 @@
 - uploading your own files must not download them from server (must be downloaded)
 - notification appears sooner then message
 - notifications appear when chat is focused?
-- make smaller message limit (in chat)
 - message in chat appear 2 times. race?
 
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
