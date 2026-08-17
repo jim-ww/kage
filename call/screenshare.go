@@ -239,6 +239,15 @@ func NewScreenShare(quality VideoQuality) (*ScreenShare, error) {
 		"-y", // "-f -" still prompts to overwrite "-" as if it were a real file without this
 		"-c", "libx264",
 		"-p", "tune=zerolatency",
+		// Without an explicit profile, libx264 picks "High" here (confirmed
+		// live: every wf-recorder capture logs "profile High, level 4.0"
+		// regardless of quality/bitrate settings) - a decoder configured from
+		// the SDP's fixed profile-level-id=42e01f (Baseline, see call/peer.go)
+		// then can't parse the bitstream: RTP arrives, nothing ever gets
+		// decoded, no error on either side. Forcing it here keeps the actual
+		// bitstream profile consistent with what's negotiated, same as
+		// NewCamera already does for its libx264 encode.
+		"-p", "profile=baseline",
 		"-p", fmt.Sprintf("b=%dk", profile.wfBitrateKbps),
 		"-m", "h264",
 		"-r", fmt.Sprint(videoCaptureFramerate),
@@ -278,8 +287,8 @@ func NewCamera(device string, quality VideoQuality) (*Camera, error) {
 		// (profile-level-id=42e01f), which a peer's decoder then can't
 		// parse: RTP arrives, nothing ever gets decoded, no error either
 		// side. Forcing 4:2:0 here keeps the actual bitstream profile
-		// consistent with what's negotiated, the same as wf-recorder's
-		// screen capture already is.
+		// consistent with what's negotiated - see NewScreenShare's
+		// "-p", "profile=baseline" for the same fix on that path.
 		"-pix_fmt", "yuv420p",
 		"-c:v", "libx264",
 		"-profile:v", "baseline",
