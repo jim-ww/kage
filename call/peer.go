@@ -331,3 +331,28 @@ func (p *PeerConnection) VideoSenderSSRC() webrtc.SSRC {
 	}
 	return 0
 }
+
+// VideoMid returns the SDP mid pion assigned to our own outbound video
+// transceiver - the one AddVideoTrack created - identified by carrying our
+// local video track as its Sender. A call that started as audio+video (the
+// peer offering their own camera from session-initiate) already has a
+// second, unrelated video transceiver (recvonly, no local track) by the time
+// AddVideoTrack runs, so picking "the video transceiver" by kind alone, as
+// firstContentOfKind does over a renegotiation offer, can return that
+// pre-existing one instead of the new one - re-announcing an already
+// negotiated content name, which peers (e.g. Conversations) reject with
+// "contents with names ... already exists" and terminate the session. Empty
+// if AddVideoTrack hasn't been called yet.
+func (p *PeerConnection) VideoMid() string {
+	if p.videoTrack == nil {
+		return ""
+	}
+	for _, t := range p.pc.GetTransceivers() {
+		if s := t.Sender(); s != nil {
+			if tr := s.Track(); tr != nil && tr.ID() == p.videoTrack.ID() {
+				return t.Mid()
+			}
+		}
+	}
+	return ""
+}

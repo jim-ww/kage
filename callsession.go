@@ -1565,7 +1565,21 @@ func (c *callSession) startVideoShare(useCamera bool) error {
 	if err != nil {
 		return fmt.Errorf("building content-add: %w", err)
 	}
-	videoContent, ok := firstContentOfKind(contents, "video")
+	// Match by mid, not just "first video content": a call that started as
+	// audio+video (peer offering their own camera from session-initiate)
+	// already has an unrelated, pre-existing video content by this point -
+	// firstContentOfKind-by-kind would grab that one and re-announce an
+	// already negotiated name, which peers reject and terminate the call
+	// over (see VideoMid's doc comment).
+	videoMid := pc.VideoMid()
+	var videoContent xmpp.JingleContent
+	var ok bool
+	for _, ct := range contents {
+		if ct.Description != nil && ct.Description.Media == "video" && ct.Name == videoMid {
+			videoContent, ok = ct, true
+			break
+		}
+	}
 	if !ok {
 		return fmt.Errorf("no video content in renegotiation offer")
 	}
