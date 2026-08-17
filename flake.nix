@@ -67,9 +67,12 @@
 
         # `nix develop` gives you `prosody`/`prosodyctl`/`openssl` for
         # devtest/prosody/ (a throwaway local XMPP server used to exercise
-        # the xmpp/ package against a real server — see devtest/prosody/README.md).
+        # the xmpp/ package against a real server — see devtest/prosody/README.md)
+        # and `turnserver` for devtest/turn/ (a throwaway coturn instance used
+        # to exercise call/Jingle ICE against a real STUN/TURN server instead
+        # of relying on Google's public one — see devtest/turn/README.md).
         devShells.default = pkgs.mkShell {
-          packages = [pkgs.go pkgs.prosody pkgs.openssl pkgs.libnotify pkgs.alsa-lib pkgs.pkg-config pkgs.wf-recorder pkgs.mpv];
+          packages = [pkgs.go pkgs.prosody pkgs.coturn pkgs.openssl pkgs.libnotify pkgs.alsa-lib pkgs.pkg-config pkgs.wf-recorder pkgs.mpv];
         };
       };
     };

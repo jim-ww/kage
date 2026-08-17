@@ -6,6 +6,8 @@ devtest/prosody/certs/
 devtest/prosody/data/
 devtest/prosody/*.log
 devtest/prosody/*.pid
+devtest/turn/*.log
+devtest/turn/*.pid
 
 CLAUDE.md
 # Added by goreleaser init:

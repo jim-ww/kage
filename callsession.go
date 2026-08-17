@@ -890,7 +890,6 @@ func (c *callSession) initiateSession(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	c.rememberTransport(contents)
 	// Stashed for applyAnswer, once the callee's session-accept carries
 	// their half of the fingerprint comparison (see checkFingerprints).
 	c.mu.Lock()
@@ -903,6 +902,16 @@ func (c *callSession) initiateSession(ctx context.Context) error {
 	if err := c.client.SendSessionInitiate(ctx, remote, xmpp.JingleIQ{SID: c.sid, Contents: contents}); err != nil {
 		return err
 	}
+	// Only now - once session-initiate has actually gone out - is it safe to
+	// mark signalingReady (see rememberTransport's doc): flipping it earlier
+	// let a fast local ICE candidate race ahead of the very session-initiate
+	// that establishes the Jingle session it belongs to, since OnICECandidate
+	// fires on pion's own goroutine independent of this one. A trickled
+	// transport-info naming a session the peer doesn't know about yet is
+	// exactly the kind of stanza most peers silently drop - permanently
+	// losing that candidate with no local error, which live logs show can
+	// leave ICE stuck at "connecting" for the rest of the call.
+	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 	return nil
 }
@@ -945,7 +954,6 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 			contents[i].Name = in.Name
 		}
 	}
-	c.rememberTransport(contents)
 	c.checkFingerprints(firstFingerprint(contents), firstFingerprint(jingle.Contents))
 	c.broadcastState(c.currentState(), "")
 
@@ -964,6 +972,10 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	if err := c.client.SendSessionAccept(ctx, remote, xmpp.JingleIQ{SID: c.sid, Contents: contents}); err != nil {
 		return err
 	}
+	// See initiateSession's matching comment: only safe to mark
+	// signalingReady (letting sendCandidate actually trickle) once
+	// session-accept is confirmed on the wire, not before.
+	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 	return nil
 }
@@ -1027,7 +1039,16 @@ func (c *callSession) checkFingerprints(localFP, remoteFP string) {
 
 // rememberTransport records our own ICE credentials and content name from
 // the description we just generated, so trickled transport-info IQs can
-// repeat them.
+// repeat them. This also flips signalingReady, unblocking sendCandidate
+// (called from setupPeer's OnICECandidate, which fires on pion's own
+// goroutine independent of whichever one is running signaling) - so every
+// caller must call this only *after* confirming the session-initiate/
+// -accept/transport-replace/-accept that establishes what these credentials
+// belong to has actually gone out on the wire. Calling it any earlier lets a
+// fast local candidate race ahead as a transport-info for a session the peer
+// doesn't know exists yet, which most peers just silently drop - losing
+// that candidate for good, with no local error, which can leave ICE stuck
+// short of Connected for the rest of the call.
 func (c *callSession) rememberTransport(contents []xmpp.JingleContent) {
 	// ICE-UDP is bundled here (one ICE session shared by every mid via
 	// a=group:BUNDLE), so the ufrag/pwd pair is the same regardless of which
@@ -1269,8 +1290,6 @@ func (c *callSession) attemptICERestart(ctx context.Context) {
 		c.scheduleRestartRetry(ctx, attempt)
 		return
 	}
-	c.rememberTransport(contents)
-
 	// The bundle-tag content (first m-line, whichever kind it is) - see
 	// rememberTransport's doc for why this can't be hardcoded to "audio".
 	content := contents[0]
@@ -1280,6 +1299,10 @@ func (c *callSession) attemptICERestart(ctx context.Context) {
 		c.scheduleRestartRetry(ctx, attempt)
 		return
 	}
+	// See initiateSession's matching comment: only safe to repoint
+	// sendCandidate at the new restart credentials once transport-replace is
+	// confirmed on the wire, not before.
+	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 }
 
@@ -1353,8 +1376,6 @@ func (c *callSession) applyTransportReplace(ctx context.Context, jingle xmpp.Jin
 		slog.Warn("building transport-accept from restart answer", "sid", c.sid, "err", err)
 		return
 	}
-	c.rememberTransport(contents)
-
 	// The bundle-tag content (first m-line, whichever kind it is) - see
 	// rememberTransport's doc for why this can't be hardcoded to "audio".
 	content := contents[0]
@@ -1362,6 +1383,10 @@ func (c *callSession) applyTransportReplace(ctx context.Context, jingle xmpp.Jin
 	if err := c.client.SendTransportAccept(ctx, remote, c.sid, acceptContent); err != nil {
 		slog.Warn("sending transport-accept", "sid", c.sid, "err", err)
 	}
+	// See initiateSession's matching comment: only safe to repoint
+	// sendCandidate at the new restart credentials once transport-accept is
+	// confirmed on the wire, not before.
+	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 }
 
