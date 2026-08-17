@@ -293,7 +293,7 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 	case err == nil:
 		msgs[idx].Failed = false
 		msgs[idx].ID = id
-		switch mode := encryptionModeOrDefault(chat.EncryptionMode); {
+		switch mode := m.encryptionModeOrDefault(chat.EncryptionMode); {
 		case mode == "gpg":
 			msgs[idx].Encrypted, msgs[idx].EncMethod = true, "gpg"
 		case mode == "omemo-v1", mode == "omemo-v2":
