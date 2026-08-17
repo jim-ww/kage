@@ -16,17 +16,53 @@ before:
     - go generate ./...
 
 builds:
-  - main: ./...
+  # linux/amd64 is built natively (the release host), so cgo stays on: full
+  # call support (mic capture via malgo, playback via oto) needs it - see
+  # call/audio_cgo.go.
+  - id: linux-amd64
+    main: ./...
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+  # linux/arm64 and linux/386, like Windows/macOS below, are cross-compiled
+  # from the amd64 release host with no matching cgo toolchain (no
+  # aarch64-linux-gnu-gcc, no gcc-multilib) wired up, so cgo is off and
+  # call/audio_nocgo.go's stub kicks in: voice calls are unavailable in
+  # these builds.
+  - id: linux-cross
+    main: ./...
     env:
       - CGO_ENABLED=0
     goos:
       - linux
+    goarch:
+      - arm64
+      - "386"
+
+  - id: windows
+    main: ./...
+    env:
+      - CGO_ENABLED=0
+    goos:
       - windows
-      - darwin
     goarch:
       - arm64
       - amd64
       - "386"
+
+  - id: darwin
+    main: ./...
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - arm64
+      - amd64
 
 archives:
   - formats: [tar.gz]

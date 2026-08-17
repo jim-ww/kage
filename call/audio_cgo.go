@@ -1,3 +1,10 @@
+//go:build cgo
+
+// Package call's Mic/Speaker need cgo: malgo (miniaudio bindings) is cgo-only,
+// and oto v3's Linux backend is too (`#cgo pkg-config: alsa` in driver_unix.go).
+// See audio_nocgo.go for the stub used when cross-compiling with
+// CGO_ENABLED=0 (goreleaser's Windows/macOS release builds).
+
 package call
 
 import (

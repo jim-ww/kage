@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -268,13 +267,13 @@ func (m *Model) popView() (int, int, int) {
 
 // entryTime returns the timestamp used for sorting/displaying a directory
 // entry, according to field. Creation time falls back to mtime on
-// platforms/filesystems where ctime isn't available via syscall.Stat_t.
+// platforms/filesystems where ctime isn't available (see entryCtime).
 func entryTime(field SortField, info os.FileInfo) time.Time {
 	if field == SortByUpdated {
 		return info.ModTime()
 	}
-	if sys, ok := info.Sys().(*syscall.Stat_t); ok {
-		return time.Unix(sys.Ctim.Sec, sys.Ctim.Nsec)
+	if t, ok := entryCtime(info); ok {
+		return t
 	}
 	return info.ModTime()
 }
