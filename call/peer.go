@@ -87,9 +87,22 @@ func (p *PeerConnection) AddVideoTrack() error {
 	}
 	track, err := webrtc.NewTrackLocalStaticSample(
 		webrtc.RTPCodecCapability{
-			MimeType:    webrtc.MimeTypeH264,
-			ClockRate:   90000,
-			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+			MimeType:  webrtc.MimeTypeH264,
+			ClockRate: 90000,
+			// profile-level-id's last byte is level_idc (33 hex = level 5.1,
+			// covers up to ~4K@15fps - see the macroblock-rate math in
+			// call/screenshare.go's NewScreenShare doc comment). It has to
+			// cover whatever libx264 actually ends up encoding at: screen
+			// share captures the real output resolution (not bounded by
+			// VideoQuality, unlike the webcam path), and libx264 auto-picks
+			// the level that resolution/framerate needs (observed live:
+			// "level 4.0" for a single 1920x1080 monitor at this bitrate).
+			// A hardware decoder configured from a too-low declared level
+			// allocates buffers for that level's smaller frame size, then
+			// silently produces zero decoded frames once the real stream
+			// exceeds it - level_idc=31 (level 3.1, this field's previous
+			// value) doesn't even cover 1920x1080@15fps.
+			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e033",
 		},
 		"video", "kage",
 	)

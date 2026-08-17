@@ -242,9 +242,9 @@ func NewScreenShare(quality VideoQuality) (*ScreenShare, error) {
 		// Without an explicit profile, libx264 picks "High" here (confirmed
 		// live: every wf-recorder capture logs "profile High, level 4.0"
 		// regardless of quality/bitrate settings) - a decoder configured from
-		// the SDP's fixed profile-level-id=42e01f (Baseline, see call/peer.go)
-		// then can't parse the bitstream: RTP arrives, nothing ever gets
-		// decoded, no error on either side. Forcing it here keeps the actual
+		// the SDP's fixed profile-level-id (Baseline, see call/peer.go) then
+		// can't parse the bitstream: RTP arrives, nothing ever gets decoded,
+		// no error on either side. Forcing it here keeps the actual
 		// bitstream profile consistent with what's negotiated, same as
 		// NewCamera already does for its libx264 encode.
 		"-p", "profile=baseline",
@@ -283,10 +283,9 @@ func NewCamera(device string, quality VideoQuality) (*Camera, error) {
 		"-i", device,
 		// Most webcams deliver MJPEG/YUYV (4:2:2), not 4:2:0 - encoding that
 		// as-is lets libx264 silently pick a higher profile than the
-		// baseline-ish one call/peer.go declares in SDP
-		// (profile-level-id=42e01f), which a peer's decoder then can't
-		// parse: RTP arrives, nothing ever gets decoded, no error either
-		// side. Forcing 4:2:0 here keeps the actual bitstream profile
+		// baseline one call/peer.go declares in SDP, which a peer's decoder
+		// then can't parse: RTP arrives, nothing ever gets decoded, no error
+		// either side. Forcing 4:2:0 here keeps the actual bitstream profile
 		// consistent with what's negotiated - see NewScreenShare's
 		// "-p", "profile=baseline" for the same fix on that path.
 		"-pix_fmt", "yuv420p",
