@@ -1,6 +1,4 @@
 - non-focused state of app, with open chat doesnt send notifications
-
-
 - speed up connection to xmpp server?
 
 - version command(nix): commit hash is not embeded in dev versions
@@ -26,7 +24,6 @@
 - speed up filepicker: add cursor pagination (e.g. limited max items displayed)
 - refactor: create generic ui components and reuse them across repo
 - esc should not de-focus chat when in editing state (only cancel editing)
-- write e2e tests for all features, on local prosody instance, ran with 'integration' build tag
 - implement notes? e.g. writing yourself
 - on error during call, should hang up the call (send event to other peer)
 - log in single file

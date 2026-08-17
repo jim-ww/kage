@@ -34,3 +34,13 @@ is a no-op, the cert/config are only (re)generated if missing).
 
 `data/`, `certs/`, `prosody.cfg.lua`, and `*.log`/`*.pid` are generated and
 gitignored; only the template and scripts are committed.
+
+## Running the tests that need it
+
+Every test file that dials this server is gated behind the `integration`
+build tag (so `go test ./...` never needs it up), and self-skips if it isn't
+reachable:
+
+```sh
+go test -tags integration ./...
+```
