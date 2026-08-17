@@ -27,6 +27,7 @@ type KeyMap struct {
 	YankDraft             key.Binding // Ctrl+Shift+Y — copy the compose box's current draft
 	EditMsg               key.Binding // Ctrl+E — edit (only last own message)
 	ReplyMsg              key.Binding // Ctrl+R — reply to selected message
+	RetryMsg              key.Binding // Ctrl+Shift+T — retry a failed send
 	InfoMsg               key.Binding // Ctrl+I — show message info popup
 	OpenMsg               key.Binding // Ctrl+O — open links/attachments in selected message
 	SaveMsg               key.Binding // Ctrl+S — save links/attachments in selected message to disk
@@ -112,6 +113,7 @@ var DefaultKeyMap = KeyMap{
 	YankDraft:    NewBinding([]string{"ctrl+shift+y"}, "copy draft"),
 	EditMsg:      NewBinding([]string{"ctrl+e"}, "edit (own last)"),
 	ReplyMsg:     NewBinding([]string{"ctrl+r"}, "reply"),
+	RetryMsg:     NewBinding([]string{"ctrl+shift+t"}, "retry"),
 	InfoMsg:      NewBinding([]string{"ctrl+i"}, "message info"),
 	OpenMsg:      NewBinding([]string{"ctrl+o"}, "open links/attachments"),
 	SaveMsg:      NewBinding([]string{"ctrl+s"}, "save links/attachments"),
@@ -264,6 +266,7 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.ReplyMsg, "reply"},
 			{k.EditMsg, "edit"},
 			{k.DeleteMsg, "delete"},
+			{k.RetryMsg, "retry"},
 			{k.ReactMsg, "react"},
 			{k.SearchChat, "search"},
 			{k.YankMsg, "yank"},

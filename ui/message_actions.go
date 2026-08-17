@@ -238,6 +238,72 @@ func (m *Model) actionDeleteMessage() tea.Cmd {
 	return nil
 }
 
+// actionRetryMessage re-sends the selected message after a failed send
+// (Message.Failed). Reuses the same LocalID so a later MessageSendResolvedMsg
+// (if this retry itself only gets queued, e.g. the account just went offline
+// again) still finds and patches this row. Attachments never actually set
+// Failed today (see ComposedSendResultMsg's handler) so there's no attachment
+// re-upload path to wire up here — only the plain-text send.
+func (m *Model) actionRetryMessage() tea.Cmd {
+	if m.currentChatIndex() < 0 {
+		return nil
+	}
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) || !msgs[m.selectedMsg].Failed {
+		return m.showNotification("no failed message selected")
+	}
+	idx := m.selectedMsg
+	if len(msgs[idx].Attachments) > 0 {
+		return m.showNotification("can't retry attachments")
+	}
+	chat, ok := m.currentChat()
+	if !ok || chat.Address == "" || m.sender == nil {
+		return m.showNotification("not connected; message not sent")
+	}
+
+	sendOpts := SendOptions{LocalID: msgs[idx].LocalID}
+	if sendOpts.LocalID == "" {
+		sendOpts.LocalID = newLocalID()
+	}
+	if msgs[idx].ReplyTo != nil {
+		if rt := *msgs[idx].ReplyTo; rt < len(msgs) && msgs[rt].ID != "" {
+			sendOpts.ReplyToID = msgs[rt].ID
+			sendOpts.QuotedAuthor = msgs[rt].Author
+			sendOpts.QuotedBody = MessagePreviewContent(msgs[rt])
+		}
+	}
+
+	var cmds []tea.Cmd
+	id, err := m.sender.Send(m.currentAccount, chat.Address, msgs[idx].Content, sendOpts)
+	msgs[idx].LocalID = sendOpts.LocalID
+	switch {
+	case err == nil:
+		msgs[idx].Failed = false
+		msgs[idx].ID = id
+		switch mode := encryptionModeOrDefault(chat.EncryptionMode); {
+		case mode == "gpg":
+			msgs[idx].Encrypted, msgs[idx].EncMethod = true, "gpg"
+		case mode == "omemo-v1", mode == "omemo-v2":
+			msgs[idx].Encrypted, msgs[idx].EncMethod = true, mode
+		case mode != "none":
+			msgs[idx].Encrypted, msgs[idx].EncMethod = true, "omemo"
+		}
+	case errors.Is(err, ErrQueued):
+		msgs[idx].Failed = false
+		msgs[idx].Pending = true
+		cmds = append(cmds, m.showNotification("offline; message queued"))
+	default:
+		cmds = append(cmds, m.showNotification("retry failed: "+err.Error()))
+	}
+
+	m.setCurrentMessages(msgs)
+	if chatIdx := m.currentChatIndex(); chatIdx >= 0 && idx == len(msgs)-1 {
+		cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, msgs[idx].Content))
+	}
+	m.refreshViewport()
+	return tea.Batch(cmds...)
+}
+
 // actionLeaveChat opens the leave-chat confirmation popup for the selected
 // chat (viewChats' DeleteMsg / a chat-item context-menu's "Leave chat").
 func (m *Model) actionLeaveChat() tea.Cmd {

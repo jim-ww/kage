@@ -61,6 +61,9 @@ func (m *Model) messageContextMenuItems(idx int) []contextMenuItem {
 	if m.canEdit(msgs) {
 		items = append(items, contextMenuItem{label: "Edit", run: (*Model).actionEditMessage})
 	}
+	if msgs[idx].Failed {
+		items = append(items, contextMenuItem{label: "Retry", run: (*Model).actionRetryMessage})
+	}
 	items = append(items,
 		contextMenuItem{label: "React", run: (*Model).actionReactMessage},
 		contextMenuItem{label: "Info", run: (*Model).actionInfoMessage},

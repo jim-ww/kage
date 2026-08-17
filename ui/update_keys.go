@@ -639,6 +639,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionReplyMessage(), true
 		}
 
+	case matchesKey(msg, m.keys.RetryMsg):
+		if m.selectedView == viewChat {
+			return m, m.actionRetryMessage(), true
+		}
+
 	case matchesKey(msg, m.keys.InfoMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionInfoMessage(), true
