@@ -32,6 +32,7 @@ accounts:
 # gpg_disabled: false # disables gpg encryption entirely (never shells out to gpg; "gpg" hidden from the per-chat encryption picker)
 # keyring_disabled: false # disables ever consulting the OS keyring
 # show_encrypted_icon: false # shows a lock icon/tag next to encrypted messages
+# default_encryption_mode: omemo-v1 # outgoing encryption mode a chat starts with before you pick one via the per-chat encryption menu; "omemo-v1", "omemo-v2", "gpg", or "none"
 # history_page_size: 200 # messages loaded per chat at a time (initial load + each "load older")
 # max_messages_per_chat: 1000 # cap on messages kept in memory/view per chat
 # notice_duration: 3 # seconds an in-app notification toast stays visible before auto-dismissing
