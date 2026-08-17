@@ -6,6 +6,12 @@ STUN/TURN server, instead of only Google's public STUN
 configures today - no TURN relay).
 
 ```sh
+nix run .#turn-dev   # from the repo root: runs coturn in the foreground (Ctrl-C to stop)
+```
+
+or, equivalently:
+
+```sh
 nix develop          # provides turnserver
 ./devtest/turn/serve.sh   # runs coturn in the foreground (Ctrl-C to stop)
 ```
@@ -29,10 +35,10 @@ ICEServers: []webrtc.ICEServer{
 },
 ```
 
-Only useful for interactively poking at TURN relay behavior - the two
-sandboxes this project's own tests run in structurally can't do real ICE at
-all (`AF_NETLINK` is blocked; see `call/loopback_test.go`'s
-`skipIfNoNetwork` and `call_e2e_test.go`'s live-call tests, which both skip
-there), so nothing in the test suite currently depends on this server being
-up. Run it if you're debugging a NAT/relay-specific call issue locally,
-where real networking is available.
+Only useful for interactively poking at TURN relay behavior - some sandboxes
+(including the one this repo's agent tooling runs in) block `AF_NETLINK`
+entirely, so pion can't do real ICE there at all (see
+`call/loopback_test.go`'s `skipIfNoNetwork` and `call_e2e_test.go`'s
+live-call tests, which both skip in that case), so nothing in the test suite
+currently depends on this server being up. Run it if you're debugging a
+NAT/relay-specific call issue locally, where real networking is available.

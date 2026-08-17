@@ -74,6 +74,47 @@
         devShells.default = pkgs.mkShell {
           packages = [pkgs.go pkgs.prosody pkgs.coturn pkgs.openssl pkgs.libnotify pkgs.alsa-lib pkgs.pkg-config pkgs.wf-recorder pkgs.mpv];
         };
+
+        # `nix run .#prosody-dev` / `.#turn-dev`: one-shot equivalents of the
+        # nix develop + devtest/*/setup.sh + devtest/*/serve.sh dance above -
+        # runtimeInputs puts prosody/prosodyctl/openssl (or turnserver) on
+        # PATH for the duration of the script regardless of whatever's wrong
+        # with the caller's own shell/PATH, which `nix develop` depends on.
+        # Must be run from the repo root, same as the underlying scripts -
+        # setup.sh/serve.sh resolve every path from their own location, but
+        # still need cwd to be the working tree so devtest/*/certs,data,*.log
+        # (gitignored, per-checkout state) land in the checkout, not some
+        # nix store copy.
+        apps.prosody-dev = {
+          type = "app";
+          program = "${pkgs.writeShellApplication {
+            name = "prosody-dev";
+            runtimeInputs = [pkgs.prosody pkgs.openssl];
+            text = ''
+              if [[ ! -f devtest/prosody/serve.sh ]]; then
+                echo "run this from the kage repo root (devtest/prosody/serve.sh not found under $PWD)" >&2
+                exit 1
+              fi
+              ./devtest/prosody/setup.sh
+              exec ./devtest/prosody/serve.sh
+            '';
+          }}/bin/prosody-dev";
+        };
+
+        apps.turn-dev = {
+          type = "app";
+          program = "${pkgs.writeShellApplication {
+            name = "turn-dev";
+            runtimeInputs = [pkgs.coturn];
+            text = ''
+              if [[ ! -f devtest/turn/serve.sh ]]; then
+                echo "run this from the kage repo root (devtest/turn/serve.sh not found under $PWD)" >&2
+                exit 1
+              fi
+              exec ./devtest/turn/serve.sh
+            '';
+          }}/bin/turn-dev";
+        };
       };
     };
 }

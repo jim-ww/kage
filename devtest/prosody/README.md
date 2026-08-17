@@ -5,6 +5,12 @@ without needing a real account. Not for production use — self-signed cert,
 plaintext auth storage, open registration.
 
 ```sh
+nix run .#prosody-dev   # from the repo root: setup + serve in one shot (Ctrl-C to stop)
+```
+
+or, equivalently, step by step:
+
+```sh
 nix develop            # provides prosody, prosodyctl, openssl
 ./devtest/prosody/setup.sh   # renders config, generates cert, registers test accounts
 ./devtest/prosody/serve.sh   # runs prosody in the foreground (Ctrl-C to stop)
