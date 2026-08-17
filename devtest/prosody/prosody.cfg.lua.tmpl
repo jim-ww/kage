@@ -21,7 +21,11 @@ modules_enabled = {
 	"posix";
 	"pep"; -- Personal Eventing Protocol, needed for XEP-0373 gpg key discovery
 	"carbons"; -- XEP-0280, needed for multi-resource message delivery tests
+	"mam"; -- XEP-0313 Message Archive Management, needed for MAM backfill tests
 }
+
+archive_expires_after = "never"
+default_archive_policy = true -- archive everything, not just roster contacts, so tests don't need to set up subscriptions first
 
 c2s_ports = { 5222 }
 s2s_ports = { }
