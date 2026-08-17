@@ -26,7 +26,7 @@
       in {
         packages.default = pkgs.buildGoModule {
           pname = "kage";
-          version = "0.4.0";
+          version = "0.5.0";
           src = pkgs.lib.cleanSource ./.;
           vendorHash = "sha256-E9cqg7ua72UcgQqg8l9dQU7I68HwWhjRmCcgg3rURO0=";
 
