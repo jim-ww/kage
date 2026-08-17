@@ -188,7 +188,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 				// went out encrypted - mirrors what adapter.go's send()
 				// computes and persists to storage, which this local optimistic
 				// echo has no way to read back before the next reload.
-				switch mode := encryptionModeOrDefault(chat.EncryptionMode); {
+				switch mode := m.encryptionModeOrDefault(chat.EncryptionMode); {
 				case mode == "gpg":
 					newMsg.Encrypted, newMsg.EncMethod = true, "gpg"
 				case mode == "omemo-v1", mode == "omemo-v2":

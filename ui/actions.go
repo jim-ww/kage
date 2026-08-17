@@ -85,11 +85,14 @@ func (m *Model) actionMakeDefaultAccount(index int) tea.Cmd {
 	return m.showNotification("Default account set")
 }
 
-// encryptionModeOrDefault returns mode, or "omemo-v1" (kage's default) if
-// unset.
-func encryptionModeOrDefault(mode string) string {
+// encryptionModeOrDefault returns mode, or m.defaultEncryptionMode
+// (config's default_encryption_mode, "omemo-v1" if unset) if mode is unset.
+func (m *Model) encryptionModeOrDefault(mode string) string {
 	if mode == "" {
-		return "omemo-v1"
+		if m.defaultEncryptionMode == "" {
+			return "omemo-v1"
+		}
+		return m.defaultEncryptionMode
 	}
 	return mode
 }
@@ -114,7 +117,7 @@ func (m *Model) actionOpenEncryptionMenu() tea.Cmd {
 		return nil
 	}
 
-	current := encryptionModeOrDefault(chat.EncryptionMode)
+	current := m.encryptionModeOrDefault(chat.EncryptionMode)
 	menuItems := make([]contextMenuItem, 0, len(encryptionModes))
 	for _, mode := range encryptionModes {
 		if mode == "gpg" && !m.useGPG {

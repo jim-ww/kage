@@ -50,6 +50,11 @@ type Model struct {
 	// at all. When off, "gpg" is hidden from the per-chat encryption picker.
 	useGPG bool
 
+	// defaultEncryptionMode is the outgoing encryption mode a chat starts
+	// with before the user ever picks one via the per-chat encryption menu
+	// (config's default_encryption_mode) — see encryptionModeOrDefault.
+	defaultEncryptionMode string
+
 	// showNames shows the sender's name in the message header instead of
 	// just the «/» direction glyph.
 	showNames bool
@@ -359,15 +364,19 @@ type Model struct {
 
 // DisplayOptions bundles the message-rendering config toggles.
 type DisplayOptions struct {
-	Icons               bool          // show icons for attachments/encryption instead of plain-text tags
-	ShowNames           bool          // show the sender's name in the message header instead of just a direction glyph
-	TimeLayout          string        // custom Go time layout for message timestamps; empty means the default
-	TimeOnlyToday       bool          // with the default time layout, show time-only for messages sent today instead of a full date
-	MaxMessagesPerChat  int           // cap on messages kept per chat in memory/view; <= 0 means no cap
-	UseGPG              bool          // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
-	ShowEncryptedIcon   bool          // show a lock icon/tag next to encrypted messages
-	NoticeDuration      time.Duration // how long an in-app notification toast stays visible; <= 0 means the default
-	FilePickerDirsFirst bool          // group directories before files in the attach-file picker regardless of sort order
+	Icons              bool   // show icons for attachments/encryption instead of plain-text tags
+	ShowNames          bool   // show the sender's name in the message header instead of just a direction glyph
+	TimeLayout         string // custom Go time layout for message timestamps; empty means the default
+	TimeOnlyToday      bool   // with the default time layout, show time-only for messages sent today instead of a full date
+	MaxMessagesPerChat int    // cap on messages kept per chat in memory/view; <= 0 means no cap
+	UseGPG             bool   // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
+	ShowEncryptedIcon  bool   // show a lock icon/tag next to encrypted messages
+	// DefaultEncryptionMode is the outgoing encryption mode a chat starts
+	// with before the user ever picks one; "" resolves to "omemo-v1" (see
+	// encryptionModeOrDefault).
+	DefaultEncryptionMode string
+	NoticeDuration        time.Duration // how long an in-app notification toast stays visible; <= 0 means the default
+	FilePickerDirsFirst   bool          // group directories before files in the attach-file picker regardless of sort order
 	// FilePickerSortField/FilePickerSortAscending seed the attach-file
 	// picker's initial sort, persisted from the last selection (see
 	// FilePickerSortSetter). "" (or any value other than "created")
@@ -467,6 +476,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		icons:                  display.Icons,
 		showEncryptedIcon:      display.ShowEncryptedIcon,
 		useGPG:                 display.UseGPG,
+		defaultEncryptionMode:  display.DefaultEncryptionMode,
 		noticeDuration:         noticeDuration,
 		showNames:              display.ShowNames,
 		timeLayout:             display.TimeLayout,

@@ -104,6 +104,11 @@ type Config struct {
 	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
 	// off by default.
 	ShowEncryptedIcon bool `yaml:"show_encrypted_icon,omitempty"`
+	// DefaultEncryptionMode is the outgoing encryption mode ("omemo-v1",
+	// "omemo-v2", "gpg", or "none") a chat starts with before the user ever
+	// picks one via the per-chat encryption menu; DefaultEncryptionMode
+	// (omemo-v1) when unset.
+	DefaultEncryptionMode string `yaml:"default_encryption_mode,omitempty"`
 	// Debug logs at debug level to <config dir>/kage/debug.log instead of
 	// warn; overridden by the -debug flag or KAGE_DEBUG env var if either
 	// is set. Off by default.
@@ -160,16 +165,21 @@ const DefaultNoticeDurationSeconds = 3
 // set in config.yaml.
 const DefaultVideoQuality = "medium"
 
+// DefaultEncryptionMode is the outgoing encryption mode a chat starts with
+// when default_encryption_mode isn't set in config.yaml.
+const DefaultEncryptionMode = "omemo-v1"
+
 // defaultConfig returns the Config to pre-fill before unmarshaling a file on
 // top of it, so an absent yaml key leaves the default in place. Theme/
 // Keybinds are deliberately left zero — see Config's doc.
 func defaultConfig() Config {
 	return Config{
-		FilePickerSortField: "updated",
-		HistoryPageSize:     DefaultHistoryPageSize,
-		MaxMessagesPerChat:  DefaultMaxMessagesPerChat,
-		NoticeDuration:      DefaultNoticeDurationSeconds,
-		VideoQuality:        DefaultVideoQuality,
+		FilePickerSortField:   "updated",
+		HistoryPageSize:       DefaultHistoryPageSize,
+		MaxMessagesPerChat:    DefaultMaxMessagesPerChat,
+		NoticeDuration:        DefaultNoticeDurationSeconds,
+		VideoQuality:          DefaultVideoQuality,
+		DefaultEncryptionMode: DefaultEncryptionMode,
 	}
 }
 
