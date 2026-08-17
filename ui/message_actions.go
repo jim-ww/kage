@@ -102,6 +102,19 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		// place (e.g. locally-seeded/demo data never was), so degrade to a
 		// local-only edit otherwise.
 		msgs := m.currentMessages()
+		if m.editingMsgIdx < len(msgs) && text == msgs[m.editingMsgIdx].Content {
+			// Unchanged edit: nothing to send or record.
+			m.editingMsgIdx = -1
+			m.input.Placeholder = "message..."
+			m.notifyTypingStopped()
+			m.restoreStashedDraft()
+			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+				cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
+			}
+			m.updateSizes()
+			m.refreshViewport()
+			return tea.Batch(cmds...)
+		}
 		if m.editingMsgIdx < len(msgs) {
 			msgs[m.editingMsgIdx].Content = text
 			msgs[m.editingMsgIdx].Edited = true
