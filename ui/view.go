@@ -315,8 +315,8 @@ func (m Model) renderCallBar(width int) string {
 	if m.call == nil {
 		if m.videoDialPrompt {
 			text := "📹 start video call from:·"
-			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[c] camera", m.isHovered(zoneCallVideoCamera)))
-			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[s] screen", m.isHovered(zoneCallVideoScreen)))
+			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[ctrl+c] camera", m.isHovered(zoneCallVideoCamera)))
+			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[ctrl+s] screen", m.isHovered(zoneCallVideoScreen)))
 			return m.styles.callBarLine(width, text+cameraBtn+m.styles.callBarText("·")+screenBtn+m.styles.callBarText("·[esc] cancel"))
 		}
 		return ""
@@ -324,8 +324,8 @@ func (m Model) renderCallBar(width int) string {
 	switch m.call.state {
 	case "ringing-local":
 		text := "📞 incoming call: " + m.call.peer + "·"
-		answer := m.zone.Mark(zoneCallAnswer, m.styles.renderCallBarButton("[y] answer", m.isHovered(zoneCallAnswer)))
-		reject := m.zone.Mark(zoneCallReject, m.styles.renderCallBarButton("[n] reject", m.isHovered(zoneCallReject)))
+		answer := m.zone.Mark(zoneCallAnswer, m.styles.renderCallBarButton("[ctrl+y] answer", m.isHovered(zoneCallAnswer)))
+		reject := m.zone.Mark(zoneCallReject, m.styles.renderCallBarButton("[ctrl+n] reject", m.isHovered(zoneCallReject)))
 		return m.styles.callBarLine(width, text+answer+m.styles.callBarText("·")+reject)
 
 	case "proposing", "ringing-remote", "negotiating":
@@ -340,7 +340,7 @@ func (m Model) renderCallBar(width int) string {
 		if m.call.sas != "" {
 			text += "🔑 " + m.call.sas + "·"
 		}
-		hangup := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
+		hangup := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[ctrl+h] hang up", m.isHovered(zoneCallHangup)))
 		return m.styles.callBarLine(width, text+hangup)
 
 	case "connected":
@@ -349,10 +349,10 @@ func (m Model) renderCallBar(width int) string {
 			dur = formatCallDuration(time.Since(m.call.startedAt))
 		}
 		mic := "🎤 unmuted"
-		muteLabel := "[m] mute"
+		muteLabel := "[ctrl+m] mute"
 		if m.call.muted {
 			mic = "🎤 muted"
-			muteLabel = "[m] unmute"
+			muteLabel = "[ctrl+m] unmute"
 		}
 		quality := "📶 …"
 		if m.call.quality != "" {
@@ -367,8 +367,8 @@ func (m Model) renderCallBar(width int) string {
 		}
 		if m.videoSourcePrompt {
 			text += "start video from:·"
-			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[c] camera", m.isHovered(zoneCallVideoCamera)))
-			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[s] screen", m.isHovered(zoneCallVideoScreen)))
+			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[ctrl+c] camera", m.isHovered(zoneCallVideoCamera)))
+			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[ctrl+s] screen", m.isHovered(zoneCallVideoScreen)))
 			return m.styles.callBarLine(width, text+cameraBtn+m.styles.callBarText("·")+screenBtn+m.styles.callBarText("·[esc] cancel"))
 		}
 		if m.call.sharing {
@@ -376,11 +376,11 @@ func (m Model) renderCallBar(width int) string {
 		}
 		dot := m.styles.callBarText("·")
 		muteBtn := m.zone.Mark(zoneCallMute, m.styles.renderCallBarButton(muteLabel, m.isHovered(zoneCallMute)))
-		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[h] hang up", m.isHovered(zoneCallHangup)))
-		reopenBtn := m.zone.Mark(zoneCallReopenVideo, m.styles.renderCallBarButton("[r] reopen video", m.isHovered(zoneCallReopenVideo)))
+		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[ctrl+h] hang up", m.isHovered(zoneCallHangup)))
+		reopenBtn := m.zone.Mark(zoneCallReopenVideo, m.styles.renderCallBarButton("[ctrl+r] reopen video", m.isHovered(zoneCallReopenVideo)))
 		buttons := muteBtn + dot + reopenBtn + dot + hangupBtn
 		if !m.call.sharing {
-			videoBtn := m.zone.Mark(zoneCallVideo, m.styles.renderCallBarButton("[v] video", m.isHovered(zoneCallVideo)))
+			videoBtn := m.zone.Mark(zoneCallVideo, m.styles.renderCallBarButton("[ctrl+v] video", m.isHovered(zoneCallVideo)))
 			buttons += dot + videoBtn
 		}
 		return m.styles.callBarLine(width, text+buttons)

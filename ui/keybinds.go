@@ -194,6 +194,18 @@ func matchesLetter(msg tea.KeyMsg, r rune) bool {
 	return msg.String() == string(r)
 }
 
+// matchesCtrlLetter is matchesLetter's ctrl-prefixed counterpart — used for
+// call-mode binds (h/m/v/s/r/y/n/c), which live under ctrl+ specifically so
+// they never collide with the same letters typed into the compose input
+// while a call is active (see the call-bar block in update_keys.go).
+func matchesCtrlLetter(msg tea.KeyMsg, r rune) bool {
+	kk := msg.Key()
+	if kk.BaseCode == r && kk.Mod == tea.ModCtrl {
+		return true
+	}
+	return msg.String() == "ctrl+"+string(r)
+}
+
 // helpEntry pairs a binding with the description it should show for a
 // particular view — the same binding can mean different things depending on
 // which view it's pressed in (e.g. SelectSend is "select" in the accounts

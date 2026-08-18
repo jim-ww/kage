@@ -242,24 +242,24 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// on any view, not just while its matching chat happens to be open.
 	if m.call != nil && m.call.state == "ringing-local" {
 		switch {
-		case matchesKey(msg, m.keys.ConfirmYes):
+		case matchesCtrlLetter(msg, 'y'):
 			return m, m.answerRingingCall(), true
-		case matchesKey(msg, m.keys.ConfirmNo):
+		case matchesCtrlLetter(msg, 'n'), matchesKey(msg, m.keys.Back):
 			return m, m.rejectRingingCall(), true
 		}
 	}
 
 	// ── "camera or screen?" prompt (VideoToggle on a connected, not yet
-	// sharing call) intercepts c/s/esc while open, swallowing everything
-	// else so a stray keystroke can't fall through to e.g. toggleScreenShare
-	// below with the prompt still (confusingly) up ─────────────────────
+	// sharing call) intercepts ctrl+c/ctrl+s/esc while open, swallowing
+	// everything else so a stray keystroke can't fall through to e.g.
+	// toggleScreenShare below with the prompt still (confusingly) up ────
 	if m.videoSourcePrompt {
 		switch {
-		case matchesLetter(msg, 'c'):
+		case matchesCtrlLetter(msg, 'c'):
 			var cmd tea.Cmd
 			m, cmd = m.startVideo(true)
 			return m, cmd, true
-		case matchesLetter(msg, 's'):
+		case matchesCtrlLetter(msg, 's'):
 			var cmd tea.Cmd
 			m, cmd = m.startVideo(false)
 			return m, cmd, true
@@ -271,15 +271,15 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	// ── "camera or screen?" pre-dial prompt (VideoCallToggle with no call
-	// in progress) intercepts c/s/esc while open, same shape as
+	// in progress) intercepts ctrl+c/ctrl+s/esc while open, same shape as
 	// videoSourcePrompt above but answered before a call exists at all ──
 	if m.videoDialPrompt {
 		switch {
-		case matchesLetter(msg, 'c'):
+		case matchesCtrlLetter(msg, 'c'):
 			var cmd tea.Cmd
 			m, cmd = m.startVideoCall(true)
 			return m, cmd, true
-		case matchesLetter(msg, 's'):
+		case matchesCtrlLetter(msg, 's'):
 			var cmd tea.Cmd
 			m, cmd = m.startVideoCall(false)
 			return m, cmd, true
@@ -290,20 +290,24 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
-	// ── Call bar intercepts h (hang up) / m (mute) / v (video) / s (screen
-	// share) while a call is in progress but not ringing-local (that's y/n
-	// above) ────────────────────────────────────────────────────────────
+	// ── Call bar intercepts ctrl+h (hang up) / ctrl+m (mute) / ctrl+v
+	// (video) / ctrl+s (screen share) while a call is in progress but not
+	// ringing-local (that's ctrl+y/ctrl+n above). All call-mode binds live
+	// under ctrl+ specifically so they never fight the same plain letters
+	// while composing a message during a call ───────────────────────────
 	if m.call != nil && m.callInProgress() && m.call.state != "ringing-local" {
 		switch {
-		case matchesLetter(msg, 'h'):
+		case matchesCtrlLetter(msg, 'h'):
 			return m, m.hangupCurrentCall(), true
-		case matchesLetter(msg, 'm') && m.call.state == "connected":
+		case matchesCtrlLetter(msg, 'm') && m.call.state == "connected":
 			return m, m.toggleMuteCall(), true
-		case matchesLetter(msg, 'v') && m.call.state == "connected" && !m.call.sharing:
+		case matchesCtrlLetter(msg, 'v') && m.call.state == "connected" && !m.call.sharing:
 			return m.startVideoPrompt(), nil, true
-		case matchesLetter(msg, 's') && m.call.state == "connected":
+		case matchesCtrlLetter(msg, 'v') && m.call.state == "connected" && m.call.sharing:
 			return m, m.toggleScreenShare(), true
-		case matchesLetter(msg, 'r') && m.call.state == "connected":
+		case matchesCtrlLetter(msg, 's') && m.call.state == "connected":
+			return m, m.toggleScreenShare(), true
+		case matchesCtrlLetter(msg, 'r') && m.call.state == "connected":
 			return m, m.reopenRemoteVideo(), true
 		}
 	}
