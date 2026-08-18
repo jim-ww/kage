@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(jj --config signing.behavior=drop diff TODO.md)"
-    ]
-  }
-}
