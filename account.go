@@ -914,14 +914,19 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountI
 			return
 		}
 		slog.Warn("account disconnected; reconnecting", "jid", s.account.JID, "err", client.Err())
-		reconnectWithBackoff(ctx, a, s)
+		reconnectWithBackoff(ctx, srv, a, accountIdx, s)
 	}
 }
 
 // reconnectWithBackoff retries Dial with exponential backoff (capped at 60s)
-// until it succeeds or ctx is done, then stores the new client on s and
-// flushes any messages queued while it was offline.
-func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
+// until it succeeds or ctx is done, then stores the new client on s, flushes
+// any messages queued while it was offline, and backfills via MAM whatever
+// came in on the peer side while this account was disconnected - the same
+// backfill connectAndSuperviseAccount/retryInitialConnect run after the
+// first-ever connect, needed here too since a dropped connection means the
+// live stream (and any server-side offline-message delivery) simply wasn't
+// there to catch messages sent during the outage.
+func reconnectWithBackoff(ctx context.Context, srv *ipc.Server, a *adapter, accountIdx int, s *accountSession) {
 	const maxBackoff = 60 * time.Second
 	backoff := time.Second
 
@@ -956,6 +961,9 @@ func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 				probeRosterPresence(ctx, client, derefRoster(s.roster.Load()))
 				slog.Debug("account reconnected", "jid", s.account.JID)
 				a.flushOutbox(ctx, s)
+				broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
+				syncArchive(ctx, srv, accountIdx, s)
+				broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
 				return
 			}
 		}

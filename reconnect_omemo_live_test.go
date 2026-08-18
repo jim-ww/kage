@@ -103,7 +103,7 @@ func TestReconnectResyncsOmemoDeviceListsForNewPeerDevice(t *testing.T) {
 	aliceClient.Close()
 	reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	reconnectWithBackoff(reconnectCtx, a, aliceSess)
+	reconnectWithBackoff(reconnectCtx, nil, a, 0, aliceSess)
 	if reconnectCtx.Err() != nil {
 		t.Fatalf("reconnectWithBackoff did not complete in time: %v", reconnectCtx.Err())
 	}
