@@ -1208,7 +1208,9 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, "uploading "+filepath.Base(path)))
+	label := "uploading " + filepath.Base(path)
+	broadcast(a.srv, evFileTransferProgress, ui.FileTransferProgressMsg{ID: path, Label: label})
+	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, label))
 	broadcast(a.srv, evFileTransferDone, ui.FileTransferDoneMsg{ID: path})
 	if err != nil {
 		result.Err = err
@@ -1253,7 +1255,9 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 		return result
 	}
 
-	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, "uploading "+filepath.Base(path)))
+	label := "uploading " + filepath.Base(path)
+	broadcast(a.srv, evFileTransferProgress, ui.FileTransferProgressMsg{ID: path, Label: label})
+	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, label))
 	broadcast(a.srv, evFileTransferDone, ui.FileTransferDoneMsg{ID: path})
 	if err != nil {
 		result.Err = err

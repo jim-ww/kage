@@ -1,3 +1,4 @@
+- cancel file upload mid-load
 - call logs might not be shown
 - non-focused state of app, with open chat doesnt send notifications
 - some modals are overflowing out of window (e.g. localstorage password change)
