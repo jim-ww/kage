@@ -2,11 +2,12 @@
 - call logs might not be shown
 - non-focused state of app, with open chat doesnt send notifications
 - some modals are overflowing out of window (e.g. localstorage password change)
+- add sound noise filter?
+- option to choose mic + mid call
+- add keyboard navigation to modals (and ways to open them)
 
-- speed up connection to xmpp server?
 - select & yank text in draft with mouse
 - add default encryption for chats config option, default omemov1
-- option to choose mic + mid call
 - edit msg: must not send edit if there were no changes
 - uploading your own files must not download them from server (must be downloaded)
 - notification appears sooner then message
@@ -15,7 +16,6 @@
 
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - sometimes status shows as offline, when other client is online. could be either status send/receive problem
-- add keyboard navigation to modals (and ways to open them)
 - account manager: fix adding duplicate accounts
 - make sure user can paste to all textinputs (e.g. account add JID/password)
 
