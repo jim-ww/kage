@@ -146,6 +146,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.setTransferProgress(msg)
 		return m, nil, true
 
+	case FileTransferDoneMsg:
+		m.clearTransfer(msg.ID)
+		return m, nil, true
+
 	case clipboardImageResultMsg:
 		if msg.err != nil {
 			return m, m.showNotification("paste image: " + msg.err.Error()), true
@@ -273,6 +277,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case IncomingMessageMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
+			return m, nil, true
+		}
+		if messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.ID) >= 0 {
+			// Our own message, broadcast back to every attached client
+			// (including the one that sent it - see adapter.go's send()) and
+			// already rendered here as a local optimistic echo the instant
+			// the Send RPC returned. Same message ID, so this is that
+			// broadcast catching up with a client that didn't need it.
 			return m, nil, true
 		}
 		if m.accounts[msg.AccountIdx].HistoryNewer[chatIdx] {

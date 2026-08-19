@@ -100,6 +100,28 @@ func TestUpdateHandlesFileTransferProgressMsg(t *testing.T) {
 	}
 }
 
+// TestUpdateHandlesFileTransferDoneMsg guards the second daemon-broadcast
+// fix: a client that only ever saw FileTransferProgressMsg broadcasts for a
+// transfer it didn't itself start (every attached TUI client besides the one
+// that made the SendFile/UploadFile RPC - see adapter.go) must still clear
+// that transfer once FileTransferDoneMsg arrives, instead of leaving its
+// progress bar stuck at the last percentage it ever saw (in practice: 100%,
+// the last chunk any successful upload reports).
+func TestUpdateHandlesFileTransferDoneMsg(t *testing.T) {
+	m := newTestModel(nil)
+	next, _ := m.Update(FileTransferProgressMsg{ID: "path1", Label: "uploading x.jpg", Sent: 10, Total: 10})
+	m = next.(Model)
+	if lines := m.renderTransferLines(); len(lines) != 1 {
+		t.Fatalf("before FileTransferDoneMsg, lines = %v, want one active transfer", lines)
+	}
+
+	next, _ = m.Update(FileTransferDoneMsg{ID: "path1"})
+	m = next.(Model)
+	if lines := m.renderTransferLines(); len(lines) != 0 {
+		t.Fatalf("after FileTransferDoneMsg, lines = %v, want none", lines)
+	}
+}
+
 func TestUpdateChannelProgressReArmsListening(t *testing.T) {
 	m := newTestModel(nil)
 	ch := make(chan tea.Msg, 2)

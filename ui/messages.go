@@ -187,6 +187,17 @@ type FileTransferProgressMsg struct {
 	Total int64
 }
 
+// FileTransferDoneMsg reports that the transfer keyed by ID (see
+// FileTransferProgressMsg) reached a terminal outcome (success or failure)
+// on whichever attached client actually drove it - broadcast to every
+// attached client so one that only ever saw FileTransferProgressMsg
+// broadcasts (i.e. every client except the one that initiated the transfer,
+// which learns this instead from its own direct RPC return) still clears the
+// progress line instead of leaving it stuck at its last reported percentage.
+type FileTransferDoneMsg struct {
+	ID string
+}
+
 // FileSendResultMsg reports completion of an asynchronous upload and send.
 type FileSendResultMsg struct {
 	AccountIdx int

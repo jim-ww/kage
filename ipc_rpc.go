@@ -66,6 +66,7 @@ const (
 	evDeviceName           = "DeviceName"
 	evTyping               = "Typing"
 	evFileTransferProgress = "FileTransferProgress"
+	evFileTransferDone     = "FileTransferDone"
 	evAccountConnected     = "AccountConnected"
 	evAccountLive          = "AccountLive"
 	evAccountConnectError  = "AccountConnectError"

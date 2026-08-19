@@ -406,6 +406,8 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.TypingMsg](c, ev.Data)
 	case evFileTransferProgress:
 		sendEvent[ui.FileTransferProgressMsg](c, ev.Data)
+	case evFileTransferDone:
+		sendEvent[ui.FileTransferDoneMsg](c, ev.Data)
 	case evHistorySynced:
 		sendEvent[ui.HistorySyncedMsg](c, ev.Data)
 	case evHistorySyncStarted:

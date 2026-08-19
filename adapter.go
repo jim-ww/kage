@@ -1092,6 +1092,34 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		slog.Warn("persisting sent message", "err", err)
 	}
 	s.trackForServerAck(a, s.accountIdx, to, id)
+
+	// More than one TUI process can be attached to this daemon at once (see
+	// cmd_daemon.go) sharing this one account's connection - every one of
+	// them besides the client that made this particular Send RPC (which
+	// already rendered its own local optimistic echo, see
+	// ui/message_actions.go's sendCurrentInput) needs to learn about this
+	// message some other way, the same way it learns about a message a peer
+	// sent. Reusing evIncomingMessage (rather than inventing a "just sent by
+	// another instance" event) means every attached client, including the
+	// sender's own, goes through the exact same handling as a real incoming
+	// message - the sender's own copy is a harmless duplicate broadcast of
+	// something it already rendered, deduped there by matching message ID
+	// (see IncomingMessageMsg's handler in ui/update_messages.go).
+	broadcast(a.srv, evIncomingMessage, ui.IncomingMessageMsg{
+		AccountIdx: accountIdx,
+		From:       to,
+		ReplyToID:  opts.ReplyToID,
+		Message: ui.Message{
+			ID:          id,
+			Author:      "me",
+			Content:     body,
+			SentAt:      time.Now(),
+			IsMe:        true,
+			Encrypted:   e2eEncrypted,
+			EncMethod:   e2eeMethod,
+			Attachments: opts.OOBURLs,
+		},
+	})
 	return id, nil
 }
 
@@ -1181,6 +1209,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	defer cancel()
 
 	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, "uploading "+filepath.Base(path)))
+	broadcast(a.srv, evFileTransferDone, ui.FileTransferDoneMsg{ID: path})
 	if err != nil {
 		result.Err = err
 		return result
@@ -1225,6 +1254,7 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 	}
 
 	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, "uploading "+filepath.Base(path)))
+	broadcast(a.srv, evFileTransferDone, ui.FileTransferDoneMsg{ID: path})
 	if err != nil {
 		result.Err = err
 		return result
