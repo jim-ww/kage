@@ -1,3 +1,10 @@
+- doesnt reconnect after offline? doesnt resend messages that were sent while offline? appearing without status
+- MAM import is broken? doesnt sync in messages after offline state
+- add set avatar option
+
+- no notifications? check 12:12 log
+- downloading bar doesnt appear immidiately
+- connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
 - cancel file upload mid-load
 - call logs might not be shown
 - non-focused state of app, with open chat doesnt send notifications
