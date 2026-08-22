@@ -915,6 +915,17 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountI
 		}
 		slog.Warn("account disconnected; reconnecting", "jid", s.account.JID, "err", client.Err())
 		reconnectWithBackoff(ctx, a, s)
+		if ctx.Err() != nil {
+			return
+		}
+
+		// Anything sent/received by us or a peer while this account was
+		// disconnected never arrived over the (dead) stream, so it has to
+		// be picked up from the archive - same as the initial connect does -
+		// or it silently never shows up until the whole app is restarted.
+		broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
+		syncArchive(ctx, srv, accountIdx, s)
+		broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
 	}
 }
 
