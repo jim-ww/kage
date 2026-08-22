@@ -1155,11 +1155,9 @@ func syncArchive(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 	client := s.client.Load()
 
 	lastArchiveID := make(map[string]string)
-	if latest, err := s.db.ListLatestArchiveIDs(ctx, s.account.JID); err == nil {
-		for _, row := range latest {
-			if row.Archiveid.Valid && row.Rosterjid.Valid {
-				lastArchiveID[row.Rosterjid.String] = row.Archiveid.String
-			}
+	if cursors, err := s.db.ListMamSyncCursors(ctx, s.account.JID); err == nil {
+		for _, row := range cursors {
+			lastArchiveID[row.Rosterjid] = row.Archiveid
 		}
 	}
 
@@ -1227,6 +1225,20 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		}
 		if len(newMsgs) > 0 {
 			broadcast(srv, evHistorySynced, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
+		}
+		// Advance the cursor even when nothing in this page got a messages
+		// row (e.g. every item was ErrOwnDeviceKeyMissing) - otherwise a
+		// permanently-undecryptable item is re-fetched and re-attempted on
+		// every single future sync, forever (see mamSyncCursor's schema
+		// comment).
+		if afterArchiveID != prevAfter {
+			if err := s.db.UpsertMamSyncCursor(ctx, storage.UpsertMamSyncCursorParams{
+				AccountJid: s.account.JID,
+				RosterJid:  peerJID,
+				ArchiveID:  afterArchiveID,
+			}); err != nil {
+				slog.Warn("persisting mam sync cursor", "peer", peerJID, "err", err)
+			}
 		}
 		if stop || complete || afterArchiveID == prevAfter {
 			break

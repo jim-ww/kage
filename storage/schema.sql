@@ -126,6 +126,23 @@ CREATE TABLE IF NOT EXISTS chatUnread (
 	PRIMARY KEY (accountJID, rosterJID)
 ) WITHOUT ROWID;
 
+-- Per-contact MAM backfill cursor (XEP-0313), tracked independently of
+-- which archive items actually got a messages row. syncArchiveForContact
+-- used to derive its "after" cursor purely from MAX(messages.delay) among
+-- stored rows - but an archive item this device can never decrypt (e.g.
+-- ErrOwnDeviceKeyMissing: another of our devices sent it without a key for
+-- this one) never gets a row, so that cursor never moved past it, and every
+-- future sync - now running on every reconnect, not just app restart -
+-- re-fetched and re-attempted the same permanently-undecryptable backlog
+-- from scratch, forever.
+CREATE TABLE IF NOT EXISTS mamSyncCursor (
+	accountJID TEXT NOT NULL,
+	rosterJID  TEXT NOT NULL,
+	archiveID  TEXT NOT NULL,
+
+	PRIMARY KEY (accountJID, rosterJID)
+) WITHOUT ROWID;
+
 -- Sends attempted while offline (a plain message, reaction, retraction,
 -- correction, or staged-attachment upload+send), held here until the
 -- account reconnects and adapter.flushOutbox replays them in insertion

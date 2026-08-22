@@ -756,15 +756,15 @@ ON CONFLICT (accountJID, peerJID) DO UPDATE
 SET protocol = excluded.protocol, probedAt = excluded.probedAt;
 
 
--- name: ListLatestArchiveIDs :many
-SELECT
-	m.rosterJID,
-	m.archiveID,
-	MAX(m.delay)
-FROM messages AS m
-WHERE m.accountJID = sqlc.arg(account_jid)
-	AND m.archiveID IS NOT NULL
-GROUP BY m.rosterJID;
+-- name: ListMamSyncCursors :many
+SELECT rosterJID, archiveID
+FROM mamSyncCursor
+WHERE accountJID = sqlc.arg(account_jid);
+
+-- name: UpsertMamSyncCursor :exec
+INSERT INTO mamSyncCursor (accountJID, rosterJID, archiveID)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(archive_id))
+ON CONFLICT (accountJID, rosterJID) DO UPDATE SET archiveID = excluded.archiveID;
 
 
 -- name: MessageExistsByArchiveID :one

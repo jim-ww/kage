@@ -1337,33 +1337,27 @@ func (q *Queries) ListEncryptedMessageBodies(ctx context.Context) ([]ListEncrypt
 	return items, nil
 }
 
-const listLatestArchiveIDs = `-- name: ListLatestArchiveIDs :many
-SELECT
-	m.rosterJID,
-	m.archiveID,
-	MAX(m.delay)
-FROM messages AS m
-WHERE m.accountJID = ?1
-	AND m.archiveID IS NOT NULL
-GROUP BY m.rosterJID
+const listMamSyncCursors = `-- name: ListMamSyncCursors :many
+SELECT rosterJID, archiveID
+FROM mamSyncCursor
+WHERE accountJID = ?1
 `
 
-type ListLatestArchiveIDsRow struct {
-	Rosterjid sql.NullString `db:"rosterjid"`
-	Archiveid sql.NullString `db:"archiveid"`
-	Max       interface{}    `db:"max"`
+type ListMamSyncCursorsRow struct {
+	Rosterjid string `db:"rosterjid"`
+	Archiveid string `db:"archiveid"`
 }
 
-func (q *Queries) ListLatestArchiveIDs(ctx context.Context, accountJid string) ([]ListLatestArchiveIDsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listLatestArchiveIDs, accountJid)
+func (q *Queries) ListMamSyncCursors(ctx context.Context, accountJid string) ([]ListMamSyncCursorsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMamSyncCursors, accountJid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListLatestArchiveIDsRow
+	var items []ListMamSyncCursorsRow
 	for rows.Next() {
-		var i ListLatestArchiveIDsRow
-		if err := rows.Scan(&i.Rosterjid, &i.Archiveid, &i.Max); err != nil {
+		var i ListMamSyncCursorsRow
+		if err := rows.Scan(&i.Rosterjid, &i.Archiveid); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1375,6 +1369,27 @@ func (q *Queries) ListLatestArchiveIDs(ctx context.Context, accountJid string) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertMamSyncCursor = `-- name: UpsertMamSyncCursor :exec
+INSERT INTO mamSyncCursor (accountJID, rosterJID, archiveID)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE SET archiveID = excluded.archiveID
+`
+
+type UpsertMamSyncCursorParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+	ArchiveID  string `db:"archive_id"`
+}
+
+func (q *Queries) UpsertMamSyncCursor(ctx context.Context, arg UpsertMamSyncCursorParams) error {
+	_, err := q.db.ExecContext(ctx, upsertMamSyncCursor,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.ArchiveID,
+	)
+	return err
 }
 
 const listMessagesByRoster = `-- name: ListMessagesByRoster :many
