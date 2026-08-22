@@ -19,16 +19,17 @@ import (
 // pointer to the root command's persistent -c/--config flag value, shared
 // across every subcommand.
 func newExportCmd(cfgPath *string) *cobra.Command {
-	var accounts []string
+	var accounts, jids []string
 	cmd := &cobra.Command{
 		Use:   "export <output.json>",
 		Short: "Export message history to a JSON file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runExport(*cfgPath, accounts, args[0])
+			return runExport(*cfgPath, accounts, jids, args[0])
 		},
 	}
 	cmd.Flags().StringArrayVar(&accounts, "account", nil, "only export this account's messages (bare JID; repeatable). Default: every configured account")
+	cmd.Flags().StringArrayVar(&jids, "jid", nil, "only export chats with this peer (bare JID; repeatable). Default: every chat")
 	return cmd
 }
 
@@ -140,8 +141,10 @@ type exportFile struct {
 // runExport writes message history (decrypted to plaintext, regardless of
 // how it's sealed at rest) to outPath as JSON. If accounts is non-empty,
 // only messages belonging to one of those (bare-JID) accounts are
-// exported; otherwise every configured account's history is included.
-func runExport(cfgPath string, accounts []string, outPath string) error {
+// exported; otherwise every configured account's history is included. If
+// jids is non-empty, only messages whose chat peer (RosterJID) is one of
+// those (bare-JID) peers are exported; otherwise every chat is included.
+func runExport(cfgPath string, accounts, jids []string, outPath string) error {
 	_, queries, localKey, closeDB, err := openStorageForCLI(cfgPath)
 	if err != nil {
 		return err
@@ -151,6 +154,10 @@ func runExport(cfgPath string, accounts []string, outPath string) error {
 	wantAccount := make(map[string]bool, len(accounts))
 	for _, a := range accounts {
 		wantAccount[bareJID(a)] = true
+	}
+	wantJID := make(map[string]bool, len(jids))
+	for _, j := range jids {
+		wantJID[bareJID(j)] = true
 	}
 
 	ctx := context.Background()
@@ -176,6 +183,9 @@ func runExport(cfgPath string, accounts []string, outPath string) error {
 	skipped := 0
 	for _, r := range rows {
 		if len(wantAccount) > 0 && !wantAccount[bareJID(r.Accountjid)] {
+			continue
+		}
+		if len(wantJID) > 0 && !wantJID[bareJID(r.Rosterjid.String)] {
 			continue
 		}
 		body, err := decryptedBody(localKey, r.Body, r.Encrypted)
