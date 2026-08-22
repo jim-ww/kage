@@ -138,19 +138,17 @@ type exportFile struct {
 	Messages   []exportMessage `json:"messages"`
 }
 
-// runExport writes message history (decrypted to plaintext, regardless of
-// how it's sealed at rest) to outPath as JSON. If accounts is non-empty,
-// only messages belonging to one of those (bare-JID) accounts are
-// exported; otherwise every configured account's history is included. If
-// jids is non-empty, only messages whose chat peer (RosterJID) is one of
-// those (bare-JID) peers are exported; otherwise every chat is included.
-func runExport(cfgPath string, accounts, jids []string, outPath string) error {
-	_, queries, localKey, closeDB, err := openStorageForCLI(cfgPath)
-	if err != nil {
-		return err
-	}
-	defer closeDB()
-
+// buildExport reads every message and reaction from storage and assembles
+// the exportFile that runExport writes to disk, applying the --account and
+// --jid filters (both bare-JID, both repeatable, both optional - an empty
+// list means "no filter"). A message is included only if it passes both:
+// when accounts is non-empty its AccountJID must be in the list, and when
+// jids is non-empty its RosterJID (the chat peer) must be in the list, so
+// combining both flags narrows to specific chats within specific accounts
+// rather than either one alone. skipped counts messages dropped because
+// they couldn't be decrypted (see decryptedBody), not messages excluded by
+// a filter.
+func buildExport(ctx context.Context, queries *storage.Queries, localKey []byte, accounts, jids []string) (exportFile, int, error) {
 	wantAccount := make(map[string]bool, len(accounts))
 	for _, a := range accounts {
 		wantAccount[bareJID(a)] = true
@@ -160,14 +158,13 @@ func runExport(cfgPath string, accounts, jids []string, outPath string) error {
 		wantJID[bareJID(j)] = true
 	}
 
-	ctx := context.Background()
 	rows, err := queries.ListAllMessages(ctx)
 	if err != nil {
-		return fmt.Errorf("listing messages: %w", err)
+		return exportFile{}, 0, fmt.Errorf("listing messages: %w", err)
 	}
 	reactionRows, err := queries.ListAllReactions(ctx)
 	if err != nil {
-		return fmt.Errorf("listing reactions: %w", err)
+		return exportFile{}, 0, fmt.Errorf("listing reactions: %w", err)
 	}
 
 	// Group reactions by (accountJID, rosterJID, idAttr) so they can be
@@ -215,6 +212,26 @@ func runExport(cfgPath string, accounts, jids []string, outPath string) error {
 			Reactions:    reactionsByMsg[reactionKey{r.Accountjid, r.Rosterjid.String, r.Idattr.String}],
 			OOBURLs:      splitOOBURLs(r.Ooburls),
 		})
+	}
+	return out, skipped, nil
+}
+
+// runExport writes message history (decrypted to plaintext, regardless of
+// how it's sealed at rest) to outPath as JSON. If accounts is non-empty,
+// only messages belonging to one of those (bare-JID) accounts are
+// exported; otherwise every configured account's history is included. If
+// jids is non-empty, only messages whose chat peer (RosterJID) is one of
+// those (bare-JID) peers are exported; otherwise every chat is included.
+func runExport(cfgPath string, accounts, jids []string, outPath string) error {
+	_, queries, localKey, closeDB, err := openStorageForCLI(cfgPath)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+
+	out, skipped, err := buildExport(context.Background(), queries, localKey, accounts, jids)
+	if err != nil {
+		return err
 	}
 
 	f, err := os.Create(outPath)
