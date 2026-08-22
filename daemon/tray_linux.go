@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"os"
@@ -121,9 +122,23 @@ func Run(cfg config.Config, backend Backend) error {
 // Notify shows a desktop notification via notify-send (org.freedesktop.
 // Notifications under the hood on every common Linux desktop). Best-effort:
 // a missing notify-send binary just means no popup, not a daemon crash.
+//
+// The daemon is long-lived and detached (Setsid, spawn_linux.go) — it can
+// outlive the login session whose DBUS_SESSION_BUS_ADDRESS it inherited at
+// spawn time (relogin, session restart, a NixOS rebuild that respawns the
+// bus). Rather than trust that possibly-stale inherited env, always point
+// at the current user's session bus socket directly, which systemd/dbus
+// place at this fixed path independent of any particular login session.
 func Notify(title, body string) {
 	cmd := exec.Command("notify-send", "-a", "kage", title, body)
+	cmd.Env = append(os.Environ(), "DBUS_SESSION_BUS_ADDRESS="+sessionBusAddress())
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		log.Printf("kage background service: notify-send failed: %v", err)
+		log.Printf("kage background service: notify-send failed: %v: %s", err, bytes.TrimSpace(stderr.Bytes()))
 	}
+}
+
+func sessionBusAddress() string {
+	return "unix:path=/run/user/" + strconv.Itoa(os.Getuid()) + "/bus"
 }
