@@ -1,8 +1,9 @@
+- remove reply on message on single click?
 - add set avatar option
 
 - downloading bar doesnt appear immidiately
 - connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
-- cancel file upload mid-load
+- cancel file upload mid-load (backspace)
 - call logs might not be shown
 - non-focused state of app, with open chat doesnt send notifications
 - some modals are overflowing out of window (e.g. localstorage password change)

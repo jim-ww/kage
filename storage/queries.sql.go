@@ -363,6 +363,30 @@ func (q *Queries) GetLocalKeySalt(ctx context.Context) ([]byte, error) {
 	return salt, err
 }
 
+const getMessageDelayByArchiveID = `-- name: GetMessageDelayByArchiveID :one
+SELECT delay
+FROM messages
+WHERE accountJID = ?1
+	AND archiveID = ?2
+LIMIT 1
+`
+
+type GetMessageDelayByArchiveIDParams struct {
+	AccountJid string         `db:"account_jid"`
+	ArchiveID  sql.NullString `db:"archive_id"`
+}
+
+// Resolves a stored mamSyncCursor.archiveID back to the wall-clock time of
+// the message it points to, so a cursor the server's RSM paging can no
+// longer resolve (see syncArchiveForContact's start-date fallback) can be
+// retried with an XEP-0313 <start> date filter instead of the poisoned id.
+func (q *Queries) GetMessageDelayByArchiveID(ctx context.Context, arg GetMessageDelayByArchiveIDParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getMessageDelayByArchiveID, arg.AccountJid, arg.ArchiveID)
+	var delay int64
+	err := row.Scan(&delay)
+	return delay, err
+}
+
 const getOmemoCurrentSignedPreKey = `-- name: GetOmemoCurrentSignedPreKey :one
 SELECT id, public, private, signature
 FROM omemoSignedPreKey

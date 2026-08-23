@@ -779,6 +779,17 @@ VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(archive_id))
 ON CONFLICT (accountJID, rosterJID) DO UPDATE SET archiveID = excluded.archiveID;
 
 
+-- name: GetMessageDelayByArchiveID :one
+-- Resolves a stored mamSyncCursor.archiveID back to the wall-clock time of
+-- the message it points to, so a cursor the server's RSM paging can no
+-- longer resolve (see syncArchiveForContact's start-date fallback) can be
+-- retried with an XEP-0313 <start> date filter instead of the poisoned id.
+SELECT delay
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND archiveID = sqlc.arg(archive_id)
+LIMIT 1;
+
 -- name: MessageExistsByArchiveID :one
 -- Checked before decrypting a XEP-0313 (MAM) archive item, so a page
 -- re-fetched after a stale cursor doesn't re-run OMEMO decrypt (and its

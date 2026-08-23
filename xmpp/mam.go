@@ -157,6 +157,23 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 // Callers should page by re-calling with afterArchiveID set to the last
 // returned ArchiveID until complete is true.
 func (c *Client) FetchArchive(ctx context.Context, peerJID, afterArchiveID string, max uint64) (results []ArchivedMessage, complete bool, err error) {
+	return c.fetchArchive(ctx, peerJID, afterArchiveID, time.Time{}, max)
+}
+
+// FetchArchiveSince retrieves one page of XEP-0313 history for the 1:1
+// conversation with peerJID, filtered by the MAM <start> date field instead
+// of an RSM <after> id cursor - a fallback for when a previously-valid
+// afterArchiveID (see syncArchiveForContact) stops resolving to anything on
+// the server despite the peer's archive genuinely holding newer messages
+// (observed against at least one real server: no <item-not-found/> error,
+// just an empty page, forever). since should be the exact SentAt of the
+// last message the stuck cursor points to, so this covers the identical
+// range the broken <after> query was supposed to and can't skip anything.
+func (c *Client) FetchArchiveSince(ctx context.Context, peerJID string, since time.Time, max uint64) (results []ArchivedMessage, complete bool, err error) {
+	return c.fetchArchive(ctx, peerJID, "", since, max)
+}
+
+func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID string, since time.Time, max uint64) (results []ArchivedMessage, complete bool, err error) {
 	queryID := randomID()
 
 	ch := make(chan ArchivedMessage, max+8)
@@ -172,10 +189,14 @@ func (c *Client) FetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 		c.mamMu.Unlock()
 	}()
 
-	d := form.New(
+	fields := []form.Field{
 		form.Hidden("FORM_TYPE", form.Value(mamNS)),
 		form.JID("with", form.Value(peerJID)),
-	)
+	}
+	if !since.IsZero() {
+		fields = append(fields, form.Text("start", form.Value(since.UTC().Format(time.RFC3339))))
+	}
+	d := form.New(fields...)
 	submission, ok := d.Submit()
 	if !ok {
 		return nil, false, fmt.Errorf("building mam query form")
