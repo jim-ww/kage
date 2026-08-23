@@ -392,6 +392,8 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.MessageDeliveredMsg](c, ev.Data)
 	case evMessageServerAcked:
 		sendEvent[ui.MessageServerAckedMsg](c, ev.Data)
+	case evMessageSendFailed:
+		sendEvent[ui.MessageSendFailedMsg](c, ev.Data)
 	case evMessageSendResolved:
 		sendEvent[ui.MessageSendResolvedMsg](c, ev.Data)
 	case evOutboxDeleted:

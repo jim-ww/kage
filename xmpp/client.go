@@ -229,6 +229,20 @@ func (c *Client) Closed() bool {
 	return c.closed.Load()
 }
 
+// Kill forcibly closes the underlying connection without marking the client
+// as intentionally closed (unlike Close), for a caller that has independent
+// evidence the connection is dead but got no read error to prove it - e.g. a
+// half-open TCP connection a NAT/middlebox dropped silently, where writes
+// still succeed into the local socket buffer but nothing ever answers (see
+// account.go's confirmPendingAcks). Just closing session.Conn() is enough to
+// unblock serve()'s blocked read with an error, which sets c.err and closes
+// Events() exactly like a real dropped connection would - so
+// superviseAccount's normal reconnect path picks it up instead of this
+// looking like a deliberate shutdown (Closed() stays false).
+func (c *Client) Kill() {
+	_ = c.session.Conn().Close()
+}
+
 // Err returns the error that ended the background serve loop, if any. Only
 // meaningful after the Events channel has closed.
 func (c *Client) Err() error {

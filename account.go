@@ -147,9 +147,38 @@ func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server
 	if err := client.Ping(ctx); err != nil {
 		// The server never actually answered for this batch - exactly the
 		// silent-drop scenario a bare "the local write returned no error"
-		// can't detect on its own. Leave every message in this batch
-		// unacked; see Message.ServerAcked's doc comment.
-		slog.Warn("confirming server ack failed; leaving batch unacked", "jid", s.account.JID, "batch", len(pending), "err", err)
+		// can't detect on its own (a half-open TCP connection a NAT/
+		// middlebox dropped silently: writes still succeed into the local
+		// socket buffer, but nothing ever answers). Two things follow from
+		// that, not just leaving the batch unacked as before:
+		//
+		//  1. Every message in this batch gets flagged Failed rather than
+		//     sitting forever with no status glyph at all - the user typed
+		//     it, we have positive evidence it never reached the server, so
+		//     say so instead of staying silent (see Message.Failed's doc
+		//     comment on why an ambiguous non-status is worse than a ✗).
+		//  2. Kill the connection so superviseAccount's normal
+		//     disconnect-detection path (which otherwise only fires once a
+		//     read or write actually errors - which a half-open connection
+		//     may never do on its own) notices right away and starts
+		//     reconnecting, instead of leaving every subsequent send in the
+		//     same boat until something else eventually surfaces the drop.
+		slog.Warn("confirming server ack failed; marking batch failed and forcing reconnect", "jid", s.account.JID, "batch", len(pending), "err", err)
+		for _, p := range pending {
+			if _, err := s.db.MarkMessageSendFailed(ctx, storage.MarkMessageSendFailedParams{
+				AccountJid: s.account.JID,
+				IDAttr:     nullString(p.id),
+				RosterJid:  nullString(p.to),
+			}); err != nil {
+				slog.Warn("persisting send failure", "jid", s.account.JID, "to", p.to, "err", err)
+			}
+			broadcast(srv, evMessageSendFailed, ui.MessageSendFailedMsg{
+				AccountIdx: accountIdx,
+				To:         p.to,
+				MessageID:  p.id,
+			})
+		}
+		client.Kill()
 		return
 	}
 

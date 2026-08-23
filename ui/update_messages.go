@@ -450,6 +450,30 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case MessageSendFailedMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByID(msgs, msg.MessageID)
+		if idx < 0 {
+			return m, nil, true
+		}
+		if msgs[idx].ServerAcked {
+			// Lost the race against a real ack that arrived just before the
+			// connection was declared dead - trust the ack, not the timeout.
+			return m, nil, true
+		}
+		msgs[idx].Failed = true
+		var cmd tea.Cmd
+		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+			m.refreshViewport()
+		} else {
+			cmd = m.showNotification("send failed: connection dropped")
+		}
+		return m, cmd, true
+
 	case MessageSendResolvedMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
 		if chatIdx < 0 {

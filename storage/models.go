@@ -76,6 +76,12 @@ type Localkeysalt struct {
 	Salt []byte `db:"salt"`
 }
 
+type Mamsynccursor struct {
+	Accountjid string `db:"accountjid"`
+	Rosterjid  string `db:"rosterjid"`
+	Archiveid  string `db:"archiveid"`
+}
+
 type Message struct {
 	ID               int64          `db:"id"`
 	Accountjid       string         `db:"accountjid"`
@@ -98,6 +104,7 @@ type Message struct {
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
 	Serveracked      bool           `db:"serveracked"`
+	Sendfailed       bool           `db:"sendfailed"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`

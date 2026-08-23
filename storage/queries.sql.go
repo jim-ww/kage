@@ -1062,6 +1062,7 @@ SELECT
 	edited,
 	delivered,
 	serverAcked,
+	sendFailed,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -1091,6 +1092,7 @@ type ListAllMessagesRow struct {
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
 	Serveracked      bool           `db:"serveracked"`
+	Sendfailed       bool           `db:"sendfailed"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`
@@ -1130,6 +1132,7 @@ func (q *Queries) ListAllMessages(ctx context.Context) ([]ListAllMessagesRow, er
 			&i.Edited,
 			&i.Delivered,
 			&i.Serveracked,
+			&i.Sendfailed,
 			&i.Ooburls,
 			&i.Calldirection,
 			&i.Calloutcome,
@@ -1371,27 +1374,6 @@ func (q *Queries) ListMamSyncCursors(ctx context.Context, accountJid string) ([]
 	return items, nil
 }
 
-const upsertMamSyncCursor = `-- name: UpsertMamSyncCursor :exec
-INSERT INTO mamSyncCursor (accountJID, rosterJID, archiveID)
-VALUES (?1, ?2, ?3)
-ON CONFLICT (accountJID, rosterJID) DO UPDATE SET archiveID = excluded.archiveID
-`
-
-type UpsertMamSyncCursorParams struct {
-	AccountJid string `db:"account_jid"`
-	RosterJid  string `db:"roster_jid"`
-	ArchiveID  string `db:"archive_id"`
-}
-
-func (q *Queries) UpsertMamSyncCursor(ctx context.Context, arg UpsertMamSyncCursorParams) error {
-	_, err := q.db.ExecContext(ctx, upsertMamSyncCursor,
-		arg.AccountJid,
-		arg.RosterJid,
-		arg.ArchiveID,
-	)
-	return err
-}
-
 const listMessagesByRoster = `-- name: ListMessagesByRoster :many
 SELECT
 	id,
@@ -1410,6 +1392,7 @@ SELECT
 	edited,
 	delivered,
 	serverAcked,
+	sendFailed,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -1447,6 +1430,7 @@ type ListMessagesByRosterRow struct {
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
 	Serveracked      bool           `db:"serveracked"`
+	Sendfailed       bool           `db:"sendfailed"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`
@@ -1479,6 +1463,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Edited,
 			&i.Delivered,
 			&i.Serveracked,
+			&i.Sendfailed,
 			&i.Ooburls,
 			&i.Calldirection,
 			&i.Calloutcome,
@@ -1515,6 +1500,7 @@ SELECT
 	edited,
 	delivered,
 	serverAcked,
+	sendFailed,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -1560,6 +1546,7 @@ type ListMessagesByRosterAtOrAfterRow struct {
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
 	Serveracked      bool           `db:"serveracked"`
+	Sendfailed       bool           `db:"sendfailed"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`
@@ -1571,7 +1558,7 @@ type ListMessagesByRosterAtOrAfterRow struct {
 // cursor, oldest-first, keyset-paginated the same way. Together, the two
 // queries build one "window" of a chat centered on an arbitrary anchor
 // message: this one gets everything from the anchor forward,
-// ListMessagesByRosterBefore gets everything strictly before it — see
+// ListMessagesByRosterBefore gets everything strictly before it - see
 // loadHistoryWindow in history.go, which is the only caller of either.
 func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMessagesByRosterAtOrAfterParams) ([]ListMessagesByRosterAtOrAfterRow, error) {
 	rows, err := q.db.QueryContext(ctx, listMessagesByRosterAtOrAfter,
@@ -1606,6 +1593,7 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 			&i.Edited,
 			&i.Delivered,
 			&i.Serveracked,
+			&i.Sendfailed,
 			&i.Ooburls,
 			&i.Calldirection,
 			&i.Calloutcome,
@@ -1642,6 +1630,7 @@ SELECT
 	edited,
 	delivered,
 	serverAcked,
+	sendFailed,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -1687,6 +1676,7 @@ type ListMessagesByRosterBeforeRow struct {
 	Edited           bool           `db:"edited"`
 	Delivered        bool           `db:"delivered"`
 	Serveracked      bool           `db:"serveracked"`
+	Sendfailed       bool           `db:"sendfailed"`
 	Ooburls          sql.NullString `db:"ooburls"`
 	Calldirection    sql.NullString `db:"calldirection"`
 	Calloutcome      sql.NullString `db:"calloutcome"`
@@ -1736,6 +1726,7 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Edited,
 			&i.Delivered,
 			&i.Serveracked,
+			&i.Sendfailed,
 			&i.Ooburls,
 			&i.Calldirection,
 			&i.Calloutcome,
@@ -2074,6 +2065,29 @@ type MarkMessageRetractedParams struct {
 
 func (q *Queries) MarkMessageRetracted(ctx context.Context, arg MarkMessageRetractedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markMessageRetracted, arg.AccountJid, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markMessageSendFailed = `-- name: MarkMessageSendFailed :execrows
+UPDATE messages
+SET sendFailed = TRUE
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND rosterJID = ?3
+	AND serverAcked = FALSE
+`
+
+type MarkMessageSendFailedParams struct {
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+func (q *Queries) MarkMessageSendFailed(ctx context.Context, arg MarkMessageSendFailedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markMessageSendFailed, arg.AccountJid, arg.IDAttr, arg.RosterJid)
 	if err != nil {
 		return 0, err
 	}
@@ -2583,6 +2597,23 @@ func (q *Queries) UpsertDiscoJIDCapsWithForms(ctx context.Context, arg UpsertDis
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const upsertMamSyncCursor = `-- name: UpsertMamSyncCursor :exec
+INSERT INTO mamSyncCursor (accountJID, rosterJID, archiveID)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE SET archiveID = excluded.archiveID
+`
+
+type UpsertMamSyncCursorParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+	ArchiveID  string `db:"archive_id"`
+}
+
+func (q *Queries) UpsertMamSyncCursor(ctx context.Context, arg UpsertMamSyncCursorParams) error {
+	_, err := q.db.ExecContext(ctx, upsertMamSyncCursor, arg.AccountJid, arg.RosterJid, arg.ArchiveID)
+	return err
 }
 
 const upsertPGPPeerKey = `-- name: UpsertPGPPeerKey :exec

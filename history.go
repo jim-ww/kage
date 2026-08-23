@@ -37,6 +37,7 @@ type historyRow struct {
 	Edited           bool
 	Delivered        bool
 	Serveracked      bool
+	Sendfailed       bool
 	Ooburls          sql.NullString
 	Stanzatype       string
 	Calldirection    sql.NullString
@@ -138,6 +139,7 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 			Edited:      row.Edited,
 			Delivered:   row.Delivered,
 			ServerAcked: row.Serveracked,
+			Failed:      row.Sendfailed,
 			Encrypted:   row.E2eencrypted,
 			EncMethod:   row.E2eemethod.String,
 			Reactions:   loadReactionsForMessage(ctx, s, chatAddr, row.Idattr.String),
@@ -177,7 +179,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		hrows[i] = historyRow{
 			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
-			Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
+			Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
 			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 		}
 	}
@@ -196,7 +198,7 @@ func beforeRowToHistoryRow(r storage.ListMessagesByRosterBeforeRow) historyRow {
 	return historyRow{
 		ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
-		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
+		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
 		Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 	}
 }
@@ -205,7 +207,7 @@ func afterRowToHistoryRow(r storage.ListMessagesByRosterAtOrAfterRow) historyRow
 	return historyRow{
 		ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
 		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
-		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Ooburls: r.Ooburls,
+		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
 		Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 	}
 }

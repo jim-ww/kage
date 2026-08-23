@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	edited        BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0308: this row's body was overwritten by a later correction
 	delivered     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0184: peer acknowledged receipt of a message we sent
 	serverAcked   BOOLEAN  NOT NULL DEFAULT FALSE, -- our own server confirmed it has this (see account.go's trackForServerAck/confirmPendingAcks) - meaningful only when sent = TRUE; a message we received is never "server acked" in this sense
+	sendFailed    BOOLEAN  NOT NULL DEFAULT FALSE, -- confirmPendingAcks's server-ack ping timed out and the connection was declared dead (see account.go) - a message we can no longer credibly claim ever reached the server, distinct from an outbox row that failed before ever being written to the socket
 	oobURLs       TEXT, -- XEP-0066: newline-separated URLs the sender explicitly marked as file attachments; NULL/empty means none
 	callDirection TEXT, -- call log rows only (stanzaType = 'call'): 'incoming' or 'outgoing'
 	callOutcome   TEXT, -- call log rows only: 'answered', 'missed', 'declined', or 'failed'

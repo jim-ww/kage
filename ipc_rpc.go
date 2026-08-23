@@ -59,6 +59,7 @@ const (
 	evMessageRetracted     = "MessageRetracted"
 	evMessageDelivered     = "MessageDelivered"
 	evMessageServerAcked   = "MessageServerAcked"
+	evMessageSendFailed    = "MessageSendFailed"
 	evMessageSendResolved  = "MessageSendResolved"
 	evOutboxDeleted        = "OutboxDeleted"
 	evMessageReactions     = "MessageReactions"

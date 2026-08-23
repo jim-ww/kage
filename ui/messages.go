@@ -351,6 +351,18 @@ type MessageServerAckedMsg struct {
 	MessageID  string
 }
 
+// MessageSendFailedMsg is sent into the Bubble Tea loop when confirmPendingAcks's
+// server-confirmation ping times out and the connection is declared dead (see
+// account.go) - unlike MessageServerAckedMsg's happy path, this is a real,
+// already-sent message (it has an ID, unlike a still-Pending queued send)
+// that we now have positive evidence never reached the server. Rendered the
+// same as Message.Failed - see its doc comment.
+type MessageSendFailedMsg struct {
+	AccountIdx int
+	To         string // bare/full JID this was addressed to (chat key)
+	MessageID  string
+}
+
 // MessageReactionsMsg is sent into the Bubble Tea loop when a XEP-0444
 // reaction-set update arrives for a message already shown for one of the
 // configured accounts. Reactions is the full recomputed aggregate to

@@ -176,6 +176,14 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
 
+-- name: MarkMessageSendFailed :execrows
+UPDATE messages
+SET sendFailed = TRUE
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND serverAcked = FALSE;
+
 
 -- name: ListMessagesByRoster :many
 SELECT
@@ -195,6 +203,7 @@ SELECT
 	edited,
 	delivered,
 	serverAcked,
+	sendFailed,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -236,6 +245,7 @@ SELECT
 	edited,
 	delivered,
 	serverAcked,
+	sendFailed,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -260,7 +270,7 @@ LIMIT sqlc.arg(page_limit);
 -- cursor, oldest-first, keyset-paginated the same way. Together, the two
 -- queries build one "window" of a chat centered on an arbitrary anchor
 -- message: this one gets everything from the anchor forward,
--- ListMessagesByRosterBefore gets everything strictly before it — see
+-- ListMessagesByRosterBefore gets everything strictly before it - see
 -- loadHistoryWindow in history.go, which is the only caller of either.
 -- name: ListMessagesByRosterAtOrAfter :many
 SELECT
@@ -280,6 +290,7 @@ SELECT
 	edited,
 	delivered,
 	serverAcked,
+	sendFailed,
 	oobURLs,
 	callDirection,
 	callOutcome,
@@ -324,6 +335,7 @@ SELECT
 	edited,
 	delivered,
 	serverAcked,
+	sendFailed,
 	oobURLs,
 	callDirection,
 	callOutcome,
