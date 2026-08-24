@@ -53,6 +53,7 @@ func zoneAccountRow(i int) string        { return fmt.Sprintf("account-row-%d", 
 func zoneChatItem(i int) string          { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string           { return fmt.Sprintf("msg-%d", i) }
 func zoneMessageReply(i int) string      { return fmt.Sprintf("msg-reply-%d", i) }
+func zoneMessageReplyBtn(i int) string   { return fmt.Sprintf("msg-reply-btn-%d", i) }
 func zoneEmojiSuggestion(i int) string   { return fmt.Sprintf("emoji-suggest-%d", i) }
 func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove-%d", i) }
 func zoneMsgInfoAttachment(i int) string { return fmt.Sprintf("msg-info-attachment-%d", i) }
@@ -604,6 +605,17 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.selectedView == viewChat {
 		msgs := m.currentMessages()
+		for i := range msgs {
+			if m.zone.Get(zoneMessageReplyBtn(i)).InBounds(msg) {
+				m.notifyTypingStopped()
+				m.lastClickedMsgIdx = -1
+				m.lastClickTime = time.Time{}
+				old := m.selectedMsg
+				m.selectedMsg = i
+				m.refreshViewportScrollTo(old, i)
+				return m, m.actionReplyMessage()
+			}
+		}
 		for i, mm := range msgs {
 			if mm.ReplyTo != nil && m.zone.Get(zoneMessageReply(i)).InBounds(msg) {
 				m.notifyTypingStopped()
@@ -631,10 +643,12 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 					m.lastClickTime = time.Time{}
 					return m, m.actionOpenMessage()
 				}
-				// Single-click: reply to the message
+				// Single-click: just select it - replying now happens via the
+				// hover reply button (zoneMessageReplyBtn) or the keybind, not
+				// as a side effect of selecting a message.
 				m.lastClickedMsgIdx = i
 				m.lastClickTime = clickTime
-				return m, m.actionReplyMessage()
+				return m, nil
 			}
 		}
 	}

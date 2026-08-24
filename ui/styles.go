@@ -292,6 +292,32 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 	return st.Render(label)
 }
 
+// replyButtonLabel returns the hover-reply button's text, used both to
+// render it and to reserve its width up front in renderMessage's wrap
+// calculation (the reserved width must stay constant whether or not the
+// button is actually visible, so the header line's length doesn't shift as
+// the mouse moves).
+func replyButtonLabel(icons bool) string {
+	if icons {
+		return "↩"
+	}
+	return "[reply]"
+}
+
+// renderReplyButton renders the hover-revealed "reply to this message"
+// button shown at the end of a message's header line. Styled like
+// renderStoragePasswordButton (small background+padding button, reversed
+// when hovered) rather than plain messageReply text, so it reads as
+// clickable rather than as another piece of message metadata.
+func (s uiStyles) renderReplyButton(icons bool) string {
+	st := lipgloss.NewStyle().
+		Foreground(s.colors.themFg).
+		Background(s.colors.borderD).
+		Padding(0, 1).
+		Reverse(true)
+	return st.Render(replyButtonLabel(icons))
+}
+
 func (s uiStyles) renderAttachButton(icons, hovered bool) string {
 	st := s.attachButton
 	if hovered {

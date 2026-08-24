@@ -165,8 +165,17 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	prefixWidth := lipgloss.Width(prefix)
 	indentWidth := lipgloss.Width(headerPlain)
 	indent := strings.Repeat(" ", indentWidth)
-	wrapWidth := totalWidth - prefixWidth - indentWidth
+	// replyBtnWidth is reserved on the header line whether or not the button
+	// is actually shown, so the line's length (and so the hover button's own
+	// zone bounds) doesn't shift as the mouse moves in and out of the row.
+	replyBtnRendered := m.styles.renderReplyButton(m.icons)
+	replyBtnWidth := lipgloss.Width(replyBtnRendered)
+	wrapWidth := totalWidth - prefixWidth - indentWidth - replyBtnWidth
 	wrapWidth = max(wrapWidth, 8)
+	replyBtn := strings.Repeat(" ", replyBtnWidth)
+	if m.isHovered(zoneMessage(msgIdx)) {
+		replyBtn = m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyBtnRendered)
+	}
 
 	var lines []string
 	if msg.ReplyTo != nil {
@@ -218,7 +227,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 			line = m.styles.plainTextLine(line)
 		}
 		if i == 0 {
-			lines = append(lines, prefix+header+line)
+			lines = append(lines, prefix+header+replyBtn+line)
 			continue
 		}
 		lines = append(lines, "  "+indent+line)
