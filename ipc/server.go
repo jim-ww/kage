@@ -7,7 +7,16 @@ import (
 	"net"
 	"runtime/debug"
 	"sync"
+	"time"
 )
+
+// writeTimeout bounds every write to a client connection. Without it, a
+// client whose reader has stalled (e.g. its own process wedged) never errors
+// the write - net.Conn.Write just blocks forever - and since Broadcast used
+// to write to every connection sequentially on one goroutine, one stuck
+// client silently starved every other connected client of all events
+// indefinitely.
+const writeTimeout = 5 * time.Second
 
 // Handler answers one RPC call: method identifies which one, params is its
 // raw JSON args. Returning a non-nil error sends it back as Response.Err
@@ -101,7 +110,9 @@ func (s *Server) handle(sc *serverConn, req Request, handler Handler) {
 	}
 
 	sc.writeMu.Lock()
+	sc.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
 	writeResponse(sc.nc, resp)
+	sc.nc.SetWriteDeadline(time.Time{})
 	sc.writeMu.Unlock()
 }
 
@@ -120,10 +131,15 @@ func (s *Server) callHandler(req Request, handler Handler) (result any, err erro
 	return handler(req.Method, req.Params)
 }
 
-// Broadcast sends ev to every currently-connected client. A client that
-// can't keep up or has gone away is not specially handled here beyond the
-// write erroring — its own read side will observe the disconnect and Accept
-// will have already (or will soon) drop it from conns.
+// Broadcast sends ev to every currently-connected client. Each connection is
+// written to on its own goroutine with a bounded write deadline, so a client
+// whose reader has stalled (blocking Write indefinitely, since a stalled
+// reader doesn't itself make Write return an error) can't hold up delivery
+// to every other connected client — Broadcast used to write sequentially on
+// one goroutine, so one wedged client silently starved everyone else's
+// events forever. A client that times out or errors is closed outright;
+// its own read side observing the close will drop it from conns via serve's
+// deferred cleanup.
 func (s *Server) Broadcast(ev Event) {
 	s.mu.Lock()
 	conns := make([]*serverConn, 0, len(s.conns))
@@ -132,11 +148,22 @@ func (s *Server) Broadcast(ev Event) {
 	}
 	s.mu.Unlock()
 
+	var wg sync.WaitGroup
 	for _, sc := range conns {
-		sc.writeMu.Lock()
-		writeEvent(sc.nc, ev)
-		sc.writeMu.Unlock()
+		wg.Add(1)
+		go func(sc *serverConn) {
+			defer wg.Done()
+			sc.writeMu.Lock()
+			sc.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
+			err := writeEvent(sc.nc, ev)
+			sc.nc.SetWriteDeadline(time.Time{})
+			sc.writeMu.Unlock()
+			if err != nil {
+				sc.nc.Close()
+			}
+		}(sc)
 	}
+	wg.Wait()
 }
 
 // Close closes every currently-connected client's connection.
