@@ -58,15 +58,25 @@ func listenForTransferChan(ch chan tea.Msg) tea.Cmd {
 // next percentage change will likely get through.
 func throttledProgressSender(ch chan tea.Msg, id, label string) func(sent, total int64) {
 	lastPercent := -1
+	var lastSent int64
 	return func(sent, total int64) {
-		percent := -1
 		if total > 0 {
-			percent = int(sent * 100 / total)
+			percent := int(sent * 100 / total)
+			if percent == lastPercent {
+				return
+			}
+			lastPercent = percent
+		} else {
+			// Total unknown (e.g. chunked transfer-encoding, no
+			// Content-Length): percent-based throttling never fires, so
+			// throttle by raw bytes instead - otherwise no progress is ever
+			// reported and the transfer looks stalled until it completes.
+			const step = 256 * 1024
+			if sent-lastSent < step {
+				return
+			}
+			lastSent = sent
 		}
-		if percent == lastPercent {
-			return
-		}
-		lastPercent = percent
 		select {
 		case ch <- transferProgressChanMsg{FileTransferProgressMsg{ID: id, Label: label, Sent: sent, Total: total}, ch}:
 		default:

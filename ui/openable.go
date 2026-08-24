@@ -348,10 +348,11 @@ func downloadAndOpen(target, jid string, ch chan tea.Msg) tea.Msg {
 	}
 
 	label := "downloading " + attachmentDisplayName(target)
-	body := io.Reader(resp.Body)
-	if resp.ContentLength > 0 {
-		body = &progressReader{Reader: resp.Body, total: resp.ContentLength, onProgress: throttledProgressSender(ch, target, label)}
-	}
+	// Wrap unconditionally, even when ContentLength is unknown (chunked
+	// transfer-encoding) - throttledProgressSender falls back to byte-based
+	// throttling in that case, so the transfer still shows progress instead
+	// of appearing to do nothing until the whole download completes.
+	body := io.Reader(&progressReader{Reader: resp.Body, total: resp.ContentLength, onProgress: throttledProgressSender(ch, target, label)})
 	data, readErr := io.ReadAll(body)
 	if readErr != nil {
 		return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("reading download: %w", readErr)}
@@ -525,10 +526,7 @@ func downloadToDest(target, dest string, ch chan tea.Msg) tea.Msg {
 	}
 
 	label := "downloading " + attachmentDisplayName(target)
-	body := io.Reader(resp.Body)
-	if resp.ContentLength > 0 {
-		body = &progressReader{Reader: resp.Body, total: resp.ContentLength, onProgress: throttledProgressSender(ch, target, label)}
-	}
+	body := io.Reader(&progressReader{Reader: resp.Body, total: resp.ContentLength, onProgress: throttledProgressSender(ch, target, label)})
 	data, err := io.ReadAll(body)
 	if err != nil {
 		return saveResultMsg{target: target, err: fmt.Errorf("reading download: %w", err)}
