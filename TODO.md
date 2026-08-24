@@ -1,4 +1,5 @@
 - remove reply on message on single click?
+- when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user type his password
 - add set avatar option
 
 - downloading bar doesnt appear immidiately

@@ -106,6 +106,7 @@ func (m *Model) startOpen(target string, isAttachment bool) tea.Cmd {
 	}
 	m.downloadsInFlight[target] = true
 	delete(m.finishedTransfers, target)
+	m.seedTransferProgress(target, "opening "+attachmentDisplayName(target))
 	return openWithXDGOpen(target, isAttachment, chat.Address)
 }
 
@@ -120,6 +121,7 @@ func (m *Model) startSave(target string) tea.Cmd {
 	}
 	m.downloadsInFlight[target] = true
 	delete(m.finishedTransfers, target)
+	m.seedTransferProgress(target, "downloading "+attachmentDisplayName(target))
 	return saveURLToDownloads(target)
 }
 
@@ -135,7 +137,20 @@ func (m *Model) startSaveAs(target, dest string) tea.Cmd {
 	}
 	m.downloadsInFlight[target] = true
 	delete(m.finishedTransfers, target)
+	m.seedTransferProgress(target, "downloading "+attachmentDisplayName(target))
 	return saveURLToPath(target, dest)
+}
+
+// seedTransferProgress adds a 0/0 progress entry for target the instant a
+// download/open is kicked off, so renderTransferLines shows "<label>... 0 B"
+// right away instead of staying blank through the connect/TLS-handshake/
+// headers phase - the actual download goroutine doesn't get to report
+// progress until http.Client.Do returns, which on a slow link can otherwise
+// leave the user with zero feedback for a long time. clearTransfer/
+// setTransferProgress's finishedTransfers guard makes this safe even if
+// the real download outruns and finishes before this seed would matter.
+func (m *Model) seedTransferProgress(target, label string) {
+	m.setTransferProgress(FileTransferProgressMsg{ID: target, Label: label, Sent: 0, Total: 0})
 }
 
 // setTransferProgress upserts a transfer's progress, tracking insertion
