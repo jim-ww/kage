@@ -935,6 +935,8 @@ func connectAccount(ctx context.Context, acct config.Account, queries *storage.Q
 // exponential backoff and resumes. Returns once the client is intentionally
 // closed (app shutdown).
 func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountIdx int, s *accountSession) {
+	go keepAlive(ctx, s, keepAliveInterval)
+
 	for {
 		listen(ctx, srv, accountIdx, s)
 
@@ -955,6 +957,67 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountI
 		broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
 		syncArchive(ctx, srv, accountIdx, s)
 		broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
+	}
+}
+
+const (
+	// keepAliveInterval is how often each connected account pings its own
+	// server. It has to be short enough to sit under the idle timeout of the
+	// least patient NAT/middlebox on the path, since the whole point is to
+	// notice a connection that died without telling us.
+	keepAliveInterval = 60 * time.Second
+
+	// keepAliveTimeout bounds one keepalive round trip. Generous, because a
+	// false positive here costs a full reconnect (and a MAM resync with it).
+	keepAliveTimeout = 20 * time.Second
+)
+
+// keepAlive pings s's server on a timer for as long as ctx lives, killing the
+// connection when a ping goes unanswered so superviseAccount reconnects.
+//
+// Nothing else does this while an account sits idle. listen only returns once
+// the stream errors, and a half-open TCP connection - one a NAT, a VPN flap,
+// or a sleeping laptop dropped without either side sending a FIN - produces
+// no read error at all: reads simply block forever. Writes keep "succeeding"
+// into the local socket buffer too, so the drop stayed invisible until
+// something happened to need a round trip, which for a user who is only
+// receiving is never. The observed shape was an account that looked connected
+// for minutes while every message sent to it went to the archive and nowhere
+// else, surfacing only when an unrelated write finally returned EPIPE.
+//
+// confirmPendingAcks already does exactly this check, but only right after we
+// send something - which is no help to the receive-only case this covers.
+func keepAlive(ctx context.Context, s *accountSession, interval time.Duration) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in keepalive", "jid", s.account.JID, "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		client, err := s.liveClient()
+		if err != nil {
+			continue // offline; reconnectWithBackoff owns getting back
+		}
+		pingCtx, cancel := context.WithTimeout(ctx, keepAliveTimeout)
+		err = client.Ping(pingCtx)
+		cancel()
+		if err == nil {
+			continue
+		}
+		if client.Closed() || ctx.Err() != nil {
+			return // shutting down, not a dead connection
+		}
+		slog.Warn("keepalive ping failed; forcing reconnect", "jid", s.account.JID, "err", err)
+		client.Kill()
 	}
 }
 
