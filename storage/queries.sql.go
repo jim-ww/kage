@@ -1365,14 +1365,15 @@ func (q *Queries) ListEncryptedMessageBodies(ctx context.Context) ([]ListEncrypt
 }
 
 const listMamSyncCursors = `-- name: ListMamSyncCursors :many
-SELECT rosterJID, archiveID
+SELECT rosterJID, archiveID, lastSentAt
 FROM mamSyncCursor
 WHERE accountJID = ?1
 `
 
 type ListMamSyncCursorsRow struct {
-	Rosterjid string `db:"rosterjid"`
-	Archiveid string `db:"archiveid"`
+	Rosterjid  string `db:"rosterjid"`
+	Archiveid  string `db:"archiveid"`
+	Lastsentat int64  `db:"lastsentat"`
 }
 
 func (q *Queries) ListMamSyncCursors(ctx context.Context, accountJid string) ([]ListMamSyncCursorsRow, error) {
@@ -1384,7 +1385,7 @@ func (q *Queries) ListMamSyncCursors(ctx context.Context, accountJid string) ([]
 	var items []ListMamSyncCursorsRow
 	for rows.Next() {
 		var i ListMamSyncCursorsRow
-		if err := rows.Scan(&i.Rosterjid, &i.Archiveid); err != nil {
+		if err := rows.Scan(&i.Rosterjid, &i.Archiveid, &i.Lastsentat); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2624,19 +2625,26 @@ func (q *Queries) UpsertDiscoJIDCapsWithForms(ctx context.Context, arg UpsertDis
 }
 
 const upsertMamSyncCursor = `-- name: UpsertMamSyncCursor :exec
-INSERT INTO mamSyncCursor (accountJID, rosterJID, archiveID)
-VALUES (?1, ?2, ?3)
-ON CONFLICT (accountJID, rosterJID) DO UPDATE SET archiveID = excluded.archiveID
+INSERT INTO mamSyncCursor (accountJID, rosterJID, archiveID, lastSentAt)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET archiveID = excluded.archiveID, lastSentAt = excluded.lastSentAt
 `
 
 type UpsertMamSyncCursorParams struct {
 	AccountJid string `db:"account_jid"`
 	RosterJid  string `db:"roster_jid"`
 	ArchiveID  string `db:"archive_id"`
+	LastSentAt int64  `db:"last_sent_at"`
 }
 
 func (q *Queries) UpsertMamSyncCursor(ctx context.Context, arg UpsertMamSyncCursorParams) error {
-	_, err := q.db.ExecContext(ctx, upsertMamSyncCursor, arg.AccountJid, arg.RosterJid, arg.ArchiveID)
+	_, err := q.db.ExecContext(ctx, upsertMamSyncCursor,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.ArchiveID,
+		arg.LastSentAt,
+	)
 	return err
 }
 

@@ -1183,10 +1183,10 @@ func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 func syncArchive(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
 	client := s.client.Load()
 
-	lastArchiveID := make(map[string]string)
+	lastCursor := make(map[string]mamCursor)
 	if cursors, err := s.db.ListMamSyncCursors(ctx, s.account.JID); err == nil {
 		for _, row := range cursors {
-			lastArchiveID[row.Rosterjid] = row.Archiveid
+			lastCursor[row.Rosterjid] = mamCursor{archiveID: row.Archiveid, sentAt: row.Lastsentat}
 		}
 	}
 
@@ -1197,15 +1197,36 @@ func syncArchive(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 	slog.Debug("syncArchive: contacts to check", "jid", s.account.JID, "contacts", len(*entries))
 	for peerJID := range *entries {
 		start := time.Now()
-		syncArchiveForContact(ctx, srv, accountIdx, s, client, peerJID, lastArchiveID[peerJID])
+		syncArchiveForContact(ctx, srv, accountIdx, s, client, peerJID, lastCursor[peerJID])
 		slog.Debug("syncArchiveForContact done", "jid", s.account.JID, "peer", peerJID, "elapsed", time.Since(start))
 	}
 }
 
+// mamCursor is how far peerJID's archive has been backfilled: the archive id
+// to resume after, plus the wall-clock time of the item it points at (0 if
+// unknown). The timestamp is carried alongside rather than looked up from
+// the messages table because the cursor is deliberately allowed to sit on an
+// item that never got a row - see mamSyncCursor's schema comment and
+// recoverMAMCursor.
+type mamCursor struct {
+	archiveID string
+	sentAt    int64
+}
+
+// unixOrZero returns t as a Unix timestamp, or 0 for the zero time - which
+// Unix() would otherwise render as a large negative number, indistinguishable
+// from a real (if absurd) timestamp once stored.
+func unixOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
+}
+
 // syncArchiveForContact pages through peerJID's MAM archive strictly newer
-// than afterArchiveID until the server reports the page set complete,
-// persisting and forwarding each message to the UI as it's fetched.
-func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client, peerJID, afterArchiveID string) {
+// than cursor until the server reports the page set complete, persisting and
+// forwarding each message to the UI as it's fetched.
+func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client, peerJID string, cursor mamCursor) {
 	const pageSize = 50
 	const maxPages = 200 // guards against a misbehaving server never reporting complete
 
@@ -1224,30 +1245,30 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 
 	for page := 0; page < maxPages; page++ {
 		var newMsgs []ui.Message
-		prevAfter := afterArchiveID
+		prev := cursor
 		pageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		pageStart := time.Now()
-		items, complete, err := client.FetchArchive(pageCtx, peerJID, afterArchiveID, pageSize)
+		items, complete, err := client.FetchArchive(pageCtx, peerJID, cursor.archiveID, pageSize)
 		cancel()
-		slog.Debug("mam page fetched", "jid", s.account.JID, "peer", peerJID, "page", page, "elapsed", time.Since(pageStart), "after", prevAfter, "items", len(items), "complete", complete, "err", err)
+		slog.Debug("mam page fetched", "jid", s.account.JID, "peer", peerJID, "page", page, "elapsed", time.Since(pageStart), "after", prev.archiveID, "items", len(items), "complete", complete, "err", err)
 		if err != nil {
 			// MAM isn't universally supported (by the server or by the peer's
 			// own account) — not an error worth surfacing per contact.
 			break
 		}
 		if len(items) == 0 {
-			// afterArchiveID itself may have stopped resolving to anything on
+			// cursor.archiveID itself may have stopped resolving to anything on
 			// the server despite the archive genuinely holding newer messages
 			// for this peer (observed live: no <item-not-found/>, just a
 			// permanently empty page) - try once from the same point via a
 			// <start> date filter instead of the RSM <after> id before giving
 			// up on this contact. Only worth trying on a cursor we actually
-			// had (empty afterArchiveID here legitimately means "archive is
+			// had (empty archiveID here legitimately means "archive is
 			// empty", nothing to recover).
-			if afterArchiveID == "" {
+			if cursor.archiveID == "" {
 				break
 			}
-			recovered, recoveredComplete, ok := s.recoverMAMCursor(ctx, client, peerJID, afterArchiveID, pageSize)
+			recovered, recoveredComplete, ok := s.recoverMAMCursor(ctx, client, peerJID, cursor, pageSize)
 			if !ok {
 				break
 			}
@@ -1256,7 +1277,7 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 
 		stop := false
 		for _, am := range items {
-			afterArchiveID = am.ArchiveID
+			cursor = mamCursor{archiveID: am.ArchiveID, sentAt: unixOrZero(am.SentAt)}
 
 			outcome := s.processMAMItem(ctx, srv, accountIdx, peerJID, ownBare, name, am, healed)
 			if outcome.stopSync {
@@ -1274,47 +1295,67 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		// row (e.g. every item was ErrOwnDeviceKeyMissing) - otherwise a
 		// permanently-undecryptable item is re-fetched and re-attempted on
 		// every single future sync, forever (see mamSyncCursor's schema
-		// comment).
-		if afterArchiveID != prevAfter {
+		// comment). Its timestamp goes with it precisely so that parking
+		// here stays recoverable without a messages row to look up.
+		//
+		// Written when only the timestamp changed too: a recovery walk that
+		// ends back on the id it started from has still learned that id's
+		// timestamp, and recording it is what stops the next sync from
+		// having to walk the whole archive again to learn the same thing.
+		if cursor != prev {
 			if err := s.db.UpsertMamSyncCursor(ctx, storage.UpsertMamSyncCursorParams{
 				AccountJid: s.account.JID,
 				RosterJid:  peerJID,
-				ArchiveID:  afterArchiveID,
+				ArchiveID:  cursor.archiveID,
+				LastSentAt: cursor.sentAt,
 			}); err != nil {
 				slog.Warn("persisting mam sync cursor", "peer", peerJID, "err", err)
 			}
 		}
-		if stop || complete || afterArchiveID == prevAfter {
+		if stop || complete || cursor.archiveID == prev.archiveID {
 			break
 		}
 	}
 }
 
-// recoverMAMCursor re-fetches from the exact point afterArchiveID
-// represents, using an XEP-0313 <start> date filter instead of RSM <after>,
-// for when the normal <after> query above came back empty despite the
-// server having accepted the id (no <item-not-found/> — see FetchArchive's
-// caller). start is set to the exact SentAt of the message afterArchiveID
-// points to (looked up locally, since we stored it when that message was
-// first synced), so this covers exactly the range the broken <after> query
-// was supposed to and can't skip anything between the old cursor and now.
-// ok is false if there's nothing to recover (no local record of
-// afterArchiveID's timestamp, the request failed, or it came back empty too
-// - meaning the original empty page was legitimate after all).
-func (s *accountSession) recoverMAMCursor(ctx context.Context, client *xmpp.Client, peerJID, afterArchiveID string, max uint64) (items []xmpp.ArchivedMessage, complete bool, ok bool) {
-	delay, err := s.db.GetMessageDelayByArchiveID(ctx, storage.GetMessageDelayByArchiveIDParams{
+// recoverMAMCursor re-fetches from the exact point cursor represents, using
+// an XEP-0313 <start> date filter instead of RSM <after>, for when the
+// normal <after> query above came back empty despite the server having
+// accepted the id (no <item-not-found/> — see FetchArchive's caller). start
+// is the SentAt of the item the cursor points at, so this covers exactly the
+// range the broken <after> query was supposed to and can't skip anything
+// between the old cursor and now.
+//
+// That timestamp comes from the cursor itself. It used to be looked up in
+// the messages table by archive id, which could not work for the cursors
+// that need recovering most: syncArchiveForContact parks the cursor on
+// items that never got a messages row (ErrOwnDeviceKeyMissing and friends),
+// so that lookup returned no rows for precisely those, and the whole
+// recovery silently no-opped — leaving the contact's backfill wedged
+// forever on a cursor the server had quietly stopped resolving.
+//
+// A cursor persisted before lastSentAt existed has no timestamp; the
+// messages-table lookup is still tried for it, and failing that the archive
+// is re-walked from the start (zero since, empty after). Re-walking is safe
+// — processMAMItem dedupes on archive id and stanza id — and happens at most
+// once per stuck cursor, since the walk re-establishes one that does carry
+// its timestamp. ok is false only if the request failed or came back empty
+// too, meaning the original empty page was legitimate after all.
+func (s *accountSession) recoverMAMCursor(ctx context.Context, client *xmpp.Client, peerJID string, cursor mamCursor, max uint64) (items []xmpp.ArchivedMessage, complete bool, ok bool) {
+	var since time.Time
+	if cursor.sentAt > 0 {
+		since = time.Unix(cursor.sentAt, 0)
+	} else if delay, err := s.db.GetMessageDelayByArchiveID(ctx, storage.GetMessageDelayByArchiveIDParams{
 		AccountJid: s.account.JID,
-		ArchiveID:  sql.NullString{String: afterArchiveID, Valid: true},
-	})
-	if err != nil {
-		return nil, false, false
+		ArchiveID:  sql.NullString{String: cursor.archiveID, Valid: true},
+	}); err == nil {
+		since = time.Unix(delay, 0)
 	}
 
 	pageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	since := time.Unix(delay, 0)
-	items, complete, err = client.FetchArchiveSince(pageCtx, peerJID, since, max)
-	slog.Debug("mam start-date fallback fetched", "jid", s.account.JID, "peer", peerJID, "since", since, "items", len(items), "complete", complete, "err", err)
+	items, complete, err := client.FetchArchiveSince(pageCtx, peerJID, since, max)
+	slog.Debug("mam start-date fallback fetched", "jid", s.account.JID, "peer", peerJID, "since", since, "full_rewalk", since.IsZero(), "items", len(items), "complete", complete, "err", err)
 	if err != nil || len(items) == 0 {
 		return nil, false, false
 	}

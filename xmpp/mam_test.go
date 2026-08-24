@@ -48,3 +48,51 @@ func TestMAMResultDecode(t *testing.T) {
 		t.Errorf("inner id = %q", inner.ID)
 	}
 }
+
+// TestMAMFinCompleteDecode pins the shape decodeMAMFin has to cope with: the
+// whole response <iq>, since that is what Session.SendIQ returns. Reading
+// complete off that element directly (rather than the nested <fin>) silently
+// yields false for every page any server ever sends, which left MAM paging
+// running past the end of the archive into the empty-page recovery path on
+// every single sync.
+func TestMAMFinCompleteDecode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{
+			name: "complete",
+			raw: `<iq xmlns="jabber:client" type="result" id="q1" from="me@example.com" to="me@example.com/res">
+  <fin xmlns="urn:xmpp:mam:2" complete="true">
+    <set xmlns="http://jabber.org/protocol/rsm"><first index="0">a1</first><last>a9</last></set>
+  </fin>
+</iq>`,
+			want: true,
+		},
+		{
+			name: "more pages to come",
+			raw: `<iq xmlns="jabber:client" type="result" id="q2" from="me@example.com" to="me@example.com/res">
+  <fin xmlns="urn:xmpp:mam:2">
+    <set xmlns="http://jabber.org/protocol/rsm"><first index="0">b1</first><last>b9</last></set>
+  </fin>
+</iq>`,
+			want: false,
+		},
+		{
+			name: "empty archive is still complete",
+			raw:  `<iq xmlns="jabber:client" type="result" id="q3"><fin xmlns="urn:xmpp:mam:2" complete="true"><set xmlns="http://jabber.org/protocol/rsm"/></fin></iq>`,
+			want: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := decodeMAMFin(xml.NewDecoder(strings.NewReader(tc.raw)))
+			if err != nil {
+				t.Fatalf("decodeMAMFin: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("complete = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

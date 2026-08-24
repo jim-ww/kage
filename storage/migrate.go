@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	_ "embed" // for go:embed schema.sql below
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite" // registers the sqlite database/sql driver
 )
@@ -38,5 +39,29 @@ func Open(path string) (*sql.DB, *Queries, error) {
 		db.Close()
 		return nil, nil, fmt.Errorf("applying schema: %w", err)
 	}
+	if err := addColumns(context.Background(), db); err != nil {
+		db.Close()
+		return nil, nil, err
+	}
 	return db, New(db), nil
+}
+
+// addedColumns are columns added to a table that predates them. schema.sql's
+// CREATE TABLE IF NOT EXISTS is a no-op on a database that already has the
+// table, so a new column only reaches existing installs through an explicit
+// ALTER - which sqlite has no "IF NOT EXISTS" form of, hence the
+// already-applied error being tolerated below rather than tracked with a
+// version number.
+var addedColumns = []struct{ table, column, decl string }{
+	{"mamSyncCursor", "lastSentAt", "INTEGER NOT NULL DEFAULT 0"},
+}
+
+func addColumns(ctx context.Context, db *sql.DB) error {
+	for _, c := range addedColumns {
+		_, err := db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", c.table, c.column, c.decl))
+		if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("adding %s.%s: %w", c.table, c.column, err)
+		}
+	}
+	return nil
 }

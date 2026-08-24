@@ -169,6 +169,8 @@ func (c *Client) FetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 // just an empty page, forever). since should be the exact SentAt of the
 // last message the stuck cursor points to, so this covers the identical
 // range the broken <after> query was supposed to and can't skip anything.
+// A zero since omits the filter entirely, walking the archive from its
+// start — for a stuck cursor whose timestamp isn't known at all.
 func (c *Client) FetchArchiveSince(ctx context.Context, peerJID string, since time.Time, max uint64) (results []ArchivedMessage, complete bool, err error) {
 	return c.fetchArchive(ctx, peerJID, "", since, max)
 }
@@ -218,11 +220,9 @@ func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 	}
 	defer rc.Close()
 
-	var fin struct {
-		Complete bool `xml:"complete,attr"`
-	}
-	if err := xml.NewTokenDecoder(rc).Decode(&fin); err != nil {
-		return nil, false, fmt.Errorf("decoding mam fin: %w", err)
+	complete, err = decodeMAMFin(rc)
+	if err != nil {
+		return nil, false, err
 	}
 
 	// By the time SendIQElement's response (the <iq> fin) is delivered, every
@@ -239,5 +239,26 @@ drain:
 		}
 	}
 
-	return results, fin.Complete, nil
+	return results, complete, nil
+}
+
+// decodeMAMFin reports the XEP-0313 <fin/> completeness flag from a MAM
+// query's response.
+//
+// r is the whole response <iq> — that's what Session.SendIQ hands back, not
+// just the payload — so complete has to be reached through it via the nested
+// <fin>. Decoding `complete,attr` straight off r instead reads the attribute
+// off the <iq> element, which never carries one: every page then looks
+// incomplete no matter what the server said, and every sync runs past the end
+// of the archive into syncArchiveForContact's empty-page recovery path.
+func decodeMAMFin(r xml.TokenReader) (complete bool, err error) {
+	var resp struct {
+		Fin struct {
+			Complete bool `xml:"complete,attr"`
+		} `xml:"urn:xmpp:mam:2 fin"`
+	}
+	if err := xml.NewTokenDecoder(r).Decode(&resp); err != nil {
+		return false, fmt.Errorf("decoding mam fin: %w", err)
+	}
+	return resp.Fin.Complete, nil
 }

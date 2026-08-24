@@ -136,10 +136,20 @@ CREATE TABLE IF NOT EXISTS chatUnread (
 -- future sync - now running on every reconnect, not just app restart -
 -- re-fetched and re-attempted the same permanently-undecryptable backlog
 -- from scratch, forever.
+-- lastSentAt is the wall-clock time of the archive item archiveID points at,
+-- recorded here rather than looked up from messages when needed: the cursor
+-- is deliberately allowed to sit on an item that never got a messages row
+-- (see above), so resolving it through that table is guaranteed to fail for
+-- exactly the cursors most likely to need recovering. A server that stops
+-- resolving a still-valid archiveID (observed live: an empty page forever,
+-- no <item-not-found/>) is then recoverable via an XEP-0313 <start> filter
+-- from this timestamp. 0 means unknown - a cursor persisted before this
+-- column existed.
 CREATE TABLE IF NOT EXISTS mamSyncCursor (
-	accountJID TEXT NOT NULL,
-	rosterJID  TEXT NOT NULL,
-	archiveID  TEXT NOT NULL,
+	accountJID TEXT    NOT NULL,
+	rosterJID  TEXT    NOT NULL,
+	archiveID  TEXT    NOT NULL,
+	lastSentAt INTEGER NOT NULL DEFAULT 0,
 
 	PRIMARY KEY (accountJID, rosterJID)
 ) WITHOUT ROWID;

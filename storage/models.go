@@ -80,6 +80,7 @@ type Mamsynccursor struct {
 	Accountjid string `db:"accountjid"`
 	Rosterjid  string `db:"rosterjid"`
 	Archiveid  string `db:"archiveid"`
+	Lastsentat int64  `db:"lastsentat"`
 }
 
 type Message struct {

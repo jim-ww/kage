@@ -769,14 +769,15 @@ SET protocol = excluded.protocol, probedAt = excluded.probedAt;
 
 
 -- name: ListMamSyncCursors :many
-SELECT rosterJID, archiveID
+SELECT rosterJID, archiveID, lastSentAt
 FROM mamSyncCursor
 WHERE accountJID = sqlc.arg(account_jid);
 
 -- name: UpsertMamSyncCursor :exec
-INSERT INTO mamSyncCursor (accountJID, rosterJID, archiveID)
-VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(archive_id))
-ON CONFLICT (accountJID, rosterJID) DO UPDATE SET archiveID = excluded.archiveID;
+INSERT INTO mamSyncCursor (accountJID, rosterJID, archiveID, lastSentAt)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(archive_id), sqlc.arg(last_sent_at))
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET archiveID = excluded.archiveID, lastSentAt = excluded.lastSentAt;
 
 
 -- name: GetMessageDelayByArchiveID :one
