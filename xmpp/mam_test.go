@@ -57,9 +57,10 @@ func TestMAMResultDecode(t *testing.T) {
 // every single sync.
 func TestMAMFinCompleteDecode(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		raw  string
-		want bool
+		name     string
+		raw      string
+		want     bool
+		wantLast string
 	}{
 		{
 			name: "complete",
@@ -68,7 +69,8 @@ func TestMAMFinCompleteDecode(t *testing.T) {
     <set xmlns="http://jabber.org/protocol/rsm"><first index="0">a1</first><last>a9</last></set>
   </fin>
 </iq>`,
-			want: true,
+			want:     true,
+			wantLast: "a9",
 		},
 		{
 			name: "more pages to come",
@@ -77,12 +79,14 @@ func TestMAMFinCompleteDecode(t *testing.T) {
     <set xmlns="http://jabber.org/protocol/rsm"><first index="0">b1</first><last>b9</last></set>
   </fin>
 </iq>`,
-			want: false,
+			want:     false,
+			wantLast: "b9",
 		},
 		{
-			name: "empty archive is still complete",
-			raw:  `<iq xmlns="jabber:client" type="result" id="q3"><fin xmlns="urn:xmpp:mam:2" complete="true"><set xmlns="http://jabber.org/protocol/rsm"/></fin></iq>`,
-			want: true,
+			name:     "empty archive is still complete",
+			raw:      `<iq xmlns="jabber:client" type="result" id="q3"><fin xmlns="urn:xmpp:mam:2" complete="true"><set xmlns="http://jabber.org/protocol/rsm"/></fin></iq>`,
+			want:     true,
+			wantLast: "",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,8 +94,14 @@ func TestMAMFinCompleteDecode(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decodeMAMFin: %v", err)
 			}
-			if got != tc.want {
-				t.Errorf("complete = %v, want %v", got, tc.want)
+			if got.Complete != tc.want {
+				t.Errorf("complete = %v, want %v", got.Complete, tc.want)
+			}
+			// Last is what the next page resumes after; it has to survive even
+			// when every result on the page was filtered out of Items, which is
+			// the case that used to strand a sync mid-archive.
+			if got.Last != tc.wantLast {
+				t.Errorf("last = %q, want %q", got.Last, tc.wantLast)
 			}
 		})
 	}

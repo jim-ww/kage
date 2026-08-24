@@ -151,12 +151,36 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 	}
 }
 
+// ArchivePage is one page of XEP-0313 results.
+type ArchivePage struct {
+	// Items are the archived messages worth showing — the page's raw results
+	// minus everything dispatchArchiveResult filters out.
+	Items []ArchivedMessage
+
+	// Complete is the <fin/> completeness flag: the archive holds nothing
+	// after this page.
+	Complete bool
+
+	// Last is the RSM <last> id of the page the server actually returned,
+	// and the id to resume the next page after.
+	//
+	// This is deliberately not "the ArchiveID of the final element of Items":
+	// a server archives chat states, receipts and markers alongside real
+	// messages, and those are filtered out of Items while still occupying the
+	// archive. Resuming from the last *kept* item silently re-fetches the
+	// filtered tail every time, and a page that happens to be entirely
+	// filtered leaves Items empty — which, read as "the archive ends here",
+	// strands the sync permanently just before whatever follows that run.
+	// Empty when the server sent no <last>, i.e. a genuinely empty page.
+	Last string
+}
+
 // FetchArchive retrieves one page of XEP-0313 history for the 1:1
 // conversation with peerJID, strictly newer than afterArchiveID (empty
 // fetches from the beginning of the archive), in chronological order.
-// Callers should page by re-calling with afterArchiveID set to the last
-// returned ArchiveID until complete is true.
-func (c *Client) FetchArchive(ctx context.Context, peerJID, afterArchiveID string, max uint64) (results []ArchivedMessage, complete bool, err error) {
+// Callers should page by re-calling with afterArchiveID set to the previous
+// page's Last until Complete is true.
+func (c *Client) FetchArchive(ctx context.Context, peerJID, afterArchiveID string, max uint64) (ArchivePage, error) {
 	return c.fetchArchive(ctx, peerJID, afterArchiveID, time.Time{}, max)
 }
 
@@ -171,11 +195,11 @@ func (c *Client) FetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 // range the broken <after> query was supposed to and can't skip anything.
 // A zero since omits the filter entirely, walking the archive from its
 // start — for a stuck cursor whose timestamp isn't known at all.
-func (c *Client) FetchArchiveSince(ctx context.Context, peerJID string, since time.Time, max uint64) (results []ArchivedMessage, complete bool, err error) {
+func (c *Client) FetchArchiveSince(ctx context.Context, peerJID string, since time.Time, max uint64) (ArchivePage, error) {
 	return c.fetchArchive(ctx, peerJID, "", since, max)
 }
 
-func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID string, since time.Time, max uint64) (results []ArchivedMessage, complete bool, err error) {
+func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID string, since time.Time, max uint64) (ArchivePage, error) {
 	queryID := randomID()
 
 	ch := make(chan ArchivedMessage, max+8)
@@ -201,7 +225,7 @@ func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 	d := form.New(fields...)
 	submission, ok := d.Submit()
 	if !ok {
-		return nil, false, fmt.Errorf("building mam query form")
+		return ArchivePage{}, fmt.Errorf("building mam query form")
 	}
 
 	rsm := paging.RequestNext{Max: max, After: afterArchiveID}
@@ -216,13 +240,13 @@ func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 	iq := stanza.IQ{Type: stanza.SetIQ, ID: randomID()}
 	rc, err := c.session.SendIQElement(ctx, query, iq)
 	if err != nil {
-		return nil, false, fmt.Errorf("sending mam query: %w", err)
+		return ArchivePage{}, fmt.Errorf("sending mam query: %w", err)
 	}
 	defer rc.Close()
 
-	complete, err = decodeMAMFin(rc)
+	page, err := decodeMAMFin(rc)
 	if err != nil {
-		return nil, false, err
+		return ArchivePage{}, err
 	}
 
 	// By the time SendIQElement's response (the <iq> fin) is delivered, every
@@ -233,32 +257,34 @@ drain:
 	for {
 		select {
 		case msg := <-ch:
-			results = append(results, msg)
+			page.Items = append(page.Items, msg)
 		default:
 			break drain
 		}
 	}
 
-	return results, complete, nil
+	return page, nil
 }
 
-// decodeMAMFin reports the XEP-0313 <fin/> completeness flag from a MAM
-// query's response.
+// decodeMAMFin reads the XEP-0313 <fin/> summary of a MAM query's response:
+// its completeness flag and the RSM <last> id to resume the next page after.
+// The returned page carries no Items; the caller fills those in.
 //
 // r is the whole response <iq> — that's what Session.SendIQ hands back, not
-// just the payload — so complete has to be reached through it via the nested
-// <fin>. Decoding `complete,attr` straight off r instead reads the attribute
-// off the <iq> element, which never carries one: every page then looks
-// incomplete no matter what the server said, and every sync runs past the end
-// of the archive into syncArchiveForContact's empty-page recovery path.
-func decodeMAMFin(r xml.TokenReader) (complete bool, err error) {
+// just the payload — so both fields have to be reached through it via the
+// nested <fin>. Decoding `complete,attr` straight off r instead reads the
+// attribute off the <iq> element, which never carries one: every page then
+// looks incomplete no matter what the server said, and every sync runs past
+// the end of the archive into syncArchiveForContact's empty-page recovery.
+func decodeMAMFin(r xml.TokenReader) (ArchivePage, error) {
 	var resp struct {
 		Fin struct {
-			Complete bool `xml:"complete,attr"`
+			Complete bool   `xml:"complete,attr"`
+			Last     string `xml:"http://jabber.org/protocol/rsm set>last"`
 		} `xml:"urn:xmpp:mam:2 fin"`
 	}
 	if err := xml.NewTokenDecoder(r).Decode(&resp); err != nil {
-		return false, fmt.Errorf("decoding mam fin: %w", err)
+		return ArchivePage{}, fmt.Errorf("decoding mam fin: %w", err)
 	}
-	return resp.Fin.Complete, nil
+	return ArchivePage{Complete: resp.Fin.Complete, Last: resp.Fin.Last}, nil
 }

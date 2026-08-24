@@ -168,19 +168,19 @@ func findArchivedByID(ctx context.Context, t *testing.T, client *xmpp.Client, pe
 	t.Helper()
 	after := ""
 	for page := 0; page < 50; page++ {
-		items, complete, err := client.FetchArchive(ctx, peerJID, after, 200)
+		res, err := client.FetchArchive(ctx, peerJID, after, 200)
 		if err != nil {
 			return xmpp.ArchivedMessage{}, err
 		}
-		for _, it := range items {
+		for _, it := range res.Items {
 			if it.ID == wantID {
 				return it, nil
 			}
 		}
-		if complete || len(items) == 0 {
+		if res.Complete || res.Last == "" {
 			break
 		}
-		after = items[len(items)-1].ArchiveID
+		after = res.Last
 	}
 	return xmpp.ArchivedMessage{}, fmt.Errorf("id %q not found in archive with %s", wantID, peerJID)
 }
