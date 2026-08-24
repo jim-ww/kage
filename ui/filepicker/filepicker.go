@@ -642,6 +642,16 @@ func (m Model) View() string {
 	return s.String()
 }
 
+// IsDirRow reports whether the visible row at index row (as rendered by
+// View, 0-based from the top of the current page) is a directory.
+func (m Model) IsDirRow(row int) bool {
+	idx := m.minIdx + row
+	if idx < 0 || idx >= len(m.files) {
+		return false
+	}
+	return m.files[idx].IsDir()
+}
+
 // DidSelectFile returns whether a user has selected a file (on this msg).
 func (m Model) DidSelectFile(msg tea.Msg) (bool, string) {
 	didSelect, path := m.didSelectFile(msg)

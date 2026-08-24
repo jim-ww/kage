@@ -831,10 +831,12 @@ func filePickerMoveCmd(cursorRow, targetRow int) tea.Cmd {
 // moves needed to select it (see filePickerMoveCmd), applied through the
 // normal pickingFile key interception in update_keys.go (which already
 // knows how to stage a selected file) rather than duplicating that logic
-// here. A second click on the already-selected row within the double-click
-// window also opens it. In practice the cursor is usually already on the
-// clicked row by the time this fires, since hovering it (handleMouseMotion)
-// moves the cursor there first.
+// here. A single click on a directory opens it immediately, since a click
+// there can never be a final selection (Enter just navigates into it). A
+// second click on the already-selected row within the double-click window
+// opens it for anything else (i.e. files). In practice the cursor is
+// usually already on the clicked row by the time this fires, since
+// hovering it (handleMouseMotion) moves the cursor there first.
 func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Mouse().Button != tea.MouseLeft {
 		return m, nil
@@ -854,7 +856,7 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 	m.lastFilePickerTime = clickTime
 
 	cmd := filePickerMoveCmd(cursorRow, targetRow)
-	if isDoubleClick {
+	if isDoubleClick || m.filePicker.IsDirRow(targetRow) {
 		cmd = tea.Sequence(cmd, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} })
 	}
 	return m, cmd
