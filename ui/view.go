@@ -982,7 +982,11 @@ func (m Model) inputHint() string {
 		msgs := m.currentMessages()
 		if m.replyToIdx < len(msgs) {
 			orig := msgs[m.replyToIdx]
-			return m.styles.renderReplyHint(orig.Author, previewText(MessagePreviewContent(orig), previewLen))
+			hint := m.styles.renderReplyHint(orig.Author, previewText(MessagePreviewContent(orig), previewLen))
+			// Clickable to cancel the pending reply (see zoneReplyHintCancel in
+			// mouse.go) - the reacting-to hint below deliberately isn't, since
+			// it has no equivalent click target of its own to mirror.
+			return m.zone.Mark(zoneReplyHintCancel, hint)
 		}
 	}
 	if m.reactingMsgIdx >= 0 {

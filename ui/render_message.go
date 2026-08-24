@@ -227,7 +227,15 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 			line = m.styles.plainTextLine(line)
 		}
 		if i == 0 {
-			lines = append(lines, prefix+header+replyBtn+line)
+			// Reply button sits flush against the chat pane's right edge
+			// rather than trailing the header text, so its column stays put
+			// regardless of message length - pad the header line out to
+			// totalWidth-replyBtnWidth before appending it.
+			headerLine := prefix + header + line
+			if pad := (totalWidth - replyBtnWidth) - lipgloss.Width(headerLine); pad > 0 {
+				headerLine += strings.Repeat(" ", pad)
+			}
+			lines = append(lines, headerLine+replyBtn)
 			continue
 		}
 		lines = append(lines, "  "+indent+line)

@@ -28,6 +28,7 @@ const (
 	zoneChatStatusBar         = "chat-status-bar"
 	zoneSendButton            = "send-button"
 	zoneAttachButton          = "attach-button"
+	zoneReplyHintCancel       = "reply-hint-cancel"
 	zoneToggleSidebar         = "toggle-sidebar-button"
 	zoneMsgInfoPopup          = "msg-info-popup"
 	zoneContactManagerPopup   = "contact-manager-popup"
@@ -651,6 +652,11 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+	}
+
+	if m.zone.Get(zoneReplyHintCancel).InBounds(msg) {
+		m.cancelPending()
+		return m, nil
 	}
 
 	if m.zone.Get(zoneSendButton).InBounds(msg) {
