@@ -144,6 +144,18 @@ func (m Model) isHovered(zoneID string) bool {
 	return m.hover != nil && m.hover.id == zoneID
 }
 
+// isMessageRowHovered reports whether the pointer is anywhere over message
+// i's row - either its own zoneMessage or the nested zoneMessageReplyBtn,
+// which zoneUnderMouse reports in place of zoneMessage once the pointer is
+// specifically over the button (so the button itself can show its own
+// hovered/reversed state). Row-level hover state (the "> " selection
+// prefix, whether the reply button is drawn at all) must stay true across
+// that switch, or the button would flicker out from under the pointer right
+// as it becomes hoverable.
+func (m Model) isMessageRowHovered(i int) bool {
+	return m.isHovered(zoneMessage(i)) || m.isHovered(zoneMessageReplyBtn(i))
+}
+
 // handleMouseMotion recomputes which zone is under the pointer on every
 // motion event (only sent while mouseEnabled, see View's MouseModeAllMotion)
 // so hoverable components (send button, chat items, account rows, messages,
@@ -367,6 +379,13 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.selectedView == viewChat {
 		msgs := m.currentMessages()
 		for i := range msgs {
+			// Checked before the enclosing zoneMessage(i) row, same as
+			// zoneMessageReply above (mouse.go's handleLeftClick mirrors this
+			// priority), so the button itself reports as hovered rather than
+			// just the row it sits in.
+			if m.zone.Get(zoneMessageReplyBtn(i)).InBounds(mouse) {
+				return zoneMessageReplyBtn(i)
+			}
 			if m.zone.Get(zoneMessage(i)).InBounds(mouse) {
 				return zoneMessage(i)
 			}

@@ -306,15 +306,18 @@ func replyButtonLabel(icons bool) string {
 
 // renderReplyButton renders the hover-revealed "reply to this message"
 // button shown at the end of a message's header line. Styled like
-// renderStoragePasswordButton (small background+padding button, reversed
-// when hovered) rather than plain messageReply text, so it reads as
-// clickable rather than as another piece of message metadata.
-func (s uiStyles) renderReplyButton(icons bool) string {
+// renderStoragePasswordButton/renderAttachButton (small background+padding
+// button, reversed only while the pointer is over the button itself, not
+// just the row) so it reads as clickable rather than as another piece of
+// message metadata.
+func (s uiStyles) renderReplyButton(icons, hovered bool) string {
 	st := lipgloss.NewStyle().
 		Foreground(s.colors.themFg).
 		Background(s.colors.borderD).
-		Padding(0, 1).
-		Reverse(true)
+		Padding(0, 1)
+	if hovered {
+		st = st.Reverse(true)
+	}
 	return st.Render(replyButtonLabel(icons))
 }
 
