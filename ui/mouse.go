@@ -141,6 +141,18 @@ type hoverState struct {
 	// another mark that itself moves as messages load/scroll.
 	x int
 
+	// replyBtnIdx is the index of the message whose reply button is
+	// currently drawn as hovered, or -1. refreshViewportSelection only
+	// re-renders a message when its *selection* changes (see its own doc
+	// comment - deliberately not on every motion event, to avoid lagging a
+	// fast mouse sweep), so without this the reply button's reversed style
+	// would only ever reflect wherever the pointer happened to be the
+	// instant the row became selected, then stay frozen there as the
+	// pointer kept moving within the same already-selected row. Tracking it
+	// separately lets handleMouseMotion detect specifically *this* change
+	// and force the one extra re-render it needs.
+	replyBtnIdx int
+
 	// devicesID is the chat-item zone ID currently showing its online-device
 	// list in place of the row's normal description (see
 	// renderHoverChatRow), or "" if none is. Set by hoverDevicesRevealMsg
@@ -251,6 +263,22 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			m.lastClickedMsgIdx = -1
 			m.lastClickTime = time.Time{}
 			m.refreshViewportSelection(old, idx)
+		}
+
+		// The row-selection refresh above only fires when selectedMsg
+		// changes, but the reply button's own hovered/reversed state can
+		// also change from a pointer move *within* an already-selected row
+		// (sliding onto or off of the button's column range) - that needs
+		// its own re-render or the button freezes at whatever it looked
+		// like the moment the row was entered (see hoverState.replyBtnIdx).
+		newBtnIdx := -1
+		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReplyButtonHovered(idx, m.replyButtonWidth()) {
+			newBtnIdx = idx
+		}
+		if newBtnIdx != m.hover.replyBtnIdx {
+			old := m.hover.replyBtnIdx
+			m.hover.replyBtnIdx = newBtnIdx
+			m.refreshViewportSelection(old, newBtnIdx)
 		}
 	}
 

@@ -101,6 +101,15 @@ func (m Model) callLogLine(msg Message, msgIdx int) string {
 	return prefix + m.styles.messageDeleted.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
 }
 
+// replyButtonWidth is the hover reply button's rendered width - constant
+// regardless of its own hovered state (Reverse(true) doesn't change width).
+// Shared between renderMessage (to reserve the column) and handleMouseMotion
+// (to compute isReplyButtonHovered), so the two never disagree about where
+// the button's column range actually is.
+func (m Model) replyButtonWidth() int {
+	return lipgloss.Width(m.styles.renderReplyButton(m.icons, false))
+}
+
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
 	if msg.CallLog != nil {
 		return m.callLogLine(msg, msgIdx)
@@ -172,7 +181,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	// moves in and out of the row. Width is measured unhovered - Reverse(true)
 	// doesn't change it, so this doubles as the width isReplyButtonHovered
 	// needs before it can itself be computed.
-	replyBtnWidth := lipgloss.Width(m.styles.renderReplyButton(m.icons, false))
+	replyBtnWidth := m.replyButtonWidth()
 	wrapWidth := totalWidth - prefixWidth - indentWidth - replyBtnWidth
 	wrapWidth = max(wrapWidth, 8)
 	replyBtn := strings.Repeat(" ", replyBtnWidth)
