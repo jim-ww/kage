@@ -106,7 +106,8 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		return m.callLogLine(msg, msgIdx)
 	}
 	isSelected := msgIdx == m.selectedMsg
-	prefix := m.styles.renderMessagePrefix(isSelected, m.isMessageRowHovered(msgIdx))
+	rowHovered := m.isHovered(zoneMessage(msgIdx))
+	prefix := m.styles.renderMessagePrefix(isSelected, rowHovered)
 
 	timeLabel := m.formatMessageTime(msg.SentAt)
 	if msg.Encrypted && m.showEncryptedIcon {
@@ -166,19 +167,18 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	indentWidth := lipgloss.Width(headerPlain)
 	indent := strings.Repeat(" ", indentWidth)
 	// replyBtnWidth is reserved on the header line whether or not the button
-	// is actually shown, so the line's length (and so the hover button's own
-	// zone bounds) doesn't shift as the mouse moves in and out of the row.
-	// Reverse(true) doesn't change width, so it's safe to size off the
-	// button's actual (possibly hovered) rendering rather than a separate
-	// unhovered measurement.
-	replyBtnHovered := m.isHovered(zoneMessageReplyBtn(msgIdx))
-	replyBtnRendered := m.styles.renderReplyButton(m.icons, replyBtnHovered)
-	replyBtnWidth := lipgloss.Width(replyBtnRendered)
+	// is actually shown, so the line's length (and so the reply button's own
+	// column range, used by isReplyButtonHovered) doesn't shift as the mouse
+	// moves in and out of the row. Width is measured unhovered - Reverse(true)
+	// doesn't change it, so this doubles as the width isReplyButtonHovered
+	// needs before it can itself be computed.
+	replyBtnWidth := lipgloss.Width(m.styles.renderReplyButton(m.icons, false))
 	wrapWidth := totalWidth - prefixWidth - indentWidth - replyBtnWidth
 	wrapWidth = max(wrapWidth, 8)
 	replyBtn := strings.Repeat(" ", replyBtnWidth)
-	if m.isMessageRowHovered(msgIdx) {
-		replyBtn = m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyBtnRendered)
+	if rowHovered {
+		replyBtnHovered := m.isReplyButtonHovered(msgIdx, replyBtnWidth)
+		replyBtn = m.zone.Mark(zoneMessageReplyBtn(msgIdx), m.styles.renderReplyButton(m.icons, replyBtnHovered))
 	}
 
 	var lines []string

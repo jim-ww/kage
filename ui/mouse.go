@@ -131,6 +131,16 @@ func zoneRowContains(z *zone.ZoneInfo, mouse tea.MouseMsg, maxX int) bool {
 type hoverState struct {
 	id string
 
+	// x is the pointer's last-seen column, updated on every motion event
+	// regardless of whether id changed. Used to tell whether the pointer is
+	// specifically over the hover reply button within a hovered message row
+	// (see isReplyButtonHovered) without needing a zone of its own - the
+	// button's zone is nested inside zoneMessage's, and re-deriving its
+	// bounds from the row's own zone plus its known reserved width is
+	// simpler than relying on the scanner to resolve a mark nested inside
+	// another mark that itself moves as messages load/scroll.
+	x int
+
 	// devicesID is the chat-item zone ID currently showing its online-device
 	// list in place of the row's normal description (see
 	// renderHoverChatRow), or "" if none is. Set by hoverDevicesRevealMsg
@@ -144,16 +154,21 @@ func (m Model) isHovered(zoneID string) bool {
 	return m.hover != nil && m.hover.id == zoneID
 }
 
-// isMessageRowHovered reports whether the pointer is anywhere over message
-// i's row - either its own zoneMessage or the nested zoneMessageReplyBtn,
-// which zoneUnderMouse reports in place of zoneMessage once the pointer is
-// specifically over the button (so the button itself can show its own
-// hovered/reversed state). Row-level hover state (the "> " selection
-// prefix, whether the reply button is drawn at all) must stay true across
-// that switch, or the button would flicker out from under the pointer right
-// as it becomes hoverable.
-func (m Model) isMessageRowHovered(i int) bool {
-	return m.isHovered(zoneMessage(i)) || m.isHovered(zoneMessageReplyBtn(i))
+// isReplyButtonHovered reports whether the pointer is over message i's hover
+// reply button specifically, rather than just somewhere else in its row.
+// btnWidth is the button's rendered width (constant regardless of its own
+// hover state - see renderReplyButton). Requires the row itself to already
+// be the hovered zone; within that, the button occupies the last btnWidth
+// columns of the row (see renderMessage's flush-right layout).
+func (m Model) isReplyButtonHovered(i, btnWidth int) bool {
+	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
+		return false
+	}
+	z := m.zone.Get(zoneMessage(i))
+	if z.IsZero() {
+		return false
+	}
+	return m.hover.x > z.EndX-btnWidth
 }
 
 // handleMouseMotion recomputes which zone is under the pointer on every
@@ -191,6 +206,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		cursorRow := filePickerCursorRow(lines, m.filePicker.Cursor)
 		return m, filePickerMoveCmd(cursorRow, row)
 	}
+
+	m.hover.x = msg.Mouse().X
 
 	newHoverID := m.zoneUnderMouse(msg)
 	var hoverCmd tea.Cmd
@@ -379,13 +396,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.selectedView == viewChat {
 		msgs := m.currentMessages()
 		for i := range msgs {
-			// Checked before the enclosing zoneMessage(i) row, same as
-			// zoneMessageReply above (mouse.go's handleLeftClick mirrors this
-			// priority), so the button itself reports as hovered rather than
-			// just the row it sits in.
-			if m.zone.Get(zoneMessageReplyBtn(i)).InBounds(mouse) {
-				return zoneMessageReplyBtn(i)
-			}
 			if m.zone.Get(zoneMessage(i)).InBounds(mouse) {
 				return zoneMessage(i)
 			}
