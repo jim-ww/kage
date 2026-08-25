@@ -1101,6 +1101,11 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		from := bareJID(ev.From)
 		resource := resourcePart(ev.From)
 		presence := mapPresence(ev)
+		// A contact stuck showing offline is otherwise undiagnosable from the
+		// log: presence either never arrives (no subscription, so the probe on
+		// connect goes unanswered) or arrives and is mapped to the wrong
+		// state, and nothing here distinguished the two.
+		slog.Debug("presence received", "jid", s.account.JID, "from", from, "resource", resource, "presence", presence, "available", ev.Available, "show", ev.Show)
 		s.setRosterPresence(from, resource, presence)
 		broadcast(srv, evPresence, ui.PresenceMsg{
 			AccountIdx: accountIdx,
@@ -1547,9 +1552,11 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			enc, decodeErr = xmpp.DecodeOmemoMessageV1(am.EncryptedV1, bareJID(am.From))
 		}
 		if mgr == nil {
+			slog.Warn("mam: decrypting omemo message failed", "jid", s.account.JID, "peer", peerJID, "archive_id", am.ArchiveID, "from", am.From, "sent_at", am.SentAt, "err", "omemo isn't ready")
 			body = "[message could not be decrypted: omemo isn't ready]"
 			decryptFailed = true
 		} else if decodeErr != nil {
+			slog.Warn("mam: decrypting omemo message failed", "jid", s.account.JID, "peer", peerJID, "archive_id", am.ArchiveID, "from", am.From, "sent_at", am.SentAt, "err", decodeErr)
 			body = "[message could not be decrypted: " + decodeErr.Error() + "]"
 			decryptFailed = true
 		} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
@@ -1558,6 +1565,15 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			slog.Debug("mam: omemo message has no key for this device, skipping", "archive_id", am.ArchiveID, "from", am.From)
 			return mamItemOutcome{}
 		} else if err != nil {
+			// Logged at the same level as the live path's equivalent
+			// (events.go): a backfilled message that won't decrypt shows up
+			// in the chat as a "[could not be decrypted]" row, and without
+			// this the *only* record of it is that row - which makes a
+			// history full of them impossible to explain from the log alone.
+			// sent_at is what tells the two causes apart: a recent item means
+			// a genuinely broken session, an old one means the archive item
+			// simply outlived the ratchet keys that could have read it.
+			slog.Warn("mam: decrypting omemo message failed", "jid", s.account.JID, "peer", peerJID, "archive_id", am.ArchiveID, "from", am.From, "sent_at", am.SentAt, "err", err)
 			body = "[message could not be decrypted: " + err.Error() + "]"
 			decryptFailed = true
 			if (errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound)) && !healed[enc.Sender] {

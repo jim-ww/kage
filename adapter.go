@@ -172,6 +172,23 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
 	}
 	go superviseAccount(ctx, a.srv, a, accountIdx, sess)
+
+	// Everything sent to this account while it was switched off went to the
+	// archive and nowhere else, exactly as during a disconnect - so this
+	// needs the same backfill every other path back online already does
+	// (connectAndSuperviseAccount, retryInitialConnect, superviseAccount's
+	// reconnect). Without it, flipping an account back to online reconnects
+	// but never asks for what it missed, and those messages stay invisible
+	// until the whole app is restarted and the startup sync picks them up.
+	//
+	// Detached, unlike the startup path that runs it inline: this is an RPC
+	// the TUI is blocked on, and a backfill can take tens of seconds.
+	go func() {
+		broadcast(a.srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
+		syncArchive(ctx, a.srv, accountIdx, sess)
+		broadcast(a.srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
+	}()
+
 	return ui.AccountStatusSetMsg{
 		Index: accountIdx, Status: status,
 		NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore,
