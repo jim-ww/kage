@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"testing"
 	"time"
@@ -56,23 +57,37 @@ func TestIPCClientDoesNotDropEventsBeforeProgramReady(t *testing.T) {
 	// the fix) dropped it.
 	time.Sleep(50 * time.Millisecond)
 
-	model := recordingModel{received: make(chan tea.Msg, 4)}
+	// Roomy enough that bubbletea's own startup traffic can't fill the buffer
+	// and get our PresenceMsg dropped by the non-blocking send in Update.
+	model := recordingModel{received: make(chan tea.Msg, 64)}
 	p := tea.NewProgram(model, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(io.Discard), tea.WithoutSignalHandler())
 	go p.Run()
 	defer p.Quit()
 
 	c.setProgram(p)
 
-	select {
-	case msg := <-model.received:
-		pm, ok := msg.(ui.PresenceMsg)
-		if !ok {
-			t.Fatalf("got %T, want ui.PresenceMsg", msg)
+	// bubbletea delivers its own startup messages (color profile, window
+	// size, ...) to the model too, and which of those land - and in what
+	// order relative to ours - is an implementation detail that changes
+	// between versions. What this test is about is only whether the event
+	// buffered before setProgram arrives at all, so scan past anything else
+	// rather than asserting on whatever happens to be first.
+	deadline := time.After(3 * time.Second)
+	var seen []string
+	for {
+		select {
+		case msg := <-model.received:
+			pm, ok := msg.(ui.PresenceMsg)
+			if !ok {
+				seen = append(seen, fmt.Sprintf("%T", msg))
+				continue
+			}
+			if pm.AccountIdx != 1 || pm.From != "alice@localhost" || pm.Presence != ui.PresenceOnline {
+				t.Fatalf("got %+v, want {AccountIdx:1 From:alice@localhost Presence:PresenceOnline}", pm)
+			}
+			return
+		case <-deadline:
+			t.Fatalf("PresenceMsg buffered before setProgram was never delivered to the program (saw %v)", seen)
 		}
-		if pm.AccountIdx != 1 || pm.From != "alice@localhost" || pm.Presence != ui.PresenceOnline {
-			t.Fatalf("got %+v, want {AccountIdx:1 From:alice@localhost Presence:PresenceOnline}", pm)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("PresenceMsg buffered before setProgram was never delivered to the program")
 	}
 }
