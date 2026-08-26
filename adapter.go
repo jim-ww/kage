@@ -140,6 +140,11 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	client, offlineErr := sess.liveClient()
 	online := offlineErr == nil
 
+	// The wire-level counterpart lives in xmpp.Client.SetPresence, but going
+	// offline closes the connection instead of advertising anything, so it
+	// would leave no trace at all without this.
+	slog.Debug("own status changed", "jid", sess.account.JID, "status", status, "was_connected", online)
+
 	if status == ui.PresenceOffline {
 		if online {
 			if err := client.Close(); err != nil {

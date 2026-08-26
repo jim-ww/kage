@@ -140,6 +140,10 @@ func (c *Client) enableCarbons(ctx context.Context) error {
 // caps too, same as Dial's initial presence, so a status change never drops
 // the capabilities advertisement contacts rely on to discover OMEMO support.
 func (c *Client) SetPresence(ctx context.Context, show string) error {
+	// Logged here rather than at the call sites so every route to a status
+	// change is covered by one line: the user toggling it, the initial
+	// presence on connect, and the restore after a reconnect.
+	slog.Debug("advertising own presence", "jid", c.JID.String(), "show", showOrOnline(show))
 	children := []xml.TokenReader{discoCaps().TokenReader()}
 	if show != "" {
 		children = append(children, xmlstream.Wrap(
@@ -148,6 +152,15 @@ func (c *Client) SetPresence(ctx context.Context, show string) error {
 		))
 	}
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.AvailablePresence}.Wrap(xmlstream.MultiReader(children...)))
+}
+
+// showOrOnline renders an empty <show/> as "online" for logging, so a plain
+// available presence doesn't read as a missing value.
+func showOrOnline(show string) string {
+	if show == "" {
+		return "online"
+	}
+	return show
 }
 
 // serve reads the session's stream until it closes, dispatching incoming

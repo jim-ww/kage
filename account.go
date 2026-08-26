@@ -382,6 +382,13 @@ func (s *accountSession) setRosterPresence(bareJID, resource string, presence ui
 		updated[k] = v
 	}
 	e := updated[bareJID]
+	// The aggregate state is what the chat list actually shows, so log the
+	// transition rather than every presence stanza: a contact wrongly stuck
+	// offline is a question about what this resolved to and when, and a
+	// per-stanza log buries that under the ones that changed nothing.
+	if e.Presence != presence {
+		slog.Debug("contact presence changed", "jid", s.account.JID, "contact", bareJID, "resource", resource, "from", e.Presence, "to", presence)
+	}
 	e.Presence = presence
 	e.Resources = withResource(e.Resources, resource, presence)
 	updated[bareJID] = e
