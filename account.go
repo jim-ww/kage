@@ -762,27 +762,41 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 	}
 
+	// GPG key publish, OMEMO setup, and the roster fetch don't depend on each
+	// other - only on the client dialed above - so they run concurrently
+	// instead of paying each one's full network round-trip back to back.
+	var wg sync.WaitGroup
 	if sess.useGPG && sess.account.GPGKeyID != "" {
-		slog.Debug("publishOwnGPGKey starting", "jid", sess.account.JID)
-		start = time.Now()
-		publishOwnGPGKey(ctx, sess)
-		slog.Debug("publishOwnGPGKey done", "jid", sess.account.JID, "elapsed", time.Since(start))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slog.Debug("publishOwnGPGKey starting", "jid", sess.account.JID)
+			start := time.Now()
+			publishOwnGPGKey(ctx, sess)
+			slog.Debug("publishOwnGPGKey done", "jid", sess.account.JID, "elapsed", time.Since(start))
+		}()
 	}
 
-	slog.Debug("setupOmemo starting", "jid", sess.account.JID)
-	start = time.Now()
-	setupOmemo(ctx, sess)
-	slog.Debug("setupOmemo done", "jid", sess.account.JID, "elapsed", time.Since(start))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		slog.Debug("setupOmemo starting", "jid", sess.account.JID)
+		start := time.Now()
+		setupOmemo(ctx, sess)
+		slog.Debug("setupOmemo done", "jid", sess.account.JID, "elapsed", time.Since(start))
+	}()
 
 	slog.Debug("fetching live roster", "jid", sess.account.JID)
 	start = time.Now()
 	contacts, err := client.Roster(ctx)
 	if err != nil {
 		slog.Debug("roster fetch failed", "jid", sess.account.JID, "elapsed", time.Since(start), "err", err)
+		wg.Wait()
 		client.Close()
 		return nil, nil, nil, fmt.Errorf("account %s: fetching roster: %w", sess.account.JID, err)
 	}
 	slog.Debug("live roster fetched", "jid", sess.account.JID, "elapsed", time.Since(start), "contacts", len(contacts))
+	wg.Wait()
 
 	existing := sess.roster.Load()
 	merged := make(map[string]rosterEntry, len(contacts))

@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/jim-ww/kage/crypto/localstore"
@@ -157,10 +158,19 @@ func publishOwnGPGKey(ctx context.Context, s *accountSession) {
 func setupOmemo(ctx context.Context, s *accountSession) {
 	client := s.client.Load()
 
-	s.omemoMgrV2 = setupOmemoProtocol(ctx, s, client, omemolib.ProtocolV2, client.OmemoTransport(),
-		client.FetchOmemoDeviceList, client.PublishOmemoDeviceList)
-	s.omemoMgrV1 = setupOmemoProtocol(ctx, s, client, omemolib.ProtocolV1, client.OmemoTransportV1(),
-		client.FetchOmemoDeviceListV1, client.PublishOmemoDeviceListV1)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		s.omemoMgrV2 = setupOmemoProtocol(ctx, s, client, omemolib.ProtocolV2, client.OmemoTransport(),
+			client.FetchOmemoDeviceList, client.PublishOmemoDeviceList)
+	}()
+	go func() {
+		defer wg.Done()
+		s.omemoMgrV1 = setupOmemoProtocol(ctx, s, client, omemolib.ProtocolV1, client.OmemoTransportV1(),
+			client.FetchOmemoDeviceListV1, client.PublishOmemoDeviceListV1)
+	}()
+	wg.Wait()
 }
 
 // setupOmemoProtocol is setupOmemo's per-protocol worker, shared by
