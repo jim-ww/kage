@@ -81,12 +81,6 @@ func (a Account) ResolvePassword(useKeyring bool) (string, error) {
 // plaintext), not an error. configured true with a non-nil err means a
 // password_cmd was set but actually failed to run.
 func ResolveStoragePassword(cfg StorageConfig, useKeyring bool) (password string, configured bool, err error) {
-	if useKeyring {
-		if pass, err := keyring.Get(keyringService, storageKeyringAccount); err == nil {
-			return pass, true, nil
-		}
-	}
-
 	if cfg.PasswordCmd != "" {
 		out, err := exec.Command("sh", "-c", cfg.PasswordCmd).Output()
 		if err != nil {
@@ -97,6 +91,12 @@ func ResolveStoragePassword(cfg StorageConfig, useKeyring bool) (password string
 
 	if cfg.Password != "" {
 		return cfg.Password, true, nil
+	}
+
+	if useKeyring {
+		if pass, err := keyring.Get(keyringService, storageKeyringAccount); err == nil {
+			return pass, true, nil
+		}
 	}
 
 	return "", false, nil

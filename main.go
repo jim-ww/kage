@@ -168,12 +168,14 @@ func newRootCmd() *cobra.Command {
 // wizard if no accounts exist yet, make sure the background daemon is up,
 // and launch the Bubble Tea program.
 func runTUI(cfgPath string, debug bool, debugXML bool) error {
+	launchStart := time.Now()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
 	}
 	debug = debug || os.Getenv("KAGE_DEBUG") != "" || cfg.Debug
 	setupLog(debug)
+	slog.Debug("runTUI: config loaded", "elapsed", time.Since(launchStart))
 
 	// No CLI setup wizard: with zero accounts configured, the TUI itself
 	// opens straight into the add-account modal (login or register) so a
@@ -183,9 +185,11 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	// The background daemon always runs now — cfg.NotificationsDisabled only
 	// gates whether it fires a desktop notification, not whether it starts at
 	// all (see events.go's handleIncomingMessage).
+	start := time.Now()
 	if err := daemon.EnsureRunning(cfg.Path, debug, debugXML); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: starting kage's background service: %v\n", err)
 	}
+	slog.Debug("runTUI: daemon.EnsureRunning done", "elapsed", time.Since(start))
 	if cfg.HistoryPageSize > 0 {
 		historyPageSize = cfg.HistoryPageSize
 	}
@@ -195,26 +199,32 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		return err
 	}
 	client := newIPCClient()
+	start = time.Now()
 	conn, err := ipc.Dial(sockPath, client.handleEvent)
 	if err != nil {
 		return fmt.Errorf("connecting to kage's background service: %w", err)
 	}
+	slog.Debug("runTUI: ipc.Dial done", "elapsed", time.Since(start))
 	client.conn = conn
 	defer conn.Close()
 	quitting := make(chan struct{})
 	defer close(quitting)
 
+	start = time.Now()
 	uiAccounts, err := client.listAccounts()
 	if err != nil {
 		return err
 	}
+	slog.Debug("runTUI: listAccounts done", "elapsed", time.Since(start))
 	// Best-effort: a call already in progress on the daemon just means the
 	// status bar shows up a moment later, via the next live transition,
 	// rather than not launching at all.
+	start = time.Now()
 	initialCallState, err := client.getCallState()
 	if err != nil {
 		initialCallState = nil
 	}
+	slog.Debug("runTUI: getCallState done", "elapsed", time.Since(start))
 
 	openLastChatAddress := ""
 	startAccountIdx := cfg.DefaultAccountIndex()
@@ -251,6 +261,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	}
 	p := tea.NewProgram(model)
 	client.setProgram(p)
+	slog.Debug("runTUI: ready to start bubbletea program", "elapsed", time.Since(launchStart))
 
 	// If the daemon goes away mid-session (crash, upgrade), don't leave the
 	// TUI sitting on a dead connection — quit cleanly with a message rather

@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/jim-ww/kage/call"
 	"github.com/jim-ww/kage/config"
@@ -68,11 +69,14 @@ type backend struct {
 func newBackend() *backend { return &backend{} }
 
 func (b *backend) Start(ctx context.Context, cfg config.Config) {
+	startupStart := time.Now()
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 
 	if !cfg.GPGDisabled {
+		start := time.Now()
 		ensureGPGKeys(&cfg)
+		slog.Debug("background: ensureGPGKeys done", "elapsed", time.Since(start))
 	}
 
 	dbPath, err := dataFilePath()
@@ -80,22 +84,28 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 		slog.Error("background: resolving db path", "err", err)
 		return
 	}
+	start := time.Now()
 	dbConn, queries, err := storage.Open(dbPath)
 	if err != nil {
 		slog.Error("background: opening storage", "err", err)
 		return
 	}
+	slog.Debug("background: storage opened", "elapsed", time.Since(start))
 
 	if !cfg.GPGDisabled {
+		start = time.Now()
 		primeGPGAgent(ctx, queries, cfg.Accounts)
+		slog.Debug("background: primeGPGAgent done", "elapsed", time.Since(start))
 	}
 
+	start = time.Now()
 	localKey, err := loadLocalKey(cfg.Storage, !cfg.KeyringDisabled, queries)
 	if err != nil {
 		slog.Error("background: deriving local key", "err", err)
 		dbConn.Close()
 		return
 	}
+	slog.Debug("background: local key derived", "elapsed", time.Since(start))
 
 	srv := ipc.NewServer()
 	srv.OnLastDisconnect = func() {
@@ -142,6 +152,8 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 			slog.Debug("background: socket accept loop ended", "err", err)
 		}
 	}()
+
+	slog.Debug("background: ready to accept connections", "elapsed", time.Since(startupStart))
 
 	for i, acct := range cfg.Accounts {
 		go connectAndSuperviseAccount(ctx, srv, a, i, acct, queries, localKey)
