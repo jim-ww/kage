@@ -389,7 +389,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
-	hv := &hoverState{replyBtnIdx: -1}
+	hv := &hoverState{replyBtnIdx: -1, reactBtnIdx: -1}
 	delegate := newChatListDelegate(styles.colors, zm, mouseEnabled, hv)
 
 	if startAccount < 0 || startAccount >= len(accounts) {

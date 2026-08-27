@@ -302,17 +302,16 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 }
 
 // renderMsgActionButton renders a message row's "^r reply"/"^t react"
-// buttons shown under a selected message. Styled exactly like every other
-// small button in the UI (renderStoragePasswordButton/renderAttachButton/
-// renderReplyButton's old header-hover incarnation): plain themFg-on-borderD
-// background+padding, fully reversed on hover - not a differently-colored
-// key glyph per button, so both read as the same kind of clickable control
-// instead of one looking more "important" than the other.
-func (s uiStyles) renderMsgActionButton(key, label string, hovered bool) string {
-	st := lipgloss.NewStyle().
-		Foreground(s.colors.themFg).
-		Background(s.colors.borderD).
-		Padding(0, 1)
+// buttons shown under a selected message, both fully reversed on hover like
+// every other button in the UI. reply is the more prominent of the two -
+// styled like sendButton (accentCyan) - since it's the primary action on a
+// selected message; react reuses attachButton's calmer background so it
+// doesn't visually compete with reply.
+func (s uiStyles) renderMsgActionButton(key, label string, prominent, hovered bool) string {
+	st := s.attachButton
+	if prominent {
+		st = s.sendButton
+	}
 	if hovered {
 		st = st.Reverse(true)
 	}

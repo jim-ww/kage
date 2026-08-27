@@ -189,6 +189,9 @@ type hoverState struct {
 	// and force the one extra re-render it needs.
 	replyBtnIdx int
 
+	// reactBtnIdx is replyBtnIdx's counterpart for the react button.
+	reactBtnIdx int
+
 	// devicesID is the chat-item zone ID currently showing its online-device
 	// list in place of the row's normal description (see
 	// renderHoverChatRow), or "" if none is. Set by hoverDevicesRevealMsg
@@ -341,6 +344,16 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			old := m.hover.replyBtnIdx
 			m.hover.replyBtnIdx = newBtnIdx
 			m.refreshViewportSelection(old, newBtnIdx)
+		}
+
+		newReactBtnIdx := -1
+		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReactButtonHovered(idx) {
+			newReactBtnIdx = idx
+		}
+		if newReactBtnIdx != m.hover.reactBtnIdx {
+			old := m.hover.reactBtnIdx
+			m.hover.reactBtnIdx = newReactBtnIdx
+			m.refreshViewportSelection(old, newReactBtnIdx)
 		}
 	}
 
