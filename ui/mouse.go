@@ -42,6 +42,7 @@ const (
 	zoneCallVideoScreen       = "call-video-screen-button"
 	zoneCallReopenVideo       = "call-reopen-video-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
+	zoneFilePickerPopup       = "file-picker-popup"
 	zoneFilePickerBack        = "file-picker-back-button"
 	zoneFilePickerForward     = "file-picker-forward-button"
 )
@@ -909,8 +910,11 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 	}
 
 	targetRow := m.filePickerRowUnderMouse(msg)
-	lines := strings.Split(m.filePicker.View(), "\n")
-	targetRow := m.filePickerRowUnderMouse(msg, lines)
+	if !m.zone.Get(zoneFilePickerPopup).InBounds(msg) {
+		m.pickingFile = false
+		return m, nil
+	}
+
 	if m.zone.Get(zoneFilePickerBack).InBounds(msg) {
 		if !m.filePicker.CanGoBack() {
 			return m, nil

@@ -822,6 +822,7 @@ func (m Model) renderFilePickerPopup() string {
 	}
 	body := m.styles.listPopup(title, []string{strings.Join(lines, "\n")}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+	popup = m.zone.Mark(zoneFilePickerPopup, popup)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
