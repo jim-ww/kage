@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
@@ -532,6 +533,37 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				cmds = append(cmds, m.maybeLoadNewerHistory())
 			}
 			return m, tea.Batch(cmds...), true
+		}
+
+	// ── Compose box word-left guard ─────────────────────────────────────
+	// charm.land/bubbles/v2 textarea's wordLeft() loops moving the cursor
+	// left until it lands on a non-space rune, with no fallback exit for
+	// "reached column 0 of the first row and everything before it is
+	// whitespace" — characterLeft is then a permanent no-op, so the loop
+	// spins forever and freezes the whole (single-threaded) tea.Program.
+	// Reproduces with as little as a single leading space. Detect that
+	// exact condition here and handle the keypress ourselves (jump to
+	// column 0, matching what the library should do) instead of forwarding
+	// it into the buggy Update().
+	case matchesKey(msg, m.keys.InputAreaKeys.WordBackward):
+		if m.selectedView == viewChat && m.input.Line() == 0 {
+			lines := strings.SplitN(m.input.Value(), "\n", 2)
+			line := []rune(lines[0])
+			col := m.input.Column()
+			if col > len(line) {
+				col = len(line)
+			}
+			stuck := true
+			for _, r := range line[:col] {
+				if !unicode.IsSpace(r) {
+					stuck = false
+					break
+				}
+			}
+			if stuck {
+				m.input.SetCursorColumn(0)
+				return m, nil, true
+			}
 		}
 
 	// ── Message navigation ─────────────────────────────────────────────
