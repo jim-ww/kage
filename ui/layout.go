@@ -8,9 +8,19 @@ import (
 
 // setSelectedView switches the focused view and resizes accordingly — the
 // footer's row count (and so m.height) is view-dependent, so every focus
-// change must go through this instead of a bare assignment.
+// change must go through this instead of a bare assignment. It also keeps
+// the compose textarea's own focus flag in lockstep with the view: leaving
+// it to callers to separately call m.input.Focus()/Blur() let the two drift
+// apart (e.g. a mouse hover flipping selectedView back to viewChat without
+// re-focusing the blurred textarea, so keystrokes got routed to it but
+// silently dropped).
 func (m *Model) setSelectedView(v selectedView) {
 	m.selectedView = v
+	if v == viewChat {
+		m.input.Focus()
+	} else {
+		m.input.Blur()
+	}
 	m.updateSizes()
 }
 
