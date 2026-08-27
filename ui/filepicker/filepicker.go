@@ -729,6 +729,19 @@ func (m Model) canSelect(file string) bool {
 	return false
 }
 
+// SelectedRow returns the currently selected entry's row within the visible
+// page (0-based, matching the rows View renders and zoneFilePickerRow(i)
+// tags), or -1 if nothing is selected/visible. Lets callers (mouse hover/
+// click handling) locate the cursor without re-rendering View and parsing it
+// back out, which is expensive (symlink resolution, ANSI styling) to do on
+// every mouse-motion event.
+func (m Model) SelectedRow() int {
+	if len(m.files) == 0 {
+		return -1
+	}
+	return m.selected - m.minIdx
+}
+
 // HighlightedPath returns the path of the currently highlighted file or directory.
 func (m Model) HighlightedPath() string {
 	if len(m.files) == 0 || m.selected < 0 || m.selected >= len(m.files) {

@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -210,13 +209,11 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.pickingFile {
-		lines := strings.Split(m.filePicker.View(), "\n")
-		row := m.filePickerRowUnderMouse(msg, lines)
+		row := m.filePickerRowUnderMouse(msg)
 		if row < 0 {
 			return m, nil
 		}
-		cursorRow := filePickerCursorRow(lines, m.filePicker.Cursor)
-		return m, filePickerMoveCmd(cursorRow, row)
+		return m, filePickerMoveCmd(m.filePicker.SelectedRow(), row)
 	}
 
 	m.hover.x = msg.Mouse().X
@@ -859,23 +856,13 @@ func (m *Model) selectChatItem(i int) {
 	m.viewport.GotoBottom()
 }
 
-// filePickerCursorRow scans the file picker's rendered lines (one per
-// zoneFilePickerRow) and returns the row currently holding the cursor glyph,
-// or -1 if none does (e.g. an empty directory). The picker's selected index
-// isn't exported, so this is the only way to locate it from the outside.
-func filePickerCursorRow(lines []string, cursor string) int {
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimLeft(ansi.Strip(line), " "), cursor) {
-			return i
-		}
-	}
-	return -1
-}
-
 // filePickerRowUnderMouse returns the file-picker row the mouse is over, or
-// -1 if it isn't over any row.
-func (m Model) filePickerRowUnderMouse(msg tea.MouseMsg, lines []string) int {
-	for i := range lines {
+// -1 if it isn't over any row. Checked against the picker's own zone marks
+// left over from its last render, rather than re-rendering View() here to
+// re-derive them — View() does symlink resolution and ANSI styling per row,
+// too expensive to redo on every mouse-motion event.
+func (m Model) filePickerRowUnderMouse(msg tea.MouseMsg) int {
+	for i := range m.filePicker.Height() {
 		if m.zone.Get(zoneFilePickerRow(i)).InBounds(msg) {
 			return i
 		}
@@ -919,13 +906,12 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 		return m, nil
 	}
 
-	lines := strings.Split(m.filePicker.View(), "\n")
-	targetRow := m.filePickerRowUnderMouse(msg, lines)
+	targetRow := m.filePickerRowUnderMouse(msg)
 	if targetRow < 0 {
 		return m, nil
 	}
 
-	cursorRow := filePickerCursorRow(lines, m.filePicker.Cursor)
+	cursorRow := m.filePicker.SelectedRow()
 
 	clickTime := time.Now()
 	isDoubleClick := m.lastFilePickerRow == targetRow && !m.lastFilePickerTime.IsZero() && clickTime.Sub(m.lastFilePickerTime) < 500*time.Millisecond
