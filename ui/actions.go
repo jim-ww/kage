@@ -198,12 +198,15 @@ func (m *Model) acceptEmojiSuggestion(idx int) {
 
 // cancelPending clears any in-progress edit, reply, or reaction composition.
 func (m *Model) cancelPending() {
+	wasComposing := m.editingMsgIdx >= 0 || m.reactingMsgIdx >= 0
 	m.editingMsgIdx = -1
 	m.replyToIdx = -1
 	m.reactingMsgIdx = -1
 	m.lastClickedMsgIdx = -1
 	m.setEmojiSuggestions(nil)
-	m.restoreStashedDraft()
+	if wasComposing {
+		m.restoreStashedDraft()
+	}
 	m.input.Placeholder = "message..."
 	m.updateSizes()
 }
