@@ -451,7 +451,7 @@ func (s uiStyles) plainTextLine(line string) string {
 // author, dimmed timestamp, ...) keep showing through the tint instead of
 // it only covering whatever ran before the first reset.
 func (s uiStyles) rowBackgroundTint(line string) string {
-	bgCode, _, ok := strings.Cut(lipgloss.NewStyle().Background(s.colors.borderD).Render("\x00"), "\x00")
+	bgCode, _, ok := strings.Cut(lipgloss.NewStyle().Background(s.colors.rowHoverBg).Render("\x00"), "\x00")
 	if !ok {
 		return line
 	}

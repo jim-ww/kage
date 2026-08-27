@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
+	"strconv"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -108,6 +111,7 @@ type uiColors struct {
 	statusFg    color.Color
 	noticeBg    color.Color
 	noticeFg    color.Color
+	rowHoverBg  color.Color
 }
 
 func newUIColors(theme Theme) uiColors {
@@ -132,5 +136,37 @@ func newUIColors(theme Theme) uiColors {
 		statusFg:    lipgloss.Color(theme.StatusFg),
 		noticeBg:    lipgloss.Color(theme.NoticeBg),
 		noticeFg:    lipgloss.Color(theme.NoticeFg),
+		// rowHoverBg is a hover highlight barely a shade off the app
+		// background - blending most of the way toward it rather than using
+		// borderD outright, which reads as a jarringly bright box around the
+		// row instead of a subtle "this one's highlighted" cue.
+		rowHoverBg: lipgloss.Color(blendHex(theme.AppBg, theme.BorderD, 0.22)),
 	}
+}
+
+// blendHex linearly interpolates between two "#rrggbb" hex colors, t=0
+// returning a and t=1 returning b. Falls back to a on any parse failure
+// (e.g. a theme override that isn't valid hex) rather than panicking.
+func blendHex(a, b string, t float64) string {
+	ar, ag, ab, ok1 := parseHexRGB(a)
+	br, bg, bb, ok2 := parseHexRGB(b)
+	if !ok1 || !ok2 {
+		return a
+	}
+	lerp := func(x, y uint8) uint8 {
+		return uint8(float64(x) + t*(float64(y)-float64(x)))
+	}
+	return fmt.Sprintf("#%02x%02x%02x", lerp(ar, br), lerp(ag, bg), lerp(ab, bb))
+}
+
+func parseHexRGB(hex string) (r, g, b uint8, ok bool) {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return 0, 0, 0, false
+	}
+	v, err := strconv.ParseUint(hex, 16, 32)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return uint8(v >> 16), uint8(v >> 8), uint8(v), true
 }
