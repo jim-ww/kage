@@ -113,13 +113,25 @@ func (m Model) callLogLine(msg Message, msgIdx int) string {
 // own expand zone) toggles it open via Model.expandedMsgs.
 const maxCollapsedBodyLines = 6
 
+// maxSenderNameDisplayWidth caps how wide a single sender name is allowed to
+// make every message's "name:" column - without it, one contact with an
+// unusually long name/JID localpart would push the label (and so the start
+// of every message's body) uselessly far right for the whole chat.
+const maxSenderNameDisplayWidth = 16
+
 // senderDisplayName returns name as-is unless it looks like a bare JID (no
 // resolved nickname upstream), in which case only the localpart before '@'
 // is shown - a full JID is too wide to sit at the start of every line in
-// the message list.
+// the message list. Also truncates to maxSenderNameDisplayWidth runes with
+// a trailing "…", so a single long name can't blow out the shared name
+// column every message in the chat is padded to (see maxSenderNameWidth).
 func senderDisplayName(name string) string {
 	if at := strings.IndexByte(name, '@'); at >= 0 {
-		return name[:at]
+		name = name[:at]
+	}
+	runes := []rune(name)
+	if len(runes) > maxSenderNameDisplayWidth {
+		return string(runes[:maxSenderNameDisplayWidth-1]) + "…"
 	}
 	return name
 }
@@ -169,7 +181,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		nameStyle = m.styles.messageNickMe
 	}
 	name := senderDisplayName(msg.Author)
-	label := name + strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name))) + ":"
+	label := name + ":" + strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name)))
 	prefixWidth := lipgloss.Width(label) + 1 // trailing space between "name:" and what follows it
 	pad := strings.Repeat(" ", prefixWidth)
 
