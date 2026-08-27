@@ -15,7 +15,7 @@ import (
 // reset. Each body line must now carry its own foreground code directly.
 func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
 	styles := newUIStyles(DefaultTheme())
-	m := Model{styles: styles, showNames: true, flashMsgIdx: -1}
+	m := Model{styles: styles, showNames: true, flashMsgIdx: -1, selectedMsg: -1}
 	msg := Message{
 		Author:  "bob",
 		Content: "this is a fairly long message that should wrap across multiple lines in the chat viewport for testing",
@@ -24,8 +24,8 @@ func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
 
 	out := m.renderMessage(msg, 0, 40, []Message{msg})
 	lines := strings.Split(out, "\n")
-	if len(lines) < 2 {
-		t.Fatalf("expected message to wrap across multiple lines, got %d: %q", len(lines), out)
+	if len(lines) < 3 {
+		t.Fatalf("expected a header line plus a body wrapped across multiple lines, got %d: %q", len(lines), out)
 	}
 
 	fg := styles.plainText.Render("x")
@@ -34,9 +34,12 @@ func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
 		t.Fatalf("could not extract foreground SGR prefix from %q", fg)
 	}
 
-	for i, line := range lines {
+	// lines[0] is the header (dir glyph/name/timestamp) on its own line, not
+	// message body text - only the body lines that follow need their own
+	// foreground code.
+	for i, line := range lines[1:] {
 		if !strings.Contains(line, fgCode) {
-			t.Fatalf("line %d missing explicit foreground code %q: %q", i, fgCode, line)
+			t.Fatalf("line %d missing explicit foreground code %q: %q", i+1, fgCode, line)
 		}
 	}
 }

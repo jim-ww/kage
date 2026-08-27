@@ -527,13 +527,23 @@ func (s uiStyles) renderMessagePrefix(selected, hovered bool) string {
 }
 
 // renderMessageHeader renders a directional glyph (« them, » me), an
-// optional sender name, and the timestamp, all color-coded by sender.
-func (s uiStyles) renderMessageHeader(name, timeLabel string, isMe bool) string {
+// optional sender name, and the timestamp, all color-coded by sender. This
+// is the message's own selection/hover indicator (there's no separate
+// left-hand cursor glyph) - selected bolds it, hovered underlines it, so
+// keyboard navigation between messages stays visible without needing a
+// dedicated marker column.
+func (s uiStyles) renderMessageHeader(name, timeLabel string, isMe, selected, hovered bool) string {
 	timeStyle := s.messageNickThem
 	glyph := "«"
 	if isMe {
 		timeStyle = s.messageNickMe
 		glyph = "»"
+	}
+	switch {
+	case selected:
+		timeStyle = timeStyle.Bold(true)
+	case hovered:
+		timeStyle = timeStyle.Underline(true)
 	}
 	return timeStyle.Render(glyph+" "+name+"["+timeLabel+"]") + " "
 }

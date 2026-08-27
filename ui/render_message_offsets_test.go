@@ -37,7 +37,7 @@ func TestRenderMessagesWithOffsetsMatchesLineSplit(t *testing.T) {
 
 	m := Model{
 		styles:        styles,
-		width:         80,
+		width:         120,
 		height:        24,
 		sidebarHidden: true,
 		zone:          zm,
@@ -57,15 +57,16 @@ func TestRenderMessagesWithOffsetsMatchesLineSplit(t *testing.T) {
 		t.Fatalf("got %d offsets, want %d", len(offsets), len(msgs))
 	}
 
-	// Each offset must point at a line that actually starts the
-	// corresponding message's rendered content within the split lines,
-	// not drift past it as the message index grows.
+	// Each offset must point at the line that actually starts the
+	// corresponding message's rendered block (its header line, immediately
+	// followed by its body content line), not drift past it as the message
+	// index grows.
 	for i, off := range offsets {
-		if off < 0 || off >= len(lines) {
+		if off < 0 || off+1 >= len(lines) {
 			t.Fatalf("offset[%d]=%d out of range (len(lines)=%d)", i, off, len(lines))
 		}
-		if !strings.Contains(lines[off], msgs[i].Content) {
-			t.Fatalf("offset[%d]=%d does not point at message %d's content line, got %q", i, off, i, lines[off])
+		if !strings.Contains(lines[off+1], msgs[i].Content) {
+			t.Fatalf("offset[%d]=%d does not point at message %d's block, got header %q / body %q", i, off, i, lines[off], lines[off+1])
 		}
 	}
 }

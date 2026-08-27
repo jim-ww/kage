@@ -90,8 +90,36 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 // key presses in chats with many messages, the same issue
 // refreshViewportSelection already fixed for mouse motion.
 func (m *Model) refreshViewportScrollTo(oldIdx, msgIdx int) {
+	extra := m.clearStaleMessageHover(oldIdx, msgIdx)
 	m.refreshViewportSelection(oldIdx, msgIdx)
+	if extra >= 0 {
+		m.refreshViewportSelection(extra, extra)
+	}
 	m.applyScrollMargin(msgIdx)
+}
+
+// clearStaleMessageHover drops a mouse-hover left over on some other message
+// row before a keyboard-driven selection change - selection moving via the
+// keyboard never itself moves the pointer, so without this a message the
+// mouse is still physically sitting over keeps showing its hover-only
+// affordances (the underlined header, the reply button) even after the
+// keyboard selection has moved on to a different row entirely. Returns the
+// index of that other row if it needs its own re-render (it isn't already
+// covered by refreshViewportScrollTo's oldIdx/msgIdx patch), or -1.
+func (m *Model) clearStaleMessageHover(oldIdx, newIdx int) int {
+	if m.hover == nil || m.hover.id == "" {
+		return -1
+	}
+	hoveredIdx, ok := messageIndexFromZone(m.hover.id)
+	if !ok {
+		return -1
+	}
+	m.hover.id = ""
+	m.hover.replyBtnIdx = -1
+	if hoveredIdx == oldIdx || hoveredIdx == newIdx {
+		return -1
+	}
+	return hoveredIdx
 }
 
 // refreshViewportFullScrollTo is refreshViewportScrollTo's full-re-render

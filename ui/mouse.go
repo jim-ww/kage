@@ -170,19 +170,21 @@ func (m Model) isHovered(zoneID string) bool {
 
 // isReplyButtonHovered reports whether the pointer is over message i's hover
 // reply button specifically, rather than just somewhere else in its row.
-// btnWidth is the button's rendered width (constant regardless of its own
-// hover state - see renderReplyButton). Requires the row itself to already
-// be the hovered zone; within that, the button occupies the last btnWidth
-// columns of the row (see renderMessage's flush-right layout).
-func (m Model) isReplyButtonHovered(i, btnWidth int) bool {
+// Requires the row itself to already be the hovered zone; within that, it
+// checks the button's own nested zone bounds (marked wherever renderMessage
+// actually placed it, right after the header) - the same nested-zone lookup
+// already used for click handling (see zoneMessageReplyBtn's use in
+// handleMouseClick), so hover detection can't disagree with where a click
+// would land.
+func (m Model) isReplyButtonHovered(i int) bool {
 	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
 		return false
 	}
-	z := m.zone.Get(zoneMessage(i))
+	z := m.zone.Get(zoneMessageReplyBtn(i))
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x > z.EndX-btnWidth
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX
 }
 
 // handleMouseMotion recomputes which zone is under the pointer on every
@@ -272,7 +274,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		// its own re-render or the button freezes at whatever it looked
 		// like the moment the row was entered (see hoverState.replyBtnIdx).
 		newBtnIdx := -1
-		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReplyButtonHovered(idx, m.replyButtonWidth()) {
+		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReplyButtonHovered(idx) {
 			newBtnIdx = idx
 		}
 		if newBtnIdx != m.hover.replyBtnIdx {

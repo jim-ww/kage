@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -71,11 +70,8 @@ func (m Model) formatMessageTime(t time.Time) string {
 // callLogLine renders a call-log entry's compact "📞 ..." line instead of the
 // normal author/content/timestamp bubble layout — same muted/italic styling
 // as a deleted message, since it's informational rather than real chat
-// content. Prefixed the same way renderMessage indents a normal bubble (the
-// selection/hover marker or its two-space placeholder) so it starts at the
-// same column instead of flush against the left edge.
+// content.
 func (m Model) callLogLine(msg Message, msgIdx int) string {
-	prefix := m.styles.renderMessagePrefix(msgIdx == m.selectedMsg, m.isHovered(zoneMessage(msgIdx)))
 	glyph := "call"
 	if m.icons {
 		glyph = "📞"
@@ -98,16 +94,14 @@ func (m Model) callLogLine(msg Message, msgIdx int) string {
 		text = "Call ended"
 	}
 	timeLabel := m.formatMessageTime(msg.SentAt)
-	return prefix + m.styles.messageDeleted.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
-}
-
-// replyButtonWidth is the hover reply button's rendered width - constant
-// regardless of its own hovered state (Reverse(true) doesn't change width).
-// Shared between renderMessage (to reserve the column) and handleMouseMotion
-// (to compute isReplyButtonHovered), so the two never disagree about where
-// the button's column range actually is.
-func (m Model) replyButtonWidth() int {
-	return lipgloss.Width(m.styles.renderReplyButton(m.icons, false))
+	style := m.styles.messageDeleted
+	switch {
+	case msgIdx == m.selectedMsg:
+		style = style.Bold(true)
+	case m.isHovered(zoneMessage(msgIdx)):
+		style = style.Underline(true)
+	}
+	return style.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
 }
 
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
@@ -116,7 +110,6 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 	isSelected := msgIdx == m.selectedMsg
 	rowHovered := m.isHovered(zoneMessage(msgIdx))
-	prefix := m.styles.renderMessagePrefix(isSelected, rowHovered)
 
 	timeLabel := m.formatMessageTime(msg.SentAt)
 	if msg.Encrypted && m.showEncryptedIcon {
@@ -133,9 +126,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 		timeLabel += " " + editIcon
 	}
-	dirGlyph := "«"
 	if msg.IsMe {
-		dirGlyph = "»"
 		switch {
 		case msg.Failed:
 			// Never rendered the same as a plain unconfirmed send (no status
@@ -164,42 +155,34 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	if m.showNames {
 		name = msg.Author + " "
 	}
-	headerPlain := fmt.Sprintf("%s %s[%s ] ", dirGlyph, name, timeLabel)
-	header := m.styles.renderMessageHeader(name, timeLabel, msg.IsMe)
-	// prefixWidth/indentWidth are each computed once and reused below —
-	// lipgloss.Width does a full Unicode grapheme-cluster scan (see
-	// ansi.stringWidth), which shows up as a real cost once you're doing it
-	// for every rendered message on every render; indent in particular is a
-	// string of plain ASCII spaces we just built ourselves, so its width is
-	// trivially indentWidth without re-measuring it at all.
-	prefixWidth := lipgloss.Width(prefix)
-	indentWidth := lipgloss.Width(headerPlain)
-	indent := strings.Repeat(" ", indentWidth)
-	// replyBtnWidth is reserved on the header line whether or not the button
-	// is actually shown, so the line's length (and so the reply button's own
-	// column range, used by isReplyButtonHovered) doesn't shift as the mouse
-	// moves in and out of the row. Width is measured unhovered - Reverse(true)
-	// doesn't change it, so this doubles as the width isReplyButtonHovered
-	// needs before it can itself be computed.
-	replyBtnWidth := m.replyButtonWidth()
-	wrapWidth := totalWidth - prefixWidth - indentWidth - replyBtnWidth
-	wrapWidth = max(wrapWidth, 8)
-	replyBtn := strings.Repeat(" ", replyBtnWidth)
-	if rowHovered {
-		replyBtnHovered := m.isReplyButtonHovered(msgIdx, replyBtnWidth)
-		replyBtn = m.zone.Mark(zoneMessageReplyBtn(msgIdx), m.styles.renderReplyButton(m.icons, replyBtnHovered))
+	// isSelected/rowHovered double as the message's own selection/hover
+	// indicator (bold/underline on the header) - there's no separate
+	// left-hand cursor glyph, so this doesn't cost a column.
+	header := m.styles.renderMessageHeader(name, timeLabel, msg.IsMe, isSelected, rowHovered)
+	// The header (dir glyph/name/timestamp/badges) is its own line, varying
+	// in length message to message - content always starts on the next line
+	// flush against the left edge instead of trailing the header inline, so
+	// an encrypted/edited/receipt badge showing up on one message never
+	// shifts where a neighboring message's text starts.
+	// The reply button trails directly after the header, shown whenever the
+	// row is selected or hovered - so it moves right along with keyboard
+	// navigation between messages, not just mouse hover. It doesn't eat into
+	// wrapWidth since the body text below never shares a line with it.
+	wrapWidth := max(totalWidth, 8)
+	var replyBtn string
+	if isSelected || rowHovered {
+		replyBtnHovered := rowHovered && m.isReplyButtonHovered(msgIdx)
+		replyBtn = " " + m.zone.Mark(zoneMessageReplyBtn(msgIdx), m.styles.renderReplyButton(m.icons, replyBtnHovered))
 	}
 
 	var lines []string
 	if msg.ReplyTo != nil {
 		reply := m.replyPreview(*msg.ReplyTo, allMsgs)
-		replyWrapped := strings.SplitSeq(ansi.Wrap(reply, max(8, totalWidth-prefixWidth-2), " "), "\n")
+		replyWrapped := strings.SplitSeq(ansi.Wrap(reply, max(8, totalWidth-2), " "), "\n")
 		for line := range replyWrapped {
-			// The selection/hover marker (">") belongs on the message's
-			// content line, not the quoted reply line above it - so the
-			// reply line always gets the plain indent here. Marked with its
-			// own zone (nested inside the outer zoneMessage) so a click here
-			// jumps to the quoted message instead of replying to this one.
+			// Marked with its own zone (nested inside the outer zoneMessage)
+			// so a click here jumps to the quoted message instead of
+			// replying to this one.
 			lines = append(lines, m.zone.Mark(zoneMessageReply(msgIdx), "  "+m.styles.messageReply.Render(line)))
 		}
 	}
@@ -232,30 +215,20 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	} else {
 		bodyContent = FormatMessageBody(msg.Content)
 	}
+	lines = append(lines, header+replyBtn)
+
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
-	for i, line := range bodyLines {
+	for _, line := range bodyLines {
 		if msg.Retracted {
 			line = m.styles.messageDeleted.Render(line)
 		} else {
 			line = m.styles.plainTextLine(line)
 		}
-		if i == 0 {
-			// Reply button sits flush against the chat pane's right edge
-			// rather than trailing the header text, so its column stays put
-			// regardless of message length - pad the header line out to
-			// totalWidth-replyBtnWidth before appending it.
-			headerLine := prefix + header + line
-			if pad := (totalWidth - replyBtnWidth) - lipgloss.Width(headerLine); pad > 0 {
-				headerLine += strings.Repeat(" ", pad)
-			}
-			lines = append(lines, headerLine+replyBtn)
-			continue
-		}
-		lines = append(lines, "  "+indent+line)
+		lines = append(lines, line)
 	}
 
 	if len(msg.Reactions) > 0 {
-		lines = append(lines, "  "+indent+m.styles.plainText.Render(renderReactions(msg.Reactions)))
+		lines = append(lines, m.styles.plainText.Render(renderReactions(msg.Reactions)))
 	}
 
 	if m.flashMsgIdx >= 0 && msgIdx == m.flashMsgIdx {
