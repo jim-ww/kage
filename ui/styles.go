@@ -435,27 +435,27 @@ func (s uiStyles) contextMenuRow(label string, hovered bool, width int) string {
 // already carries its own ANSI codes (e.g. chroma syntax highlighting) —
 // wrapping already-colored text in another Foreground style would only take
 // effect up to that text's own embedded reset, leaving whatever follows the
-// reset in the wrong color instead of themFg.
-// plainTextLine renders line in the default message-body color, carrying the
-// same selected/hovered emphasis as renderMessageHeader (bold/underline) so
-// the whole message - not just its header - reflects which one is currently
-// selected/hovered. Lines that already carry their own ANSI styling
-// (chroma-highlighted code, XEP-0393 spans) are left untouched: wrapping
-// already-rendered text in another Style.Render loses that styling at the
-// first embedded reset code, the same reason messageFlash strips before
-// re-rendering rather than nesting.
-func (s uiStyles) plainTextLine(line string, selected, hovered bool) string {
+// reset in the wrong color instead of themFg. Selected/hovered emphasis is
+// applied afterward, across the whole row at once, by rowBackgroundTint -
+// not here.
+func (s uiStyles) plainTextLine(line string) string {
 	if strings.Contains(line, "\x1b[") {
 		return line
 	}
-	style := s.plainText
-	switch {
-	case selected:
-		style = style.Bold(true)
-	case hovered:
-		style = style.Underline(true)
+	return s.plainText.Render(line)
+}
+
+// rowBackgroundTint tints an already fully-rendered message row with a
+// subtle background, reapplying it after every embedded SGR reset ("\x1b[m")
+// so the row's own per-fragment foreground colors (sender name, reply
+// author, dimmed timestamp, ...) keep showing through the tint instead of
+// it only covering whatever ran before the first reset.
+func (s uiStyles) rowBackgroundTint(line string) string {
+	bgCode, _, ok := strings.Cut(lipgloss.NewStyle().Background(s.colors.borderD).Render("\x00"), "\x00")
+	if !ok {
+		return line
 	}
-	return style.Render(line)
+	return bgCode + strings.ReplaceAll(line, "\x1b[m", "\x1b[m"+bgCode) + "\x1b[m"
 }
 
 func (s uiStyles) viewportContent(width, height int, content string) string {

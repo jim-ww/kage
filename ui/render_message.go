@@ -95,14 +95,16 @@ func (m Model) callLogLine(msg Message, msgIdx int) string {
 		text = "Call ended"
 	}
 	timeLabel := m.formatMessageTime(msg.SentAt)
-	style := m.styles.messageDeleted
+	line := m.styles.messageDeleted.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
 	switch {
 	case msgIdx == m.selectedMsg:
-		style = style.Bold(true)
+		line = m.styles.messageBar.Render("▌") + " " + line
 	case m.isHovered(zoneMessage(msgIdx)):
-		style = style.Underline(true)
+		line = "  " + m.styles.rowBackgroundTint(line)
+	default:
+		line = "  " + line
 	}
-	return style.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
+	return line
 }
 
 // maxCollapsedBodyLines is how many wrapped body lines a message shows
@@ -211,13 +213,9 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	for i, line := range bodyLines {
 		var styled string
 		if msg.Retracted {
-			style := m.styles.messageDeleted
-			if rowHovered {
-				style = style.Underline(true)
-			}
-			styled = style.Render(line)
+			styled = m.styles.messageDeleted.Render(line)
 		} else {
-			styled = m.styles.plainTextLine(line, false, rowHovered)
+			styled = m.styles.plainTextLine(line)
 		}
 		switch {
 		case i == 0 && bodyOnHeaderLine:
@@ -239,23 +237,33 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	if len(msg.Reactions) > 0 {
-		reactions := m.styles.plainText
-		if rowHovered {
-			reactions = reactions.Underline(true)
-		}
-		lines = append(lines, pad+reactions.Render(renderReactions(msg.Reactions)))
+		lines = append(lines, pad+m.styles.plainText.Render(renderReactions(msg.Reactions)))
 	}
 
 	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, isSelected))
 
+	// The left-edge bar (thick, red) marks selection only; it must sit flush
+	// against the pane's own left edge - not indented behind a padding
+	// column - so unselected rows get the same 2-cell-wide gap filled with
+	// blank space instead, keeping every row's text aligned regardless of
+	// whether the bar is showing.
 	if isSelected {
-		bar := m.styles.messageBar.Render("│") + " "
+		bar := m.styles.messageBar.Render("▌") + " "
 		for i, line := range lines {
 			lines[i] = bar + line
 		}
 	} else {
 		for i, line := range lines {
 			lines[i] = "  " + line
+		}
+	}
+
+	// Hovering tints every line of the row with a subtle background instead
+	// of underlining individual fragments, so the whole message reads as
+	// one highlighted block.
+	if rowHovered {
+		for i, line := range lines {
+			lines[i] = m.styles.rowBackgroundTint(line)
 		}
 	}
 

@@ -54,12 +54,12 @@ func TestPlainTextLineSkipsAlreadyColoredText(t *testing.T) {
 	styles := newUIStyles(DefaultTheme())
 	colored := "\x1b[38;5;81mfunc\x1b[0m main()"
 
-	if got := styles.plainTextLine(colored, false, false); got != colored {
+	if got := styles.plainTextLine(colored); got != colored {
 		t.Fatalf("expected already-colored line to pass through unchanged, got %q", got)
 	}
 
 	plain := "just text"
-	if got := styles.plainTextLine(plain, false, false); got == plain {
+	if got := styles.plainTextLine(plain); got == plain {
 		t.Fatalf("expected plain line to gain a foreground style, got unchanged %q", got)
 	}
 }
