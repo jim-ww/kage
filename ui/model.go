@@ -56,14 +56,9 @@ type Model struct {
 	defaultEncryptionMode string
 
 	// timeLayout is a custom Go time layout for message timestamps; empty
-	// means the default ("15:04", full date for older messages depending on
-	// timeOnlyToday).
+	// means the default bare "15:04" (the date is carried by a day-divider
+	// line instead - see dateDividerLabel/renderDateDivider).
 	timeLayout string
-
-	// timeOnlyToday: with the default time layout, show time-only for
-	// messages sent today instead of a full date. Ignored when timeLayout
-	// is set.
-	timeOnlyToday bool
 
 	// hover holds the zone ID currently under the pointer (empty if none),
 	// so the currently-hovered send button/chat item/account row/message/
@@ -363,7 +358,6 @@ type Model struct {
 type DisplayOptions struct {
 	Icons              bool   // show icons for attachments/encryption instead of plain-text tags
 	TimeLayout         string // custom Go time layout for message timestamps; empty means the default
-	TimeOnlyToday      bool   // with the default time layout, show time-only for messages sent today instead of a full date
 	MaxMessagesPerChat int    // cap on messages kept per chat in memory/view; <= 0 means no cap
 	UseGPG             bool   // whether gpg encryption is available; hides "gpg" from the per-chat encryption picker when off
 	ShowEncryptedIcon  bool   // show a lock icon/tag next to encrypted messages
@@ -475,7 +469,6 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		defaultEncryptionMode:  display.DefaultEncryptionMode,
 		noticeDuration:         noticeDuration,
 		timeLayout:             display.TimeLayout,
-		timeOnlyToday:          display.TimeOnlyToday,
 		hover:                  hv,
 		accounts:               accounts,
 		currentAccount:         startAccount,

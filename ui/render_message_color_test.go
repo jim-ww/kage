@@ -24,10 +24,11 @@ func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
 
 	out := m.renderMessage(msg, 0, 40, []Message{msg}, maxSenderNameWidth([]Message{msg}))
 	lines := strings.Split(out, "\n")
-	// header+first body line, at least one more wrapped body line, plus the
+	// a date-divider line (message 0 always starts a new day), then the
+	// header+first body line, at least one more wrapped body line, and the
 	// trailing time/status line.
-	if len(lines) < 4 {
-		t.Fatalf("expected a header+body line, a wrapped continuation, and a status line, got %d: %q", len(lines), out)
+	if len(lines) < 5 {
+		t.Fatalf("expected a divider, a header+body line, a wrapped continuation, and a status line, got %d: %q", len(lines), out)
 	}
 
 	fg := styles.plainText.Render("x")
@@ -36,13 +37,14 @@ func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
 		t.Fatalf("could not extract foreground SGR prefix from %q", fg)
 	}
 
-	// lines[0] carries the header ("name: ") plus the body's first wrapped
-	// line inline; every body line (all but the last, which is the
-	// time/status line) must carry its own foreground code so it can't
-	// silently inherit some other line's color via an embedded ANSI reset.
-	for i, line := range lines[:len(lines)-1] {
+	// lines[0] is the date divider (its own, unrelated styling); lines[1]
+	// carries the header ("name: ") plus the body's first wrapped line
+	// inline. Every body line (all but the last, which is the time/status
+	// line) must carry its own foreground code so it can't silently inherit
+	// some other line's color via an embedded ANSI reset.
+	for i, line := range lines[1 : len(lines)-1] {
 		if !strings.Contains(line, fgCode) {
-			t.Fatalf("line %d missing explicit foreground code %q: %q", i, fgCode, line)
+			t.Fatalf("line %d missing explicit foreground code %q: %q", i+1, fgCode, line)
 		}
 	}
 }

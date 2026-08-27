@@ -56,31 +56,36 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 }
 
 // formatMessageTime formats a message timestamp per the user's config: a
-// custom Go time layout when set; otherwise, with timeOnlyToday (the
-// default), a progressively more specific relative label - "today 15:04",
-// "yesterday 15:04", "Jan 2 15:04" within the current year, "Jan 2 2025
-// 15:04" for anything older - so recent messages (the vast majority anyone
-// actually reads) stay compact while older ones still carry a full date.
-// AlwaysShowFullDate (timeOnlyToday off) skips all of that in favor of the
-// same explicit "Jan 2 2006 15:04" for every message, today included.
+// custom Go time layout when set, otherwise a bare "15:04" - the date isn't
+// repeated on every message at all, since a date-divider line (see
+// dateDividerLabel/renderDateDivider) already marks it once per day.
 func (m Model) formatMessageTime(t time.Time) string {
 	if m.timeLayout != "" {
 		return t.Format(m.timeLayout)
 	}
-	if !m.timeOnlyToday {
-		return t.Format("Jan 2 2006 15:04")
+	return t.Format("15:04")
+}
+
+// dateDividerLabel formats the date a day-divider line shows: just "Jan 2"
+// within the current year, "Jan 2 2025" once the year isn't obvious anymore.
+func dateDividerLabel(t, now time.Time) string {
+	if t.Year() == now.Year() {
+		return t.Format("Jan 2")
 	}
-	now := time.Now()
-	switch {
-	case sameDay(t, now):
-		return t.Format("today 15:04")
-	case sameDay(t, now.AddDate(0, 0, -1)):
-		return t.Format("yesterday 15:04")
-	case t.Year() == now.Year():
-		return t.Format("Jan 2 15:04")
-	default:
-		return t.Format("Jan 2 2006 15:04")
+	return t.Format("Jan 2 2006")
+}
+
+// messageDateDivider returns the day-divider line to show right before msg
+// (empty if none is needed) - whenever it's the first message in the loaded
+// history, or the previous message fell on a different calendar day.
+func (m Model) messageDateDivider(msgIdx, width int, allMsgs []Message) string {
+	if msgIdx < 0 || msgIdx >= len(allMsgs) {
+		return ""
 	}
+	if msgIdx > 0 && sameDay(allMsgs[msgIdx].SentAt, allMsgs[msgIdx-1].SentAt) {
+		return ""
+	}
+	return m.styles.renderDateDivider(width, dateDividerLabel(allMsgs[msgIdx].SentAt, time.Now()))
 }
 
 // callLogLine renders a call-log entry's compact "📞 ..." line instead of the
@@ -184,8 +189,13 @@ func maxSenderNameWidth(msgs []Message) int {
 }
 
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message, nameWidth int) string {
+	divider := m.messageDateDivider(msgIdx, totalWidth, allMsgs)
+	if divider != "" {
+		divider += "\n"
+	}
+
 	if msg.CallLog != nil {
-		return m.callLogLine(msg, msgIdx)
+		return divider + m.callLogLine(msg, msgIdx)
 	}
 	isSelected := msgIdx == m.selectedMsg
 	rowHovered := m.isHovered(zoneMessage(msgIdx))
@@ -323,7 +333,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 	}
 
-	return strings.Join(lines, "\n")
+	return divider + strings.Join(lines, "\n")
 }
 
 // renderMessageStatusLine renders the line under a message's body: dimmed

@@ -418,6 +418,17 @@ func (s uiStyles) plainTextLine(line string) string {
 	return s.plainText.Render(line)
 }
 
+// renderDateDivider renders a centered "── Jan 2 ──" separator line marking
+// the start of a new calendar day in the message list, dashes padded out to
+// width on both sides.
+func (s uiStyles) renderDateDivider(width int, label string) string {
+	text := " " + label + " "
+	dashes := max(0, width-lipgloss.Width(text))
+	left := dashes / 2
+	line := strings.Repeat("─", left) + text + strings.Repeat("─", dashes-left)
+	return s.messageTime.Render(line)
+}
+
 // rowBackgroundTint tints an already fully-rendered message row with a
 // subtle background, reapplying it after every embedded SGR reset ("\x1b[m")
 // so the row's own per-fragment foreground colors (sender name, reply

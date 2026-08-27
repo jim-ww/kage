@@ -47,11 +47,9 @@ type Config struct {
 	// default.
 	FilePickerFilesFirst bool `yaml:"file_picker_files_first,omitempty"`
 	// TimeLayout is a custom Go time layout for message timestamps;
-	// unset means the default ("15:04"/"2006-01-02 15:04").
+	// unset means the default bare "15:04" (dates are shown via a
+	// once-per-day divider line, not repeated on every message).
 	TimeLayout string `yaml:"time_layout,omitempty"`
-	// AlwaysShowFullDate: with the default time layout, show the full
-	// date even for messages sent today; off by default.
-	AlwaysShowFullDate bool `yaml:"always_show_full_date,omitempty"`
 	// OpenLastChatDisabled disables reopening the last opened chat
 	// (State.LastChatAddress) on startup; off by default.
 	OpenLastChatDisabled bool `yaml:"open_last_chat_disabled,omitempty"`

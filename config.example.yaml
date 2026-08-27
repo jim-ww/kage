@@ -18,8 +18,8 @@ accounts:
 # icons_disabled: false # hides icons for attachments/encryption in favor of plain-text tags
 # file_picker_files_first: false # shows files before directories in the attach-file picker regardless of sort order
 # file_picker_sort_field: updated # "created" or "updated"; persisted from cycling sort in the attach-file picker
-# file_picker_sort_ascending: false # persisted from cycling sort in the attach-file picker# time_layout: "" # custom Go time layout for message timestamps; empty means the default ("15:04"/"2006-01-02 15:04")
-# always_show_full_date: false # with the default time layout, show the full date even for messages sent today
+# file_picker_sort_ascending: false # persisted from cycling sort in the attach-file picker
+# time_layout: "" # custom Go time layout for message timestamps; empty means the default bare "15:04" (dates show via a once-per-day divider line)
 # default_account: "" # JID selected on startup; empty means the first configured account
 # open_last_chat_disabled: false # disables reopening the last chat on startup
 # last_chat_account: "" # JID of the account owning the last opened chat; persisted automatically

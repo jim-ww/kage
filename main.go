@@ -244,7 +244,6 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		ShowEncryptedIcon:       cfg.ShowEncryptedIcon,
 		DefaultEncryptionMode:   cfg.DefaultEncryptionMode,
 		TimeLayout:              cfg.TimeLayout,
-		TimeOnlyToday:           !cfg.AlwaysShowFullDate,
 		MaxMessagesPerChat:      cfg.MaxMessagesPerChat,
 		NoticeDuration:          cfg.NoticeDurationValue(),
 		FilePickerDirsFirst:     !cfg.FilePickerFilesFirst,
