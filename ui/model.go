@@ -185,6 +185,7 @@ type Model struct {
 	replyToIdx           int               // >= 0 while composing a reply; -1 otherwise
 	reactingMsgIdx       int               // >= 0 while composing a reaction; -1 otherwise
 	flashMsgIdx          int               // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
+	expandedMsgs         map[string]bool   // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
 	flashGen             int               // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
 	emojiSuggestions     []emojiSuggestion // live fuzzy matches for the shortcode being typed, while reactingMsgIdx >= 0
 	emojiSuggestIdx      int               // which suggestion is highlighted; left/right to move, tab to accept it
@@ -495,6 +496,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		selectedAttachment:     -1,
 		reactingMsgIdx:         -1,
 		flashMsgIdx:            -1,
+		expandedMsgs:           make(map[string]bool),
 		lastClickedMsgIdx:      -1,
 		lastFilePickerRow:      -1,
 		sender:                 sender,

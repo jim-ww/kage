@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -104,6 +105,37 @@ func (m Model) callLogLine(msg Message, msgIdx int) string {
 	return style.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
 }
 
+// maxCollapsedBodyLines is how many wrapped body lines a message shows
+// before collapsing behind a "show more" button - clicking (or the row's
+// own expand zone) toggles it open via Model.expandedMsgs.
+const maxCollapsedBodyLines = 6
+
+// senderDisplayName returns name as-is unless it looks like a bare JID (no
+// resolved nickname upstream), in which case only the localpart before '@'
+// is shown - a full JID is too wide to sit at the start of every line in
+// the message list.
+func senderDisplayName(name string) string {
+	if at := strings.IndexByte(name, '@'); at >= 0 {
+		return name[:at]
+	}
+	return name
+}
+
+// msgKey returns a stable key for a message's per-row UI state (currently
+// just expandedMsgs) that survives history reloads/pagination, unlike a
+// raw slice index: prefers the server-assigned stanza ID, falling back to
+// the client-generated correlation ID for not-yet-acked outgoing echoes,
+// and only to the index when neither is set (e.g. synthetic rows).
+func msgKey(msg Message, idx int) string {
+	if msg.ID != "" {
+		return msg.ID
+	}
+	if msg.LocalID != "" {
+		return "local:" + msg.LocalID
+	}
+	return fmt.Sprintf("idx:%d", idx)
+}
+
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
 	if msg.CallLog != nil {
 		return m.callLogLine(msg, msgIdx)
@@ -111,89 +143,38 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	isSelected := msgIdx == m.selectedMsg
 	rowHovered := m.isHovered(zoneMessage(msgIdx))
 
-	timeLabel := m.formatMessageTime(msg.SentAt)
-	if msg.Encrypted && m.showEncryptedIcon {
-		lockIcon := "enc"
-		if m.icons {
-			lockIcon = "🔒"
-		}
-		timeLabel += " " + lockIcon
-	}
-	if msg.Edited {
-		editIcon := "edited"
-		if m.icons {
-			editIcon = "✎"
-		}
-		timeLabel += " " + editIcon
-	}
+	nameStyle := m.styles.messageNickThem
 	if msg.IsMe {
-		switch {
-		case msg.Failed:
-			// Never rendered the same as a plain unconfirmed send (no status
-			// glyph at all) - that ambiguity is exactly what let a message
-			// that was never actually transmitted sit in the chat looking
-			// like every other line. See Message.Failed's doc comment.
-			timeLabel += " ✗"
-		case msg.Pending:
-			timeLabel += " …"
-		case msg.ID != "" && msg.Delivered:
-			// The peer's client has it, which implies the server did too -
-			// shown regardless of ServerAcked, since a delivery receipt can
-			// race ahead of our own ping-based server confirmation.
-			timeLabel += " ✓✓"
-		case msg.ID != "" && msg.ServerAcked:
-			// Our server confirmed it has this (see Message.ServerAcked's doc
-			// comment) - not yet peer-delivered, or no receipt is expected.
-			timeLabel += " ✓"
-			// Sent locally (has an ID) but neither confirmed by the server nor
-			// delivered yet: deliberately no glyph at all, rather than a
-			// guessed "✓" - see Message.ServerAcked's doc comment for why a
-			// local send succeeding is not proof the server ever got it.
-		}
+		nameStyle = m.styles.messageNickMe
 	}
-	name := ""
-	if m.showNames {
-		name = msg.Author + " "
+	name := senderDisplayName(msg.Author)
+	label := name + ":"
+	if !m.showNames {
+		label = ""
 	}
-	// isSelected/rowHovered double as the message's own selection/hover
-	// indicator (bold/underline on the header) - there's no separate
-	// left-hand cursor glyph, so this doesn't cost a column.
-	header := m.styles.renderMessageHeader(name, timeLabel, msg.IsMe, isSelected, rowHovered)
-	// The header (dir glyph/name/timestamp/badges) is its own line, varying
-	// in length message to message - content always starts on the next line
-	// flush against the left edge instead of trailing the header inline, so
-	// an encrypted/edited/receipt badge showing up on one message never
-	// shifts where a neighboring message's text starts.
-	// The reply button trails directly after the header, shown whenever the
-	// row is selected or hovered - so it moves right along with keyboard
-	// navigation between messages, not just mouse hover. It doesn't eat into
-	// wrapWidth since the body text below never shares a line with it.
-	wrapWidth := max(totalWidth, 8)
-	var replyBtn string
-	if isSelected || rowHovered {
-		replyBtnHovered := rowHovered && m.isReplyButtonHovered(msgIdx)
-		replyBtn = " " + m.zone.Mark(zoneMessageReplyBtn(msgIdx), m.styles.renderReplyButton(m.icons, replyBtnHovered))
+	prefixWidth := lipgloss.Width(label)
+	if prefixWidth > 0 {
+		prefixWidth++ // trailing space between "name:" and what follows it
 	}
+	pad := strings.Repeat(" ", prefixWidth)
 
-	var lines []string
+	headerLine := nameStyle.Render(label)
+	if label != "" {
+		headerLine += " "
+	}
 	if msg.ReplyTo != nil {
-		reply := m.replyPreview(*msg.ReplyTo, allMsgs)
-		replyWrapped := strings.SplitSeq(ansi.Wrap(reply, max(8, totalWidth-2), " "), "\n")
-		for line := range replyWrapped {
-			// Marked with its own zone (nested inside the outer zoneMessage)
-			// so a click here jumps to the quoted message instead of
-			// replying to this one.
-			lines = append(lines, m.zone.Mark(zoneMessageReply(msgIdx), "  "+m.styles.messageReply.Render(line)))
-		}
+		reply := m.replyHeaderFragment(*msg.ReplyTo, allMsgs)
+		headerLine += m.zone.Mark(zoneMessageReply(msgIdx), reply)
 	}
 
 	var bodyContent string
-	if msg.Retracted {
+	switch {
+	case msg.Retracted:
 		// The chat view never shows retracted content — only that a delete
 		// happened. Original content/attachments remain available in the
 		// info popup (ctrl+i); we never actually erase local history.
 		bodyContent = "*deleted*"
-	} else if len(msg.Attachments) > 0 {
+	case len(msg.Attachments) > 0:
 		// Attachments is authoritative (XEP-0066), not derived from Content -
 		// a sender's fallback body text isn't guaranteed to literally end
 		// with the attachment URLs, so this only strips them from the
@@ -212,37 +193,76 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 			parts = append(parts, renderAttachmentLine(a, m.icons, chat.Address))
 		}
 		bodyContent = strings.Join(parts, "\n")
-	} else {
+	default:
 		bodyContent = FormatMessageBody(msg.Content)
 	}
-	lines = append(lines, header+replyBtn)
 
+	// Body text trails directly after "name: " on the header's own line
+	// when there's no reply quote to make room for; a reply pushes the body
+	// down to its own line instead, since the quote already occupies the
+	// space right after the name.
+	bodyOnHeaderLine := msg.ReplyTo == nil
+	wrapWidth := max(totalWidth-prefixWidth, 8)
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
-	for _, line := range bodyLines {
+	fullBodyLineCount := len(bodyLines)
+
+	key := msgKey(msg, msgIdx)
+	expanded := m.expandedMsgs[key]
+	if !expanded && len(bodyLines) > maxCollapsedBodyLines {
+		bodyLines = bodyLines[:maxCollapsedBodyLines]
+	}
+	needsExpandButton := fullBodyLineCount > maxCollapsedBodyLines
+
+	var lines []string
+	for i, line := range bodyLines {
+		var styled string
 		if msg.Retracted {
 			style := m.styles.messageDeleted
-			switch {
-			case isSelected:
-				style = style.Bold(true)
-			case rowHovered:
+			if rowHovered {
 				style = style.Underline(true)
 			}
-			line = style.Render(line)
+			styled = style.Render(line)
 		} else {
-			line = m.styles.plainTextLine(line, isSelected, rowHovered)
+			styled = m.styles.plainTextLine(line, false, rowHovered)
 		}
-		lines = append(lines, line)
+		switch {
+		case i == 0 && bodyOnHeaderLine:
+			lines = append(lines, headerLine+styled)
+		case i == 0:
+			lines = append(lines, headerLine)
+			lines = append(lines, pad+styled)
+		default:
+			lines = append(lines, pad+styled)
+		}
+	}
+	if len(bodyLines) == 0 {
+		lines = append(lines, headerLine)
+	}
+
+	if needsExpandButton {
+		expandHovered := m.isExpandButtonHovered(msgIdx)
+		lines = append(lines, pad+m.zone.Mark(zoneMessageExpand(msgIdx), m.styles.renderMsgExpandButton(expanded, expandHovered)))
 	}
 
 	if len(msg.Reactions) > 0 {
 		reactions := m.styles.plainText
-		switch {
-		case isSelected:
-			reactions = reactions.Bold(true)
-		case rowHovered:
+		if rowHovered {
 			reactions = reactions.Underline(true)
 		}
-		lines = append(lines, reactions.Render(renderReactions(msg.Reactions)))
+		lines = append(lines, pad+reactions.Render(renderReactions(msg.Reactions)))
+	}
+
+	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, isSelected))
+
+	if isSelected {
+		bar := m.styles.messageBar.Render("│") + " "
+		for i, line := range lines {
+			lines[i] = bar + line
+		}
+	} else {
+		for i, line := range lines {
+			lines[i] = "  " + line
+		}
 	}
 
 	if m.flashMsgIdx >= 0 && msgIdx == m.flashMsgIdx {
@@ -257,6 +277,71 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderMessageStatusLine renders the line under a message's body: dimmed
+// time/date, then - only while the message is selected - the "^r reply"/
+// "^t react" buttons, then an edited marker and (for our own messages) the
+// send/delivery status glyph.
+func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool) string {
+	timeLabel := m.styles.messageMuted.Render(m.formatMessageTime(msg.SentAt))
+	parts := []string{timeLabel}
+
+	if isSelected {
+		replyHovered := m.isReplyButtonHovered(msgIdx)
+		reactHovered := m.isReactButtonHovered(msgIdx)
+		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), m.styles.renderMsgActionButton("^r", "reply", m.styles.colors.accentCyan, replyHovered))
+		reactBtn := m.zone.Mark(zoneMessageReactBtn(msgIdx), m.styles.renderMsgActionButton("^t", "react", m.styles.colors.borderD, reactHovered))
+		parts = append(parts, replyBtn, reactBtn)
+	}
+
+	if msg.Edited {
+		editIcon := "edited"
+		if m.icons {
+			editIcon = "✎"
+		}
+		parts = append(parts, m.styles.messageMuted.Render(editIcon))
+	}
+
+	if msg.Encrypted && m.showEncryptedIcon {
+		lockIcon := "enc"
+		if m.icons {
+			lockIcon = "🔒"
+		}
+		parts = append(parts, m.styles.messageMuted.Render(lockIcon))
+	}
+
+	if msg.IsMe {
+		var status string
+		switch {
+		case msg.Failed:
+			// Never rendered the same as a plain unconfirmed send (no status
+			// glyph at all) - that ambiguity is exactly what let a message
+			// that was never actually transmitted sit in the chat looking
+			// like every other line. See Message.Failed's doc comment.
+			status = "✗"
+		case msg.Pending:
+			status = "…"
+		case msg.ID != "" && msg.Delivered:
+			// The peer's client has it, which implies the server did too -
+			// shown regardless of ServerAcked, since a delivery receipt can
+			// race ahead of our own ping-based server confirmation.
+			status = "✓✓"
+		case msg.ID != "" && msg.ServerAcked:
+			// Our server confirmed it has this (see Message.ServerAcked's doc
+			// comment) - not yet peer-delivered, or no receipt is expected.
+			status = "✓"
+			// Sent locally (has an ID) but neither confirmed by the server nor
+			// delivered yet: deliberately no glyph at all, rather than a
+			// guessed "✓" - see Message.ServerAcked's doc comment for why a
+			// local send succeeding is not proof the server ever got it.
+		}
+		if status != "" {
+			parts = append(parts, m.styles.messageMuted.Render(status))
+		}
+	}
+
+	return strings.Join(parts, "  ")
 }
 
 // renderReactions formats a message's aggregate reactions as "😂×2 👍" —
@@ -279,6 +364,23 @@ func (m Model) replyPreview(idx int, allMsgs []Message) string {
 	}
 	orig := allMsgs[idx]
 	return fmt.Sprintf("↪ %s: %s", orig.Author, previewText(MessagePreviewContent(orig), previewLen))
+}
+
+// replyHeaderFragment renders the "↩ name · preview" fragment trailing a
+// reply's header line: the quoted author's name in the same color they get
+// as a sender in their own messages, the truncated preview text dimmed.
+func (m Model) replyHeaderFragment(idx int, allMsgs []Message) string {
+	if idx < 0 || idx >= len(allMsgs) {
+		return ""
+	}
+	orig := allMsgs[idx]
+	nameStyle := m.styles.messageNickThem
+	if orig.IsMe {
+		nameStyle = m.styles.messageNickMe
+	}
+	name := nameStyle.Render(senderDisplayName(orig.Author))
+	preview := m.styles.messageMuted.Render(previewText(MessagePreviewContent(orig), previewLen))
+	return "↩ " + name + " · " + preview
 }
 
 // previewLen is the shared truncation budget for single-line message

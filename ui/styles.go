@@ -35,6 +35,8 @@ type uiStyles struct {
 	messageHoverPrefix    lipgloss.Style
 	messageNickMe         lipgloss.Style
 	messageNickThem       lipgloss.Style
+	messageBar            lipgloss.Style
+	messageMuted          lipgloss.Style
 	sidebarStatus         lipgloss.Style
 	sidebarPanel          lipgloss.Style
 	sidebarList           lipgloss.Style
@@ -84,6 +86,13 @@ func newUIStyles(theme Theme) uiStyles {
 			Foreground(colors.nickMe),
 		messageNickThem: lipgloss.NewStyle().
 			Foreground(colors.nickThem),
+		// messageBar draws the selected-message left-edge indicator - red,
+		// reusing the same semantic color as popupDanger/DND rather than
+		// adding a new theme field just for this one glyph.
+		messageBar: lipgloss.NewStyle().
+			Foreground(colors.popupDanger),
+		messageMuted: lipgloss.NewStyle().
+			Foreground(colors.textMuted),
 		sidebarStatus: lipgloss.NewStyle().
 			Bold(true).
 			Padding(0, 1),
@@ -319,6 +328,35 @@ func (s uiStyles) renderReplyButton(icons, hovered bool) string {
 		st = st.Reverse(true)
 	}
 	return st.Render(replyButtonLabel(icons))
+}
+
+// renderMsgActionButton renders a message row's "^r reply"/"^t react"
+// buttons shown under a selected message: the keybind glyph in keyColor
+// (bold, so it reads as a pressable key), the label after it dimmed - the
+// whole thing is a single clickable unit (Reverse(true) on hover flips both
+// halves together so the hit target is visually obvious).
+func (s uiStyles) renderMsgActionButton(key, label string, keyColor color.Color, hovered bool) string {
+	keyStyle := lipgloss.NewStyle().Foreground(keyColor).Bold(true)
+	labelStyle := s.messageMuted
+	if hovered {
+		keyStyle = keyStyle.Reverse(true)
+		labelStyle = labelStyle.Reverse(true)
+	}
+	return keyStyle.Render(key) + labelStyle.Render(" "+label)
+}
+
+// renderMsgExpandButton renders the "show more"/"show less" toggle appended
+// under a message body that was collapsed for exceeding maxCollapsedBodyLines.
+func (s uiStyles) renderMsgExpandButton(expanded, hovered bool) string {
+	label := "▾ show more"
+	if expanded {
+		label = "▴ show less"
+	}
+	st := s.messageMuted.Italic(true)
+	if hovered {
+		st = st.Reverse(true)
+	}
+	return st.Render(label)
 }
 
 func (s uiStyles) renderAttachButton(icons, hovered bool) string {

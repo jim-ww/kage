@@ -57,6 +57,8 @@ func zoneChatItem(i int) string          { return fmt.Sprintf("chat-item-%d", i)
 func zoneMessage(i int) string           { return fmt.Sprintf("msg-%d", i) }
 func zoneMessageReply(i int) string      { return fmt.Sprintf("msg-reply-%d", i) }
 func zoneMessageReplyBtn(i int) string   { return fmt.Sprintf("msg-reply-btn-%d", i) }
+func zoneMessageReactBtn(i int) string   { return fmt.Sprintf("msg-react-btn-%d", i) }
+func zoneMessageExpand(i int) string     { return fmt.Sprintf("msg-expand-%d", i) }
 func zoneEmojiSuggestion(i int) string   { return fmt.Sprintf("emoji-suggest-%d", i) }
 func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove-%d", i) }
 func zoneMsgInfoAttachment(i int) string { return fmt.Sprintf("msg-info-attachment-%d", i) }
@@ -213,6 +215,32 @@ func (m Model) isReplyButtonHovered(i int) bool {
 		return false
 	}
 	z := m.zone.Get(zoneMessageReplyBtn(i))
+	if z.IsZero() {
+		return false
+	}
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+}
+
+// isReactButtonHovered is isReplyButtonHovered's counterpart for the "^t
+// react" button on the message's status line.
+func (m Model) isReactButtonHovered(i int) bool {
+	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
+		return false
+	}
+	z := m.zone.Get(zoneMessageReactBtn(i))
+	if z.IsZero() {
+		return false
+	}
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+}
+
+// isExpandButtonHovered is isReplyButtonHovered's counterpart for a
+// collapsed message's "show more"/"show less" toggle.
+func (m Model) isExpandButtonHovered(i int) bool {
+	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
+		return false
+	}
+	z := m.zone.Get(zoneMessageExpand(i))
 	if z.IsZero() {
 		return false
 	}
@@ -703,6 +731,25 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				m.selectedMsg = i
 				m.refreshViewportScrollTo(old, i)
 				return m, m.actionReplyMessage()
+			}
+		}
+		for i := range msgs {
+			if m.zone.Get(zoneMessageReactBtn(i)).InBounds(msg) {
+				m.notifyTypingStopped()
+				m.lastClickedMsgIdx = -1
+				m.lastClickTime = time.Time{}
+				old := m.selectedMsg
+				m.selectedMsg = i
+				m.refreshViewportScrollTo(old, i)
+				return m, m.actionReactMessage()
+			}
+		}
+		for i, mm := range msgs {
+			if m.zone.Get(zoneMessageExpand(i)).InBounds(msg) {
+				m.notifyTypingStopped()
+				m.expandedMsgs[msgKey(mm, i)] = !m.expandedMsgs[msgKey(mm, i)]
+				m.refreshViewportFullScrollTo(i)
+				return m, nil
 			}
 		}
 		for i, mm := range msgs {

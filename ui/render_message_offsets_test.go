@@ -58,15 +58,15 @@ func TestRenderMessagesWithOffsetsMatchesLineSplit(t *testing.T) {
 	}
 
 	// Each offset must point at the line that actually starts the
-	// corresponding message's rendered block (its header line, immediately
-	// followed by its body content line), not drift past it as the message
-	// index grows.
+	// corresponding message's rendered block - its header line, which (with
+	// no reply quote in the way) carries the body's first line inline right
+	// after "name: " - not drift past it as the message index grows.
 	for i, off := range offsets {
-		if off < 0 || off+1 >= len(lines) {
+		if off < 0 || off >= len(lines) {
 			t.Fatalf("offset[%d]=%d out of range (len(lines)=%d)", i, off, len(lines))
 		}
-		if !strings.Contains(lines[off+1], msgs[i].Content) {
-			t.Fatalf("offset[%d]=%d does not point at message %d's block, got header %q / body %q", i, off, i, lines[off], lines[off+1])
+		if !strings.Contains(lines[off], msgs[i].Content) {
+			t.Fatalf("offset[%d]=%d does not point at message %d's block, got %q", i, off, i, lines[off])
 		}
 	}
 }
