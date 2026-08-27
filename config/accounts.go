@@ -41,19 +41,16 @@ type Account struct {
 	Status string `yaml:"status,omitempty"`
 }
 
-// ResolvePassword returns the account's password, trying the OS keyring
-// first (unless useKeyring is false), then PasswordCmd, then the plaintext
-// Password field. Any keyring error (not found, no Secret Service running,
-// etc.) just falls through to the next method — the keyring is a
-// best-effort first choice, not a hard requirement, since plenty of
-// environments (headless boxes, sandboxes) don't have one available at all.
+// ResolvePassword returns the account's password, trying PasswordCmd first,
+// then the plaintext Password field, and only then the OS keyring (unless
+// useKeyring is false). PasswordCmd/Password are checked first because
+// they're synchronous local reads with no failure mode worth waiting out;
+// the keyring goes last since a missing Secret Service (headless boxes,
+// sandboxes) can make keyring.Get block for many seconds over D-Bus before
+// it gives up — not worth paying that cost when a faster method is already
+// configured. Any keyring error (not found, no Secret Service running,
+// etc.) just means no password was available.
 func (a Account) ResolvePassword(useKeyring bool) (string, error) {
-	if useKeyring {
-		if pass, err := keyring.Get(keyringService, a.JID); err == nil {
-			return pass, nil
-		}
-	}
-
 	if a.PasswordCmd != "" {
 		out, err := exec.Command("sh", "-c", a.PasswordCmd).Output()
 		if err != nil {
@@ -64,6 +61,12 @@ func (a Account) ResolvePassword(useKeyring bool) (string, error) {
 
 	if a.Password != "" {
 		return a.Password, nil
+	}
+
+	if useKeyring {
+		if pass, err := keyring.Get(keyringService, a.JID); err == nil {
+			return pass, nil
+		}
 	}
 
 	return "", fmt.Errorf("no password available for %s (keyring, password_cmd, and password are all unset)", a.JID)
