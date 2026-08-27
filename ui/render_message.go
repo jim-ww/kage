@@ -423,7 +423,7 @@ func (m Model) replyPreview(idx int, allMsgs []Message) string {
 	return fmt.Sprintf("↪ %s: %s", orig.Author, previewText(MessagePreviewContent(orig), previewLen))
 }
 
-// replyHeaderFragment renders the "↩ name · preview" fragment trailing a
+// replyHeaderFragment renders the "↑ name · preview" fragment trailing a
 // reply's header line: the quoted author's name in the same color they get
 // as a sender in their own messages, the truncated preview text dimmed.
 func (m Model) replyHeaderFragment(idx int, allMsgs []Message) string {
@@ -437,7 +437,7 @@ func (m Model) replyHeaderFragment(idx int, allMsgs []Message) string {
 	}
 	name := nameStyle.Render(senderDisplayName(orig.Author))
 	preview := m.styles.messageTime.Render(previewText(MessagePreviewContent(orig), previewLen))
-	return "↩ " + name + " · " + preview
+	return "↑ " + name + " · " + preview
 }
 
 // previewLen is the shared truncation budget for single-line message
