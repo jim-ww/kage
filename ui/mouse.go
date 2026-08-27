@@ -79,6 +79,38 @@ func messageIndexFromZone(id string) (int, bool) {
 	return i, true
 }
 
+// messageIndexAtMouse maps a mouse position onto a message index using the
+// viewport's own scroll offset and each message's known line offset
+// (m.msgOffsets), instead of bubblezone's per-message Mark/Scan
+// (zoneMessage(i) below). bubblezone only reports a zone for the frame in
+// which *both* its start and end markers were scanned; a multi-line message
+// straddling the viewport's visible edge has its tail marker scrolled out of
+// view, so that zone silently keeps stale bounds from whenever it was last
+// fully visible instead of being updated or cleared - Get(zoneMessage(i))
+// then answers with the wrong rectangle (or none at all) even while the
+// message's header is plainly on screen. Line-offset arithmetic against the
+// viewport's own frame has no such blind spot: zonePaneViewport is marked
+// around the already-scrolled, single-frame content (see renderChatArea), so
+// its own bounds are never subject to this problem.
+func (m Model) messageIndexAtMouse(mouse tea.MouseMsg) (int, bool) {
+	if len(m.msgOffsets) == 0 {
+		return 0, false
+	}
+	vp := m.zone.Get(zonePaneViewport)
+	if vp.IsZero() || !vp.InBounds(mouse) {
+		return 0, false
+	}
+	line := m.viewport.YOffset() + (mouse.Mouse().Y - vp.StartY)
+	if line < 0 || line >= len(m.viewportLines) {
+		return 0, false
+	}
+	idx := m.msgIndexAtOffset(line)
+	if idx >= len(m.currentMessages()) {
+		return 0, false
+	}
+	return idx, true
+}
+
 // chatIndexFromZone extracts i back out of a zoneChatItem(i) ID, for
 // handleMouseMotion to tell whether the newly hovered zone is a chat row
 // without re-scanning the list.
@@ -424,11 +456,8 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		}
 	}
 	if m.selectedView == viewChat {
-		msgs := m.currentMessages()
-		for i := range msgs {
-			if m.zone.Get(zoneMessage(i)).InBounds(mouse) {
-				return zoneMessage(i)
-			}
+		if idx, ok := m.messageIndexAtMouse(mouse); ok {
+			return zoneMessage(idx)
 		}
 	}
 	return ""
@@ -688,28 +717,26 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				return m, flashTimer(m.flashGen)
 			}
 		}
-		for i := range msgs {
-			if m.zone.Get(zoneMessage(i)).InBounds(msg) {
-				clickTime := time.Now()
-				isDoubleClick := m.lastClickedMsgIdx == i && !m.lastClickTime.IsZero() && clickTime.Sub(m.lastClickTime) < 500*time.Millisecond
+		if i, ok := m.messageIndexAtMouse(msg); ok {
+			clickTime := time.Now()
+			isDoubleClick := m.lastClickedMsgIdx == i && !m.lastClickTime.IsZero() && clickTime.Sub(m.lastClickTime) < 500*time.Millisecond
 
-				old := m.selectedMsg
-				m.selectedMsg = i
-				m.refreshViewportScrollTo(old, i)
+			old := m.selectedMsg
+			m.selectedMsg = i
+			m.refreshViewportScrollTo(old, i)
 
-				if isDoubleClick {
-					// Double-click: open the message
-					m.lastClickedMsgIdx = -1
-					m.lastClickTime = time.Time{}
-					return m, m.actionOpenMessage()
-				}
-				// Single-click: just select it - replying now happens via the
-				// hover reply button (zoneMessageReplyBtn) or the keybind, not
-				// as a side effect of selecting a message.
-				m.lastClickedMsgIdx = i
-				m.lastClickTime = clickTime
-				return m, nil
+			if isDoubleClick {
+				// Double-click: open the message
+				m.lastClickedMsgIdx = -1
+				m.lastClickTime = time.Time{}
+				return m, m.actionOpenMessage()
 			}
+			// Single-click: just select it - replying now happens via the
+			// hover reply button (zoneMessageReplyBtn) or the keybind, not
+			// as a side effect of selecting a message.
+			m.lastClickedMsgIdx = i
+			m.lastClickTime = clickTime
+			return m, nil
 		}
 	}
 
@@ -824,17 +851,14 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.selectedView == viewChat {
-		msgs := m.currentMessages()
-		for i := range msgs {
-			if m.zone.Get(zoneMessage(i)).InBounds(msg) {
-				old := m.selectedMsg
-				m.selectedMsg = i
-				m.refreshViewportScrollTo(old, i)
-				m.lastClickedMsgIdx = -1
-				m.lastClickTime = time.Time{}
-				m.openContextMenu(m.messageContextMenuItems(i))
-				return m, nil
-			}
+		if i, ok := m.messageIndexAtMouse(msg); ok {
+			old := m.selectedMsg
+			m.selectedMsg = i
+			m.refreshViewportScrollTo(old, i)
+			m.lastClickedMsgIdx = -1
+			m.lastClickTime = time.Time{}
+			m.openContextMenu(m.messageContextMenuItems(i))
+			return m, nil
 		}
 	}
 
