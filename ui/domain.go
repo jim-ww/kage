@@ -420,4 +420,14 @@ type SendOptions struct {
 	// reaction/retraction/correction sends, which target an existing
 	// message's real ID instead.
 	LocalID string
+
+	// SupersedesID, for a manual retry (actionRetryMessage) of a message
+	// that already made it into storage under a real stanza ID before being
+	// flagged Failed (a confirmPendingAcks ack-timeout, as opposed to an
+	// offline/immediate failure that only ever lived in the outbox), is that
+	// old ID. The retry always gets its own fresh ID (there's no way to
+	// resend the exact same stanza), so once it succeeds the adapter deletes
+	// the old failed row rather than leaving it to reappear as a stale
+	// duplicate on every future reload.
+	SupersedesID string
 }

@@ -184,6 +184,17 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
 	AND serverAcked = FALSE;
 
+-- name: DeleteMessageByID :execrows
+-- Used when a manual retry (ui.actionRetryMessage) of a message previously
+-- flagged sendFailed succeeds and gets its own fresh row: the old row (kept
+-- around by idAttr, never a localID - see InsertMessage's doc comment) would
+-- otherwise survive forever and keep reappearing as a Failed duplicate
+-- alongside the newly-sent message on every reload.
+DELETE FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid);
+
 
 -- name: ListMessagesByRoster :many
 SELECT

@@ -68,6 +68,32 @@ func (q *Queries) DeleteChatDraft(ctx context.Context, arg DeleteChatDraftParams
 	return err
 }
 
+const deleteMessageByID = `-- name: DeleteMessageByID :execrows
+DELETE FROM messages
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND rosterJID = ?3
+`
+
+type DeleteMessageByIDParams struct {
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+// Used when a manual retry (ui.actionRetryMessage) of a message previously
+// flagged sendFailed succeeds and gets its own fresh row: the old row (kept
+// around by idAttr, never a localID - see InsertMessage's doc comment) would
+// otherwise survive forever and keep reappearing as a Failed duplicate
+// alongside the newly-sent message on every reload.
+func (q *Queries) DeleteMessageByID(ctx context.Context, arg DeleteMessageByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteMessageByID, arg.AccountJid, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteOmemoDevices = `-- name: DeleteOmemoDevices :exec
 DELETE FROM omemoDevice
 WHERE accountJID = ?1 AND protocol = ?2 AND peerJID = ?3

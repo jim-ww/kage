@@ -1096,6 +1096,34 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		return id, nil
 	}
 
+	if opts.LocalID != "" {
+		// This send may be a manual retry (ui.actionRetryMessage) of a prior
+		// failure markOutboxFailed recorded under this same LocalID. Now that
+		// it succeeded and is about to get its own fresh messages row below,
+		// that stale failed outbox row must go - otherwise it survives
+		// forever and keeps reappearing as a Failed placeholder (see
+		// pendingOutboxMessagesByPeer) alongside the now-successfully-sent
+		// message on every reload/reconnect.
+		if _, _, err := s.deleteOutboxByLocalID(ctx, opts.LocalID); err != nil {
+			slog.Warn("clearing stale outbox entry after successful retry", "jid", s.account.JID, "to", to, "err", err)
+		}
+	}
+	if opts.SupersedesID != "" {
+		// The other shape of retry: the earlier attempt already made it into
+		// the messages table under its own ID before an ack timeout flagged
+		// it sendFailed (see SendOptions.SupersedesID's doc comment). This
+		// send is getting its own fresh row below, so the old one must be
+		// removed here too, or it survives forever as a stale Failed
+		// duplicate.
+		if _, err := s.db.DeleteMessageByID(ctx, storage.DeleteMessageByIDParams{
+			AccountJid: s.account.JID,
+			IDAttr:     nullString(opts.SupersedesID),
+			RosterJid:  nullString(to),
+		}); err != nil {
+			slog.Warn("clearing superseded failed message after successful retry", "jid", s.account.JID, "to", to, "err", err)
+		}
+	}
+
 	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:    s.account.JID,

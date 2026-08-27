@@ -278,6 +278,12 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 	if sendOpts.LocalID == "" {
 		sendOpts.LocalID = newLocalID()
 	}
+	if msgs[idx].ID != "" {
+		// Already made it into storage under a real ID before being flagged
+		// Failed (an ack-timeout, not an offline/immediate failure) - see
+		// SendOptions.SupersedesID's doc comment.
+		sendOpts.SupersedesID = msgs[idx].ID
+	}
 	if msgs[idx].ReplyTo != nil {
 		if rt := *msgs[idx].ReplyTo; rt < len(msgs) && msgs[rt].ID != "" {
 			sendOpts.ReplyToID = msgs[rt].ID
