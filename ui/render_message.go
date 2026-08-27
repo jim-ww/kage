@@ -57,8 +57,8 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 
 // formatMessageTime formats a message timestamp per the user's config: a
 // custom Go time layout when set; otherwise, with timeOnlyToday (the
-// default), a progressively more specific relative label - "Today 15:04",
-// "Yesterday 15:04", "Jan 2 15:04" within the current year, "Jan 2 2025
+// default), a progressively more specific relative label - "today 15:04",
+// "yesterday 15:04", "Jan 2 15:04" within the current year, "Jan 2 2025
 // 15:04" for anything older - so recent messages (the vast majority anyone
 // actually reads) stay compact while older ones still carry a full date.
 // AlwaysShowFullDate (timeOnlyToday off) skips all of that in favor of the
@@ -73,9 +73,9 @@ func (m Model) formatMessageTime(t time.Time) string {
 	now := time.Now()
 	switch {
 	case sameDay(t, now):
-		return t.Format("Today 15:04")
+		return t.Format("today 15:04")
 	case sameDay(t, now.AddDate(0, 0, -1)):
-		return t.Format("Yesterday 15:04")
+		return t.Format("yesterday 15:04")
 	case t.Year() == now.Year():
 		return t.Format("Jan 2 15:04")
 	default:
