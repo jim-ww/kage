@@ -301,25 +301,14 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 	return st.Render(label)
 }
 
-// replyButtonLabel returns the hover-reply button's text, used both to
-// render it and to reserve its width up front in renderMessage's wrap
-// calculation (the reserved width must stay constant whether or not the
-// button is actually visible, so the header line's length doesn't shift as
-// the mouse moves).
-func replyButtonLabel(icons bool) string {
-	if icons {
-		return "↩"
-	}
-	return "[reply]"
-}
-
-// renderReplyButton renders the hover-revealed "reply to this message"
-// button shown at the end of a message's header line. Styled like
-// renderStoragePasswordButton/renderAttachButton (small background+padding
-// button, reversed only while the pointer is over the button itself, not
-// just the row) so it reads as clickable rather than as another piece of
-// message metadata.
-func (s uiStyles) renderReplyButton(icons, hovered bool) string {
+// renderMsgActionButton renders a message row's "^r reply"/"^t react"
+// buttons shown under a selected message. Styled exactly like every other
+// small button in the UI (renderStoragePasswordButton/renderAttachButton/
+// renderReplyButton's old header-hover incarnation): plain themFg-on-borderD
+// background+padding, fully reversed on hover - not a differently-colored
+// key glyph per button, so both read as the same kind of clickable control
+// instead of one looking more "important" than the other.
+func (s uiStyles) renderMsgActionButton(key, label string, hovered bool) string {
 	st := lipgloss.NewStyle().
 		Foreground(s.colors.themFg).
 		Background(s.colors.borderD).
@@ -327,22 +316,7 @@ func (s uiStyles) renderReplyButton(icons, hovered bool) string {
 	if hovered {
 		st = st.Reverse(true)
 	}
-	return st.Render(replyButtonLabel(icons))
-}
-
-// renderMsgActionButton renders a message row's "^r reply"/"^t react"
-// buttons shown under a selected message: the keybind glyph in keyColor
-// (bold, so it reads as a pressable key), the label after it dimmed - the
-// whole thing is a single clickable unit (Reverse(true) on hover flips both
-// halves together so the hit target is visually obvious).
-func (s uiStyles) renderMsgActionButton(key, label string, keyColor color.Color, hovered bool) string {
-	keyStyle := lipgloss.NewStyle().Foreground(keyColor).Bold(true)
-	labelStyle := s.messageMuted
-	if hovered {
-		keyStyle = keyStyle.Reverse(true)
-		labelStyle = labelStyle.Reverse(true)
-	}
-	return keyStyle.Render(key) + labelStyle.Render(" "+label)
+	return st.Render(key + " " + label)
 }
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended
