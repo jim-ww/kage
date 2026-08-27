@@ -165,7 +165,7 @@ func (m *Model) removeCurrentAccount() tea.Cmd {
 
 // accountStatuses lists every selectable account status, in the order
 // offered by actionOpenAccountStatusMenu.
-var accountStatuses = []Presence{PresenceOnline, PresenceChat, PresenceAway, PresenceXA, PresenceDND, PresenceOffline}
+var accountStatuses = []Presence{PresenceOnline, PresenceChat, PresenceAway, PresenceXA, PresenceDND, PresenceInvisible, PresenceOffline}
 
 // actionOpenAccountStatusMenu opens a picker submenu (account row context
 // menu's "Status") listing every status with the current one marked, so
@@ -174,9 +174,16 @@ func (m *Model) actionOpenAccountStatusMenu(idx int) tea.Cmd {
 	if idx < 0 || idx >= len(m.accounts) || m.accountStatusSetter == nil {
 		return nil
 	}
-	current := m.accounts[idx].Status
+	acct := m.accounts[idx]
+	current := acct.Status
 	items := make([]contextMenuItem, 0, len(accountStatuses))
 	for _, status := range accountStatuses {
+		// Invisible only makes sense (and only works) if the server
+		// advertised XEP-0186 support via disco — omit it entirely rather
+		// than offer a dead menu entry.
+		if status == PresenceInvisible && !acct.SupportsInvisible {
+			continue
+		}
 		label := presenceLabel(status)
 		if status == current {
 			label = "✓ " + label

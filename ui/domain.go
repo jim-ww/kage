@@ -168,6 +168,12 @@ type Account struct {
 	// next startup.
 	Status Presence
 
+	// SupportsInvisible is true once the server has been confirmed (via
+	// disco#info, XEP-0186) to support invisible presence. False until that
+	// check completes or if the server doesn't advertise it — the status
+	// picker uses this to decide whether to even offer PresenceInvisible.
+	SupportsInvisible bool
+
 	// Removed is set once AccountRemover.RemoveAccount has disconnected this
 	// account and dropped it from config.yaml. It stays in m.accounts (and
 	// so this slot in the sidebar) for the rest of this run — see
@@ -209,7 +215,9 @@ func (a Account) StatusText() string {
 // type="unavailable" (a plain presence, absent <show/>, is PresenceOnline).
 type Presence int
 
-// Presence values, in ascending "how available" order.
+// Presence values, in ascending "how available" order. PresenceInvisible is
+// appended after the rest rather than inserted in "how available" order, so
+// existing values keep their numeric identity.
 const (
 	PresenceOffline Presence = iota // default: never seen online, or explicitly unavailable
 	PresenceDND                     // <show>dnd</show>: do not disturb
@@ -217,6 +225,11 @@ const (
 	PresenceAway                    // <show>away</show>
 	PresenceOnline                  // no <show/>: plain available
 	PresenceChat                    // <show>chat</show>: actively free to chat
+
+	// PresenceInvisible is our own status only (XEP-0186): we stay fully
+	// connected but the server withholds our presence from contacts, who see
+	// us as offline. Only offered when Account.SupportsInvisible is true.
+	PresenceInvisible
 )
 
 // resourceDisplayName turns a raw XMPP resource string into a short,

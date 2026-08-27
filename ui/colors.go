@@ -9,12 +9,13 @@ import (
 // Presence colors are fixed semantics, independent of the theme — "online"
 // should read as green and "do not disturb" as red in every theme.
 var (
-	presenceOnlineStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))  // green
-	presenceChatStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))  // bright cyan
-	presenceAwayStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("136")) // amber/brown
-	presenceXAStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("208")) // orange
-	presenceDNDStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))   // red
-	presenceOfflineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))   // gray
+	presenceOnlineStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))  // green
+	presenceChatStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))  // bright cyan
+	presenceAwayStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("136")) // amber/brown
+	presenceXAStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("208")) // orange
+	presenceDNDStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))   // red
+	presenceOfflineStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))   // gray
+	presenceInvisibleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))  // magenta — distinct from offline's gray, since this is our own status, not how contacts see us
 )
 
 // presenceGlyphs maps each Presence to its (style, symbol) pair, shared by
@@ -23,12 +24,13 @@ var presenceGlyphs = map[Presence]struct {
 	style  lipgloss.Style
 	symbol string
 }{
-	PresenceOnline:  {presenceOnlineStyle, "●"},
-	PresenceChat:    {presenceChatStyle, "●"},
-	PresenceAway:    {presenceAwayStyle, "◐"},
-	PresenceXA:      {presenceXAStyle, "◔"},
-	PresenceDND:     {presenceDNDStyle, "⊘"},
-	PresenceOffline: {presenceOfflineStyle, "○"},
+	PresenceOnline:    {presenceOnlineStyle, "●"},
+	PresenceChat:      {presenceChatStyle, "●"},
+	PresenceAway:      {presenceAwayStyle, "◐"},
+	PresenceXA:        {presenceXAStyle, "◔"},
+	PresenceDND:       {presenceDNDStyle, "⊘"},
+	PresenceOffline:   {presenceOfflineStyle, "○"},
+	PresenceInvisible: {presenceInvisibleStyle, "◌"},
 }
 
 // presenceGlyph renders a presence as a single colored symbol.
@@ -53,6 +55,8 @@ func presenceLabel(p Presence) string {
 		return "extended away"
 	case PresenceDND:
 		return "do not disturb"
+	case PresenceInvisible:
+		return "invisible"
 	default:
 		return "offline"
 	}

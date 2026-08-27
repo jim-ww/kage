@@ -108,6 +108,8 @@ func statusConfigValue(status ui.Presence) string {
 		return "dnd"
 	case ui.PresenceOffline:
 		return "offline"
+	case ui.PresenceInvisible:
+		return "invisible"
 	default:
 		return ""
 	}
@@ -154,6 +156,18 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status}
 	}
 
+	if status == ui.PresenceInvisible && online {
+		if err := client.SetInvisible(ctx); err != nil {
+			return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: fmt.Errorf("updating presence: %w", err)}
+		}
+		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status}
+	}
+
+	// presenceShow has no <show/> value for invisible - going invisible while
+	// offline dials with plain show (connectAccountLive/Dial can't skip their
+	// own unconditional available-presence blast), then SetInvisible below
+	// corrects it, same brief-visible-window trade-off connectAccountLive
+	// already has for every non-default status.
 	show := presenceShow(status)
 	if online {
 		if err := client.SetPresence(ctx, show); err != nil {
@@ -175,6 +189,13 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 		// connect at startup.
 		go retryInitialConnect(ctx, a.srv, a, accountIdx, sess, existing, show)
 		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
+	}
+	if status == ui.PresenceInvisible {
+		if newClient, err := sess.liveClient(); err == nil {
+			if err := newClient.SetInvisible(ctx); err != nil {
+				slog.Warn("setting invisible presence after connect", "jid", sess.account.JID, "err", err)
+			}
+		}
 	}
 	go superviseAccount(ctx, a.srv, a, accountIdx, sess)
 

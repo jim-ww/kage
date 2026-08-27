@@ -53,11 +53,13 @@ type Client struct {
 	evBuf    []Event
 	evClosed bool
 
-	mu           sync.Mutex
-	err          error   // set when serve() returns, e.g. on an unexpected disconnect
-	uploadSvc    jid.JID // cached result of uploadService's disco walk, once found
-	uploadSvcSet bool    // true once uploadSvc has been resolved (even if disco found none — see uploadSvcErr)
-	uploadSvcErr error   // cached failure, so a server with no upload service doesn't get re-walked on every send
+	mu                    sync.Mutex
+	err                   error   // set when serve() returns, e.g. on an unexpected disconnect
+	uploadSvc             jid.JID // cached result of uploadService's disco walk, once found
+	uploadSvcSet          bool    // true once uploadSvc has been resolved (even if disco found none — see uploadSvcErr)
+	uploadSvcErr          error   // cached failure, so a server with no upload service doesn't get re-walked on every send
+	invisibleSupported    bool    // cached result of InvisibleSupported's disco#info check
+	invisibleSupportedSet bool    // true once invisibleSupported has been resolved by a successful disco round trip
 
 	// discoMux answers incoming disco#info/disco#items queries (see disco.go)
 	// - without it, contacts can't learn we support OMEMO at all.
@@ -152,6 +154,55 @@ func (c *Client) SetPresence(ctx context.Context, show string) error {
 		))
 	}
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.AvailablePresence}.Wrap(xmlstream.MultiReader(children...)))
+}
+
+// invisibleNS is the XEP-0186 disco#info feature var a server advertises on
+// its own JID if it supports invisible presence.
+const invisibleNS = "urn:xmpp:invisible:0"
+
+// InvisibleSupported reports whether the server has advertised XEP-0186
+// invisible-presence support via disco#info, caching the result after the
+// first successful round trip (a transient error/timeout isn't cached, so a
+// slow disco query gets a fresh chance next time rather than permanently
+// reading as unsupported).
+func (c *Client) InvisibleSupported(ctx context.Context) bool {
+	c.mu.Lock()
+	if c.invisibleSupportedSet {
+		supported := c.invisibleSupported
+		c.mu.Unlock()
+		return supported
+	}
+	c.mu.Unlock()
+
+	info, err := disco.GetInfo(ctx, "", c.JID.Domain(), c.session)
+	if err != nil {
+		slog.Debug("checking invisible presence support", "jid", c.JID.String(), "err", err)
+		return false
+	}
+	supported := false
+	for _, f := range info.Features {
+		if f.Var == invisibleNS {
+			supported = true
+			break
+		}
+	}
+
+	c.mu.Lock()
+	c.invisibleSupported, c.invisibleSupportedSet = supported, true
+	c.mu.Unlock()
+	return supported
+}
+
+// SetInvisible sends XEP-0186 invisible presence: the stream stays fully
+// connected, but the server withholds our availability from contacts, who
+// see us as offline. Unlike SetPresence's show values, this uses a distinct
+// presence type rather than a <show/> child. Only send this after
+// InvisibleSupported reports true — an unsupporting server's behavior for an
+// unrecognized presence type is not something we've verified to degrade
+// safely, so the UI gates on that check rather than us here.
+func (c *Client) SetInvisible(ctx context.Context) error {
+	slog.Debug("advertising invisible presence", "jid", c.JID.String())
+	return c.session.Send(ctx, stanza.Presence{Type: stanza.PresenceType("invisible")}.Wrap(discoCaps().TokenReader()))
 }
 
 // showOrOnline renders an empty <show/> as "online" for logging, so a plain

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
@@ -405,6 +406,12 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 		if i < len(sessions) && sessions[i] != nil {
 			if client := sessions[i].client.Load(); client != nil && !client.Closed() {
 				uiAcct.Status = accountStatus(sessions[i].account.Status)
+				// Cached on the client after its first successful disco round
+				// trip (see xmpp.Client.InvisibleSupported), so this is cheap
+				// on every subsequent listAccounts call/TUI attach.
+				discoCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				uiAcct.SupportsInvisible = client.InvisibleSupported(discoCtx)
+				cancel()
 			}
 			// connectAccountLocal above rebuilds a fresh roster from disk
 			// (no Presence there — that's live-only state), so pull current

@@ -1215,6 +1215,8 @@ func accountStatus(status string) ui.Presence {
 		return ui.PresenceDND
 	case "offline":
 		return ui.PresenceOffline
+	case "invisible":
+		return ui.PresenceInvisible
 	default:
 		return ui.PresenceOnline
 	}
