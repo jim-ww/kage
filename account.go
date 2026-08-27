@@ -164,8 +164,14 @@ func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server
 		//     reconnecting, instead of leaving every subsequent send in the
 		//     same boat until something else eventually surfaces the drop.
 		slog.Warn("confirming server ack failed; marking batch failed and forcing reconnect", "jid", s.account.JID, "batch", len(pending), "err", err)
+		// ctx's 10s deadline just expired inside client.Ping above - reusing it
+		// here would make every MarkMessageSendFailed call fail immediately
+		// with the same "context deadline exceeded", silently dropping the
+		// failure write (see commit fixing the resulting no-glyph-forever bug).
+		persistCtx, persistCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer persistCancel()
 		for _, p := range pending {
-			if _, err := s.db.MarkMessageSendFailed(ctx, storage.MarkMessageSendFailedParams{
+			if _, err := s.db.MarkMessageSendFailed(persistCtx, storage.MarkMessageSendFailedParams{
 				AccountJid: s.account.JID,
 				IDAttr:     nullString(p.id),
 				RosterJid:  nullString(p.to),
@@ -182,8 +188,10 @@ func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server
 		return
 	}
 
+	persistCtx, persistCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer persistCancel()
 	for _, p := range pending {
-		if _, err := s.db.MarkMessageServerAcked(ctx, storage.MarkMessageServerAckedParams{
+		if _, err := s.db.MarkMessageServerAcked(persistCtx, storage.MarkMessageServerAckedParams{
 			AccountJid: s.account.JID,
 			IDAttr:     nullString(p.id),
 			RosterJid:  nullString(p.to),
