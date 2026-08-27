@@ -846,3 +846,28 @@ SELECT EXISTS (
 		AND rosterJID = sqlc.arg(roster_jid)
 		AND idAttr = sqlc.arg(id_attr)
 );
+
+-- name: InsertAppliedCorrection :exec
+-- Records a XEP-0308 correction stanza's own idAttr/archiveID once its
+-- decrypted body has been applied to the target message, so a redelivery
+-- (stream resumption or a later MAM resync) can be recognized without
+-- re-running OMEMO decrypt against an already-consumed ratchet key - see
+-- appliedCorrections's doc comment in schema.sql.
+INSERT INTO appliedCorrections (accountJID, rosterJID, idAttr, archiveID)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.narg(id_attr), sqlc.narg(archive_id))
+ON CONFLICT DO NOTHING;
+
+-- name: CorrectionAppliedByIDAttr :one
+SELECT EXISTS (
+	SELECT 1 FROM appliedCorrections
+	WHERE accountJID = sqlc.arg(account_jid)
+		AND rosterJID = sqlc.arg(roster_jid)
+		AND idAttr = sqlc.arg(id_attr)
+);
+
+-- name: CorrectionAppliedByArchiveID :one
+SELECT EXISTS (
+	SELECT 1 FROM appliedCorrections
+	WHERE accountJID = sqlc.arg(account_jid)
+		AND archiveID = sqlc.arg(archive_id)
+);

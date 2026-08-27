@@ -72,6 +72,31 @@ CREATE TABLE IF NOT EXISTS messageReactions (
 	UNIQUE (accountJID, rosterJID, idAttr, fromJID, emoji)
 );
 
+-- XEP-0308: records a correction stanza's own idAttr/archiveID once it's
+-- been applied to its target message's body (see UpdateMessageBodyByID
+-- callers in events.go/account.go). A correction's own id is otherwise never
+-- persisted anywhere, so a redelivery (stream resumption, or a MAM resync
+-- triggered by reopening kage) looks unseen and gets OMEMO-decrypted again -
+-- not guaranteed to succeed against a ratchet message key already consumed
+-- the first time, and a failure there overwrites the already-correct body
+-- with a "[message could not be decrypted]" placeholder. This table lets
+-- both paths skip the redundant decrypt instead.
+CREATE TABLE IF NOT EXISTS appliedCorrections (
+	id         INTEGER  PRIMARY KEY NOT NULL,
+	accountJID TEXT     NOT NULL,
+	rosterJID  TEXT     NOT NULL,
+	idAttr     TEXT,
+	archiveID  TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS appliedCorrectionsAccountRosterJIDIdAttr
+	ON appliedCorrections (accountJID, rosterJID, idAttr)
+	WHERE idAttr IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS appliedCorrectionsAccountArchiveID
+	ON appliedCorrections (accountJID, archiveID)
+	WHERE archiveID IS NOT NULL;
+
 -- XEP-0373: caches a peer's OpenPGP key fingerprint, discovered from their
 -- PEP node, so we don't have to query it again on every send.
 CREATE TABLE IF NOT EXISTS pgpPeerKeys (

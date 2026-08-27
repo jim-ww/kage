@@ -35,6 +35,48 @@ func (q *Queries) ConsumeOmemoPreKey(ctx context.Context, arg ConsumeOmemoPreKey
 	return i, err
 }
 
+const correctionAppliedByArchiveID = `-- name: CorrectionAppliedByArchiveID :one
+SELECT EXISTS (
+	SELECT 1 FROM appliedCorrections
+	WHERE accountJID = ?1
+		AND archiveID = ?2
+)
+`
+
+type CorrectionAppliedByArchiveIDParams struct {
+	AccountJid string         `db:"account_jid"`
+	ArchiveID  sql.NullString `db:"archive_id"`
+}
+
+func (q *Queries) CorrectionAppliedByArchiveID(ctx context.Context, arg CorrectionAppliedByArchiveIDParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, correctionAppliedByArchiveID, arg.AccountJid, arg.ArchiveID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const correctionAppliedByIDAttr = `-- name: CorrectionAppliedByIDAttr :one
+SELECT EXISTS (
+	SELECT 1 FROM appliedCorrections
+	WHERE accountJID = ?1
+		AND rosterJID = ?2
+		AND idAttr = ?3
+)
+`
+
+type CorrectionAppliedByIDAttrParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  string         `db:"roster_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+}
+
+func (q *Queries) CorrectionAppliedByIDAttr(ctx context.Context, arg CorrectionAppliedByIDAttrParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, correctionAppliedByIDAttr, arg.AccountJid, arg.RosterJid, arg.IDAttr)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countOmemoPreKeys = `-- name: CountOmemoPreKeys :one
 SELECT count(*)
 FROM omemoPreKey
@@ -703,6 +745,34 @@ type IncrementChatUnreadParams struct {
 
 func (q *Queries) IncrementChatUnread(ctx context.Context, arg IncrementChatUnreadParams) error {
 	_, err := q.db.ExecContext(ctx, incrementChatUnread, arg.AccountJid, arg.RosterJid, arg.Delta)
+	return err
+}
+
+const insertAppliedCorrection = `-- name: InsertAppliedCorrection :exec
+INSERT INTO appliedCorrections (accountJID, rosterJID, idAttr, archiveID)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT DO NOTHING
+`
+
+type InsertAppliedCorrectionParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  string         `db:"roster_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	ArchiveID  sql.NullString `db:"archive_id"`
+}
+
+// Records a XEP-0308 correction stanza's own idAttr/archiveID once its
+// decrypted body has been applied to the target message, so a redelivery
+// (stream resumption or a later MAM resync) can be recognized without
+// re-running OMEMO decrypt against an already-consumed ratchet key - see
+// appliedCorrections's doc comment in schema.sql.
+func (q *Queries) InsertAppliedCorrection(ctx context.Context, arg InsertAppliedCorrectionParams) error {
+	_, err := q.db.ExecContext(ctx, insertAppliedCorrection,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.IDAttr,
+		arg.ArchiveID,
+	)
 	return err
 }
 

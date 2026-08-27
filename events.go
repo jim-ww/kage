@@ -99,6 +99,22 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 				slog.Debug("omemo message already stored, skipping re-decrypt", "id", msgEv.ID, "from", msgEv.From)
 				return
 			}
+			// A correction's own idAttr is never inserted as a row (only the
+			// target message's body gets rewritten), so the check above never
+			// catches a redelivered correction - check appliedCorrections too,
+			// or a redelivery re-runs OMEMO decrypt against an already-consumed
+			// ratchet key and stomps the already-correct body with a decrypt
+			// failure. See appliedCorrections's doc comment in schema.sql.
+			if msgEv.ReplaceID != "" {
+				if exists, err := s.db.CorrectionAppliedByIDAttr(ctx, storage.CorrectionAppliedByIDAttrParams{
+					AccountJid: s.account.JID,
+					RosterJid:  peer,
+					IDAttr:     nullString(msgEv.ID),
+				}); err == nil && exists {
+					slog.Debug("correction already applied, skipping re-decrypt", "id", msgEv.ID, "from", msgEv.From)
+					return
+				}
+			}
 		}
 
 		slog.Debug("received omemo message", "from", msgEv.From, "jid", s.account.JID)
@@ -196,6 +212,15 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			RosterJid:    nullString(from),
 		}); err != nil {
 			slog.Warn("persisting correction", "err", err)
+		}
+		if msgEv.ID != "" {
+			if err := s.db.InsertAppliedCorrection(ctx, storage.InsertAppliedCorrectionParams{
+				AccountJid: s.account.JID,
+				RosterJid:  from,
+				IDAttr:     nullString(msgEv.ID),
+			}); err != nil {
+				slog.Warn("recording applied correction", "err", err)
+			}
 		}
 		broadcast(srv, evMessageCorrected, ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,

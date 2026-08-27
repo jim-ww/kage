@@ -1505,6 +1505,31 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		}
 	}
 
+	// A correction's own idAttr/archiveID is never inserted as a message row
+	// (only the target message's body gets rewritten below), so neither check
+	// above ever catches a correction MAM already applied - via an earlier
+	// sync or the live path. Without this, reopening kage and triggering a
+	// fresh MAM catch-up re-decrypts the correction's ciphertext against an
+	// already-consumed ratchet key and stomps the already-correct body with
+	// a decrypt failure. See appliedCorrections's doc comment in schema.sql.
+	if am.ArchiveID != "" {
+		if exists, err := s.db.CorrectionAppliedByArchiveID(ctx, storage.CorrectionAppliedByArchiveIDParams{
+			AccountJid: s.account.JID,
+			ArchiveID:  nullString(am.ArchiveID),
+		}); err == nil && exists {
+			return mamItemOutcome{}
+		}
+	}
+	if am.ID != "" {
+		if exists, err := s.db.CorrectionAppliedByIDAttr(ctx, storage.CorrectionAppliedByIDAttrParams{
+			AccountJid: s.account.JID,
+			RosterJid:  peerJID,
+			IDAttr:     nullString(am.ID),
+		}); err == nil && exists {
+			return mamItemOutcome{}
+		}
+	}
+
 	// Retractions/reactions/corrections backfilled via MAM (i.e. they
 	// happened while offline, so the live path in handleIncomingMessage
 	// never saw them) apply to a message already persisted - by this
@@ -1642,6 +1667,16 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			RosterJid:    nullString(peerJID),
 		}); err != nil {
 			slog.Warn("persisting mam correction", "peer", peerJID, "err", err)
+		}
+		if am.ID != "" || am.ArchiveID != "" {
+			if err := s.db.InsertAppliedCorrection(ctx, storage.InsertAppliedCorrectionParams{
+				AccountJid: s.account.JID,
+				RosterJid:  peerJID,
+				IDAttr:     nullString(am.ID),
+				ArchiveID:  nullString(am.ArchiveID),
+			}); err != nil {
+				slog.Warn("recording applied mam correction", "peer", peerJID, "err", err)
+			}
 		}
 		broadcast(srv, evMessageCorrected, ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,

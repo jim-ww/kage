@@ -8,6 +8,14 @@ import (
 	"database/sql"
 )
 
+type Appliedcorrection struct {
+	ID         int64          `db:"id"`
+	Accountjid string         `db:"accountjid"`
+	Rosterjid  string         `db:"rosterjid"`
+	Idattr     sql.NullString `db:"idattr"`
+	Archiveid  sql.NullString `db:"archiveid"`
+}
+
 type Callpeerfingerprint struct {
 	Accountjid  string `db:"accountjid"`
 	Jid         string `db:"jid"`
