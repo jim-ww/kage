@@ -278,7 +278,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 // "^t react" buttons, then an edited marker and (for our own messages) the
 // send/delivery status glyph.
 func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool) string {
-	timeLabel := m.styles.messageMuted.Render(m.formatMessageTime(msg.SentAt))
+	timeLabel := m.styles.messageTime.Render(m.formatMessageTime(msg.SentAt))
 	parts := []string{timeLabel}
 
 	if isSelected {
@@ -294,7 +294,7 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 		if m.icons {
 			editIcon = "✎"
 		}
-		parts = append(parts, m.styles.messageMuted.Render(editIcon))
+		parts = append(parts, m.styles.messageTime.Render(editIcon))
 	}
 
 	if msg.Encrypted && m.showEncryptedIcon {
@@ -302,7 +302,7 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 		if m.icons {
 			lockIcon = "🔒"
 		}
-		parts = append(parts, m.styles.messageMuted.Render(lockIcon))
+		parts = append(parts, m.styles.messageTime.Render(lockIcon))
 	}
 
 	if msg.IsMe {
@@ -331,7 +331,7 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 			// local send succeeding is not proof the server ever got it.
 		}
 		if status != "" {
-			parts = append(parts, m.styles.messageMuted.Render(status))
+			parts = append(parts, m.styles.messageTime.Render(status))
 		}
 	}
 
@@ -373,7 +373,7 @@ func (m Model) replyHeaderFragment(idx int, allMsgs []Message) string {
 		nameStyle = m.styles.messageNickMe
 	}
 	name := nameStyle.Render(senderDisplayName(orig.Author))
-	preview := m.styles.messageMuted.Render(previewText(MessagePreviewContent(orig), previewLen))
+	preview := m.styles.messageTime.Render(previewText(MessagePreviewContent(orig), previewLen))
 	return "↩ " + name + " · " + preview
 }
 
