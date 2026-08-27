@@ -46,9 +46,6 @@ type Config struct {
 	// attach-file picker regardless of sort order; off (dirs first) by
 	// default.
 	FilePickerFilesFirst bool `yaml:"file_picker_files_first,omitempty"`
-	// ShowNames shows the sender's name in the message header instead of
-	// just a direction glyph; off by default.
-	ShowNames bool `yaml:"show_names,omitempty"`
 	// TimeLayout is a custom Go time layout for message timestamps;
 	// unset means the default ("15:04"/"2006-01-02 15:04").
 	TimeLayout string `yaml:"time_layout,omitempty"`

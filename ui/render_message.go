@@ -149,13 +149,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 	name := senderDisplayName(msg.Author)
 	label := name + ":"
-	if !m.showNames {
-		label = ""
-	}
-	prefixWidth := lipgloss.Width(label)
-	if prefixWidth > 0 {
-		prefixWidth++ // trailing space between "name:" and what follows it
-	}
+	prefixWidth := lipgloss.Width(label) + 1 // trailing space between "name:" and what follows it
 	pad := strings.Repeat(" ", prefixWidth)
 
 	headerLine := nameStyle.Render(label)

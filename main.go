@@ -243,7 +243,6 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		UseGPG:                  !cfg.GPGDisabled,
 		ShowEncryptedIcon:       cfg.ShowEncryptedIcon,
 		DefaultEncryptionMode:   cfg.DefaultEncryptionMode,
-		ShowNames:               cfg.ShowNames,
 		TimeLayout:              cfg.TimeLayout,
 		TimeOnlyToday:           !cfg.AlwaysShowFullDate,
 		MaxMessagesPerChat:      cfg.MaxMessagesPerChat,
