@@ -42,6 +42,8 @@ const (
 	zoneCallVideoScreen       = "call-video-screen-button"
 	zoneCallReopenVideo       = "call-reopen-video-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
+	zoneFilePickerBack        = "file-picker-back-button"
+	zoneFilePickerForward     = "file-picker-forward-button"
 )
 
 // inputWheelScrollLines is how many lines a single wheel notch moves the
@@ -907,6 +909,26 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 	}
 
 	targetRow := m.filePickerRowUnderMouse(msg)
+	lines := strings.Split(m.filePicker.View(), "\n")
+	targetRow := m.filePickerRowUnderMouse(msg, lines)
+	if m.zone.Get(zoneFilePickerBack).InBounds(msg) {
+		if !m.filePicker.CanGoBack() {
+			return m, nil
+		}
+		// Routed as a synthetic backspace rather than calling into the
+		// picker directly, so a click behaves exactly like the keyboard
+		// Back binding (h/backspace/left) — that binding, not GoForward, is
+		// what already knows how to pop the cursor-position stack.
+		return m, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyBackspace} }
+	}
+	if m.zone.Get(zoneFilePickerForward).InBounds(msg) {
+		if !m.filePicker.CanGoForward() {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		*m.filePicker, cmd = m.filePicker.GoForward()
+		return m, cmd
+	}
 	if targetRow < 0 {
 		return m, nil
 	}

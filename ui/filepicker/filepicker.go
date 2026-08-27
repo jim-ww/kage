@@ -234,6 +234,22 @@ type Model struct {
 
 	Cursor string
 	Styles Styles
+
+	// forwardStack holds directories left via Back, most-recently-left last,
+	// so GoForward can redescend into them (browser-style forward button).
+	// Cleared whenever Open descends into a directory that isn't a forward
+	// replay, since that's a fresh navigation branch.
+	forwardStack []navFrame
+}
+
+// navFrame captures a previously-visited directory and the cursor position
+// within it, letting Back/GoForward restore it exactly rather than just
+// remembering which path it was.
+type navFrame struct {
+	dir      string
+	selected int
+	minIdx   int
+	maxIdx   int
 }
 
 type stack struct {
@@ -475,6 +491,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m.maxIdx = m.minIdx + m.Height()
 			}
 		case key.Matches(msg, m.KeyMap.Back):
+			m.forwardStack = append(m.forwardStack, navFrame{
+				dir: m.CurrentDirectory, selected: m.selected, minIdx: m.minIdx, maxIdx: m.maxIdx,
+			})
 			m.CurrentDirectory = filepath.Dir(m.CurrentDirectory)
 			if m.selectedStack.Length() > 0 {
 				m.selected, m.minIdx, m.maxIdx = m.popView()
@@ -521,6 +540,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 			m.CurrentDirectory = filepath.Join(m.CurrentDirectory, f.Name())
 			m.pushView(m.selected, m.minIdx, m.maxIdx)
+			// A fresh descent, as opposed to GoForward retracing one just
+			// left via Back, invalidates whatever forward history existed —
+			// same convention as a browser: navigating anywhere new after
+			// going back drops the forward stack.
+			m.forwardStack = nil
 			m.selected = 0
 			m.minIdx = 0
 			m.maxIdx = m.Height() - 1
@@ -549,6 +573,34 @@ func (m Model) CycleSort() (Model, tea.Cmd) {
 	m.selected = 0
 	m.minIdx = 0
 	m.maxIdx = m.Height() - 1
+	return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
+}
+
+// CanGoBack reports whether Back (KeyMap.Back, or a host-driven equivalent
+// like a mouse click) has a parent directory to return to — i.e. whether any
+// directory has been descended into this session.
+func (m Model) CanGoBack() bool {
+	return m.selectedStack.Length() > 0
+}
+
+// CanGoForward reports whether GoForward has a directory to redescend into.
+func (m Model) CanGoForward() bool {
+	return len(m.forwardStack) > 0
+}
+
+// GoForward redescends into the directory most recently left via Back,
+// restoring its cursor position, mirroring a browser's forward button. A
+// no-op if CanGoForward is false. Driven by the host app (e.g. a mouse click
+// on a forward button) rather than bound to a key here, same as CycleSort.
+func (m Model) GoForward() (Model, tea.Cmd) {
+	if !m.CanGoForward() {
+		return m, nil
+	}
+	frame := m.forwardStack[len(m.forwardStack)-1]
+	m.forwardStack = m.forwardStack[:len(m.forwardStack)-1]
+	m.pushView(m.selected, m.minIdx, m.maxIdx)
+	m.CurrentDirectory = frame.dir
+	m.selected, m.minIdx, m.maxIdx = frame.selected, frame.minIdx, frame.maxIdx
 	return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
 }
 

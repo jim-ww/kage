@@ -796,7 +796,9 @@ func (m Model) renderFilePickerPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	sortKey := caretKey(m.keys.SortFilePicker.Help().Key)
-	title := "Attach file — " + m.filePicker.CurrentDirectory
+	back := m.renderFilePickerNavButton("‹", zoneFilePickerBack, m.filePicker.CanGoBack())
+	forward := m.renderFilePickerNavButton("›", zoneFilePickerForward, m.filePicker.CanGoForward())
+	title := back + " " + forward + "  Attach file — " + m.filePicker.CurrentDirectory
 	footer := "[enter] open/select · [" + sortKey + "] sort: " + m.filePicker.SortLabel() + " · [esc] cancel"
 
 	// Set the picker's minimum row width to at least the title/footer's
@@ -821,6 +823,22 @@ func (m Model) renderFilePickerPopup() string {
 	body := m.styles.listPopup(title, []string{strings.Join(lines, "\n")}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+// renderFilePickerNavButton renders a back/forward glyph for the file
+// picker's title bar, zone-marked for a click only while enabled — matching
+// the picker's own CanGoBack/CanGoForward availability, so a click can never
+// fire a no-op navigation.
+func (m Model) renderFilePickerNavButton(glyph, zoneID string, enabled bool) string {
+	style := lipgloss.NewStyle().Foreground(m.styles.colors.time)
+	if enabled {
+		style = lipgloss.NewStyle().Foreground(m.styles.colors.themFg).Bold(true)
+	}
+	rendered := style.Render(glyph)
+	if !enabled {
+		return rendered
+	}
+	return m.zone.Mark(zoneID, rendered)
 }
 
 // renderAddAccountPopup shows the add-account form: one line per active
