@@ -121,7 +121,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			m.setCurrentMessages(msgs)
 			if m.editingMsgIdx == len(msgs)-1 {
 				if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-					cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, text))
+					cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, MessagePreviewContent(msgs[m.editingMsgIdx])))
 				}
 			}
 
@@ -218,7 +218,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			msgs := append(m.currentMessages(), newMsg)
 			m.setCurrentMessages(msgs)
 			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-				cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, newMsg.Content))
+				cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, MessagePreviewContent(newMsg)))
 			}
 		}
 	}
@@ -311,7 +311,7 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 
 	m.setCurrentMessages(msgs)
 	if chatIdx := m.currentChatIndex(); chatIdx >= 0 && idx == len(msgs)-1 {
-		cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, msgs[idx].Content))
+		cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, MessagePreviewContent(msgs[idx])))
 	}
 	m.refreshViewport()
 	return tea.Batch(cmds...)
@@ -811,7 +811,7 @@ func (m *Model) sendReaction(idx int, newMine []string) tea.Cmd {
 	var cmd tea.Cmd
 	if idx == len(msgs)-1 {
 		if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-			preview := msgs[idx].Content
+			preview := MessagePreviewContent(msgs[idx])
 			if len(msgs[idx].Reactions) > 0 {
 				preview = "reacted " + renderReactions(msgs[idx].Reactions)
 			}

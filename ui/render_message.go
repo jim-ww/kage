@@ -222,7 +222,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 		var parts []string
 		if text != "" {
-			parts = append(parts, highlightCodeBlocks(text))
+			parts = append(parts, FormatMessageBody(text))
 		}
 		chat, _ := m.currentChat()
 		for _, a := range msg.Attachments {
@@ -230,7 +230,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 		bodyContent = strings.Join(parts, "\n")
 	} else {
-		bodyContent = highlightCodeBlocks(msg.Content)
+		bodyContent = FormatMessageBody(msg.Content)
 	}
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	for i, line := range bodyLines {
@@ -307,12 +307,13 @@ const previewLen = 40
 // filename(s) instead, same as the attachment's own rendered body line.
 func MessagePreviewContent(msg Message) string {
 	if len(msg.Attachments) == 0 {
-		return msg.Content
+		return StripMessageStyling(msg.Content)
 	}
 	text := strings.TrimSpace(msg.Content)
 	if joined := strings.Join(msg.Attachments, "\n"); strings.HasSuffix(text, joined) {
 		text = strings.TrimSpace(strings.TrimSuffix(text, joined))
 	}
+	text = StripMessageStyling(text)
 	names := make([]string, len(msg.Attachments))
 	for i, a := range msg.Attachments {
 		names[i] = attachmentDisplayName(a)

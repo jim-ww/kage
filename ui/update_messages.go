@@ -391,7 +391,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs[idx].Edited = true
 		var cmd tea.Cmd
 		if idx == len(msgs)-1 {
-			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, msg.NewContent)
+			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msgs[idx]))
 		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.refreshViewport()

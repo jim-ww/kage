@@ -355,7 +355,7 @@ func notifyPreview(body string, attachments []string) string {
 		return "📎 " + strings.Join(names, ", ")
 	}
 	const max = 120
-	body = strings.TrimSpace(body)
+	body = ui.StripMessageStyling(strings.TrimSpace(body))
 	if len(body) <= max {
 		return body
 	}
