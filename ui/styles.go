@@ -398,11 +398,26 @@ func (s uiStyles) contextMenuRow(label string, hovered bool, width int) string {
 // wrapping already-colored text in another Foreground style would only take
 // effect up to that text's own embedded reset, leaving whatever follows the
 // reset in the wrong color instead of themFg.
-func (s uiStyles) plainTextLine(line string) string {
+// plainTextLine renders line in the default message-body color, carrying the
+// same selected/hovered emphasis as renderMessageHeader (bold/underline) so
+// the whole message - not just its header - reflects which one is currently
+// selected/hovered. Lines that already carry their own ANSI styling
+// (chroma-highlighted code, XEP-0393 spans) are left untouched: wrapping
+// already-rendered text in another Style.Render loses that styling at the
+// first embedded reset code, the same reason messageFlash strips before
+// re-rendering rather than nesting.
+func (s uiStyles) plainTextLine(line string, selected, hovered bool) string {
 	if strings.Contains(line, "\x1b[") {
 		return line
 	}
-	return s.plainText.Render(line)
+	style := s.plainText
+	switch {
+	case selected:
+		style = style.Bold(true)
+	case hovered:
+		style = style.Underline(true)
+	}
+	return style.Render(line)
 }
 
 func (s uiStyles) viewportContent(width, height int, content string) string {

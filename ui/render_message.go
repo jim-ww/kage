@@ -220,15 +220,29 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	for _, line := range bodyLines {
 		if msg.Retracted {
-			line = m.styles.messageDeleted.Render(line)
+			style := m.styles.messageDeleted
+			switch {
+			case isSelected:
+				style = style.Bold(true)
+			case rowHovered:
+				style = style.Underline(true)
+			}
+			line = style.Render(line)
 		} else {
-			line = m.styles.plainTextLine(line)
+			line = m.styles.plainTextLine(line, isSelected, rowHovered)
 		}
 		lines = append(lines, line)
 	}
 
 	if len(msg.Reactions) > 0 {
-		lines = append(lines, m.styles.plainText.Render(renderReactions(msg.Reactions)))
+		reactions := m.styles.plainText
+		switch {
+		case isSelected:
+			reactions = reactions.Bold(true)
+		case rowHovered:
+			reactions = reactions.Underline(true)
+		}
+		lines = append(lines, reactions.Render(renderReactions(msg.Reactions)))
 	}
 
 	if m.flashMsgIdx >= 0 && msgIdx == m.flashMsgIdx {
