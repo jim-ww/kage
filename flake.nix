@@ -14,6 +14,15 @@
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = flake-utils.lib.defaultSystems;
+
+      flake = {
+        # Declarative config.yaml generation for home-manager - see
+        # nix/hm-module.nix for the full option list and why it only covers
+        # settings.yaml's declarative half, not the runtime state.yaml half
+        # (sidebar width, last opened chat, ...) the app itself persists.
+        homeManagerModules.default = import ./nix/hm-module.nix { inherit (inputs) self; };
+      };
+
       perSystem =
         { pkgs, ... }:
         let

@@ -39,15 +39,6 @@ type Config struct {
 	// MouseDisabled disables mouse click/scroll support; off (mouse
 	// enabled) by default.
 	MouseDisabled bool `yaml:"mouse_disabled,omitempty"`
-	// SidebarWidth is persisted from dragging the sidebar border; 0
-	// (unset) means the width/4-based default.
-	SidebarWidth int `yaml:"sidebar_width,omitempty"`
-	// InputHeight is persisted from dragging the compose box border; 0
-	// (unset) means the DynamicHeight-based default.
-	InputHeight int `yaml:"input_height,omitempty"`
-	// SidebarHidden is persisted from toggling the chat list (Ctrl+\ /
-	// status-bar button); unset means open.
-	SidebarHidden bool `yaml:"sidebar_hidden,omitempty"`
 	// IconsDisabled hides icons for attachments/encryption in favor of
 	// plain-text tags; off (icons shown) by default.
 	IconsDisabled bool `yaml:"icons_disabled,omitempty"`
@@ -55,12 +46,6 @@ type Config struct {
 	// attach-file picker regardless of sort order; off (dirs first) by
 	// default.
 	FilePickerFilesFirst bool `yaml:"file_picker_files_first,omitempty"`
-	// FilePickerSortField is "created" or "updated"; persisted from
-	// cycling sort in the attach-file picker; "updated" by default.
-	FilePickerSortField string `yaml:"file_picker_sort_field,omitempty"`
-	// FilePickerSortAscending is persisted from cycling sort in the
-	// attach-file picker; unset means descending.
-	FilePickerSortAscending bool `yaml:"file_picker_sort_ascending,omitempty"`
 	// ShowNames shows the sender's name in the message header instead of
 	// just a direction glyph; off by default.
 	ShowNames bool `yaml:"show_names,omitempty"`
@@ -70,18 +55,9 @@ type Config struct {
 	// AlwaysShowFullDate: with the default time layout, show the full
 	// date even for messages sent today; off by default.
 	AlwaysShowFullDate bool `yaml:"always_show_full_date,omitempty"`
-	// DefaultAccount is the JID selected on startup; unset means the
-	// first configured account.
-	DefaultAccount string `yaml:"default_account,omitempty"`
-	// OpenLastChatDisabled disables reopening LastChatAddress on
-	// startup; off by default.
+	// OpenLastChatDisabled disables reopening the last opened chat
+	// (State.LastChatAddress) on startup; off by default.
 	OpenLastChatDisabled bool `yaml:"open_last_chat_disabled,omitempty"`
-	// LastChatAccount is the JID of the account owning the last opened
-	// chat.
-	LastChatAccount string `yaml:"last_chat_account,omitempty"`
-	// LastChatAddress is the peer JID of the last opened chat, reopened
-	// on startup unless OpenLastChatDisabled.
-	LastChatAddress string `yaml:"last_chat_address,omitempty"`
 	// NotificationsDisabled disables desktop notifications for decrypted
 	// incoming messages (the background daemon itself always runs); off
 	// by default.
@@ -132,6 +108,13 @@ type Config struct {
 	Storage      StorageConfig `yaml:"storage,omitempty"`
 	Accounts     []Account     `yaml:"accounts,omitempty"`
 
+	// State holds settings the app itself persists at runtime (dragged
+	// sidebar width, last opened chat, ...), loaded from a separate
+	// state.yaml next to this file - see State's doc. Not part of the
+	// config.yaml shape, so a declaratively-managed config.yaml (e.g. from
+	// Nix/home-manager) is never clobbered by the app's own writes.
+	State State `yaml:"-"`
+
 	// Path is the config file this was actually loaded from, or the
 	// default write location if none was found — always non-empty, so
 	// callers that need to persist a change (e.g. an auto-detected GPG
@@ -174,7 +157,6 @@ const DefaultEncryptionMode = "omemo-v1"
 // Keybinds are deliberately left zero — see Config's doc.
 func defaultConfig() Config {
 	return Config{
-		FilePickerSortField:   "updated",
 		HistoryPageSize:       DefaultHistoryPageSize,
 		MaxMessagesPerChat:    DefaultMaxMessagesPerChat,
 		NoticeDuration:        DefaultNoticeDurationSeconds,
@@ -200,27 +182,27 @@ func (c Config) ResolvedKeyMap() (ui.KeyMap, error) {
 	return applyKeybinds(ui.DefaultKeyMap, c.Keybinds)
 }
 
-// DefaultAccountIndex resolves DefaultAccount to an index into Accounts —
-// the account selected on startup. 0 (the first account) when unset or when
-// the configured JID doesn't match any account.
+// DefaultAccountIndex resolves State.DefaultAccount to an index into
+// Accounts — the account selected on startup. 0 (the first account) when
+// unset or when the configured JID doesn't match any account.
 func (c Config) DefaultAccountIndex() int {
-	if c.DefaultAccount == "" {
+	if c.State.DefaultAccount == "" {
 		return 0
 	}
 	for i, acct := range c.Accounts {
-		if acct.JID == c.DefaultAccount {
+		if acct.JID == c.State.DefaultAccount {
 			return i
 		}
 	}
 	return 0
 }
 
-// LastChatAccountIndex resolves LastChatAccount to an index into Accounts.
-// 0 when unset or when the configured JID doesn't match any account — only
-// meaningful alongside a non-empty LastChatAddress.
+// LastChatAccountIndex resolves State.LastChatAccount to an index into
+// Accounts. 0 when unset or when the configured JID doesn't match any
+// account — only meaningful alongside a non-empty State.LastChatAddress.
 func (c Config) LastChatAccountIndex() int {
 	for i, acct := range c.Accounts {
-		if acct.JID == c.LastChatAccount {
+		if acct.JID == c.State.LastChatAccount {
 			return i
 		}
 	}
@@ -255,12 +237,30 @@ func Load(path string) (Config, error) {
 		}
 		if found {
 			cfg.Path = p
-			return cfg, nil
+			return loadStateInto(cfg)
 		}
 	}
 	cfg := defaultConfig()
 	if defaultPath, err := DefaultWritePath(); err == nil {
 		cfg.Path = defaultPath
+	}
+	return loadStateInto(cfg)
+}
+
+// loadStateInto loads state.yaml next to cfg.Path into cfg.State, then
+// overlays State.AccountStatuses onto cfg.Accounts (state wins over
+// whatever status a declarative config.yaml/Nix module set, since it
+// reflects the most recent change made from the UI).
+func loadStateInto(cfg Config) (Config, error) {
+	st, err := loadState(cfg.Path)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.State = st
+	for i, acct := range cfg.Accounts {
+		if status, ok := st.AccountStatuses[acct.JID]; ok {
+			cfg.Accounts[i].Status = status
+		}
 	}
 	return cfg, nil
 }

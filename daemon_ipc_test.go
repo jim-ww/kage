@@ -65,8 +65,8 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reloading config: %v", err)
 	}
-	if cfg.SidebarWidth != 42 {
-		t.Errorf("SidebarWidth = %d, want 42", cfg.SidebarWidth)
+	if cfg.State.SidebarWidth != 42 {
+		t.Errorf("SidebarWidth = %d, want 42", cfg.State.SidebarWidth)
 	}
 
 	if err := client.IncrementChatUnread("me@example.com", "you@example.com", 3); err != nil {

@@ -89,101 +89,98 @@ func SetAccountGPGKeyID(path, jid, keyID string) error {
 	return writeFileConfig(path, cfg)
 }
 
-// SetAccountStatus sets (or updates) the status field ("", "chat", "away",
-// "xa", "dnd", or "offline") for the account matching jid in the config file at path,
-// preserving everything else. A no-op if the account isn't found there.
+// SetAccountStatus sets (or updates) the status ("", "chat", "away", "xa",
+// "dnd", or "offline") for jid in the state file next to path, preserving
+// everything else - see State.AccountStatuses.
 func SetAccountStatus(path, jid, status string) error {
-	cfg, err := loadOrEmpty(path)
+	st, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	found := false
-	for i, acct := range cfg.Accounts {
-		if acct.JID == jid {
-			cfg.Accounts[i].Status = status
-			found = true
-			break
-		}
+	if st.AccountStatuses == nil {
+		st.AccountStatuses = make(map[string]string)
 	}
-	if !found {
-		return fmt.Errorf("account %s not found in %s", jid, path)
+	if status == "" {
+		delete(st.AccountStatuses, jid)
+	} else {
+		st.AccountStatuses[jid] = status
 	}
-	return writeFileConfig(path, cfg)
+	return writeState(st)
 }
 
-// SetDefaultAccount sets (or updates) the default_account setting in the
-// config file at path, preserving everything else.
+// SetDefaultAccount sets (or updates) the default account in the state file
+// next to path, preserving everything else.
 func SetDefaultAccount(path, jid string) error {
-	cfg, err := loadOrEmpty(path)
+	st, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	cfg.DefaultAccount = jid
-	return writeFileConfig(path, cfg)
+	st.DefaultAccount = jid
+	return writeState(st)
 }
 
-// SetSidebarWidth sets (or updates) the sidebar_width setting in the config
-// file at path, preserving everything else — called after the user finishes
+// SetSidebarWidth sets (or updates) the sidebar width in the state file next
+// to path, preserving everything else — called after the user finishes
 // dragging the sidebar border (see ui.SidebarWidthSetter).
 func SetSidebarWidth(path string, width int) error {
-	cfg, err := loadOrEmpty(path)
+	st, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	cfg.SidebarWidth = width
-	return writeFileConfig(path, cfg)
+	st.SidebarWidth = width
+	return writeState(st)
 }
 
-// SetInputHeight sets (or updates) the input_height setting in the config
-// file at path, preserving everything else — called after the user finishes
+// SetInputHeight sets (or updates) the input height in the state file next
+// to path, preserving everything else — called after the user finishes
 // dragging the compose box's top border (see ui.InputHeightSetter).
 func SetInputHeight(path string, height int) error {
-	cfg, err := loadOrEmpty(path)
+	st, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	cfg.InputHeight = height
-	return writeFileConfig(path, cfg)
+	st.InputHeight = height
+	return writeState(st)
 }
 
-// SetSidebarHidden sets (or updates) the sidebar_hidden setting in the
-// config file at path, preserving everything else — called whenever the
-// user toggles the chat list (see ui.SidebarHiddenSetter).
+// SetSidebarHidden sets (or updates) the sidebar-hidden flag in the state
+// file next to path, preserving everything else — called whenever the user
+// toggles the chat list (see ui.SidebarHiddenSetter).
 func SetSidebarHidden(path string, hidden bool) error {
-	cfg, err := loadOrEmpty(path)
+	st, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	cfg.SidebarHidden = hidden
-	return writeFileConfig(path, cfg)
+	st.SidebarHidden = hidden
+	return writeState(st)
 }
 
-// SetFilePickerSort sets (or updates) the file_picker_sort_field/
-// file_picker_sort_ascending settings in the config file at path, preserving
-// everything else — called whenever the user cycles the attach-file
-// picker's sort order (see ui.FilePickerSortSetter).
+// SetFilePickerSort sets (or updates) the file-picker sort field/direction
+// in the state file next to path, preserving everything else — called
+// whenever the user cycles the attach-file picker's sort order (see
+// ui.FilePickerSortSetter).
 func SetFilePickerSort(path string, field string, ascending bool) error {
-	cfg, err := loadOrEmpty(path)
+	st, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	cfg.FilePickerSortField = field
-	cfg.FilePickerSortAscending = ascending
-	return writeFileConfig(path, cfg)
+	st.FilePickerSortField = field
+	st.FilePickerSortAscending = ascending
+	return writeState(st)
 }
 
-// SetLastChat sets (or updates) the last_chat_account/last_chat_address
-// settings in the config file at path, preserving everything else — called
-// whenever the user opens a chat, so it can be reopened on startup when
-// open_last_chat is set (see ui.LastChatSetter).
+// SetLastChat sets (or updates) the last-opened-chat account/address in the
+// state file next to path, preserving everything else — called whenever the
+// user opens a chat, so it can be reopened on startup when open_last_chat is
+// set (see ui.LastChatSetter).
 func SetLastChat(path, accountJID, chatAddress string) error {
-	cfg, err := loadOrEmpty(path)
+	st, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	cfg.LastChatAccount = accountJID
-	cfg.LastChatAddress = chatAddress
-	return writeFileConfig(path, cfg)
+	st.LastChatAccount = accountJID
+	st.LastChatAddress = chatAddress
+	return writeState(st)
 }
 
 // SetStoragePlaintextPassword sets (or updates) the [storage] password field

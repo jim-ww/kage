@@ -229,8 +229,8 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	openLastChatAddress := ""
 	startAccountIdx := cfg.DefaultAccountIndex()
 	lastChatAccountIdx := cfg.LastChatAccountIndex()
-	if !cfg.OpenLastChatDisabled && cfg.LastChatAddress != "" && lastChatAccountIdx < len(cfg.Accounts) {
-		openLastChatAddress = cfg.LastChatAddress
+	if !cfg.OpenLastChatDisabled && cfg.State.LastChatAddress != "" && lastChatAccountIdx < len(cfg.Accounts) {
+		openLastChatAddress = cfg.State.LastChatAddress
 		startAccountIdx = lastChatAccountIdx
 	}
 	ui.AttachmentsDir = cfg.AttachmentsDir
@@ -249,10 +249,10 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		MaxMessagesPerChat:      cfg.MaxMessagesPerChat,
 		NoticeDuration:          cfg.NoticeDurationValue(),
 		FilePickerDirsFirst:     !cfg.FilePickerFilesFirst,
-		FilePickerSortField:     cfg.FilePickerSortField,
-		FilePickerSortAscending: cfg.FilePickerSortAscending,
+		FilePickerSortField:     cfg.State.FilePickerSortField,
+		FilePickerSortAscending: cfg.State.FilePickerSortAscending,
 	}
-	model := ui.New(uiAccounts, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.SidebarWidth, cfg.SidebarHidden, openLastChatAddress, cfg.InputHeight, display, initialCallState)
+	model := ui.New(uiAccounts, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, display, initialCallState)
 	if len(uiAccounts) == 0 {
 		// First run, or every account was removed: open straight into the
 		// add-account modal (defaults to login mode; ctrl+r switches to
