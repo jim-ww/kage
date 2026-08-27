@@ -175,6 +175,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			}
 			return m, sortCmd, true
 		}
+		if matchesLetter(msg, '.') {
+			var hiddenCmd tea.Cmd
+			*m.filePicker, hiddenCmd = m.filePicker.ToggleHidden()
+			return m, hiddenCmd, true
+		}
 		var pickerCmd tea.Cmd
 		*m.filePicker, pickerCmd = m.filePicker.Update(msg)
 		if selected, path := m.filePicker.DidSelectFile(msg); selected {

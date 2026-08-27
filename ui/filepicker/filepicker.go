@@ -493,6 +493,17 @@ func (m Model) CycleSort() (Model, tea.Cmd) {
 	return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
 }
 
+// ToggleHidden flips ShowHidden and returns a command to re-read the current
+// directory under it. Like CycleSort, the host app drives this from its own
+// keybinding rather than the picker owning one itself.
+func (m Model) ToggleHidden() (Model, tea.Cmd) {
+	m.ShowHidden = !m.ShowHidden
+	m.selected = 0
+	m.minIdx = 0
+	m.maxIdx = m.Height() - 1
+	return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
+}
+
 // SortLabel returns a short human-readable description of the current sort,
 // e.g. "updated desc", suitable for a status line.
 func (m Model) SortLabel() string {
