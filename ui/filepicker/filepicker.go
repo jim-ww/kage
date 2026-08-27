@@ -113,29 +113,33 @@ func ParseSortField(s string) SortField {
 // matched by key code rather than the layout-dependent typed character) and
 // drives it through CycleSort instead.
 type KeyMap struct {
-	GoToTop  key.Binding
-	GoToLast key.Binding
-	Down     key.Binding
-	Up       key.Binding
-	PageUp   key.Binding
-	PageDown key.Binding
-	Back     key.Binding
-	Open     key.Binding
-	Select   key.Binding
+	GoToTop      key.Binding
+	GoToLast     key.Binding
+	Down         key.Binding
+	Up           key.Binding
+	HalfPageUp   key.Binding
+	HalfPageDown key.Binding
+	PageUp       key.Binding
+	PageDown     key.Binding
+	Back         key.Binding
+	Open         key.Binding
+	Select       key.Binding
 }
 
 // DefaultKeyMap defines the default keybindings.
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
-		GoToTop:  key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "first")),
-		GoToLast: key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "last")),
-		Down:     key.NewBinding(key.WithKeys("j", "down", "ctrl+n"), key.WithHelp("j", "down")),
-		Up:       key.NewBinding(key.WithKeys("k", "up", "ctrl+p"), key.WithHelp("k", "up")),
-		PageUp:   key.NewBinding(key.WithKeys("K", "pgup"), key.WithHelp("pgup", "page up")),
-		PageDown: key.NewBinding(key.WithKeys("J", "pgdown"), key.WithHelp("pgdown", "page down")),
-		Back:     key.NewBinding(key.WithKeys("h", "backspace", "left", "esc"), key.WithHelp("h", "back")),
-		Open:     key.NewBinding(key.WithKeys("l", "right", "enter"), key.WithHelp("l", "open")),
-		Select:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
+		GoToTop:      key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "first")),
+		GoToLast:     key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "last")),
+		Down:         key.NewBinding(key.WithKeys("j", "down", "ctrl+n"), key.WithHelp("j", "down")),
+		Up:           key.NewBinding(key.WithKeys("k", "up", "ctrl+p"), key.WithHelp("k", "up")),
+		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half page up")),
+		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half page down")),
+		PageUp:       key.NewBinding(key.WithKeys("K", "pgup"), key.WithHelp("pgup", "page up")),
+		PageDown:     key.NewBinding(key.WithKeys("J", "pgdown"), key.WithHelp("pgdown", "page down")),
+		Back:         key.NewBinding(key.WithKeys("h", "backspace", "left", "esc"), key.WithHelp("h", "back")),
+		Open:         key.NewBinding(key.WithKeys("l", "right", "enter"), key.WithHelp("l", "open")),
+		Select:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
 	}
 }
 
@@ -411,6 +415,40 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.selected < m.minIdx {
 				m.minIdx--
 				m.maxIdx--
+			}
+		case key.Matches(msg, m.KeyMap.HalfPageDown):
+			half := max(1, m.Height()/2)
+			m.selected += half
+			if m.selected >= len(m.files) {
+				m.selected = len(m.files) - 1
+			}
+			m.minIdx += half
+			m.maxIdx += half
+
+			if m.maxIdx >= len(m.files) {
+				m.maxIdx = len(m.files) - 1
+				m.minIdx = m.maxIdx - m.Height()
+			}
+			if m.minIdx < 0 {
+				m.minIdx = 0
+				m.maxIdx = m.minIdx + m.Height()
+			}
+		case key.Matches(msg, m.KeyMap.HalfPageUp):
+			half := max(1, m.Height()/2)
+			m.selected -= half
+			if m.selected < 0 {
+				m.selected = 0
+			}
+			m.minIdx -= half
+			m.maxIdx -= half
+
+			if m.minIdx < 0 {
+				m.minIdx = 0
+				m.maxIdx = m.minIdx + m.Height()
+			}
+			if m.maxIdx >= len(m.files) {
+				m.maxIdx = len(m.files) - 1
+				m.minIdx = m.maxIdx - m.Height()
 			}
 		case key.Matches(msg, m.KeyMap.PageDown):
 			m.selected += m.Height()
