@@ -37,6 +37,7 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 	}
 	msgs := m.currentMessages()
 	offsets := make([]int, len(msgs))
+	nameWidth := maxSenderNameWidth(msgs)
 
 	var sb strings.Builder
 	currentLine := 0
@@ -47,7 +48,7 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 			currentLine++
 		}
 		offsets[i] = currentLine
-		rendered := m.zone.Mark(zoneMessage(i), padLinesToWidth(m.renderMessage(msg, i, cw, msgs), cw))
+		rendered := m.zone.Mark(zoneMessage(i), padLinesToWidth(m.renderMessage(msg, i, cw, msgs, nameWidth), cw))
 		sb.WriteString(rendered)
 		currentLine += strings.Count(rendered, "\n")
 	}
@@ -138,7 +139,25 @@ func msgKey(msg Message, idx int) string {
 	return fmt.Sprintf("idx:%d", idx)
 }
 
-func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message) string {
+// maxSenderNameWidth returns the widest displayed sender name across msgs
+// (call-log rows excluded, since they don't render one) - used to pad every
+// message's "name:" label to a common width so the colons - and everything
+// that follows them - line up down the whole chat instead of jittering with
+// each sender's name length.
+func maxSenderNameWidth(msgs []Message) int {
+	width := 0
+	for _, msg := range msgs {
+		if msg.CallLog != nil {
+			continue
+		}
+		if w := lipgloss.Width(senderDisplayName(msg.Author)); w > width {
+			width = w
+		}
+	}
+	return width
+}
+
+func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message, nameWidth int) string {
 	if msg.CallLog != nil {
 		return m.callLogLine(msg, msgIdx)
 	}
@@ -150,7 +169,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		nameStyle = m.styles.messageNickMe
 	}
 	name := senderDisplayName(msg.Author)
-	label := name + ":"
+	label := name + strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name))) + ":"
 	prefixWidth := lipgloss.Width(label) + 1 // trailing space between "name:" and what follows it
 	pad := strings.Repeat(" ", prefixWidth)
 

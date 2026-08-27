@@ -22,7 +22,7 @@ func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
 		SentAt:  time.Now(),
 	}
 
-	out := m.renderMessage(msg, 0, 40, []Message{msg})
+	out := m.renderMessage(msg, 0, 40, []Message{msg}, maxSenderNameWidth([]Message{msg}))
 	lines := strings.Split(out, "\n")
 	// header+first body line, at least one more wrapped body line, plus the
 	// trailing time/status line.

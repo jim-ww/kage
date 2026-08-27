@@ -47,6 +47,7 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 		return
 	}
 	msgs := m.currentMessages()
+	nameWidth := maxSenderNameWidth(msgs)
 
 	for _, idx := range []int{oldIdx, newIdx} {
 		if idx < 0 || idx >= len(msgs) || idx >= len(m.msgOffsets) {
@@ -61,7 +62,7 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 			m.refreshViewport()
 			return
 		}
-		rendered := m.zone.Mark(zoneMessage(idx), padLinesToWidth(m.renderMessage(msgs[idx], idx, cw, msgs), cw))
+		rendered := m.zone.Mark(zoneMessage(idx), padLinesToWidth(m.renderMessage(msgs[idx], idx, cw, msgs, nameWidth), cw))
 		newLines := strings.Split(rendered, "\n")
 		if len(newLines) != end-start {
 			// Wrapping changed unexpectedly (e.g. width changed mid-flight);
