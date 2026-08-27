@@ -278,10 +278,31 @@ func entryTime(field SortField, info os.FileInfo) time.Time {
 	return info.ModTime()
 }
 
+// entryGroup ranks an entry into one of four buckets so DirsFirst sorting
+// (see sortEntries) lists dirs before hidden dirs before files before hidden
+// files, rather than lumping hidden entries in wherever their name/time
+// happens to land within the dir/file split.
+func entryGroup(entry os.DirEntry) int {
+	isHidden, _ := IsHidden(entry.Name())
+	switch {
+	case entry.IsDir() && !isHidden:
+		return 0
+	case entry.IsDir() && isHidden:
+		return 1
+	case !isHidden:
+		return 2
+	default:
+		return 3
+	}
+}
+
 func sortEntries(dirEntries []os.DirEntry, field SortField, ascending, dirsFirst bool) {
 	sort.Slice(dirEntries, func(i, j int) bool {
-		if dirsFirst && dirEntries[i].IsDir() != dirEntries[j].IsDir() {
-			return dirEntries[i].IsDir()
+		if dirsFirst {
+			gi, gj := entryGroup(dirEntries[i]), entryGroup(dirEntries[j])
+			if gi != gj {
+				return gi < gj
+			}
 		}
 		infoI, errI := dirEntries[i].Info()
 		infoJ, errJ := dirEntries[j].Info()
