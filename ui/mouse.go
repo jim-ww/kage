@@ -170,15 +170,19 @@ func zoneRowContains(z *zone.ZoneInfo, mouse tea.MouseMsg, maxX int) bool {
 type hoverState struct {
 	id string
 
-	// x is the pointer's last-seen column, updated on every motion event
-	// regardless of whether id changed. Used to tell whether the pointer is
-	// specifically over the expand ("show more"/"show less") button within a
-	// hovered message row (see isExpandButtonHovered) without needing a zone
-	// of its own - the button's zone is nested inside zoneMessage's, and
-	// re-deriving its bounds from the row's own zone plus its known reserved
-	// width is simpler than relying on the scanner to resolve a mark nested
-	// inside another mark that itself moves as messages load/scroll.
-	x int
+	// x, y are the pointer's last-seen column/row, updated on every motion
+	// event regardless of whether id changed. Used to tell whether the
+	// pointer is specifically over a nested sub-zone (the expand button, the
+	// reply/react key glyphs, a reaction chip) within a hovered message row
+	// - itself one zone spanning every line the message renders across -
+	// without needing a zone of its own for each: re-deriving bounds from
+	// the row's own known sub-marks is simpler than relying on the scanner
+	// to resolve a mark nested inside another mark that itself moves as
+	// messages load/scroll. Both x and y matter, not just x: a message row
+	// is multiple lines tall, and a sub-zone only occupies one of them, so
+	// checking x alone would match the pointer being over a *different*
+	// line of the same row at the sub-zone's column.
+	x, y int
 
 	// replyKeyIdx is the index of the message whose "^r" key glyph is
 	// currently drawn as hovered, or -1. refreshViewportSelection only
@@ -227,7 +231,7 @@ func (m Model) isExpandButtonHovered(i int) bool {
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
 // isReactionHovered reports whether the pointer is over message i's j'th
@@ -241,7 +245,7 @@ func (m Model) isReactionHovered(i, j int) bool {
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
 // isReplyKeyHovered reports whether the pointer is over message i's "^r" key
@@ -258,7 +262,7 @@ func (m Model) isReplyKeyHovered(i int) bool {
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
 // isReactKeyHovered is isReplyKeyHovered's counterpart for the "^t" key
@@ -271,7 +275,7 @@ func (m Model) isReactKeyHovered(i int) bool {
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
 // handleMouseMotion recomputes which zone is under the pointer on every
@@ -309,6 +313,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.hover.x = msg.Mouse().X
+	m.hover.y = msg.Mouse().Y
 
 	newHoverID := m.zoneUnderMouse(msg)
 	var hoverCmd tea.Cmd
