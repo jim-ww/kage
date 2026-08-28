@@ -169,28 +169,13 @@ type hoverState struct {
 
 	// x is the pointer's last-seen column, updated on every motion event
 	// regardless of whether id changed. Used to tell whether the pointer is
-	// specifically over the hover reply button within a hovered message row
-	// (see isReplyButtonHovered) without needing a zone of its own - the
-	// button's zone is nested inside zoneMessage's, and re-deriving its
-	// bounds from the row's own zone plus its known reserved width is
-	// simpler than relying on the scanner to resolve a mark nested inside
-	// another mark that itself moves as messages load/scroll.
+	// specifically over the expand ("show more"/"show less") button within a
+	// hovered message row (see isExpandButtonHovered) without needing a zone
+	// of its own - the button's zone is nested inside zoneMessage's, and
+	// re-deriving its bounds from the row's own zone plus its known reserved
+	// width is simpler than relying on the scanner to resolve a mark nested
+	// inside another mark that itself moves as messages load/scroll.
 	x int
-
-	// replyBtnIdx is the index of the message whose reply button is
-	// currently drawn as hovered, or -1. refreshViewportSelection only
-	// re-renders a message when its *selection* changes (see its own doc
-	// comment - deliberately not on every motion event, to avoid lagging a
-	// fast mouse sweep), so without this the reply button's reversed style
-	// would only ever reflect wherever the pointer happened to be the
-	// instant the row became selected, then stay frozen there as the
-	// pointer kept moving within the same already-selected row. Tracking it
-	// separately lets handleMouseMotion detect specifically *this* change
-	// and force the one extra re-render it needs.
-	replyBtnIdx int
-
-	// reactBtnIdx is replyBtnIdx's counterpart for the react button.
-	reactBtnIdx int
 
 	// devicesID is the chat-item zone ID currently showing its online-device
 	// list in place of the row's normal description (see
@@ -205,40 +190,9 @@ func (m Model) isHovered(zoneID string) bool {
 	return m.hover != nil && m.hover.id == zoneID
 }
 
-// isReplyButtonHovered reports whether the pointer is over message i's hover
-// reply button specifically, rather than just somewhere else in its row.
-// Requires the row itself to already be the hovered zone; within that, it
-// checks the button's own nested zone bounds (marked wherever renderMessage
-// actually placed it, right after the header) - the same nested-zone lookup
-// already used for click handling (see zoneMessageReplyBtn's use in
-// handleMouseClick), so hover detection can't disagree with where a click
-// would land.
-func (m Model) isReplyButtonHovered(i int) bool {
-	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
-		return false
-	}
-	z := m.zone.Get(zoneMessageReplyBtn(i))
-	if z.IsZero() {
-		return false
-	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX
-}
-
-// isReactButtonHovered is isReplyButtonHovered's counterpart for the "^t
-// react" button on the message's status line.
-func (m Model) isReactButtonHovered(i int) bool {
-	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
-		return false
-	}
-	z := m.zone.Get(zoneMessageReactBtn(i))
-	if z.IsZero() {
-		return false
-	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX
-}
-
-// isExpandButtonHovered is isReplyButtonHovered's counterpart for a
-// collapsed message's "show more"/"show less" toggle.
+// isExpandButtonHovered reports whether the pointer is over message i's
+// "show more"/"show less" toggle specifically, rather than just somewhere
+// else in its row.
 func (m Model) isExpandButtonHovered(i int) bool {
 	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
 		return false
@@ -330,31 +284,6 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			m.refreshViewportSelection(old, idx)
 		}
 
-		// The row-selection refresh above only fires when selectedMsg
-		// changes, but the reply button's own hovered/reversed state can
-		// also change from a pointer move *within* an already-selected row
-		// (sliding onto or off of the button's column range) - that needs
-		// its own re-render or the button freezes at whatever it looked
-		// like the moment the row was entered (see hoverState.replyBtnIdx).
-		newBtnIdx := -1
-		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReplyButtonHovered(idx) {
-			newBtnIdx = idx
-		}
-		if newBtnIdx != m.hover.replyBtnIdx {
-			old := m.hover.replyBtnIdx
-			m.hover.replyBtnIdx = newBtnIdx
-			m.refreshViewportSelection(old, newBtnIdx)
-		}
-
-		newReactBtnIdx := -1
-		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReactButtonHovered(idx) {
-			newReactBtnIdx = idx
-		}
-		if newReactBtnIdx != m.hover.reactBtnIdx {
-			old := m.hover.reactBtnIdx
-			m.hover.reactBtnIdx = newReactBtnIdx
-			m.refreshViewportSelection(old, newReactBtnIdx)
-		}
 	}
 
 	return m, hoverCmd
