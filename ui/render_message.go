@@ -92,7 +92,7 @@ func (m Model) messageDateDivider(msgIdx, width int, allMsgs []Message) string {
 // normal author/content/timestamp bubble layout — same muted/italic styling
 // as a deleted message, since it's informational rather than real chat
 // content.
-func (m Model) callLogLine(msg Message, msgIdx int) string {
+func (m Model) callLogLine(msg Message, msgIdx, totalWidth int) string {
 	glyph := "call"
 	if m.icons {
 		glyph = "📞"
@@ -116,13 +116,14 @@ func (m Model) callLogLine(msg Message, msgIdx int) string {
 	}
 	timeLabel := m.formatMessageTime(msg.SentAt)
 	line := m.styles.messageDeleted.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
-	switch {
-	case msgIdx == m.selectedMsg:
+	isSelected := msgIdx == m.selectedMsg
+	if isSelected {
 		line = m.styles.messageBar.Render("▌") + " " + line
-	case m.isHovered(zoneMessage(msgIdx)):
-		line = "  " + m.styles.rowBackgroundTint(line)
-	default:
+	} else {
 		line = "  " + line
+	}
+	if isSelected || m.isHovered(zoneMessage(msgIdx)) {
+		line = m.styles.rowBackgroundTint(padLinesToWidth(line, totalWidth+2))
 	}
 	return line
 }
@@ -195,7 +196,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	if msg.CallLog != nil {
-		return divider + m.callLogLine(msg, msgIdx)
+		return divider + m.callLogLine(msg, msgIdx, totalWidth)
 	}
 	isSelected := msgIdx == m.selectedMsg
 	rowHovered := m.isHovered(zoneMessage(msgIdx))
@@ -309,12 +310,16 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 	}
 
-	// Hovering tints every line of the row with a subtle background instead
-	// of underlining individual fragments, so the whole message reads as
-	// one highlighted block.
-	if rowHovered {
+	// Selecting (keyboard) or hovering (mouse) tints every line of the row
+	// with a subtle background instead of underlining individual fragments,
+	// so the whole message reads as one highlighted block regardless of
+	// which input method chose it. Padded out to the row's full width
+	// first (bar/gutter included) so the tint fills the entire line instead
+	// of stopping wherever that line's own text/status content happened to
+	// end.
+	if isSelected || rowHovered {
 		for i, line := range lines {
-			lines[i] = m.styles.rowBackgroundTint(line)
+			lines[i] = m.styles.rowBackgroundTint(padLinesToWidth(line, totalWidth+2))
 		}
 	}
 
