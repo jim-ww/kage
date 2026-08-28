@@ -599,6 +599,15 @@ func (s uiStyles) renderReplyHint(author, preview string) string {
 	return s.messageReply.Render(fmt.Sprintf("↩ %s: %s", author, preview))
 }
 
+// renderQuoteReplyFragment renders the "↑ preview" fragment for a message
+// whose reply is a parsed ">"-quote text convention (see parseQuoteReply)
+// rather than a real XEP-0461 reply - dimmed like a real reply's preview
+// text, but with no author name (a text quote doesn't carry one) and no
+// bar separator (there's nothing to separate the name from).
+func (s uiStyles) renderQuoteReplyFragment(preview string) string {
+	return s.messageTime.Render("↑ " + previewText(preview, previewLen))
+}
+
 // emojiSuggestionLabel styles one react-hint suggestion label: bracketed
 // (like the selected-message prefix) when it's the arrow-key selection,
 // dimmer-bracketed on hover, plain otherwise. Applied once to the plain

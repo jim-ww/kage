@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -215,6 +216,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	if label != "" {
 		headerLine += " "
 	}
+	hasTextQuoteReply := false
 	if msg.ReplyTo != nil {
 		reply := m.replyHeaderFragment(*msg.ReplyTo, allMsgs)
 		headerLine += m.zone.Mark(zoneMessageReply(msgIdx), reply)
@@ -247,14 +249,25 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 		bodyContent = strings.Join(parts, "\n")
 	default:
-		bodyContent = FormatMessageBody(msg.Content)
+		content := msg.Content
+		// A real XEP-0461 reply (Message.ReplyTo) always wins over the
+		// text convention below - a message can't be both.
+		if msg.ReplyTo == nil {
+			if preview, rest, ok := parseQuoteReply(content); ok {
+				hasTextQuoteReply = true
+				content = rest
+				headerLine += m.styles.renderQuoteReplyFragment(preview)
+			}
+		}
+		bodyContent = FormatMessageBody(content)
 	}
 
 	// Body text trails directly after the name on the header's own line
-	// when there's no reply quote to make room for; a reply pushes the body
-	// down to its own line instead, since the quote already occupies the
-	// space right after the name.
-	bodyOnHeaderLine := msg.ReplyTo == nil
+	// when there's no reply quote to make room for; a real reply or a
+	// parsed ">"-quote convention both push the body down to its own line
+	// instead, since the quote already occupies the space right after the
+	// name.
+	bodyOnHeaderLine := msg.ReplyTo == nil && !hasTextQuoteReply
 	wrapWidth := max(totalWidth-prefixWidth, 8)
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	fullBodyLineCount := len(bodyLines)
@@ -505,6 +518,38 @@ func (m Model) replyHeaderFragment(idx int, allMsgs []Message) string {
 	preview := m.styles.messageTime.Render(previewText(MessagePreviewContent(orig), previewLen))
 	sep := m.styles.messageTime.Render("│")
 	return "↑ " + name + " " + sep + " " + preview
+}
+
+// quoteLinePrefix matches a line that's part of an email/IRC-style quoted
+// reply: optional leading whitespace, then one or more '>' markers (one per
+// nesting level - "> foo" quotes once, ">> foo" quotes a message that was
+// itself already a quote), then the quoted text.
+var quoteLinePrefix = regexp.MustCompile(`^\s*>+\s?`)
+
+// parseQuoteReply detects a leading run of quoted lines (see quoteLinePrefix)
+// at the start of content and splits it into a synthetic reply preview -
+// the last (least-nested) quoted line, markers stripped - and the actual
+// new text following the quote block. Unlike a real XEP-0461 reply
+// (Message.ReplyTo), this is just a text convention with no message to
+// jump to: some clients (and manually-typed replies) still write it this
+// way instead of using an actual reply. ok is false if content doesn't
+// start with at least one quoted line, or if nothing follows the quote
+// block (nothing left to show as the message's own body).
+func parseQuoteReply(content string) (preview, rest string, ok bool) {
+	lines := strings.Split(content, "\n")
+	i := 0
+	for i < len(lines) && quoteLinePrefix.MatchString(lines[i]) {
+		i++
+	}
+	if i == 0 {
+		return "", content, false
+	}
+	rest = strings.TrimLeft(strings.Join(lines[i:], "\n"), "\n")
+	if rest == "" {
+		return "", content, false
+	}
+	preview = quoteLinePrefix.ReplaceAllString(lines[i-1], "")
+	return preview, rest, true
 }
 
 // previewLen is the shared truncation budget for single-line message
