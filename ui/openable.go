@@ -193,15 +193,16 @@ func sanitizeJIDForPath(jid string) string {
 	return jid
 }
 
-// isAttachmentDownloaded reports whether target already has a local copy —
-// either in the aesgcm view cache (attachmentCacheDir) or in the downloads
-// directory, mirroring the exact destination paths openWithXDGOpen and
-// saveURLToDownloads would use. Doesn't create either directory: this runs
-// on every render, so it must stay a pure read.
-func isAttachmentDownloaded(target, jid string) bool {
+// attachmentLocalPath returns the destination path target would already be
+// at if downloaded - either in the aesgcm view cache (attachmentCacheDir)
+// or in the downloads directory, mirroring the exact destination paths
+// openWithXDGOpen and saveURLToDownloads would use. Empty if target's
+// download URL can't be determined. Doesn't create either directory: this
+// runs on every render, so it must stay a pure read.
+func attachmentLocalPath(target, jid string) string {
 	downloadURL := attachmentDownloadURL(target)
 	if downloadURL == "" {
-		return false
+		return ""
 	}
 	base := attachmentBaseName(downloadURL)
 
@@ -210,31 +211,94 @@ func isAttachmentDownloaded(target, jid string) bool {
 		if dir == "" {
 			cacheBase, err := os.UserCacheDir()
 			if err != nil {
-				return false
+				return ""
 			}
 			dir = filepath.Join(cacheBase, "kage", "attachments")
 		}
 		dir = filepath.Join(dir, sanitizeJIDForPath(jid))
 		sum := sha256.Sum256([]byte(target))
-		dest := filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
-		_, err := os.Stat(dest)
-		return err == nil
+		return filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
 	}
 
 	dir := strings.TrimSpace(os.Getenv("XDG_DOWNLOAD_DIR"))
 	if dir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return false
+			return ""
 		}
 		dir = filepath.Join(home, "Downloads")
 	}
-	_, err := os.Stat(filepath.Join(dir, base))
+	return filepath.Join(dir, base)
+}
+
+// isAttachmentDownloaded reports whether target already has a local copy —
+// see attachmentLocalPath.
+func isAttachmentDownloaded(target, jid string) bool {
+	path := attachmentLocalPath(target, jid)
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
 	return err == nil
 }
 
+// attachmentLocalSize returns the size in bytes of target's local copy (see
+// attachmentLocalPath), and whether one was found - only meaningful once
+// downloaded, since nothing else in this client tracks an attachment's
+// size (XEP-0363 upload responses don't report it back).
+func attachmentLocalSize(target, jid string) (int64, bool) {
+	path := attachmentLocalPath(target, jid)
+	if path == "" {
+		return 0, false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	return info.Size(), true
+}
+
+// humanFileSize formats a byte count the way file managers do: "4.2 KB",
+// "1.1 MB", falling back to a plain byte count under 1 KB.
+func humanFileSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// attachmentSizeLabel returns the info popup's size line for target: a
+// local copy's real size if one exists, else whatever fetchAttachmentSizeCmd
+// found (triggered by actionInfoMessage when the popup opened), else a
+// status word for the in-between/failure states.
+func (m Model) attachmentSizeLabel(target, jid string) string {
+	if size, ok := attachmentLocalSize(target, jid); ok {
+		return humanFileSize(size)
+	}
+	if size, ok := m.attachmentSizes[target]; ok {
+		return humanFileSize(size)
+	}
+	if m.attachmentSizeFetching[target] {
+		return "fetching…"
+	}
+	// m.attachmentSizeFailed[target] and "never even tried" (e.g. no
+	// download URL) both land here - either way, unknown is unknown.
+	return "unknown"
+}
+
 // renderAttachmentLine formats an attachment as "<icon> <name>", with a
-// trailing marker when a local copy already exists.
+// trailing marker when a local copy already exists. Size isn't shown here -
+// for a not-yet-downloaded attachment that would mean an HTTP HEAD request
+// per render, silently telling whatever server hosts the file that this
+// account is looking at it even if it's never actually opened; see the
+// message-info popup (ctrl+i/actionInfoMessage) instead, which fetches it
+// on demand only for the one message you explicitly asked about.
 func renderAttachmentLine(target string, icons bool, jid string) string {
 	name := attachmentDisplayName(target)
 	line := attachmentIcon(name, icons) + " " + name
@@ -256,6 +320,45 @@ type openResultMsg struct {
 	target       string
 	isAttachment bool // true when target is a real attachment (downloaded via downloadAndOpen), not a plain link handed straight to xdg-open - lets the UI show the decoded filename instead of the raw URL
 	err          error
+}
+
+// attachmentSizeMsg reports the result of fetchAttachmentSizeCmd: ok is
+// false when the HEAD request failed or the server didn't report a
+// Content-Length, in which case size is meaningless and shouldn't be
+// retried automatically (see Model.attachmentSizeFailed).
+type attachmentSizeMsg struct {
+	target string
+	size   int64
+	ok     bool
+}
+
+// fetchAttachmentSizeCmd HEAD-requests target's size - deliberately not
+// called eagerly for every rendered attachment (that would tell whatever
+// server hosts each file that this account is looking at it, even for
+// files never actually opened); only actionInfoMessage triggers this, for
+// the one message's attachments the user explicitly asked to inspect.
+func fetchAttachmentSizeCmd(target string) tea.Cmd {
+	return func() tea.Msg {
+		downloadURL := attachmentDownloadURL(target)
+		if downloadURL == "" {
+			return attachmentSizeMsg{target: target}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, downloadURL, nil)
+		if err != nil {
+			return attachmentSizeMsg{target: target}
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return attachmentSizeMsg{target: target}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 || resp.ContentLength < 0 {
+			return attachmentSizeMsg{target: target}
+		}
+		return attachmentSizeMsg{target: target, size: resp.ContentLength, ok: true}
+	}
 }
 
 // openWithXDGOpen shells out to xdg-open in the background; the result is

@@ -693,6 +693,7 @@ func (m Model) infoPrompt(width int) string {
 	if msg.ReplyTo != nil {
 		rows = append(rows, fmt.Sprintf("Reply to: %s", m.replyPreview(*msg.ReplyTo, msgs)))
 	}
+	chat, _ := m.currentChat()
 	for i, a := range msg.Attachments {
 		label := "Attachment:"
 		if len(msg.Attachments) > 1 {
@@ -706,6 +707,7 @@ func (m Model) infoPrompt(width int) string {
 		row := fmt.Sprintf("%s %s", label, url)
 		row = ansi.Truncate(row, width, "…")
 		rows = append(rows, m.zone.Mark(zoneMsgInfoAttachment(i), row))
+		rows = append(rows, "  Size: "+m.attachmentSizeLabel(a, chat.Address))
 	}
 	if msg.Retracted {
 		// The chat view hides deleted content, but we never actually erase

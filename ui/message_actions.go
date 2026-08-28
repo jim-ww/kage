@@ -529,7 +529,29 @@ func (m *Model) actionInfoMessage() tea.Cmd {
 		return m.showNotification("no message selected")
 	}
 	m.showMsgInfo = true
-	return nil
+
+	// Fetch a size for each attachment on this message that doesn't already
+	// have one locally measurable and hasn't already been fetched/attempted
+	// this session - deliberately only here (an explicit "tell me about this
+	// message" action), not on every render, since it means an HTTP HEAD
+	// request to whatever server hosts the file (see fetchAttachmentSizeCmd).
+	msg := msgs[m.selectedMsg]
+	chat, _ := m.currentChat()
+	var cmds []tea.Cmd
+	for _, a := range msg.Attachments {
+		if _, ok := attachmentLocalSize(a, chat.Address); ok {
+			continue
+		}
+		if _, ok := m.attachmentSizes[a]; ok || m.attachmentSizeFetching[a] || m.attachmentSizeFailed[a] {
+			continue
+		}
+		if m.attachmentSizeFetching == nil {
+			m.attachmentSizeFetching = make(map[string]bool)
+		}
+		m.attachmentSizeFetching[a] = true
+		cmds = append(cmds, fetchAttachmentSizeCmd(a))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) actionOpenMessage() tea.Cmd {

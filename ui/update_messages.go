@@ -134,6 +134,21 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, m.showNotification("opened " + label), true
 
+	case attachmentSizeMsg:
+		delete(m.attachmentSizeFetching, msg.target)
+		if msg.ok {
+			if m.attachmentSizes == nil {
+				m.attachmentSizes = make(map[string]int64)
+			}
+			m.attachmentSizes[msg.target] = msg.size
+		} else {
+			if m.attachmentSizeFailed == nil {
+				m.attachmentSizeFailed = make(map[string]bool)
+			}
+			m.attachmentSizeFailed[msg.target] = true
+		}
+		return m, nil, true
+
 	case saveResultMsg:
 		m.clearTransfer(msg.target)
 		delete(m.downloadsInFlight, msg.target)
