@@ -302,18 +302,20 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 }
 
 // renderMsgActionKey renders a message row's "↩" (reply)/"+" (react)
-// button glyph: the actual button look (background+padding, reversed on
-// hover) - reply's more prominent than react's, styled like sendButton
-// (accentCyan) vs. attachButton's calmer background. No trailing label -
-// the glyph alone is the whole clickable control (see
+// button glyph. Plain dimmed text - no background/padding - until hovered,
+// at which point it gets the actual button look (background+padding) -
+// reply's more prominent than react's, styled like sendButton (accentCyan)
+// vs. attachButton's calmer background - so it only reads as a button once
+// the pointer is actually on it, not permanently. No trailing label - the
+// glyph alone is the whole clickable control (see
 // isReplyKeyHovered/isReactKeyHovered).
 func (s uiStyles) renderMsgActionKey(key string, prominent, hovered bool) string {
+	if !hovered {
+		return s.messageMuted.Render(key)
+	}
 	st := s.attachButton
 	if prominent {
 		st = s.sendButton
-	}
-	if hovered {
-		st = st.Reverse(true)
 	}
 	return st.Render(key)
 }
