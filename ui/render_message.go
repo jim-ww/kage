@@ -352,12 +352,17 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 		parts = append(parts, replyBtn, reactBtn)
 	}
 
+	// Edited/encrypted/delivery are all small badges of the same kind -
+	// joined by a single space between themselves, tighter than the double
+	// space separating time/buttons/badges from each other.
+	var badges []string
+
 	if msg.Edited {
 		editIcon := "edited"
 		if m.icons {
 			editIcon = "✎"
 		}
-		parts = append(parts, m.styles.messageTime.Render(editIcon))
+		badges = append(badges, m.styles.messageTime.Render(editIcon))
 	}
 
 	if msg.Encrypted && m.showEncryptedIcon {
@@ -365,7 +370,7 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 		if m.icons {
 			lockIcon = "🔒"
 		}
-		parts = append(parts, m.styles.messageTime.Render(lockIcon))
+		badges = append(badges, m.styles.messageTime.Render(lockIcon))
 	}
 
 	if msg.IsMe {
@@ -394,8 +399,12 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 			// local send succeeding is not proof the server ever got it.
 		}
 		if status != "" {
-			parts = append(parts, m.styles.messageTime.Render(status))
+			badges = append(badges, m.styles.messageTime.Render(status))
 		}
+	}
+
+	if len(badges) > 0 {
+		parts = append(parts, strings.Join(badges, " "))
 	}
 
 	return strings.Join(parts, "  ")
