@@ -1131,9 +1131,19 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		if len(m.msgOffsets) > 0 {
-			m.selectedMsg = m.msgIndexAtOffset(m.viewport.YOffset())
-			m.refreshViewport()
-			m.viewport.SetYOffset(m.viewport.YOffset())
+			yOffset := m.viewport.YOffset()
+			top := m.msgIndexAtOffset(yOffset)
+			bottom := m.msgIndexAtOffset(yOffset + max(0, m.viewport.Height()-1))
+			old := m.selectedMsg
+			switch {
+			case m.selectedMsg < top:
+				m.selectedMsg = top
+			case m.selectedMsg > bottom:
+				m.selectedMsg = bottom
+			}
+			if m.selectedMsg != old {
+				m.refreshViewportSelection(old, m.selectedMsg)
+			}
 		}
 		if m.viewport.YOffset() == 0 {
 			cmd = tea.Batch(cmd, m.maybeLoadOlderHistory())
