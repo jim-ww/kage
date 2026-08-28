@@ -51,22 +51,23 @@ const (
 // compose box's cursor (and so its internal viewport) by.
 const inputWheelScrollLines = 2
 
-func zoneFilePickerRow(i int) string     { return fmt.Sprintf("file-picker-row-%d", i) }
-func zoneAccountRow(i int) string        { return fmt.Sprintf("account-row-%d", i) }
-func zoneChatItem(i int) string          { return fmt.Sprintf("chat-item-%d", i) }
-func zoneMessage(i int) string           { return fmt.Sprintf("msg-%d", i) }
-func zoneMessageReply(i int) string      { return fmt.Sprintf("msg-reply-%d", i) }
-func zoneMessageReplyBtn(i int) string   { return fmt.Sprintf("msg-reply-btn-%d", i) }
-func zoneMessageReactBtn(i int) string   { return fmt.Sprintf("msg-react-btn-%d", i) }
-func zoneMessageReplyKey(i int) string   { return fmt.Sprintf("msg-reply-key-%d", i) }
-func zoneMessageReactKey(i int) string   { return fmt.Sprintf("msg-react-key-%d", i) }
-func zoneMessageExpand(i int) string     { return fmt.Sprintf("msg-expand-%d", i) }
-func zoneEmojiSuggestion(i int) string   { return fmt.Sprintf("emoji-suggest-%d", i) }
-func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove-%d", i) }
-func zoneMsgInfoAttachment(i int) string { return fmt.Sprintf("msg-info-attachment-%d", i) }
-func zoneContactRow(i int) string        { return fmt.Sprintf("contact-row-%d", i) }
-func zoneDeviceRow(i int) string         { return fmt.Sprintf("device-row-%d", i) }
-func zoneSearchResultRow(i int) string   { return fmt.Sprintf("search-result-row-%d", i) }
+func zoneFilePickerRow(i int) string      { return fmt.Sprintf("file-picker-row-%d", i) }
+func zoneAccountRow(i int) string         { return fmt.Sprintf("account-row-%d", i) }
+func zoneChatItem(i int) string           { return fmt.Sprintf("chat-item-%d", i) }
+func zoneMessage(i int) string            { return fmt.Sprintf("msg-%d", i) }
+func zoneMessageReply(i int) string       { return fmt.Sprintf("msg-reply-%d", i) }
+func zoneMessageReplyBtn(i int) string    { return fmt.Sprintf("msg-reply-btn-%d", i) }
+func zoneMessageReactBtn(i int) string    { return fmt.Sprintf("msg-react-btn-%d", i) }
+func zoneMessageReplyKey(i int) string    { return fmt.Sprintf("msg-reply-key-%d", i) }
+func zoneMessageReactKey(i int) string    { return fmt.Sprintf("msg-react-key-%d", i) }
+func zoneMessageExpand(i int) string      { return fmt.Sprintf("msg-expand-%d", i) }
+func zoneMessageReaction(i, j int) string { return fmt.Sprintf("msg-reaction-%d-%d", i, j) }
+func zoneEmojiSuggestion(i int) string    { return fmt.Sprintf("emoji-suggest-%d", i) }
+func zoneAttachmentRemove(i int) string   { return fmt.Sprintf("attachment-remove-%d", i) }
+func zoneMsgInfoAttachment(i int) string  { return fmt.Sprintf("msg-info-attachment-%d", i) }
+func zoneContactRow(i int) string         { return fmt.Sprintf("contact-row-%d", i) }
+func zoneDeviceRow(i int) string          { return fmt.Sprintf("device-row-%d", i) }
+func zoneSearchResultRow(i int) string    { return fmt.Sprintf("search-result-row-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
 // (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
@@ -765,6 +766,14 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				m.expandedMsgs[msgKey(mm, i)] = !m.expandedMsgs[msgKey(mm, i)]
 				m.refreshViewportFullScrollTo(i)
 				return m, nil
+			}
+		}
+		for i, mm := range msgs {
+			for j, r := range mm.Reactions {
+				if m.zone.Get(zoneMessageReaction(i, j)).InBounds(msg) {
+					m.notifyTypingStopped()
+					return m, m.sendReaction(i, toggleMyReaction(mm.Reactions, r.Emoji))
+				}
 			}
 		}
 		for i, mm := range msgs {

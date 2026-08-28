@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -409,10 +410,56 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 	}
 
 	if len(msg.Reactions) > 0 {
-		parts = append(parts, m.styles.plainText.Render(renderReactions(msg.Reactions)))
+		parts = append(parts, m.renderClickableReactions(msg.Reactions, msgIdx))
 	}
 
 	return strings.Join(parts, "  ")
+}
+
+// renderClickableReactions renders msg's aggregate reactions the same way
+// renderReactions does ("😂 2 👍"), but with each one wrapped in its own
+// click zone (see zoneMessageReaction) and our own contributions (Mine)
+// bolded, so it's visible at a glance which reactions clicking would remove
+// versus add. Clicking toggles our own reaction of that emoji - add if we
+// haven't reacted with it, remove if we have (see toggleMyReaction).
+func (m Model) renderClickableReactions(reactions []Reaction, msgIdx int) string {
+	parts := make([]string, len(reactions))
+	for i, r := range reactions {
+		text := r.Emoji
+		if r.Count > 1 {
+			text = fmt.Sprintf("%s %d", r.Emoji, r.Count)
+		}
+		style := m.styles.plainText
+		if r.Mine {
+			style = style.Bold(true)
+		}
+		parts[i] = m.zone.Mark(zoneMessageReaction(msgIdx, i), style.Render(text))
+	}
+	return strings.Join(parts, " ")
+}
+
+// toggleMyReaction returns the emoji set our own reaction on the message
+// should become after clicking reactions[i]'s emoji: every emoji we've
+// already reacted with, except emoji is removed if it was already ours or
+// added if it wasn't.
+func toggleMyReaction(reactions []Reaction, emoji string) []string {
+	mine := make(map[string]bool, len(reactions))
+	for _, r := range reactions {
+		if r.Mine {
+			mine[r.Emoji] = true
+		}
+	}
+	if mine[emoji] {
+		delete(mine, emoji)
+	} else {
+		mine[emoji] = true
+	}
+	out := make([]string, 0, len(mine))
+	for e := range mine {
+		out = append(out, e)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // renderReactions formats a message's aggregate reactions as "😂 2 👍" —
