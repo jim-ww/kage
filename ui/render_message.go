@@ -345,8 +345,10 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 	parts := []string{timeLabel}
 
 	if isSelected {
-		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), m.styles.renderMsgActionButton("^r", "reply", true))
-		reactBtn := m.zone.Mark(zoneMessageReactBtn(msgIdx), m.styles.renderMsgActionButton("^t", "react", false))
+		replyKey := m.zone.Mark(zoneMessageReplyKey(msgIdx), m.styles.renderMsgActionKey("^r", true, m.isReplyKeyHovered(msgIdx)))
+		reactKey := m.zone.Mark(zoneMessageReactKey(msgIdx), m.styles.renderMsgActionKey("^t", false, m.isReactKeyHovered(msgIdx)))
+		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyKey+" "+m.styles.renderMsgActionLabel("reply"))
+		reactBtn := m.zone.Mark(zoneMessageReactBtn(msgIdx), reactKey+" "+m.styles.renderMsgActionLabel("react"))
 		parts = append(parts, replyBtn, reactBtn)
 	}
 

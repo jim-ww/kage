@@ -301,24 +301,31 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 	return st.Render(label)
 }
 
-// renderMsgActionButton renders a message row's "^r reply"/"^t react"
-// controls shown under a selected message. Only the key glyph itself
-// ("^r"/"^t") gets the actual button look (background+padding) - reply's
-// more prominent than react's, styled like sendButton (accentCyan) vs.
-// attachButton's calmer background - since drawing a full button box around
-// "^r reply" reads as two separate labels crammed into one box. Neither the
-// key nor the trailing label ever changes color on hover - hovering
-// anywhere in the row already tints the whole row's background (see
-// rowBackgroundTint), so reversing this control too on top of that read as
-// two unrelated hover effects fighting each other. The label is still part
-// of the same click zone the caller wraps this whole string in, so clicking
-// the word "reply" works exactly like clicking "^r".
-func (s uiStyles) renderMsgActionButton(key, label string, prominent bool) string {
-	keyStyle := s.attachButton
+// renderMsgActionKey renders just the "^r"/"^t" key glyph half of a message
+// row's reply/react controls: the actual button look (background+padding,
+// reversed on hover) - reply's more prominent than react's, styled like
+// sendButton (accentCyan) vs. attachButton's calmer background. Callers mark
+// this (not the trailing label) with its own nested click zone so hover
+// detection can tell the glyph apart from the label sitting right next to
+// it - see isReplyKeyHovered/isReactKeyHovered.
+func (s uiStyles) renderMsgActionKey(key string, prominent, hovered bool) string {
+	st := s.attachButton
 	if prominent {
-		keyStyle = s.sendButton
+		st = s.sendButton
 	}
-	return keyStyle.Render(key) + " " + s.messageMuted.Render(label)
+	if hovered {
+		st = st.Reverse(true)
+	}
+	return st.Render(key)
+}
+
+// renderMsgActionLabel renders the "reply"/"react" text trailing a message
+// row's key glyph. Never changes color, on hover or otherwise - only the
+// key glyph does (see renderMsgActionKey) - but stays part of the same
+// click zone the caller wraps the whole control in, so clicking the word
+// "reply" works exactly like clicking "^r".
+func (s uiStyles) renderMsgActionLabel(label string) string {
+	return s.messageMuted.Render(label)
 }
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended

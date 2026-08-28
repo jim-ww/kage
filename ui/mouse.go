@@ -58,6 +58,8 @@ func zoneMessage(i int) string           { return fmt.Sprintf("msg-%d", i) }
 func zoneMessageReply(i int) string      { return fmt.Sprintf("msg-reply-%d", i) }
 func zoneMessageReplyBtn(i int) string   { return fmt.Sprintf("msg-reply-btn-%d", i) }
 func zoneMessageReactBtn(i int) string   { return fmt.Sprintf("msg-react-btn-%d", i) }
+func zoneMessageReplyKey(i int) string   { return fmt.Sprintf("msg-reply-key-%d", i) }
+func zoneMessageReactKey(i int) string   { return fmt.Sprintf("msg-react-key-%d", i) }
 func zoneMessageExpand(i int) string     { return fmt.Sprintf("msg-expand-%d", i) }
 func zoneEmojiSuggestion(i int) string   { return fmt.Sprintf("emoji-suggest-%d", i) }
 func zoneAttachmentRemove(i int) string  { return fmt.Sprintf("attachment-remove-%d", i) }
@@ -177,6 +179,21 @@ type hoverState struct {
 	// inside another mark that itself moves as messages load/scroll.
 	x int
 
+	// replyKeyIdx is the index of the message whose "^r" key glyph is
+	// currently drawn as hovered, or -1. refreshViewportSelection only
+	// re-renders a message when its *selection* changes (see its own doc
+	// comment - deliberately not on every motion event, to avoid lagging a
+	// fast mouse sweep), so without this the key's reversed style would only
+	// ever reflect wherever the pointer happened to be the instant the row
+	// became selected, then stay frozen there as the pointer kept moving
+	// within the same already-selected row. Tracking it separately lets
+	// handleMouseMotion detect specifically *this* change and force the one
+	// extra re-render it needs.
+	replyKeyIdx int
+
+	// reactKeyIdx is replyKeyIdx's counterpart for the "^t" key glyph.
+	reactKeyIdx int
+
 	// devicesID is the chat-item zone ID currently showing its online-device
 	// list in place of the row's normal description (see
 	// renderHoverChatRow), or "" if none is. Set by hoverDevicesRevealMsg
@@ -198,6 +215,36 @@ func (m Model) isExpandButtonHovered(i int) bool {
 		return false
 	}
 	z := m.zone.Get(zoneMessageExpand(i))
+	if z.IsZero() {
+		return false
+	}
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+}
+
+// isReplyKeyHovered reports whether the pointer is over message i's "^r" key
+// glyph specifically - not the "reply" label next to it, and not just
+// somewhere else in its row. Requires the row itself to already be the
+// hovered zone; within that, it checks the glyph's own nested zone bounds
+// (marked wherever renderMessage placed it, inside the outer
+// zoneMessageReplyBtn click zone that covers both the glyph and its label).
+func (m Model) isReplyKeyHovered(i int) bool {
+	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
+		return false
+	}
+	z := m.zone.Get(zoneMessageReplyKey(i))
+	if z.IsZero() {
+		return false
+	}
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+}
+
+// isReactKeyHovered is isReplyKeyHovered's counterpart for the "^t" key
+// glyph.
+func (m Model) isReactKeyHovered(i int) bool {
+	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
+		return false
+	}
+	z := m.zone.Get(zoneMessageReactKey(i))
 	if z.IsZero() {
 		return false
 	}
@@ -284,6 +331,32 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			m.refreshViewportSelection(old, idx)
 		}
 
+		// The row-selection refresh above only fires when selectedMsg
+		// changes, but the "^r"/"^t" key glyphs' own hovered/reversed state
+		// can also change from a pointer move *within* an already-selected
+		// row (sliding onto or off of the glyph's column range) - that
+		// needs its own re-render or the glyph freezes at whatever it
+		// looked like the moment the row was entered (see
+		// hoverState.replyKeyIdx).
+		newReplyKeyIdx := -1
+		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReplyKeyHovered(idx) {
+			newReplyKeyIdx = idx
+		}
+		if newReplyKeyIdx != m.hover.replyKeyIdx {
+			old := m.hover.replyKeyIdx
+			m.hover.replyKeyIdx = newReplyKeyIdx
+			m.refreshViewportSelection(old, newReplyKeyIdx)
+		}
+
+		newReactKeyIdx := -1
+		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReactKeyHovered(idx) {
+			newReactKeyIdx = idx
+		}
+		if newReactKeyIdx != m.hover.reactKeyIdx {
+			old := m.hover.reactKeyIdx
+			m.hover.reactKeyIdx = newReactKeyIdx
+			m.refreshViewportSelection(old, newReactKeyIdx)
+		}
 	}
 
 	return m, hoverCmd
