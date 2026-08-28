@@ -205,7 +205,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		nameStyle = m.styles.messageNickMe
 	}
 	name := senderDisplayName(msg.Author)
-	label := name + strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name)))
+	label := strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name))) + name
 	prefixWidth := lipgloss.Width(label) + 1 // trailing space between name and what follows it
 	pad := strings.Repeat(" ", prefixWidth)
 
