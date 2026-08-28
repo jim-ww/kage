@@ -291,11 +291,11 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		lines = append(lines, pad+m.zone.Mark(zoneMessageExpand(msgIdx), m.styles.renderMsgExpandButton(expanded, expandHovered)))
 	}
 
+	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, isSelected))
+
 	if len(msg.Reactions) > 0 {
 		lines = append(lines, pad+m.styles.plainText.Render(renderReactions(msg.Reactions)))
 	}
-
-	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, isSelected))
 
 	// The left-edge bar (thick, red) marks selection only; it must sit flush
 	// against the pane's own left edge - not indented behind a padding
@@ -410,13 +410,13 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 	return strings.Join(parts, "  ")
 }
 
-// renderReactions formats a message's aggregate reactions as "😂×2 👍" —
+// renderReactions formats a message's aggregate reactions as "😂 2 👍" —
 // the count is only shown when more than one person reacted with that emoji.
 func renderReactions(reactions []Reaction) string {
 	parts := make([]string, len(reactions))
 	for i, r := range reactions {
 		if r.Count > 1 {
-			parts[i] = fmt.Sprintf("%s×%d", r.Emoji, r.Count)
+			parts[i] = fmt.Sprintf("%s %d", r.Emoji, r.Count)
 		} else {
 			parts[i] = r.Emoji
 		}
