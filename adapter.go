@@ -1182,6 +1182,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		ReplyToID:  opts.ReplyToID,
 		Message: ui.Message{
 			ID:          id,
+			LocalID:     opts.LocalID,
 			Author:      "me",
 			Content:     body,
 			SentAt:      time.Now(),

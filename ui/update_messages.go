@@ -302,6 +302,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			// broadcast catching up with a client that didn't need it.
 			return m, nil, true
 		}
+		if messageIndexByLocalID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.LocalID) >= 0 {
+			// Same case as above, but for a queued send flushOutbox just
+			// replayed: the placeholder still has no ID at this point (that's
+			// filled in by the MessageSendResolvedMsg broadcast that follows),
+			// so it can only be matched by LocalID here - matching by ID would
+			// miss it and append a duplicate row alongside the placeholder.
+			return m, nil, true
+		}
 		if m.accounts[msg.AccountIdx].HistoryNewer[chatIdx] {
 			// Currently viewing a mid-history window (paged up, or a
 			// search-result jump) — Messages[chatIdx] isn't the live tail, so
