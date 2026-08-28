@@ -133,7 +133,7 @@ func (m Model) callLogLine(msg Message, msgIdx int) string {
 const maxCollapsedBodyLines = 6
 
 // maxSenderNameDisplayWidth caps how wide a single sender name is allowed to
-// make every message's "name:" column - without it, one contact with an
+// make every message's "name" column - without it, one contact with an
 // unusually long name/JID localpart would push the label (and so the start
 // of every message's body) uselessly far right for the whole chat.
 const maxSenderNameDisplayWidth = 16
@@ -172,9 +172,9 @@ func msgKey(msg Message, idx int) string {
 
 // maxSenderNameWidth returns the widest displayed sender name across msgs
 // (call-log rows excluded, since they don't render one) - used to pad every
-// message's "name:" label to a common width so the colons - and everything
-// that follows them - line up down the whole chat instead of jittering with
-// each sender's name length.
+// message's name label to a common width so everything that follows it
+// lines up down the whole chat instead of jittering with each sender's
+// name length.
 func maxSenderNameWidth(msgs []Message) int {
 	width := 0
 	for _, msg := range msgs {
@@ -205,8 +205,8 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		nameStyle = m.styles.messageNickMe
 	}
 	name := senderDisplayName(msg.Author)
-	label := name + ":" + strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name)))
-	prefixWidth := lipgloss.Width(label) + 1 // trailing space between "name:" and what follows it
+	label := name + strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name)))
+	prefixWidth := lipgloss.Width(label) + 1 // trailing space between name and what follows it
 	pad := strings.Repeat(" ", prefixWidth)
 
 	headerLine := nameStyle.Render(label)
@@ -248,7 +248,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		bodyContent = FormatMessageBody(msg.Content)
 	}
 
-	// Body text trails directly after "name: " on the header's own line
+	// Body text trails directly after the name on the header's own line
 	// when there's no reply quote to make room for; a reply pushes the body
 	// down to its own line instead, since the quote already occupies the
 	// space right after the name.
