@@ -301,13 +301,12 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 	return st.Render(label)
 }
 
-// renderMsgActionKey renders just the "^r"/"^t" key glyph half of a message
-// row's reply/react controls: the actual button look (background+padding,
-// reversed on hover) - reply's more prominent than react's, styled like
-// sendButton (accentCyan) vs. attachButton's calmer background. Callers mark
-// this (not the trailing label) with its own nested click zone so hover
-// detection can tell the glyph apart from the label sitting right next to
-// it - see isReplyKeyHovered/isReactKeyHovered.
+// renderMsgActionKey renders a message row's "↩" (reply)/"+" (react)
+// button glyph: the actual button look (background+padding, reversed on
+// hover) - reply's more prominent than react's, styled like sendButton
+// (accentCyan) vs. attachButton's calmer background. No trailing label -
+// the glyph alone is the whole clickable control (see
+// isReplyKeyHovered/isReactKeyHovered).
 func (s uiStyles) renderMsgActionKey(key string, prominent, hovered bool) string {
 	st := s.attachButton
 	if prominent {
@@ -317,15 +316,6 @@ func (s uiStyles) renderMsgActionKey(key string, prominent, hovered bool) string
 		st = st.Reverse(true)
 	}
 	return st.Render(key)
-}
-
-// renderMsgActionLabel renders the "reply"/"react" text trailing a message
-// row's key glyph. Never changes color, on hover or otherwise - only the
-// key glyph does (see renderMsgActionKey) - but stays part of the same
-// click zone the caller wraps the whole control in, so clicking the word
-// "reply" works exactly like clicking "^r".
-func (s uiStyles) renderMsgActionLabel(label string) string {
-	return s.messageMuted.Render(label)
 }
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended

@@ -357,18 +357,18 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 }
 
 // renderMessageStatusLine renders the line under a message's body: dimmed
-// time/date, then - only while the message is selected - the "^r reply"/
-// "^t react" buttons, then an edited marker, (for our own messages) the
+// time/date, then - only while the message is selected - the "↩" (reply)/
+// "+" (react) buttons, then an edited marker, (for our own messages) the
 // send/delivery status glyph, and finally any reactions on the message.
 func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool) string {
 	timeLabel := m.styles.messageTime.Render(m.formatMessageTime(msg.SentAt))
 	parts := []string{timeLabel}
 
 	if isSelected {
-		replyKey := m.zone.Mark(zoneMessageReplyKey(msgIdx), m.styles.renderMsgActionKey("^r", true, m.isReplyKeyHovered(msgIdx)))
-		reactKey := m.zone.Mark(zoneMessageReactKey(msgIdx), m.styles.renderMsgActionKey("^t", false, m.isReactKeyHovered(msgIdx)))
-		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyKey+" "+m.styles.renderMsgActionLabel("reply"))
-		reactBtn := m.zone.Mark(zoneMessageReactBtn(msgIdx), reactKey+" "+m.styles.renderMsgActionLabel("react"))
+		replyKey := m.zone.Mark(zoneMessageReplyKey(msgIdx), m.styles.renderMsgActionKey("↩", true, m.isReplyKeyHovered(msgIdx)))
+		reactKey := m.zone.Mark(zoneMessageReactKey(msgIdx), m.styles.renderMsgActionKey("+", false, m.isReactKeyHovered(msgIdx)))
+		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyKey)
+		reactBtn := m.zone.Mark(zoneMessageReactBtn(msgIdx), reactKey)
 		parts = append(parts, replyBtn, reactBtn)
 	}
 
