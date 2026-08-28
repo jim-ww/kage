@@ -2,6 +2,17 @@ package ui
 
 import "strings"
 
+// messageRowMaxWidth is the widest a rendered message row can ever be: every
+// row is padded to chatAreaWidth() by renderMessagesWithOffsets, except a
+// selected/hovered row, which pads to totalWidth+2 for its left gutter (see
+// renderMessage's isSelected/rowHovered tint branch) before that same outer
+// pad becomes a no-op. Passed to viewport.SetContentLinesWidth so it can
+// skip its own ansi-width scan over every line — see bench_scroll_test.go
+// for what that scan costs on a long chat history.
+func messageRowMaxWidth(cw int) int {
+	return cw + 2
+}
+
 // refreshViewport re-renders all messages and updates the viewport content.
 func (m *Model) refreshViewport() {
 	if m.currentChatIndex() < 0 {
@@ -23,7 +34,7 @@ func (m *Model) refreshViewport() {
 	content, offsets := m.renderMessagesWithOffsets()
 	m.msgOffsets = offsets
 	m.viewportLines = strings.Split(content, "\n")
-	m.viewport.SetContentLines(m.viewportLines)
+	m.viewport.SetContentLinesWidth(m.viewportLines, messageRowMaxWidth(m.chatAreaWidth()))
 }
 
 // refreshViewportSelection re-renders only the messages at oldIdx and newIdx
@@ -73,9 +84,11 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 		copy(m.viewportLines[start:end], newLines)
 	}
 
-	// SetContentLines takes the already-split lines directly, skipping the
-	// join-then-resplit that SetContent(strings.Join(...)) would do.
-	m.viewport.SetContentLines(m.viewportLines)
+	// SetContentLinesWidth takes the already-split lines directly, skipping
+	// the join-then-resplit that SetContent(strings.Join(...)) would do, and
+	// the longest-line width directly too, since only 2 rows out of the
+	// whole cached content changed (see messageRowMaxWidth).
+	m.viewport.SetContentLinesWidth(m.viewportLines, messageRowMaxWidth(cw))
 }
 
 // refreshViewportScrollTo re-renders only the messages at oldIdx and msgIdx

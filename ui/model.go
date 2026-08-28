@@ -7,9 +7,9 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/ui/filepicker"
+	"github.com/jim-ww/kage/ui/viewport"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
