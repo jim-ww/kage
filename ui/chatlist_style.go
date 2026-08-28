@@ -111,7 +111,20 @@ func padLinesToWidth(content string, width int) string {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		if pad := width - lipgloss.Width(line); pad > 0 {
-			lines[i] = line + strings.Repeat(" ", pad)
+			padding := strings.Repeat(" ", pad)
+			if strings.Contains(line, "\x1b[") {
+				// ansi.Wrap can split a styled run mid-line (e.g. a
+				// character-by-character underline+color span - lipgloss
+				// emits per-rune SGR codes for Underline) without closing it
+				// before the line boundary, leaving that style's SGR state
+				// still "open" for anything appended after. Without an
+				// explicit reset first, this plain padding would visibly
+				// inherit whatever style state a wrapped line left dangling
+				// (e.g. an underlined URL bleeding onto the blank space
+				// after it).
+				padding = "\x1b[m" + padding
+			}
+			lines[i] = line + padding
 		}
 	}
 	return strings.Join(lines, "\n")
