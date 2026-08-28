@@ -428,14 +428,17 @@ func (s uiStyles) plainTextLine(line string) string {
 	return s.plainText.Render(line)
 }
 
-// renderDateDivider renders a centered "── Jan 2 ──" separator line marking
-// the start of a new calendar day in the message list, dashes padded out to
-// width on both sides.
-func (s uiStyles) renderDateDivider(width int, label string) string {
-	text := " " + label + " "
-	dashes := max(0, width-lipgloss.Width(text))
-	left := dashes / 2
-	line := strings.Repeat("─", left) + text + strings.Repeat("─", dashes-left)
+// dateDividerDashes is the fixed dash run on each side of a date-divider
+// label - short and left-aligned rather than centered/stretched to the full
+// row width, so it reads as a compact marker rather than a wide rule.
+const dateDividerDashes = 3
+
+// renderDateDivider renders a short "─── Tue 26 Aug ───" separator line
+// marking the start of a new calendar day in the message list, left-aligned
+// at the start of the row rather than centered or stretched to width.
+func (s uiStyles) renderDateDivider(label string) string {
+	dashes := strings.Repeat("─", dateDividerDashes)
+	line := dashes + " " + label + " " + dashes
 	return s.messageTime.Render(line)
 }
 

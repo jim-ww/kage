@@ -68,26 +68,27 @@ func (m Model) formatMessageTime(t time.Time) string {
 	return t.Format("15:04")
 }
 
-// dateDividerLabel formats the date a day-divider line shows: just "Jan 2"
-// within the current year, "Jan 2 2025" once the year isn't obvious anymore.
+// dateDividerLabel formats the date a day-divider line shows: "Tue 26 Aug"
+// within the current year, "Tue 26 Aug 2025" once the year isn't obvious
+// anymore.
 func dateDividerLabel(t, now time.Time) string {
 	if t.Year() == now.Year() {
-		return t.Format("Jan 2")
+		return t.Format("Mon 2 Jan")
 	}
-	return t.Format("Jan 2 2006")
+	return t.Format("Mon 2 Jan 2006")
 }
 
 // messageDateDivider returns the day-divider line to show right before msg
 // (empty if none is needed) - whenever it's the first message in the loaded
 // history, or the previous message fell on a different calendar day.
-func (m Model) messageDateDivider(msgIdx, width int, allMsgs []Message) string {
+func (m Model) messageDateDivider(msgIdx int, allMsgs []Message) string {
 	if msgIdx < 0 || msgIdx >= len(allMsgs) {
 		return ""
 	}
 	if msgIdx > 0 && sameDay(allMsgs[msgIdx].SentAt, allMsgs[msgIdx-1].SentAt) {
 		return ""
 	}
-	return m.styles.renderDateDivider(width, dateDividerLabel(allMsgs[msgIdx].SentAt, time.Now()))
+	return m.styles.renderDateDivider(dateDividerLabel(allMsgs[msgIdx].SentAt, time.Now()))
 }
 
 // callLogLine renders a call-log entry's compact "📞 ..." line instead of the
@@ -192,7 +193,7 @@ func maxSenderNameWidth(msgs []Message) int {
 }
 
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message, nameWidth int) string {
-	divider := m.messageDateDivider(msgIdx, totalWidth, allMsgs)
+	divider := m.messageDateDivider(msgIdx, allMsgs)
 	if divider != "" {
 		divider += "\n"
 	}
