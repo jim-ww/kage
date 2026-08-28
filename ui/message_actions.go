@@ -667,6 +667,15 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return m.showNotification("no message selected")
 	}
+	if m.reactingMsgIdx == m.selectedMsg {
+		// Pressed/clicked again on the same message already being reacted
+		// to: cancel instead of restarting the same composition - a full
+		// cancelPending (not just clearing reactingMsgIdx, unlike
+		// actionReplyMessage's simpler toggle) since reacting stashed
+		// whatever draft was in the input box and needs it restored.
+		m.cancelPending()
+		return nil
+	}
 	m.stashDraftForCompose()
 	m.reactingMsgIdx = m.selectedMsg
 	reactionText := myReactionsText(msgs[m.selectedMsg].Reactions)
