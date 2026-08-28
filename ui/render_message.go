@@ -293,10 +293,6 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 
 	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, isSelected))
 
-	if len(msg.Reactions) > 0 {
-		lines = append(lines, pad+m.styles.plainText.Render(renderReactions(msg.Reactions)))
-	}
-
 	// The left-edge bar (thick, red) marks selection only; it must sit flush
 	// against the pane's own left edge - not indented behind a padding
 	// column - so unselected rows get the same 2-cell-wide gap filled with
@@ -338,8 +334,8 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 
 // renderMessageStatusLine renders the line under a message's body: dimmed
 // time/date, then - only while the message is selected - the "^r reply"/
-// "^t react" buttons, then an edited marker and (for our own messages) the
-// send/delivery status glyph.
+// "^t react" buttons, then an edited marker, (for our own messages) the
+// send/delivery status glyph, and finally any reactions on the message.
 func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool) string {
 	timeLabel := m.styles.messageTime.Render(m.formatMessageTime(msg.SentAt))
 	parts := []string{timeLabel}
@@ -405,6 +401,10 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 
 	if len(badges) > 0 {
 		parts = append(parts, strings.Join(badges, " "))
+	}
+
+	if len(msg.Reactions) > 0 {
+		parts = append(parts, m.styles.plainText.Render(renderReactions(msg.Reactions)))
 	}
 
 	return strings.Join(parts, "  ")
