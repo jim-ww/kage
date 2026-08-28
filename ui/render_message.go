@@ -420,8 +420,10 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 // renderReactions does ("😂 2 👍"), but with each one wrapped in its own
 // click zone (see zoneMessageReaction) and our own contributions (Mine)
 // bolded, so it's visible at a glance which reactions clicking would remove
-// versus add. Clicking toggles our own reaction of that emoji - add if we
-// haven't reacted with it, remove if we have (see toggleMyReaction).
+// versus add. Each chip also highlights independently on hover (see
+// isReactionHovered) - hovering one never affects its siblings. Clicking
+// toggles our own reaction of that emoji - add if we haven't reacted with
+// it, remove if we have (see toggleMyReaction).
 func (m Model) renderClickableReactions(reactions []Reaction, msgIdx int) string {
 	parts := make([]string, len(reactions))
 	for i, r := range reactions {
@@ -432,6 +434,9 @@ func (m Model) renderClickableReactions(reactions []Reaction, msgIdx int) string
 		style := m.styles.plainText
 		if r.Mine {
 			style = style.Bold(true)
+		}
+		if m.isReactionHovered(msgIdx, i) {
+			style = style.Reverse(true)
 		}
 		parts[i] = m.zone.Mark(zoneMessageReaction(msgIdx, i), style.Render(text))
 	}

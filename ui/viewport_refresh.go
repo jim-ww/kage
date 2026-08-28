@@ -118,6 +118,8 @@ func (m *Model) clearStaleMessageHover(oldIdx, newIdx int) int {
 	m.hover.id = ""
 	m.hover.replyKeyIdx = -1
 	m.hover.reactKeyIdx = -1
+	m.hover.reactionMsgIdx = -1
+	m.hover.reactionIdx = -1
 	if hoveredIdx == oldIdx || hoveredIdx == newIdx {
 		return -1
 	}

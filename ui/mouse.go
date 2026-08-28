@@ -195,6 +195,14 @@ type hoverState struct {
 	// reactKeyIdx is replyKeyIdx's counterpart for the "^t" key glyph.
 	reactKeyIdx int
 
+	// reactionMsgIdx/reactionIdx track which message's which reaction chip
+	// (by index into that message's Reactions) is currently drawn as
+	// hovered - replyKeyIdx's counterpart for reaction chips, one of which
+	// can independently highlight without affecting its siblings.
+	// reactionMsgIdx is -1 when no reaction chip anywhere is hovered.
+	reactionMsgIdx int
+	reactionIdx    int
+
 	// devicesID is the chat-item zone ID currently showing its online-device
 	// list in place of the row's normal description (see
 	// renderHoverChatRow), or "" if none is. Set by hoverDevicesRevealMsg
@@ -216,6 +224,20 @@ func (m Model) isExpandButtonHovered(i int) bool {
 		return false
 	}
 	z := m.zone.Get(zoneMessageExpand(i))
+	if z.IsZero() {
+		return false
+	}
+	return m.hover.x >= z.StartX && m.hover.x < z.EndX
+}
+
+// isReactionHovered reports whether the pointer is over message i's j'th
+// reaction chip specifically, rather than just somewhere else in its row -
+// each chip highlights independently of its siblings.
+func (m Model) isReactionHovered(i, j int) bool {
+	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
+		return false
+	}
+	z := m.zone.Get(zoneMessageReaction(i, j))
 	if z.IsZero() {
 		return false
 	}
@@ -357,6 +379,25 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			old := m.hover.reactKeyIdx
 			m.hover.reactKeyIdx = newReactKeyIdx
 			m.refreshViewportSelection(old, newReactKeyIdx)
+		}
+
+		newReactionMsgIdx, newReactionIdx := -1, -1
+		if idx, ok := messageIndexFromZone(m.hover.id); ok {
+			msgs := m.currentMessages()
+			if idx >= 0 && idx < len(msgs) {
+				for j := range msgs[idx].Reactions {
+					if m.isReactionHovered(idx, j) {
+						newReactionMsgIdx, newReactionIdx = idx, j
+						break
+					}
+				}
+			}
+		}
+		if newReactionMsgIdx != m.hover.reactionMsgIdx || newReactionIdx != m.hover.reactionIdx {
+			old := m.hover.reactionMsgIdx
+			m.hover.reactionMsgIdx = newReactionMsgIdx
+			m.hover.reactionIdx = newReactionIdx
+			m.refreshViewportSelection(old, newReactionMsgIdx)
 		}
 	}
 
