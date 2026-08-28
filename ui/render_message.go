@@ -195,7 +195,11 @@ func maxSenderNameWidth(msgs []Message) int {
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message, nameWidth int) string {
 	divider := m.messageDateDivider(msgIdx, allMsgs)
 	if divider != "" {
-		divider += "\n"
+		// Indented to start at the same column the message text itself
+		// starts at - 2 for the row's own left gutter (selection bar or
+		// blank), then nameWidth+1 for the shared name column - rather than
+		// flush against the pane's left edge.
+		divider = strings.Repeat(" ", 2+nameWidth+1) + divider + "\n"
 	}
 
 	if msg.CallLog != nil {
