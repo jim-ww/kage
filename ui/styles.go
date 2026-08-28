@@ -302,20 +302,26 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 }
 
 // renderMsgActionButton renders a message row's "^r reply"/"^t react"
-// buttons shown under a selected message, both fully reversed on hover like
-// every other button in the UI. reply is the more prominent of the two -
-// styled like sendButton (accentCyan) - since it's the primary action on a
-// selected message; react reuses attachButton's calmer background so it
-// doesn't visually compete with reply.
+// controls shown under a selected message. Only the key glyph itself
+// ("^r"/"^t") gets the actual button look (background+padding, reversed on
+// hover) - reply's more prominent than react's, styled like sendButton
+// (accentCyan) vs. attachButton's calmer background - since drawing a full
+// button box around "^r reply" reads as two separate labels crammed into
+// one box. The trailing label stays plain/dimmed text, still reversed on
+// hover for feedback, and still part of the same click zone the caller
+// wraps this whole string in - so clicking the word "reply" works exactly
+// like clicking "^r".
 func (s uiStyles) renderMsgActionButton(key, label string, prominent, hovered bool) string {
-	st := s.attachButton
+	keyStyle := s.attachButton
 	if prominent {
-		st = s.sendButton
+		keyStyle = s.sendButton
 	}
+	labelStyle := s.messageMuted
 	if hovered {
-		st = st.Reverse(true)
+		keyStyle = keyStyle.Reverse(true)
+		labelStyle = labelStyle.Reverse(true)
 	}
-	return st.Render(key + " " + label)
+	return keyStyle.Render(key) + " " + labelStyle.Render(label)
 }
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended
