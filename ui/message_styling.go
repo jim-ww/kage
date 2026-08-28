@@ -28,6 +28,10 @@ var (
 	boldStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f7768e"))
 	italicStyle = lipgloss.NewStyle().Italic(true)
 	strikeStyle = lipgloss.NewStyle().Strikethrough(true)
+	// urlStyle is a fixed ANSI blue rather than a theme color - links should
+	// read the same regardless of which theme is active, the way a browser's
+	// link color doesn't follow the page's palette.
+	urlStyle = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("12"))
 )
 
 // FormatMessageBody renders XEP-0393 message styling markup (fenced code
@@ -35,6 +39,9 @@ var (
 // display in the chat view. Used only where the terminal renders styled
 // content directly - never for previews (see StripMessageStyling).
 func FormatMessageBody(content string) string {
+	content = urlPattern.ReplaceAllStringFunc(content, func(url string) string {
+		return urlStyle.Render(url)
+	})
 	if !hasStylingMarkers(content) {
 		return content
 	}
