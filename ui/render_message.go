@@ -357,20 +357,13 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 }
 
 // renderMessageStatusLine renders the line under a message's body: dimmed
-// time/date, then - only while the message is selected - the "↩" (reply)/
-// "+" (react) buttons, then an edited marker, (for our own messages) the
-// send/delivery status glyph, and finally any reactions on the message.
+// time/date, then an edited marker, (for our own messages) the
+// send/delivery status glyph, then - only while the message is selected -
+// the "↩" (reply)/"+" (react) buttons, and finally any reactions on the
+// message.
 func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool) string {
 	timeLabel := m.styles.messageTime.Render(m.formatMessageTime(msg.SentAt))
 	parts := []string{timeLabel}
-
-	if isSelected {
-		replyKey := m.zone.Mark(zoneMessageReplyKey(msgIdx), m.styles.renderMsgActionKey("↩", true, m.isReplyKeyHovered(msgIdx)))
-		reactKey := m.zone.Mark(zoneMessageReactKey(msgIdx), m.styles.renderMsgActionKey("+", false, m.isReactKeyHovered(msgIdx)))
-		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyKey)
-		reactBtn := m.zone.Mark(zoneMessageReactBtn(msgIdx), reactKey)
-		parts = append(parts, replyBtn, reactBtn)
-	}
 
 	// Edited/encrypted/delivery are all small badges of the same kind -
 	// joined by a single space between themselves, tighter than the double
@@ -425,6 +418,16 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 
 	if len(badges) > 0 {
 		parts = append(parts, strings.Join(badges, " "))
+	}
+
+	if isSelected {
+		replyKey := m.zone.Mark(zoneMessageReplyKey(msgIdx), m.styles.renderMsgActionKey("↩", true, m.isReplyKeyHovered(msgIdx)))
+		reactKey := m.zone.Mark(zoneMessageReactKey(msgIdx), m.styles.renderMsgActionKey("+", false, m.isReactKeyHovered(msgIdx)))
+		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyKey)
+		reactBtn := m.zone.Mark(zoneMessageReactBtn(msgIdx), reactKey)
+		// Tighter than the double space separating time/badges/buttons from
+		// each other - these two read as one button group.
+		parts = append(parts, replyBtn+" "+reactBtn)
 	}
 
 	if len(msg.Reactions) > 0 {
