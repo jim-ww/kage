@@ -1,8 +1,12 @@
-- remove reply on message on single click?
+- writing multi-line draft hides last messages behind it
+- offline status shown (invalid), restart fixes it
+- implement better emoji selector
+- nix flake: must not write empty config
+
+- jump to latest hides sometimes
+- chat list: only show last message's first line
 - when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user type his password
 - add set avatar option
-
-- downloading bar doesnt appear immidiately
 - connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
 - cancel file upload mid-load (backspace)
 - call logs might not be shown
@@ -14,11 +18,7 @@
 
 - select & yank text in draft with mouse
 - add default encryption for chats config option, default omemov1
-- edit msg: must not send edit if there were no changes
 - uploading your own files must not download them from server (must be downloaded)
-- notification appears sooner then message
-- notifications appear when chat is focused?
-- message in chat appear 2 times. race?
 
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - sometimes status shows as offline, when other client is online. could be either status send/receive problem
@@ -26,17 +26,12 @@
 - make sure user can paste to all textinputs (e.g. account add JID/password)
 
 - resubscribe action does nothing?
-- filepicker: make binds as buttons at bottom clickable
 - speed up moving cursor on textinput, based on how long is held, OR add ctrl+d/ctrl+u binds there?
-- speed up filepicker: add cursor pagination (e.g. limited max items displayed)
 - refactor: create generic ui components and reuse them across repo
 - esc should not de-focus chat when in editing state (only cancel editing)
 - implement notes? e.g. writing yourself
 - on error during call, should hang up the call (send event to other peer)
-- log in single file
 - if tui relaunched, then calling statusbar not shown
-- messages sent from same account on other devices do not appear in chat
-- send failed, no
 - show own full account address somewhere (in case alias is set)
 - move change password(encryption) functionality to RMB click on accounts tab modal
 - simplify emoji selection
