@@ -1,3 +1,5 @@
+- ui(config): allow setting single-line display of messages in chat, off by default (e.g. whole status line + control buttons on same line as message, after message text)
+- closing kage tui, closes all external opened viewers. e.g. xdg-open calls
 - writing multi-line draft hides last messages behind it
 - offline status shown (invalid), restart fixes it
 - implement better emoji selector
