@@ -129,6 +129,61 @@ type emojiSuggestion struct {
 
 const maxEmojiSuggestions = 6
 
+// commonReactionEmoji is a curated set of the reactions people actually
+// reach for most, shown as the quick-pick default before anything's typed.
+// Order matters: it's the fallback fill-in after recentReactionEmoji.
+var commonReactionEmoji = []string{"👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "🎉", "👎", "😡"}
+
+// defaultEmojiSuggestions builds the quick-pick list shown the moment
+// reaction composition starts, before the user has typed anything: recently
+// used reactions first (so a repeat reaction is a single tab/enter away),
+// padded out with commonReactionEmoji. Letting a reaction happen with zero
+// typing is the whole point — shortcode search only kicks in once the user
+// actually starts typing a token.
+func defaultEmojiSuggestions(recent []string) []emojiSuggestion {
+	seen := make(map[string]bool, maxEmojiSuggestions)
+	out := make([]emojiSuggestion, 0, maxEmojiSuggestions)
+	add := func(e string) {
+		if len(out) >= maxEmojiSuggestions || seen[e] {
+			return
+		}
+		seen[e] = true
+		out = append(out, emojiSuggestion{Shortcode: "", Emoji: e})
+	}
+	for _, e := range recent {
+		add(e)
+	}
+	for _, e := range commonReactionEmoji {
+		add(e)
+	}
+	return out
+}
+
+// rememberReactionEmoji moves each emoji in used to the front of recent
+// (most-recent-first, de-duplicated), capped to maxEmojiSuggestions so the
+// quick-pick list never needs more than it can show.
+func rememberReactionEmoji(recent []string, used []string) []string {
+	if len(used) == 0 {
+		return recent
+	}
+	out := make([]string, 0, len(recent)+len(used))
+	out = append(out, used...)
+	seen := make(map[string]bool, len(out))
+	for _, e := range out {
+		seen[e] = true
+	}
+	for _, e := range recent {
+		if !seen[e] {
+			seen[e] = true
+			out = append(out, e)
+		}
+	}
+	if len(out) > maxEmojiSuggestions {
+		out = out[:maxEmojiSuggestions]
+	}
+	return out
+}
+
 // currentWordToken returns the word at the end of s that a suggestion popup
 // should match against — the text since the last whitespace, whether or not
 // it starts with ':'. ok is false if s is empty, too short, or the cursor

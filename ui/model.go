@@ -178,8 +178,9 @@ type Model struct {
 	flashMsgIdx            int               // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
 	expandedMsgs           map[string]bool   // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
 	flashGen               int               // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
-	emojiSuggestions       []emojiSuggestion // live fuzzy matches for the shortcode being typed, while reactingMsgIdx >= 0
+	emojiSuggestions       []emojiSuggestion // live fuzzy matches for the shortcode being typed, or the default quick-pick list when reactingMsgIdx >= 0 and nothing's been typed yet
 	emojiSuggestIdx        int               // which suggestion is highlighted; left/right to move, tab to accept it
+	recentReactionEmoji    []string          // most-recently-sent reaction emoji, newest first; feeds defaultEmojiSuggestions so recent picks surface before typing anything
 	confirmTarget          confirmTarget
 	contextMenu            *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
 	showMsgInfo            bool         // true while the message-info popup is open

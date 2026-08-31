@@ -320,7 +320,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 			if token, _, ok := currentWordToken(m.input.Value()); ok {
 				m.setEmojiSuggestions(emojiSuggestionsFor(token))
 			} else {
-				m.setEmojiSuggestions(nil)
+				m.setEmojiSuggestions(defaultEmojiSuggestions(m.recentReactionEmoji))
 			}
 		}
 		if m.input.Value() != oldValue {

@@ -189,7 +189,7 @@ func (m *Model) acceptEmojiSuggestion(idx int) {
 	chosen := m.emojiSuggestions[idx].Emoji
 	m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), chosen))
 	m.input.CursorEnd()
-	var next []emojiSuggestion
+	next := defaultEmojiSuggestions(m.recentReactionEmoji)
 	if token, _, ok := currentWordToken(m.input.Value()); ok {
 		next = emojiSuggestionsFor(token)
 	}

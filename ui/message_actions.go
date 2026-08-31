@@ -38,6 +38,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		// you clear your reaction set), so this bypasses the "empty means
 		// do nothing" rule below entirely.
 		newMine := toEmojiSet(m.input.Value())
+		m.recentReactionEmoji = rememberReactionEmoji(m.recentReactionEmoji, newMine)
 		cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, newMine))
 		m.notifyTypingStopped()
 		m.reactingMsgIdx = -1
@@ -683,7 +684,7 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	m.resetDraftHistory(reactionText)
 	m.input.CursorEnd()
 	m.input.Placeholder = "react: :shortcode: or emoji, enter to send..."
-	m.setEmojiSuggestions(nil)
+	m.setEmojiSuggestions(defaultEmojiSuggestions(m.recentReactionEmoji))
 	m.updateSizes()
 	return m.input.Focus()
 }
