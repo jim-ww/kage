@@ -313,6 +313,9 @@ func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }
 // Description implements list.Item.
 func (c Chat) Description() string {
 	text := c.LastMessage
+	if nl := strings.IndexByte(text, '\n'); nl >= 0 {
+		text = text[:nl]
+	}
 	if text == "" && c.Address != "" && c.Address != c.Name {
 		text = c.Address
 	}
