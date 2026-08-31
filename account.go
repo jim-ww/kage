@@ -1038,6 +1038,18 @@ const (
 //
 // confirmPendingAcks already does exactly this check, but only right after we
 // send something - which is no help to the receive-only case this covers.
+//
+// A ticker only tells us wall-clock time passed once something actually
+// schedules it - a suspended process (laptop sleep, not just a dropped
+// connection) doesn't run at all for the duration, so time.Ticker just
+// delivers its one pending tick late instead of catching us up. That's
+// indistinguishable here from an on-time tick unless we check the wall clock
+// ourselves: without it, a resume where the TCP connection happens to still
+// work (WiFi never actually dropped) sails through this ping with no error
+// and no reconnect, even though every message a peer sent while we were
+// frozen went to the archive and nowhere else - see syncArchive's callers,
+// none of which run for a "successful" ping. suspendGapThreshold catches
+// that case and forces the same reconnect+resync a failed ping would.
 func keepAlive(ctx context.Context, s *accountSession, interval time.Duration) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1045,8 +1057,11 @@ func keepAlive(ctx context.Context, s *accountSession, interval time.Duration) {
 		}
 	}()
 
+	const suspendGapThreshold = 3 * keepAliveInterval
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	lastTick := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -1054,10 +1069,20 @@ func keepAlive(ctx context.Context, s *accountSession, interval time.Duration) {
 		case <-ticker.C:
 		}
 
+		gap := time.Since(lastTick)
+		lastTick = time.Now()
+
 		client, err := s.liveClient()
 		if err != nil {
 			continue // offline; reconnectWithBackoff owns getting back
 		}
+
+		if gap > suspendGapThreshold {
+			slog.Warn("keepalive: large gap since last tick, likely process suspend; forcing reconnect", "jid", s.account.JID, "gap", gap)
+			client.Kill()
+			continue
+		}
+
 		pingCtx, cancel := context.WithTimeout(ctx, keepAliveTimeout)
 		err = client.Ping(pingCtx)
 		cancel()
