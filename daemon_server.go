@@ -444,6 +444,11 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 	// invisible until something else happens to trigger a resync. Detached
 	// and best-effort: this call already blocks on connectAccountLocal disk
 	// reads above, and the archive backfill can take tens of seconds.
+	//
+	// Nothing stops several clients from attaching around the same time (or
+	// one client calling this repeatedly) - triggerArchiveSync collapses
+	// that into at most one backfill in flight per account rather than each
+	// attach paging through every contact's archive concurrently.
 	for i := range sessions {
 		sess := sessions[i]
 		if sess == nil {
@@ -453,12 +458,7 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 		if client == nil || client.Closed() {
 			continue
 		}
-		go func(idx int, sess *accountSession) {
-			bgCtx := context.Background()
-			broadcast(d.a.srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: idx})
-			syncArchive(bgCtx, d.a.srv, idx, sess)
-			broadcast(d.a.srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: idx})
-		}(i, sess)
+		go triggerArchiveSync(context.Background(), d.a.srv, i, sess)
 	}
 
 	return out

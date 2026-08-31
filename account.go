@@ -77,6 +77,30 @@ type accountSession struct {
 	ackMu      sync.Mutex
 	ackPending []pendingAck
 	ackTimer   *time.Timer
+
+	// archiveSyncing gates syncArchive so only one backfill runs at a time
+	// per session - see triggerArchiveSync. Several callers can race to ask
+	// for one (every attaching TUI client's listAccounts, a detected
+	// reconnect, ...); without this a burst of them would each page through
+	// every contact's MAM archive concurrently for no benefit, since they'd
+	// all converge on the same already-caught-up cursor anyway.
+	archiveSyncing atomic.Bool
+}
+
+// triggerArchiveSync runs syncArchive for s unless a backfill is already in
+// flight, in which case it's a no-op - the in-flight one will pick up
+// anything a concurrent caller wanted synced too, since MAM cursors only
+// move forward. Safe to call from any number of goroutines at once (see
+// archiveSyncing).
+func triggerArchiveSync(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
+	if !s.archiveSyncing.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.archiveSyncing.Store(false)
+
+	broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
+	syncArchive(ctx, srv, accountIdx, s)
+	broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
 }
 
 // pendingAck is one send queued in accountSession.ackPending, waiting on
@@ -1005,9 +1029,7 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountI
 		// disconnected never arrived over the (dead) stream, so it has to
 		// be picked up from the archive - same as the initial connect does -
 		// or it silently never shows up until the whole app is restarted.
-		broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
-		syncArchive(ctx, srv, accountIdx, s)
-		broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
+		triggerArchiveSync(ctx, srv, accountIdx, s)
 	}
 }
 

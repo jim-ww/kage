@@ -209,11 +209,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	//
 	// Detached, unlike the startup path that runs it inline: this is an RPC
 	// the TUI is blocked on, and a backfill can take tens of seconds.
-	go func() {
-		broadcast(a.srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
-		syncArchive(ctx, a.srv, accountIdx, sess)
-		broadcast(a.srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
-	}()
+	go triggerArchiveSync(ctx, a.srv, accountIdx, sess)
 
 	return ui.AccountStatusSetMsg{
 		Index: accountIdx, Status: status,
