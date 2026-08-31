@@ -97,6 +97,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.SetSidebarWidth(p.Width)
 
+	case rpcRecordReactionEmojiUsage:
+		p, err := unmarshalParams[reactionEmojiUsageParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.RecordReactionEmojiUsage(p.Emojis)
+
 	case rpcSetSidebarHidden:
 		p, err := unmarshalParams[hiddenParams](params)
 		if err != nil {

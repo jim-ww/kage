@@ -118,7 +118,7 @@ func resolveDroppedPath(content string) (string, bool) {
 }
 
 // splitQuotedTokens splits a single-line paste on whitespace, treating a
-// '"'- or '\''-quoted run as one token — the shape some terminals use to
+// '"'- or '\”-quoted run as one token — the shape some terminals use to
 // deliver several dropped file paths (individually quoted if they contain
 // spaces) on one line.
 func splitQuotedTokens(s string) []string {
@@ -320,7 +320,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 			if token, _, ok := currentWordToken(m.input.Value()); ok {
 				m.setEmojiSuggestions(emojiSuggestionsFor(token))
 			} else {
-				m.setEmojiSuggestions(defaultEmojiSuggestions(m.recentReactionEmoji))
+				m.setEmojiSuggestions(defaultEmojiSuggestions(m.reactionEmojiUsage))
 			}
 		}
 		if m.input.Value() != oldValue {

@@ -279,6 +279,13 @@ func (a *adapter) SetSidebarWidth(width int) error {
 	return config.SetSidebarWidth(a.cfgPath, width)
 }
 
+// RecordReactionEmojiUsage implements ui.ReactionEmojiUsageRecorder:
+// persists per-emoji reaction send counts so the quick-pick suggestions
+// converge on what this user actually reaches for.
+func (a *adapter) RecordReactionEmojiUsage(emojis []string) error {
+	return config.RecordReactionEmojiUsage(a.cfgPath, emojis)
+}
+
 // SetSidebarHidden implements ui.SidebarHiddenSetter: persists the chat
 // list's visibility so it's restored on the next launch.
 func (a *adapter) SetSidebarHidden(hidden bool) error {

@@ -183,6 +183,25 @@ func SetLastChat(path, accountJID, chatAddress string) error {
 	return writeState(st)
 }
 
+// RecordReactionEmojiUsage bumps the sent-count for each emoji in emojis by
+// one in the state file next to path, preserving everything else — called
+// every time the user sends a reaction (see ui.ReactionEmojiUsageRecorder),
+// so the quick-pick default suggestions converge on what this user actually
+// reaches for.
+func RecordReactionEmojiUsage(path string, emojis []string) error {
+	st, err := loadState(path)
+	if err != nil {
+		return err
+	}
+	if st.ReactionEmojiUsage == nil {
+		st.ReactionEmojiUsage = make(map[string]int, len(emojis))
+	}
+	for _, e := range emojis {
+		st.ReactionEmojiUsage[e]++
+	}
+	return writeState(st)
+}
+
 // SetStoragePlaintextPassword sets (or updates) the [storage] password field
 // in the config file at path, preserving everything else — the plaintext
 // fallback used when the OS keyring is unavailable/disabled (see

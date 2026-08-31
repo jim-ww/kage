@@ -128,6 +128,10 @@ func (c *ipcClient) SetSidebarWidth(width int) error {
 	return c.conn.Call(rpcSetSidebarWidth, widthParams{Width: width}, nil)
 }
 
+func (c *ipcClient) RecordReactionEmojiUsage(emojis []string) error {
+	return c.conn.Call(rpcRecordReactionEmojiUsage, reactionEmojiUsageParams{Emojis: emojis}, nil)
+}
+
 func (c *ipcClient) SetSidebarHidden(hidden bool) error {
 	return c.conn.Call(rpcSetSidebarHidden, hiddenParams{Hidden: hidden}, nil)
 }

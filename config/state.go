@@ -49,6 +49,13 @@ type State struct {
 	// separately from Config.Accounts (which is declarative/Nix-managed)
 	// rather than living on the Account struct.
 	AccountStatuses map[string]string `yaml:"account_statuses,omitempty"`
+	// ReactionEmojiUsage is emoji -> how many times the user has sent it as
+	// a reaction, incremented every time a reaction is sent (see
+	// ui.ReactionEmojiUsageRecorder). Ranked descending to build the
+	// quick-pick default suggestions offered before any typing (see
+	// ui.defaultEmojiSuggestions) so the picker converges on what this user
+	// actually reaches for instead of a fixed list.
+	ReactionEmojiUsage map[string]int `yaml:"reaction_emoji_usage,omitempty"`
 
 	// Path is the state file this was loaded from / would be written to.
 	// Not part of the yaml shape.
@@ -98,6 +105,9 @@ func writeState(st State) error {
 	}
 	if len(out.AccountStatuses) == 0 {
 		out.AccountStatuses = nil
+	}
+	if len(out.ReactionEmojiUsage) == 0 {
+		out.ReactionEmojiUsage = nil
 	}
 
 	if dir := filepath.Dir(st.Path); dir != "" && dir != "." {

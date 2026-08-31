@@ -706,6 +706,15 @@ type InputHeightSetter interface {
 	SetInputHeight(height int) error
 }
 
+// ReactionEmojiUsageRecorder persists per-emoji reaction send counts,
+// implemented outside ui (main.go's adapter) so ui stays decoupled from the
+// config layer. A local file write, called inline like Send/SetTyping
+// rather than through a tea.Cmd — see defaultEmojiSuggestions, which ranks
+// the quick-pick list by these counts.
+type ReactionEmojiUsageRecorder interface {
+	RecordReactionEmojiUsage(emojis []string) error
+}
+
 // FilePickerSortSetter persists the attach-file picker's sort field
 // ("created"/"updated") and direction the user last selected, implemented
 // outside ui (main.go's adapter) so ui stays decoupled from the config

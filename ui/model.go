@@ -180,7 +180,7 @@ type Model struct {
 	flashGen               int               // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
 	emojiSuggestions       []emojiSuggestion // live fuzzy matches for the shortcode being typed, or the default quick-pick list when reactingMsgIdx >= 0 and nothing's been typed yet
 	emojiSuggestIdx        int               // which suggestion is highlighted; left/right to move, tab to accept it
-	recentReactionEmoji    []string          // most-recently-sent reaction emoji, newest first; feeds defaultEmojiSuggestions so recent picks surface before typing anything
+	reactionEmojiUsage     map[string]int    // emoji -> times sent as a reaction (in-memory mirror of config.State.ReactionEmojiUsage); feeds defaultEmojiSuggestions so a user's most-used reactions surface before typing anything
 	confirmTarget          confirmTarget
 	contextMenu            *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
 	showMsgInfo            bool         // true while the message-info popup is open
@@ -214,28 +214,29 @@ type Model struct {
 	lastFilePickerRow  int       // rendered row of the last clicked file-picker entry
 	lastFilePickerTime time.Time // time of the last file-picker click
 
-	sender                 MessageSender
-	fileSender             FileSender
-	accountAdder           AccountAdder
-	deviceManager          OmemoDeviceManager
-	contactManager         ContactManager
-	renamer                ContactRenamer
-	defaultAccountSetter   DefaultAccountSetter
-	sidebarWidthSetter     SidebarWidthSetter
-	sidebarHiddenSetter    SidebarHiddenSetter
-	inputHeightSetter      InputHeightSetter
-	filePickerSortSetter   FilePickerSortSetter
-	chatEncryptionSetter   ChatEncryptionSetter
-	lastChatSetter         LastChatSetter
-	historyLoader          HistoryLoader
-	historySearcher        HistorySearcher
-	accountStatusSetter    AccountStatusSetter
-	accountRemover         AccountRemover
-	chatReadTracker        ChatReadTracker
-	draftSaver             DraftSaver
-	storagePasswordChanger StoragePasswordChanger
-	focusReporter          FocusReporter
-	callController         CallController
+	sender                     MessageSender
+	fileSender                 FileSender
+	accountAdder               AccountAdder
+	deviceManager              OmemoDeviceManager
+	contactManager             ContactManager
+	renamer                    ContactRenamer
+	defaultAccountSetter       DefaultAccountSetter
+	sidebarWidthSetter         SidebarWidthSetter
+	reactionEmojiUsageRecorder ReactionEmojiUsageRecorder
+	sidebarHiddenSetter        SidebarHiddenSetter
+	inputHeightSetter          InputHeightSetter
+	filePickerSortSetter       FilePickerSortSetter
+	chatEncryptionSetter       ChatEncryptionSetter
+	lastChatSetter             LastChatSetter
+	historyLoader              HistoryLoader
+	historySearcher            HistorySearcher
+	accountStatusSetter        AccountStatusSetter
+	accountRemover             AccountRemover
+	chatReadTracker            ChatReadTracker
+	draftSaver                 DraftSaver
+	storagePasswordChanger     StoragePasswordChanger
+	focusReporter              FocusReporter
+	callController             CallController
 
 	// focused tracks whether the terminal currently has OS focus, reported
 	// by tea.FocusMsg/tea.BlurMsg (requires terminal support). Starts true
@@ -383,7 +384,7 @@ type DisplayOptions struct {
 // persistent call bar immediately - used when the TUI (re)attaches to a
 // daemon that already has a call in progress, so the bar shows up without
 // waiting for the next live CallStateMsg transition.
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, display DisplayOptions, initialCallState *CallStateMsg) Model {
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, initialReactionEmojiUsage map[string]int, display DisplayOptions, initialCallState *CallStateMsg) Model {
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
@@ -438,6 +439,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	defaultAccountSetter, _ := sender.(DefaultAccountSetter)
 	chatEncryptionSetter, _ := sender.(ChatEncryptionSetter)
 	sidebarWidthSetter, _ := sender.(SidebarWidthSetter)
+	reactionEmojiUsageRecorder, _ := sender.(ReactionEmojiUsageRecorder)
 	sidebarHiddenSetter, _ := sender.(SidebarHiddenSetter)
 	inputHeightSetter, _ := sender.(InputHeightSetter)
 	filePickerSortSetter, _ := sender.(FilePickerSortSetter)
@@ -460,66 +462,68 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	}
 
 	m := Model{
-		selectedView:           viewChat,
-		keys:                   keys,
-		theme:                  theme,
-		styles:                 styles,
-		zone:                   zm,
-		mouseEnabled:           mouseEnabled,
-		maxMessagesPerChat:     display.MaxMessagesPerChat,
-		icons:                  display.Icons,
-		showEncryptedIcon:      display.ShowEncryptedIcon,
-		useGPG:                 display.UseGPG,
-		defaultEncryptionMode:  display.DefaultEncryptionMode,
-		noticeDuration:         noticeDuration,
-		timeLayout:             display.TimeLayout,
-		hover:                  hv,
-		accounts:               accounts,
-		currentAccount:         startAccount,
-		chats:                  &l,
-		sidebarRenderCache:     &sidebarCacheEntry{},
-		viewportFrameCache:     &viewportFrameCacheEntry{},
-		input:                  &ti,
-		draftHistory:           []string{""},
-		viewport:               viewport.New(),
-		editingMsgIdx:          -1,
-		replyToIdx:             -1,
-		selectedAttachment:     -1,
-		reactingMsgIdx:         -1,
-		flashMsgIdx:            -1,
-		expandedMsgs:           make(map[string]bool),
-		lastClickedMsgIdx:      -1,
-		lastFilePickerRow:      -1,
-		sender:                 sender,
-		fileSender:             fileSender,
-		accountAdder:           accountAdder,
-		deviceManager:          deviceManager,
-		contactManager:         contactManager,
-		renamer:                renamer,
-		defaultAccountSetter:   defaultAccountSetter,
-		chatEncryptionSetter:   chatEncryptionSetter,
-		sidebarWidthSetter:     sidebarWidthSetter,
-		sidebarHiddenSetter:    sidebarHiddenSetter,
-		inputHeightSetter:      inputHeightSetter,
-		filePickerSortSetter:   filePickerSortSetter,
-		lastChatSetter:         lastChatSetter,
-		historyLoader:          historyLoader,
-		historySearcher:        historySearcher,
-		accountStatusSetter:    accountStatusSetter,
-		accountRemover:         accountRemover,
-		chatReadTracker:        chatReadTracker,
-		draftSaver:             draftSaver,
-		storagePasswordChanger: storagePasswordChanger,
-		focusReporter:          focusReporter,
-		callController:         callController,
-		focused:                true,
-		openChatAccountIdx:     -1,
-		loadingHistoryWindow:   make(map[int]bool),
-		pendingOpenChatAddress: openLastChatAddress,
-		sidebarWidthOverride:   initialSidebarWidth,
-		sidebarHidden:          initialSidebarHidden,
-		inputHeightOverride:    initialInputHeight,
-		filePicker:             &picker,
+		selectedView:               viewChat,
+		keys:                       keys,
+		theme:                      theme,
+		styles:                     styles,
+		zone:                       zm,
+		mouseEnabled:               mouseEnabled,
+		maxMessagesPerChat:         display.MaxMessagesPerChat,
+		icons:                      display.Icons,
+		showEncryptedIcon:          display.ShowEncryptedIcon,
+		useGPG:                     display.UseGPG,
+		defaultEncryptionMode:      display.DefaultEncryptionMode,
+		noticeDuration:             noticeDuration,
+		timeLayout:                 display.TimeLayout,
+		hover:                      hv,
+		accounts:                   accounts,
+		currentAccount:             startAccount,
+		chats:                      &l,
+		sidebarRenderCache:         &sidebarCacheEntry{},
+		viewportFrameCache:         &viewportFrameCacheEntry{},
+		input:                      &ti,
+		draftHistory:               []string{""},
+		viewport:                   viewport.New(),
+		editingMsgIdx:              -1,
+		replyToIdx:                 -1,
+		selectedAttachment:         -1,
+		reactingMsgIdx:             -1,
+		flashMsgIdx:                -1,
+		expandedMsgs:               make(map[string]bool),
+		lastClickedMsgIdx:          -1,
+		lastFilePickerRow:          -1,
+		sender:                     sender,
+		fileSender:                 fileSender,
+		accountAdder:               accountAdder,
+		deviceManager:              deviceManager,
+		contactManager:             contactManager,
+		renamer:                    renamer,
+		defaultAccountSetter:       defaultAccountSetter,
+		chatEncryptionSetter:       chatEncryptionSetter,
+		sidebarWidthSetter:         sidebarWidthSetter,
+		reactionEmojiUsageRecorder: reactionEmojiUsageRecorder,
+		sidebarHiddenSetter:        sidebarHiddenSetter,
+		inputHeightSetter:          inputHeightSetter,
+		filePickerSortSetter:       filePickerSortSetter,
+		lastChatSetter:             lastChatSetter,
+		historyLoader:              historyLoader,
+		historySearcher:            historySearcher,
+		accountStatusSetter:        accountStatusSetter,
+		accountRemover:             accountRemover,
+		chatReadTracker:            chatReadTracker,
+		draftSaver:                 draftSaver,
+		storagePasswordChanger:     storagePasswordChanger,
+		focusReporter:              focusReporter,
+		callController:             callController,
+		focused:                    true,
+		openChatAccountIdx:         -1,
+		loadingHistoryWindow:       make(map[int]bool),
+		pendingOpenChatAddress:     openLastChatAddress,
+		sidebarWidthOverride:       initialSidebarWidth,
+		reactionEmojiUsage:         copyEmojiUsage(initialReactionEmojiUsage),
+		sidebarHidden:              initialSidebarHidden,
+		inputHeightOverride:        initialInputHeight,
+		filePicker:                 &picker,
 	}
 	if initialCallState != nil {
 		m, _ = m.handleCallStateMsg(*initialCallState)

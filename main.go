@@ -250,7 +250,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		FilePickerSortField:     cfg.State.FilePickerSortField,
 		FilePickerSortAscending: cfg.State.FilePickerSortAscending,
 	}
-	model := ui.New(uiAccounts, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, display, initialCallState)
+	model := ui.New(uiAccounts, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, initialCallState)
 	if len(uiAccounts) == 0 {
 		// First run, or every account was removed: open straight into the
 		// add-account modal (defaults to login mode; ctrl+r switches to
