@@ -311,21 +311,21 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 }
 
 // renderMsgActionKey renders a message row's "↩" (reply)/"+" (react)
-// button glyph. Always rendered with the dim button look (background +
-// padding, same as dimButton) so it reads as clickable at rest, then
-// switches to the actual accent style - reply's more prominent than react's,
-// styled like sendButton (accentCyan) vs. attachButton's calmer background -
-// and reverses on hover. No trailing label - the glyph alone is the whole
-// clickable control (see isReplyKeyHovered/isReactKeyHovered).
+// button glyph. Plain dimmed text - no background/padding - until hovered,
+// at which point just its foreground switches to the accent color - reply's
+// more prominent (accentCyan) than react's (themFg) - rather than growing a
+// background, so it reads as "now clickable" without turning into a full
+// button chip. No trailing label - the glyph alone is the whole clickable
+// control (see isReplyKeyHovered/isReactKeyHovered).
 func (s uiStyles) renderMsgActionKey(key string, prominent, hovered bool) string {
 	if !hovered {
-		return s.dimButton.Render(key)
+		return s.messageMuted.Render(key)
 	}
-	st := s.attachButton
+	fg := s.colors.themFg
 	if prominent {
-		st = s.sendButton
+		fg = s.colors.accentCyan
 	}
-	return st.Reverse(true).Render(key)
+	return s.messageMuted.Foreground(fg).Bold(true).Render(key)
 }
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended
