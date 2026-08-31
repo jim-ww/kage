@@ -267,16 +267,22 @@ func (m Model) toggleComposeExpand() Model {
 	return m
 }
 
-// composeMultiline reports whether the compose box currently renders on more
-// than one row — used to let the up/down arrows move the textarea's cursor
-// instead of the selected message while there's more than one row to move
-// between (see the MsgUp/MsgDown cases in update_keys.go). Deliberately
-// checks Height() (visual rows, DynamicHeight-recalculated from soft-wrap)
-// rather than LineCount() (logical, newline-delimited lines): a single long
-// line that's word-wrapped to several rows reads as multiline on screen and
-// should traverse the same way, even though it's one "line" internally.
+// composeMultiline reports whether the compose box's content actually spans
+// more than one visual row — used to let the up/down arrows move the
+// textarea's cursor instead of the selected message while there's more than
+// one row to move between (see the MsgUp/MsgDown cases in update_keys.go).
+// Checks LineCount() (logical, newline-delimited lines) and the current
+// line's wrap height rather than Height() (the textarea's rendered viewport
+// size): Height() also reflects MinHeight from a user-dragged-open compose
+// box (see updateSizes), so a single short/empty line would otherwise read
+// as "multiline" just because the box was expanded, wrongly swallowing
+// arrow keys that should navigate messages. A single long line that's
+// word-wrapped to several rows still reads as multiline on screen and
+// should traverse the same way, even though it's one "line" internally —
+// LineInfo().Height catches that case.
 func (m Model) composeMultiline() bool {
-	return m.selectedView == viewChat && m.input.Height() > 1
+	return m.selectedView == viewChat &&
+		(m.input.LineCount() > 1 || m.input.LineInfo().Height > 1)
 }
 
 // fixStuckComposeCursorDown works around a textarea.Model bug (bubbles
