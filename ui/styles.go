@@ -56,7 +56,7 @@ type uiStyles struct {
 	accountHover          lipgloss.Style
 	sendButton            lipgloss.Style
 	attachButton          lipgloss.Style
-	expandButton          lipgloss.Style
+	dimButton             lipgloss.Style
 	contextMenuItem       lipgloss.Style
 	contextMenuItemHover  lipgloss.Style
 	callBar               lipgloss.Style
@@ -173,10 +173,11 @@ func newUIStyles(theme Theme) uiStyles {
 			Foreground(colors.themFg).
 			Background(colors.borderD).
 			Padding(0, 1),
-		// expandButton is dimmer than attachButton - it only needs to read
-		// as "clickable", not compete with the reply/react/attach buttons
-		// for attention.
-		expandButton: lipgloss.NewStyle().
+		// dimButton is the at-rest look for small in-row controls (expand
+		// toggle, reply/react glyphs before they're hovered) - dimmer than
+		// attachButton so it reads as "clickable" without competing for
+		// attention the way a fully-styled button would.
+		dimButton: lipgloss.NewStyle().
 			Foreground(colors.textMuted).
 			Background(colors.dimButtonBg).
 			Padding(0, 1),
@@ -310,22 +311,21 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 }
 
 // renderMsgActionKey renders a message row's "↩" (reply)/"+" (react)
-// button glyph. Plain dimmed text - no background/padding - until hovered,
-// at which point it gets the actual button look (background+padding) -
-// reply's more prominent than react's, styled like sendButton (accentCyan)
-// vs. attachButton's calmer background - so it only reads as a button once
-// the pointer is actually on it, not permanently. No trailing label - the
-// glyph alone is the whole clickable control (see
-// isReplyKeyHovered/isReactKeyHovered).
+// button glyph. Always rendered with the dim button look (background +
+// padding, same as dimButton) so it reads as clickable at rest, then
+// switches to the actual accent style - reply's more prominent than react's,
+// styled like sendButton (accentCyan) vs. attachButton's calmer background -
+// and reverses on hover. No trailing label - the glyph alone is the whole
+// clickable control (see isReplyKeyHovered/isReactKeyHovered).
 func (s uiStyles) renderMsgActionKey(key string, prominent, hovered bool) string {
 	if !hovered {
-		return s.messageMuted.Render(key)
+		return s.dimButton.Render(key)
 	}
 	st := s.attachButton
 	if prominent {
 		st = s.sendButton
 	}
-	return st.Render(key)
+	return st.Reverse(true).Render(key)
 }
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended
@@ -335,7 +335,7 @@ func (s uiStyles) renderMsgExpandButton(expanded, hovered bool) string {
 	if expanded {
 		label = "▴ show less"
 	}
-	st := s.expandButton
+	st := s.dimButton
 	if hovered {
 		st = st.Reverse(true)
 	}
