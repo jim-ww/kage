@@ -397,8 +397,14 @@ func (s *accountSession) setRosterPresence(bareJID, resource string, presence ui
 	if e.Presence != presence {
 		slog.Debug("contact presence changed", "jid", s.account.JID, "contact", bareJID, "resource", resource, "from", e.Presence, "to", presence)
 	}
-	e.Presence = presence
 	e.Resources = withResource(e.Resources, resource, presence)
+	if resource == "" {
+		// No resource part to track individually - this stanza is the whole
+		// story, same as before resource-aware aggregation existed.
+		e.Presence = presence
+	} else {
+		e.Presence = aggregatePresence(e.Resources)
+	}
 	updated[bareJID] = e
 	s.roster.Store(&updated)
 }
@@ -447,6 +453,22 @@ func (s *accountSession) resolveDeviceName(ctx context.Context, srv *ipc.Server,
 		Resource:   resource,
 		Name:       name,
 	})
+}
+
+// aggregatePresence derives a contact's overall presence from its currently
+// online resources - the highest (most available) one, per Presence's iota
+// ordering (Offline < XA < Away < Online < Chat), or PresenceOffline if none
+// are online. Must be derived rather than taken from the latest stanza: for
+// a multi-resource contact, one resource going offline should not clobber
+// the aggregate while another resource is still online.
+func aggregatePresence(resources []ui.ResourcePresence) ui.Presence {
+	best := ui.PresenceOffline
+	for _, r := range resources {
+		if r.Presence > best {
+			best = r.Presence
+		}
+	}
+	return best
 }
 
 // withResource is rosterEntry's version of ui.Chat.withResource - kept

@@ -352,6 +352,22 @@ func (c Chat) withResource(resource string, presence Presence) Chat {
 	return c
 }
 
+// aggregatePresence derives a contact's overall presence from its currently
+// online resources - the highest (most available) one, per Presence's iota
+// ordering (Offline < XA < Away < Online < Chat), or PresenceOffline if none
+// are online. Must be derived rather than taken from the latest stanza: for
+// a multi-resource contact, one resource going offline should not clobber
+// the aggregate while another resource is still online.
+func aggregatePresence(resources []ResourcePresence) Presence {
+	best := PresenceOffline
+	for _, r := range resources {
+		if r.Presence > best {
+			best = r.Presence
+		}
+	}
+	return best
+}
+
 // withResourceName sets the disco#info-resolved display name for one of
 // c's already-known online resources (see DeviceNameMsg). A no-op if that
 // resource isn't (or is no longer) in c.Resources - e.g. the resolution
