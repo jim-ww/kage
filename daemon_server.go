@@ -432,6 +432,35 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 		}
 		out[i] = toWireAccount(uiAcct)
 	}
+
+	// A TUI attach is the one moment we know a human is about to look at
+	// this data, so it's also the cheapest reliable point to catch a gap
+	// syncArchive otherwise only closes on a detected disconnect+reconnect
+	// (see keepAlive/superviseAccount). A daemon process suspended by the
+	// host (laptop sleep) rather than actually losing its TCP connection
+	// never trips that path - the connection resumes working normally on
+	// wake with no ping failure to react to, so a message a peer sent while
+	// the process was frozen silently never arrives live and stays
+	// invisible until something else happens to trigger a resync. Detached
+	// and best-effort: this call already blocks on connectAccountLocal disk
+	// reads above, and the archive backfill can take tens of seconds.
+	for i := range sessions {
+		sess := sessions[i]
+		if sess == nil {
+			continue
+		}
+		client := sess.client.Load()
+		if client == nil || client.Closed() {
+			continue
+		}
+		go func(idx int, sess *accountSession) {
+			bgCtx := context.Background()
+			broadcast(d.a.srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: idx})
+			syncArchive(bgCtx, d.a.srv, idx, sess)
+			broadcast(d.a.srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: idx})
+		}(i, sess)
+	}
+
 	return out
 }
 
