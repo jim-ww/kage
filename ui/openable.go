@@ -383,7 +383,9 @@ func openWithXDGOpen(target string, isAttachment bool, jid string) tea.Cmd {
 	downloadFirst := strings.HasPrefix(target, "aesgcm://") || (isAttachment && isRemoteURL)
 	if !downloadFirst {
 		return func() tea.Msg {
-			err := exec.Command("xdg-open", target).Start()
+			cmd := exec.Command("xdg-open", target)
+			cmd.SysProcAttr = detachedSysProcAttr()
+			err := cmd.Start()
 			return openResultMsg{target: target, err: err}
 		}
 	}
@@ -431,7 +433,9 @@ func downloadAndOpen(target, jid string, ch chan tea.Msg) tea.Msg {
 	dest := filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
 
 	if _, statErr := os.Stat(dest); statErr == nil {
-		err := exec.Command("xdg-open", dest).Start()
+		cmd := exec.Command("xdg-open", dest)
+		cmd.SysProcAttr = detachedSysProcAttr()
+		err := cmd.Start()
 		return openResultMsg{target: target, isAttachment: true, err: err}
 	}
 
@@ -473,7 +477,9 @@ func downloadAndOpen(target, jid string, ch chan tea.Msg) tea.Msg {
 	if os.IsExist(openErr) {
 		// Lost a race with another concurrent open of the same attachment;
 		// the other one already wrote dest.
-		err := exec.Command("xdg-open", dest).Start()
+		cmd := exec.Command("xdg-open", dest)
+		cmd.SysProcAttr = detachedSysProcAttr()
+		err := cmd.Start()
 		return openResultMsg{target: target, isAttachment: true, err: err}
 	}
 	if openErr != nil {
@@ -485,7 +491,9 @@ func downloadAndOpen(target, jid string, ch chan tea.Msg) tea.Msg {
 		return openResultMsg{target: target, isAttachment: true, err: copyErr}
 	}
 
-	err := exec.Command("xdg-open", dest).Start()
+	cmd := exec.Command("xdg-open", dest)
+	cmd.SysProcAttr = detachedSysProcAttr()
+	err := cmd.Start()
 	return openResultMsg{target: target, isAttachment: true, err: err}
 }
 
