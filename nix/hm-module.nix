@@ -60,6 +60,8 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
 
-    xdg.configFile."kage/config.yaml".source = yamlFormat.generate "kage-config.yaml" cfg.settings;
+    xdg.configFile."kage/config.yaml" = lib.mkIf (cfg.settings != { }) {
+      source = yamlFormat.generate "kage-config.yaml" cfg.settings;
+    };
   };
 }
