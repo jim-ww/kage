@@ -112,6 +112,7 @@ type uiColors struct {
 	noticeBg    color.Color
 	noticeFg    color.Color
 	rowHoverBg  color.Color
+	dimButtonBg color.Color
 }
 
 func newUIColors(theme Theme) uiColors {
@@ -141,6 +142,10 @@ func newUIColors(theme Theme) uiColors {
 		// borderD outright, which reads as a jarringly bright box around the
 		// row instead of a subtle "this one's highlighted" cue.
 		rowHoverBg: lipgloss.Color(blendHex(theme.AppBg, theme.BorderD, 0.22)),
+		// dimButtonBg is a subtler button background than attachButton's
+		// borderD - just enough to read as "this is a button" without
+		// competing with the message text around it.
+		dimButtonBg: lipgloss.Color(blendHex(theme.AppBg, theme.BorderD, 0.45)),
 	}
 }
 

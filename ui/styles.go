@@ -56,6 +56,7 @@ type uiStyles struct {
 	accountHover          lipgloss.Style
 	sendButton            lipgloss.Style
 	attachButton          lipgloss.Style
+	expandButton          lipgloss.Style
 	contextMenuItem       lipgloss.Style
 	contextMenuItemHover  lipgloss.Style
 	callBar               lipgloss.Style
@@ -171,6 +172,13 @@ func newUIStyles(theme Theme) uiStyles {
 		attachButton: lipgloss.NewStyle().
 			Foreground(colors.themFg).
 			Background(colors.borderD).
+			Padding(0, 1),
+		// expandButton is dimmer than attachButton - it only needs to read
+		// as "clickable", not compete with the reply/react/attach buttons
+		// for attention.
+		expandButton: lipgloss.NewStyle().
+			Foreground(colors.textMuted).
+			Background(colors.dimButtonBg).
 			Padding(0, 1),
 		contextMenuItem: lipgloss.NewStyle().
 			Foreground(colors.themFg).
@@ -327,7 +335,7 @@ func (s uiStyles) renderMsgExpandButton(expanded, hovered bool) string {
 	if expanded {
 		label = "▴ show less"
 	}
-	st := s.messageMuted.Italic(true)
+	st := s.expandButton
 	if hovered {
 		st = st.Reverse(true)
 	}
