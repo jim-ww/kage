@@ -1,4 +1,3 @@
-- feat(chat messages): add up/down keyboard arrow keybinds
 - fix(ui, messages): bg for 'show more'/'show less' button
 - ui(config): allow setting single-line display of messages in chat, off by default (e.g. whole status line + control buttons on same line as message, after message text)
 - closing kage tui, closes all external opened viewers. e.g. xdg-open calls
