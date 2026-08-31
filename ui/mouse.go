@@ -199,6 +199,10 @@ type hoverState struct {
 	// reactKeyIdx is replyKeyIdx's counterpart for the "^t" key glyph.
 	reactKeyIdx int
 
+	// expandBtnIdx is replyKeyIdx's counterpart for the "show more"/"show
+	// less" toggle.
+	expandBtnIdx int
+
 	// reactionMsgIdx/reactionIdx track which message's which reaction chip
 	// (by index into that message's Reactions) is currently drawn as
 	// hovered - replyKeyIdx's counterpart for reaction chips, one of which
@@ -384,6 +388,16 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			old := m.hover.reactKeyIdx
 			m.hover.reactKeyIdx = newReactKeyIdx
 			m.refreshViewportSelection(old, newReactKeyIdx)
+		}
+
+		newExpandBtnIdx := -1
+		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isExpandButtonHovered(idx) {
+			newExpandBtnIdx = idx
+		}
+		if newExpandBtnIdx != m.hover.expandBtnIdx {
+			old := m.hover.expandBtnIdx
+			m.hover.expandBtnIdx = newExpandBtnIdx
+			m.refreshViewportSelection(old, newExpandBtnIdx)
 		}
 
 		newReactionMsgIdx, newReactionIdx := -1, -1
