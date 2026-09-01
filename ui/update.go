@@ -309,7 +309,18 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 			// shifts inputAreaHeight() — the viewport must be resized in
 			// lockstep or it'll under/overlap the compose box by however
 			// many rows just changed.
+			wasAtBottom := m.viewport.AtBottom()
 			m.updateSizes()
+			// SetHeight (inside updateSizes) only stores the new height —
+			// it doesn't touch YOffset. If the input just grew and shrank
+			// the viewport while the user was pinned to the bottom, the
+			// stale offset now sits above the new bottom, scrolling the
+			// most recent messages out of view behind the taller compose
+			// box. Re-pin only if they were already at the bottom, so
+			// scrolling up to read history while typing isn't disturbed.
+			if wasAtBottom {
+				m.viewport.GotoBottom()
+			}
 		}
 		if m.input.Value() != oldValue {
 			m.pushDraftSnapshot(m.input.Value())
