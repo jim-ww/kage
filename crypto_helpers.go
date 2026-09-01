@@ -311,7 +311,7 @@ func resolveEncryptionMode(ctx context.Context, s *accountSession, peerJID strin
 		RosterJid:  peerJID,
 	})
 	if err != nil || mode == "" {
-		return "omemo-v1"
+		return currentDefaultEncryptionMode()
 	}
 	return mode
 }

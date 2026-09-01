@@ -1,8 +1,4 @@
-- fix(emoji-picker): emoji are not hoverable/clickable, no ui indication too
-- react to attachment still has aes url instead of pretty filename
-- writing multi-line draft hides last messages behind it
-- jump to latest hides sometimes
-- implement better emoji selector
+- fix(emoji-picker): emoji are not selectable
 - feat: cancel file upload mid-load (backspace)
 - add default encryption for chats config option, default omemov1
 - uploading your own files must copy them to attachments dir (in same format as if they were downloaded)

@@ -748,7 +748,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		entries[r.Jid] = rosterEntry{Name: r.Name, Subs: r.Subs}
 		mode, err := queries.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{AccountJid: acct.JID, RosterJid: r.Jid})
 		if err != nil {
-			mode = "omemo-v1"
+			mode = currentDefaultEncryptionMode()
 		}
 		histStart := time.Now()
 		hist, hasMore, _ := loadHistoryWindow(ctx, sess, r.Jid, name, nil, historyPageSize)

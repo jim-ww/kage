@@ -29,6 +29,20 @@ func currentVideoQuality() call.VideoQuality {
 	return call.VideoQuality(videoQuality.Load())
 }
 
+// defaultEncryptionMode mirrors cfg.DefaultEncryptionMode for
+// resolveEncryptionMode (crypto_helpers.go) and account.go's chat-list
+// fallback, which have no other path back to the loaded config — same
+// reasoning as notifyEnabled above.
+var defaultEncryptionMode atomic.Value // string
+
+func currentDefaultEncryptionMode() string {
+	mode, _ := defaultEncryptionMode.Load().(string)
+	if mode == "" {
+		return config.DefaultEncryptionMode
+	}
+	return mode
+}
+
 // tuiFocused and tuiActiveChat mirror the attached TUI client's window
 // focus and currently-open chat (see ui.FocusReporter / adapter.SetFocusState),
 // read by handleIncomingMessage (events.go) to suppress a desktop
@@ -72,6 +86,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	startupStart := time.Now()
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
+	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 
 	if !cfg.GPGDisabled {
 		start := time.Now()
@@ -169,6 +184,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 func (b *backend) Reload(cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
+	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 }
 
 func (b *backend) Shutdown() {
