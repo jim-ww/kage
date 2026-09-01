@@ -427,8 +427,15 @@ func (m Model) View() string {
 	// Always shown, separate from the (possibly filtered) grid below - a
 	// search query can easily hide cells that are already picked, and
 	// without this line there'd be no way to see the full multi-select set
-	// at all while it's narrowed out of view.
-	b.WriteString(m.line(m.Styles.PickedRow, m.pickedRowText()))
+	// at all while it's narrowed out of view. Rendered without m.line's
+	// width-truncation when Zone is set: ansi.Truncate cutting mid-string
+	// could slice through a zone mark's escape sequence and corrupt hit
+	// testing for every chip after the cut - see PickedZoneID/RemovePickedAt.
+	if m.Zone != nil {
+		b.WriteString(m.Styles.PickedRow.Render(m.pickedRowView()))
+	} else {
+		b.WriteString(m.line(m.Styles.PickedRow, m.pickedRowText()))
+	}
 	b.WriteString("\n\n")
 
 	totalRows := 0
@@ -481,6 +488,44 @@ func (m Model) pickedRowText() string {
 		return "Picked: (none)"
 	}
 	return "Picked: " + strings.Join(m.picked, " ")
+}
+
+// pickedRowView is pickedRowText's Zone-aware counterpart: each picked emoji
+// is wrapped in its own zone mark (PickedZoneID) so an embedding app's mouse
+// handler can hit-test a click against one chip specifically and remove just
+// that emoji (see RemovePickedAt) - clicking the summary line is otherwise
+// the only way to deselect something once a search query has scrolled its
+// grid cell out of view.
+func (m Model) pickedRowView() string {
+	if len(m.picked) == 0 {
+		return "Picked: (none)"
+	}
+	chips := make([]string, len(m.picked))
+	for i, e := range m.picked {
+		chips[i] = m.Zone.Mark(m.PickedZoneID(i), e)
+	}
+	return "Picked: " + strings.Join(chips, " ")
+}
+
+// PickedZoneID returns the bubblezone mark ID pickedRowView uses for the i'th
+// picked emoji chip - an embedding app's mouse handler hit-tests a click
+// against zone.Get(id).InBounds(mouse) for each index in range Selection(),
+// then calls RemovePickedAt(i) on a hit.
+func (m Model) PickedZoneID(i int) string {
+	return m.ID + "-picked-" + strconv.Itoa(i)
+}
+
+// RemovePickedAt removes the i'th picked emoji (see PickedZoneID) from the
+// multi-select set, marking the picker touched so DidConfirm/ClickConfirm
+// returns the set as explicitly edited rather than falling back to
+// "just the highlighted cell" - mirrors toggleCursor unpicking the same
+// emoji from the grid.
+func (m *Model) RemovePickedAt(i int) {
+	if i < 0 || i >= len(m.picked) {
+		return
+	}
+	m.touched = true
+	m.picked = append(m.picked[:i], m.picked[i+1:]...)
 }
 
 func (m Model) renderCell(i int) string {

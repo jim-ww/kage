@@ -33,6 +33,16 @@ func (m Model) handleEmojiPickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 	if m.emojiPicker.Zone == nil {
 		return m, nil
 	}
+	// Checked before the grid: a picked emoji whose grid cell has scrolled
+	// out of view (query narrowed it away) is still shown in the "Picked:"
+	// row, and clicking it there removes it without touching the grid at
+	// all - doesn't confirm/close the picker, unlike a grid-cell click.
+	for i := range m.emojiPicker.Selection() {
+		if m.zone.Get(m.emojiPicker.PickedZoneID(i)).InBounds(msg) {
+			m.emojiPicker.RemovePickedAt(i)
+			return m, nil
+		}
+	}
 	for _, i := range m.emojiPicker.VisibleCells() {
 		if m.zone.Get(m.emojiPicker.CellZoneID(i)).InBounds(msg) {
 			return m.confirmEmojiPick(m.emojiPicker.ClickConfirm(i))
