@@ -195,9 +195,10 @@ func TestHistoryWindowMsgFallsBackToLastMessageWhenAnchorMissing(t *testing.T) {
 	m := newLimitTestModel(t, 3, 3)
 	m.pendingWindowAnchor = map[int]string{0: "does-not-exist"}
 
+	future := time.Now().Add(time.Hour)
 	updated, _, handled := m.handleEventMsg(HistoryWindowMsg{
 		AccountIdx: 0, From: "bob@example.com",
-		Messages: []Message{{ID: "x"}, {ID: "y"}},
+		Messages: []Message{{ID: "x", SentAt: future}, {ID: "y", SentAt: future.Add(time.Second)}},
 	})
 	if !handled {
 		t.Fatal("HistoryWindowMsg was not handled")

@@ -58,6 +58,38 @@ func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) []Mes
 	return trimmed
 }
 
+// mergeLiveTail appends to fresh (a HistoryWindowMsg's just-loaded tail
+// window) any message from old (the in-memory tail before that load) that
+// isn't already present in fresh and is newer than fresh's last message —
+// i.e. a live IncomingMessageMsg arrival that was spliced in after the
+// window's storage query ran but before its response was processed. Older
+// messages in old are ignored: they belong to whatever window was loaded
+// before and storage already has them, another anchor away.
+func mergeLiveTail(fresh, old []Message) []Message {
+	if len(old) == 0 {
+		return fresh
+	}
+	seen := make(map[string]bool, len(fresh))
+	for _, m := range fresh {
+		if m.ID != "" {
+			seen[m.ID] = true
+		}
+	}
+	var cutoff time.Time
+	if len(fresh) > 0 {
+		cutoff = fresh[len(fresh)-1].SentAt
+	}
+	for _, m := range old {
+		if m.ID != "" && seen[m.ID] {
+			continue
+		}
+		if m.SentAt.After(cutoff) {
+			fresh = append(fresh, m)
+		}
+	}
+	return fresh
+}
+
 // handleEventMsg handles every non-key message Update can receive (window
 // resizes, mouse events, and all the async network/timer messages). handled
 // is false only when msg isn't one of these — Update then falls through to
@@ -361,12 +393,19 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		// A HistoryWindowMsg is always a fresh, complete window — it fully
-		// replaces whatever was loaded before, never merges with it. Nothing
-		// needs to be preserved from the old window: storage still has
-		// everything it ever had, so any point in this chat's history is
-		// just another anchor away.
-		m.accounts[msg.AccountIdx].Messages[chatIdx] = msg.Messages
+		// A HistoryWindowMsg is a fresh window straight from storage — it
+		// replaces whatever was loaded before rather than paging onto it.
+		// But when it lands the true tail (HasNewer false), it can have been
+		// queried before a live message that arrived and got spliced into
+		// Messages[chatIdx] mid-flight (see IncomingMessageMsg) - storage
+		// already has that message, this response's snapshot just predates
+		// it. Carry any such trailing message forward so the live append
+		// isn't silently overwritten by a stale-by-a-beat snapshot.
+		newMessages := msg.Messages
+		if !msg.HasNewer {
+			newMessages = mergeLiveTail(newMessages, m.accounts[msg.AccountIdx].Messages[chatIdx])
+		}
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = newMessages
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			// Keep the selection on the same message it was on before the
 			// reload — found by ID rather than carried across as an index,
@@ -374,10 +413,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			// back to the last message if the anchor somehow isn't in the
 			// new window (shouldn't normally happen: the anchor is always
 			// included in what was requested).
-			if idx := messageIndexByID(msg.Messages, anchorID); idx >= 0 {
+			if idx := messageIndexByID(newMessages, anchorID); idx >= 0 {
 				m.selectedMsg = idx
 			} else {
-				m.selectedMsg = len(msg.Messages) - 1
+				m.selectedMsg = len(newMessages) - 1
 			}
 			m.refreshViewportFullScrollToCentered(m.selectedMsg)
 		}

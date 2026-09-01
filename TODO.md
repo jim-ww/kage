@@ -1,4 +1,3 @@
-- sometimes message arrives, there is notification + message appears in chat list preview correctly, but doesnt appear in chat. reloading chat (by pressing chat name in chat list, loads messages correctly)
 - chat messages list is slightly wider then screen, making text overflow by x. probably whole view pane component overflows
 - chat list: change hover color
 - fix(emoji-picker): emoji are not hoverable/clickable, no ui indication too
