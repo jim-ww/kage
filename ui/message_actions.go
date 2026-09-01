@@ -662,7 +662,7 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	}
 	picker := emojipicker.New(rankReactionUsage(m.reactionEmojiUsage))
 	picker.SetPicked(myReactionsEmoji(msgs[m.selectedMsg].Reactions))
-	picker.Title = fmt.Sprintf("react to %q", previewText(msgs[m.selectedMsg].Content, previewLen))
+	picker.Title = fmt.Sprintf("react to %q", previewText(MessagePreviewContent(msgs[m.selectedMsg]), previewLen))
 	applyEmojiPickerStyles(&picker, m.styles.colors)
 	if m.mouseEnabled {
 		picker.Zone = m.zone
