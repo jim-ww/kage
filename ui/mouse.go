@@ -213,7 +213,7 @@ type hoverState struct {
 
 	// devicesID is the chat-item zone ID currently showing its online-device
 	// list in place of the row's normal description (see
-	// renderHoverChatRow), or "" if none is. Set by hoverDevicesRevealMsg
+	// zoneChatListDelegate.Render), or "" if none is. Set by hoverDevicesRevealMsg
 	// once hoverDevicesDelay has passed without the hovered row changing.
 	devicesID string
 }

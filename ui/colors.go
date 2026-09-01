@@ -65,19 +65,6 @@ func presenceLabel(p Presence) string {
 	}
 }
 
-// presenceGlyphOn is presenceGlyph rendered against bg — used when the
-// glyph is going to sit inside a row that itself has a background (e.g. a
-// hover highlight), so the dot's own style needs to carry that same
-// background rather than leaving a gap where the row highlight would
-// otherwise show through unstyled.
-func presenceGlyphOn(p Presence, bg color.Color) string {
-	g, ok := presenceGlyphs[p]
-	if !ok {
-		g = presenceGlyphs[PresenceOffline]
-	}
-	return g.style.Background(bg).Render(g.symbol)
-}
-
 // deviceGlyph renders a resource's presence as a colored device icon,
 // mirroring presenceGlyph but with a square "device" symbol instead of the
 // round per-chat presence dot — visually distinct so the device-list popup

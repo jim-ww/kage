@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"image/color"
 	"io"
 	"strings"
 
@@ -10,7 +9,6 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
 	zone "github.com/lrstanley/bubblezone/v2"
@@ -58,9 +56,25 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 	hoveredSelected.Styles.SelectedTitle = hoveredSelected.Styles.SelectedTitle.BorderForeground(colors.accentCyan)
 	hoveredSelected.Styles.SelectedDesc = hoveredSelected.Styles.SelectedDesc.BorderForeground(colors.accentCyan)
 
+	// Hover-only (not selected) uses the same left-border decoration as
+	// selected, just dimmer — one consistent "this row is highlighted"
+	// language across hover/selected/both, distinguished by border color
+	// instead of switching to a different mechanism (background fill) for
+	// hover alone.
+	hoverOnly := delegate
+	hoverOnly.Styles.NormalTitle = hoverOnly.Styles.NormalTitle.
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(colors.borderD).
+		PaddingLeft(0)
+	hoverOnly.Styles.NormalDesc = hoverOnly.Styles.NormalDesc.
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(colors.borderD).
+		PaddingLeft(0)
+
 	return zoneChatListDelegate{
 		DefaultDelegate: delegate,
 		hoverSelected:   hoveredSelected,
+		hoverOnly:       hoverOnly,
 		colors:          colors,
 		zone:            zm,
 		hover:           hv,
@@ -76,6 +90,7 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 type zoneChatListDelegate struct {
 	list.DefaultDelegate
 	hoverSelected list.DefaultDelegate // used when the hovered row is also the selected one
+	hoverOnly     list.DefaultDelegate // used when the hovered row isn't selected
 	colors        uiColors
 	zone          *zone.Manager
 	hover         *hoverState
@@ -90,11 +105,7 @@ func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item 
 	case hovered && selected:
 		d.hoverSelected.Render(&sb, m, index, item)
 	case hovered:
-		if chat, ok := item.(Chat); ok {
-			sb.WriteString(renderHoverChatRow(chat, d.colors, m.Width()))
-		} else {
-			d.DefaultDelegate.Render(&sb, m, index, item)
-		}
+		d.hoverOnly.Render(&sb, m, index, item)
 	default:
 		d.DefaultDelegate.Render(&sb, m, index, item)
 	}
@@ -130,56 +141,6 @@ func padLinesToWidth(content string, width int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-// renderHoverChatRow builds the hovered-non-selected chat row's two lines.
-// It doesn't reuse Chat.Title()/list.DefaultDelegate: Title() embeds an
-// already-rendered, already-reset presence glyph, and rendering that whole
-// string through another Style() (to add the hover background) is a nested
-// re-render — content that's already been through Style.Render() getting
-// wrapped in more Style.Render() — which is the documented corruption
-// pattern for this codebase (see the border-glyph bug fixed earlier this
-// session). The fix isn't a raw-escape workaround; it's to never nest the
-// render in the first place: each fragment below is rendered exactly once,
-// carries the row's background itself, and fragments are joined by plain
-// string concatenation — ordinary lipgloss usage, not manual SGR.
-func renderHoverChatRow(c Chat, colors uiColors, width int) string {
-	bg := colors.rowHoverBg
-	fg := colors.themFg
-	descFg := colors.textMuted
-
-	pad := lipgloss.NewStyle().Background(bg).Render(" ")
-	dot := presenceGlyphOn(c.Presence, bg)
-	// Truncate name/desc to width ourselves — unlike list.DefaultDelegate
-	// (which truncates to its own textwidth), nothing downstream of this
-	// row does, and an untruncated long name/address wraps the row instead
-	// of clipping, growing the list taller than its allotted height (same
-	// failure mode fixed for the selected row and the sidebar border).
-	nameWidth := max(1, width-3) // pad + dot + pad
-	name := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(true).
-		Render(ansi.Truncate(c.Name, nameWidth, "…"))
-	title := fillBg(pad+dot+pad+name, bg, width)
-
-	desc := ""
-	if text := c.Description(); text != "" {
-		descWidth := max(1, width-1) // pad
-		desc = pad + lipgloss.NewStyle().Background(bg).Foreground(descFg).
-			Render(ansi.Truncate(text, descWidth, "…"))
-	}
-	desc = fillBg(desc, bg, width)
-
-	return title + "\n" + desc
-}
-
-// fillBg pads content with background-colored spaces out to width, so the
-// hover/selection tint covers the whole row instead of stopping at the last
-// glyph — padLinesToWidth (which runs after this, over the whole rendered
-// item) only pads with plain, uncolored spaces.
-func fillBg(content string, bg color.Color, width int) string {
-	if pad := width - lipgloss.Width(content); pad > 0 {
-		content += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
-	}
-	return content
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {
