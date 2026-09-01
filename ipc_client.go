@@ -192,6 +192,12 @@ func (c *ipcClient) UploadFile(accountIdx int, to, path, text string, opts ui.Se
 	return msg
 }
 
+func (c *ipcClient) CancelUpload(path string) {
+	if err := c.conn.Call(rpcCancelUpload, cancelUploadParams{Path: path}, nil); err != nil {
+		slog.Warn("canceling upload", "path", path, "err", err)
+	}
+}
+
 func (c *ipcClient) LoadHistoryWindow(accountIdx int, to string, anchor *ui.HistoryAnchor) tea.Cmd {
 	return func() tea.Msg {
 		var msg ui.HistoryWindowMsg

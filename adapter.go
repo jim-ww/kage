@@ -42,6 +42,48 @@ type adapter struct {
 	localKey    []byte
 	useGPG      bool
 	useKeyring  bool
+
+	uploadCancelsMu sync.Mutex
+	uploadCancels   map[string]context.CancelFunc // keyed by local file path, see SendFile/UploadFile/CancelUpload
+}
+
+// errUploadCanceled is returned (and translated to a distinct "upload
+// canceled" message before reaching the UI, see SendFile/UploadFile) when
+// CancelUpload aborts an in-flight upload's context.
+var errUploadCanceled = errors.New("upload canceled")
+
+// beginUpload registers a cancelable context for the upload identified by
+// path (its local file path is unique per in-flight upload, matching the ID
+// FileTransferProgress/Done events already use) so a later CancelUpload call
+// can abort it. done must be called once the upload finishes, successfully
+// or not, to unregister it.
+func (a *adapter) beginUpload(path string) (ctx context.Context, done func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	a.uploadCancelsMu.Lock()
+	if a.uploadCancels == nil {
+		a.uploadCancels = make(map[string]context.CancelFunc)
+	}
+	a.uploadCancels[path] = cancel
+	a.uploadCancelsMu.Unlock()
+	return ctx, func() {
+		a.uploadCancelsMu.Lock()
+		delete(a.uploadCancels, path)
+		a.uploadCancelsMu.Unlock()
+		cancel()
+	}
+}
+
+// CancelUpload aborts the in-flight upload for path, if any (a no-op
+// otherwise — the upload may have already finished by the time the RPC
+// arrives). Implements the daemon side of the UI's cancel-on-backspace
+// action; see rpcCancelUpload.
+func (a *adapter) CancelUpload(path string) {
+	a.uploadCancelsMu.Lock()
+	cancel := a.uploadCancels[path]
+	a.uploadCancelsMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // AddAccount implements ui.AccountAdder: resolves and stores the password in
@@ -1280,7 +1322,9 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 		result.Err = err
 		return result
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	uploadCtx, doneUpload := a.beginUpload(path)
+	defer doneUpload()
+	ctx, cancel := context.WithTimeout(uploadCtx, 2*time.Minute)
 	defer cancel()
 
 	label := "uploading " + filepath.Base(path)
@@ -1288,6 +1332,9 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, label))
 	broadcast(a.srv, evFileTransferDone, ui.FileTransferDoneMsg{ID: path})
 	if err != nil {
+		if errors.Is(uploadCtx.Err(), context.Canceled) {
+			err = errUploadCanceled
+		}
 		result.Err = err
 		return result
 	}
@@ -1330,11 +1377,19 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 		return result
 	}
 
+	uploadCtx, doneUpload := a.beginUpload(path)
+	defer doneUpload()
+	uploadCtx, cancelUpload := context.WithTimeout(uploadCtx, 2*time.Minute)
+	defer cancelUpload()
+
 	label := "uploading " + filepath.Base(path)
 	broadcast(a.srv, evFileTransferProgress, ui.FileTransferProgressMsg{ID: path, Label: label})
-	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, label))
+	url, err := a.uploadFile(uploadCtx, s, client, to, path, a.progressCallback(path, label))
 	broadcast(a.srv, evFileTransferDone, ui.FileTransferDoneMsg{ID: path})
 	if err != nil {
+		if errors.Is(uploadCtx.Err(), context.Canceled) {
+			err = errUploadCanceled
+		}
 		result.Err = err
 		return result
 	}

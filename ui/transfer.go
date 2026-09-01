@@ -194,6 +194,23 @@ func (m *Model) clearTransfer(id string) {
 	}
 }
 
+// mostRecentUploadTransfer returns the ID (local file path) of the
+// most-recently-started still-in-flight upload transfer, if any — used by
+// the Backspace-cancels-upload key handler in update_keys.go. Uploads and
+// downloads share m.transfers with no direction field on the message itself
+// (see FileTransferProgressMsg), so this identifies an upload the same way
+// renderTransferLines' wording does: by its "uploading " Label prefix set at
+// the call site (adapter.progressCallback).
+func (m *Model) mostRecentUploadTransfer() (id string, ok bool) {
+	for i := len(m.transferOrder) - 1; i >= 0; i-- {
+		id := m.transferOrder[i]
+		if strings.HasPrefix(m.transfers[id].Label, "uploading ") {
+			return id, true
+		}
+	}
+	return "", false
+}
+
 // transferBarWidth is the fixed width (in characters) of the "[####----]"
 // portion of a rendered transfer line.
 const transferBarWidth = 16

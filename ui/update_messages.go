@@ -211,6 +211,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		if len(msg.Messages) == 0 {
 			if msg.Err != nil {
+				if msg.Err.Error() == uploadCanceledMsg {
+					return m, m.showNotification(uploadCanceledMsg), true
+				}
 				return m, m.showNotification("send failed: " + msg.Err.Error()), true
 			}
 			if msg.Queued {
@@ -281,7 +284,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		var cmds []tea.Cmd
 		cmds = append(cmds, m.setChatLastMessage(msg.AccountIdx, chatIdx, lastContent))
 		if msg.Err != nil {
-			cmds = append(cmds, m.showNotification("send failed: "+msg.Err.Error()))
+			if msg.Err.Error() == uploadCanceledMsg {
+				cmds = append(cmds, m.showNotification(uploadCanceledMsg))
+			} else {
+				cmds = append(cmds, m.showNotification("send failed: "+msg.Err.Error()))
+			}
 		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
@@ -293,6 +300,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case FileSendResultMsg:
 		m.clearTransfer(msg.Path)
 		if msg.Err != nil {
+			if msg.Err.Error() == uploadCanceledMsg {
+				return m, m.showNotification(uploadCanceledMsg), true
+			}
 			return m, m.showNotification("file send failed: " + msg.Err.Error()), true
 		}
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)

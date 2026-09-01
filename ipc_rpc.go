@@ -29,6 +29,7 @@ const (
 	rpcChangeStoragePassword    = "ChangeStoragePassword"
 	rpcSendFile                 = "SendFile"
 	rpcUploadFile               = "UploadFile"
+	rpcCancelUpload             = "CancelUpload"
 	rpcLoadHistoryWindow        = "LoadHistoryWindow"
 	rpcSearchHistory            = "SearchHistory"
 	rpcAddContact               = "AddContact"
@@ -153,6 +154,7 @@ type uploadFileParams struct {
 	Text       string
 	Opts       ui.SendOptions
 }
+type cancelUploadParams struct{ Path string }
 type loadHistoryWindowParams struct {
 	AccountIdx int
 	To         string

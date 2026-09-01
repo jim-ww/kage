@@ -458,6 +458,17 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.updateSizes()
 			return m, nil, true
 		}
+		// Once send is pressed, pendingAttachments is cleared immediately
+		// (see sendCurrentInput) and the file starts uploading, so there's
+		// nothing left for the branch above to remove — but the upload is
+		// still cancelable while it's in flight. Backspace on the still-empty
+		// compose box cancels the most recently started upload transfer.
+		if m.selectedView == viewChat && m.input.Value() == "" && m.fileSender != nil {
+			if id, ok := m.mostRecentUploadTransfer(); ok {
+				m.fileSender.CancelUpload(id)
+				return m, nil, true
+			}
+		}
 
 	case matchesKey(msg, m.keys.ToggleComposeExpand):
 		if m.selectedView == viewChat {

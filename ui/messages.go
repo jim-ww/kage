@@ -67,7 +67,21 @@ type FileSender interface {
 	// must not also call MessageSender.Send for this file, since there's no
 	// URL yet to send.
 	UploadFile(accountIdx int, to, path, text string, opts SendOptions) tea.Msg
+
+	// CancelUpload aborts the in-flight SendFile/UploadFile upload for path,
+	// if any - a no-op if it already finished. path is the same local file
+	// path used as the FileTransferProgressMsg/FileTransferDoneMsg ID for an
+	// upload, so it doubles as the cancellation key.
+	CancelUpload(path string)
 }
+
+// uploadCanceledMsg is the exact text adapter.errUploadCanceled formats to
+// (see kage's adapter.go) - errors cross the daemon/TUI IPC boundary as
+// plain strings, so this is how FileSendResultMsg/FileUploadResultMsg.Err
+// is recognized as "the user canceled this" rather than a real failure, to
+// show a quieter notification for it. Matched by exact string rather than
+// errors.Is since the RPC layer doesn't preserve error identity.
+const uploadCanceledMsg = "upload canceled"
 
 // HistoryAnchor pins a HistoryLoader.LoadHistoryWindow request to a specific
 // message — Delay/StoreID are exactly Message.SentAt.Unix()/Message.StoreID

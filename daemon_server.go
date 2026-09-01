@@ -193,6 +193,14 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return msg, nil
 
+	case rpcCancelUpload:
+		p, err := unmarshalParams[cancelUploadParams](params)
+		if err != nil {
+			return nil, err
+		}
+		d.a.CancelUpload(p.Path)
+		return nil, nil
+
 	case rpcLoadHistoryWindow:
 		p, err := unmarshalParams[loadHistoryWindowParams](params)
 		if err != nil {

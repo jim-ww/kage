@@ -31,6 +31,7 @@ type fakeFileSender struct {
 	uploadCalls    int
 	lastUploadText string
 	lastUploadOpts SendOptions
+	canceledPath   string
 
 	// sendCalls records every Send call, in order, for tests that need to
 	// verify per-message behavior (e.g. one Send per staged attachment).
@@ -70,6 +71,7 @@ func (f *fakeFileSender) UploadFile(_ int, to, path, text string, opts SendOptio
 	}
 	return FileUploadResultMsg{Path: path, URL: url}
 }
+func (f *fakeFileSender) CancelUpload(path string) { f.canceledPath = path }
 
 func TestFilePickerReceivesAsyncDirectoryRead(t *testing.T) {
 	dir := t.TempDir()
