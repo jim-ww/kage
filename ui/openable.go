@@ -193,6 +193,14 @@ func sanitizeJIDForPath(jid string) string {
 	return jid
 }
 
+// AttachmentLocalPath exports attachmentLocalPath for the daemon-side upload
+// path (adapter.go), which copies a just-uploaded local file into the same
+// cache/downloads location a download of its own URL would use, so it's
+// available offline without a round trip through the server.
+func AttachmentLocalPath(target, jid string) string {
+	return attachmentLocalPath(target, jid)
+}
+
 // attachmentLocalPath returns the destination path target would already be
 // at if downloaded - either in the aesgcm view cache (attachmentCacheDir)
 // or in the downloads directory, mirroring the exact destination paths

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -1257,7 +1258,12 @@ func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmp
 	}
 
 	if !encryptFile {
-		return client.UploadFile(ctx, path, onProgress)
+		url, err := client.UploadFile(ctx, path, onProgress)
+		if err != nil {
+			return "", err
+		}
+		cacheUploadedAttachment(path, url, to)
+		return url, nil
 	}
 
 	// Encrypt file with AES-256-GCM before upload (XEP-0454)
@@ -1282,7 +1288,41 @@ func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmp
 	if err != nil {
 		return "", fmt.Errorf("building aesgcm URL: %w", err)
 	}
+	cacheUploadedAttachment(path, url, to)
 	return url, nil
+}
+
+// cacheUploadedAttachment copies a just-uploaded local file to the same
+// location a download of url would use (see ui.AttachmentLocalPath), so a
+// file we send is available locally in the same format/place as one we'd
+// receive, without re-downloading it from the server. Best-effort: a failure
+// here doesn't affect the send, which already succeeded.
+func cacheUploadedAttachment(path, url, to string) {
+	dest := ui.AttachmentLocalPath(url, bareJID(to))
+	if dest == "" || dest == path {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		slog.Warn("caching sent attachment: mkdir", "path", dest, "err", err)
+		return
+	}
+	src, err := os.Open(path)
+	if err != nil {
+		slog.Warn("caching sent attachment: open source", "path", path, "err", err)
+		return
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		slog.Warn("caching sent attachment: create dest", "path", dest, "err", err)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		slog.Warn("caching sent attachment: copy", "path", dest, "err", err)
+	}
 }
 
 // progressCallback returns a throttled onProgress func suitable for
