@@ -44,21 +44,34 @@ const queryWidth = 40
 // defaultVisibleRows is how many grid rows show at once before scrolling.
 const defaultVisibleRows = 4
 
-// CellWidth is every grid cell's fixed rendered width, in columns (padding
-// included) - Cell/CellCursor/CellPicked all carry it via .Width() so the
-// grid stays column-aligned regardless of what width a specific glyph
-// actually measures at. Flag emoji in particular (2-codepoint regional-
-// indicator pairs, or ZWJ family/skin-tone sequences) get wildly
-// inconsistent width results across fonts/terminals - some render as one
-// double-width glyph, some as two separate narrow letters, some fall back
-// to tofu boxes - so without a forced fixed width, rows built from
-// strings.Join of variable-width cells drift out of column with each other
-// and the border wraps unevenly row to row. A fixed width can't make the
-// *specific* oddball glyph look right in every terminal, but it keeps every
-// *other* cell in the grid aligned instead of the misalignment cascading
-// across the whole row. Sized for the widest a cell ever gets: a bracketed
-// "[emoji]" (picked) rendering a double-width glyph, plus Padding(0,1).
-const CellWidth = 6
+// CellWidth is every grid cell's fixed rendered width, in columns -
+// Cell/CellCursor/CellPicked all carry it via .Width() so the grid stays
+// column-aligned regardless of what width a specific glyph actually
+// measures at. Flag emoji in particular (2-codepoint regional-indicator
+// pairs, or ZWJ family/skin-tone sequences) get wildly inconsistent width
+// results across fonts/terminals - some render as one double-width glyph,
+// some as two separate narrow letters, some fall back to tofu boxes - so
+// without a forced fixed width, rows built from strings.Join of
+// variable-width cells drift out of column with each other and the border
+// wraps unevenly row to row. A fixed width can't make the *specific*
+// oddball glyph look right in every terminal, but it keeps every *other*
+// cell in the grid aligned instead of the misalignment cascading across the
+// whole row.
+//
+// Sized to exactly fit the widest cell gets, with no slack: a bracketed
+// "[emoji]" (picked) rendering a double-width glyph, with no padding.
+// Padding(0,1) was tried and reverted - it made the *common* (unpicked)
+// case, a bare double-width glyph at half this width, look sparse and
+// oversized across the 100+ ordinary cells in a typical grid, all to make
+// room for a rarer picked cell that only needs the padding-sized gap
+// anyway once its own content already fills the width. Cell/CellCursor get
+// their highlight-box breathing room from the picked-sized budget itself,
+// not separate padding on top of it. Word-wrap (triggered by lipgloss's
+// Style.Width whenever content exceeds the requested width) is why this
+// can't simply be sized smaller than the bracketed case and let it
+// overflow - overflowing content wraps onto an extra line and wrecks the
+// whole row's layout, worse than any width tradeoff.
+const CellWidth = 4
 
 // KeyMap is the picker's keybindings. Deliberately arrow-keys-only for
 // navigation (not vim h/j/k/l) since the query box is always "focused" -
@@ -111,9 +124,9 @@ func DefaultStyles() Styles {
 	return Styles{
 		Title:       lipgloss.NewStyle().Bold(true),
 		Query:       lipgloss.NewStyle(),
-		Cell:        lipgloss.NewStyle().Padding(0, 1).Width(CellWidth),
-		CellCursor:  lipgloss.NewStyle().Padding(0, 1).Width(CellWidth).Reverse(true),
-		CellPicked:  lipgloss.NewStyle().Padding(0, 1).Width(CellWidth),
+		Cell:        lipgloss.NewStyle().Width(CellWidth),
+		CellCursor:  lipgloss.NewStyle().Width(CellWidth).Reverse(true),
+		CellPicked:  lipgloss.NewStyle().Width(CellWidth),
 		PickedRow:   lipgloss.NewStyle(),
 		PickedHover: lipgloss.NewStyle().Reverse(true),
 		Footer:      lipgloss.NewStyle().Faint(true),
