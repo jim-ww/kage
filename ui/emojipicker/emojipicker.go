@@ -281,7 +281,15 @@ func (m Model) ClickConfirm(index int) []string {
 // the cell at index if the picker was never touched at all (so a single
 // pick needs no Tab first).
 func (m Model) confirmFrom(index int) []string {
-	if len(m.picked) > 0 || m.touched {
+	// touched alone gates this - not len(m.picked) > 0 too. picked can be
+	// non-empty from SetPicked seeding a message's existing reactions before
+	// the user has touched anything; treating that the same as touched made
+	// a plain click/Enter on a message you'd already reacted to just
+	// re-return the untouched seeded set, silently ignoring the click -
+	// only Toggle (which always sets touched) could actually change
+	// anything. Toggle already sets touched on every use, so dropping the
+	// picked-non-empty check doesn't weaken the multi-select path at all.
+	if m.touched {
 		return m.picked
 	}
 	if index >= 0 && index < len(m.visible) {

@@ -54,9 +54,14 @@ func TestClearPickedThenConfirmSendsEmptySet(t *testing.T) {
 	m := New(nil)
 	m.SetPicked([]string{"👍", "❤️"})
 
-	// enter with existing picks re-sends them unchanged
-	if got, ok := m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); !ok || len(got) != 2 {
-		t.Fatalf("expected existing picks to be confirmed unchanged, got %v ok=%v", got, ok)
+	// enter with existing (seeded, untouched) picks confirms the
+	// highlighted cell, same as a fresh empty picker would - see
+	// TestSeededPickedConfirmsCursorCellUntilTouched for why: reconfirming
+	// the seeded set unchanged made a plain Enter (or click) on a *new*
+	// emoji look like it did nothing at all whenever the message already
+	// had a reaction.
+	if got, ok := m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); !ok || len(got) != 1 || got[0] != m.visible[m.cursor].Emoji {
+		t.Fatalf("expected untouched confirm to pick the highlighted cell, got %v ok=%v", got, ok)
 	}
 
 	m, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
@@ -171,5 +176,45 @@ func TestUntouchedConfirmFallsBackToCursorCell(t *testing.T) {
 	got, ok := m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !ok || len(got) != 1 || got[0] != m.visible[m.cursor].Emoji {
 		t.Fatalf("expected untouched confirm to pick the highlighted cell, got %v ok=%v", got, ok)
+	}
+}
+
+// TestSeededPickedConfirmsCursorCellUntilTouched guards against confirmFrom
+// treating SetPicked's seeded set (a message's existing reactions, loaded
+// before the user has touched anything) the same as an explicitly toggled
+// one: reopening the picker on an already-reacted-to message left m.picked
+// non-empty from the start, so a plain click or Enter on a *different*
+// emoji silently re-returned the untouched seeded set instead of the
+// clicked one - clicking or pressing Enter looked like it did nothing at
+// all, while Tab (which always sets touched) worked fine.
+func TestSeededPickedConfirmsCursorCellUntilTouched(t *testing.T) {
+	m := New(nil)
+	m.SetPicked([]string{"👍"})
+	if len(m.visible) == 0 {
+		t.Fatal("expected a default grid to be populated")
+	}
+
+	target := -1
+	for i, e := range m.visible {
+		if e.Emoji != "👍" {
+			target = i
+			break
+		}
+	}
+	if target < 0 {
+		t.Fatal("expected a visible cell other than the seeded emoji")
+	}
+
+	got := m.ClickConfirm(target)
+	if len(got) != 1 || got[0] != m.visible[target].Emoji {
+		t.Fatalf("expected an untouched click to confirm just the clicked cell, got %v", got)
+	}
+
+	// Once actually touched (Tab), the full toggled set confirms as usual.
+	m.touched = true
+	m.picked = []string{"👍", m.visible[target].Emoji}
+	got = m.ClickConfirm(target)
+	if len(got) != 2 {
+		t.Fatalf("expected a touched click to confirm the whole toggled set, got %v", got)
 	}
 }
