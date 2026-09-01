@@ -421,8 +421,8 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 	}
 
 	if isSelected {
-		replyKey := m.zone.Mark(zoneMessageReplyKey(msgIdx), m.styles.renderMsgActionKey("↩", true, m.isReplyKeyHovered(msgIdx)))
-		reactKey := m.zone.Mark(zoneMessageReactKey(msgIdx), m.styles.renderMsgActionKey("+", false, m.isReactKeyHovered(msgIdx)))
+		replyKey := m.zone.Mark(zoneMessageReplyKey(msgIdx), m.styles.renderMsgActionKey("↩", m.isReplyKeyHovered(msgIdx)))
+		reactKey := m.zone.Mark(zoneMessageReactKey(msgIdx), m.styles.renderMsgActionKey("+", m.isReactKeyHovered(msgIdx)))
 		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyKey)
 		reactBtn := m.zone.Mark(zoneMessageReactBtn(msgIdx), reactKey)
 		// Tighter than the double space separating time/badges/buttons from

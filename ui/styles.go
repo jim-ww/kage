@@ -312,22 +312,16 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 
 // renderMsgActionKey renders a message row's "↩" (reply)/"+" (react)
 // button glyph. Plain dimmed text - no background/padding - until hovered,
-// at which point just its foreground switches to the accent color - reply's
-// more prominent (accentCyan) than react's (themFg) - rather than growing a
-// background, so it reads as "now clickable" without turning into a full
-// button chip. Underlined too, same as accountHover's own foreground-only
-// hover elsewhere in the app - a color swap alone reads as too subtle a
-// change on some terminals/themes. No trailing label - the glyph alone is
-// the whole clickable control (see isReplyKeyHovered/isReactKeyHovered).
-func (s uiStyles) renderMsgActionKey(key string, prominent, hovered bool) string {
+// at which point just its foreground switches to accentCyan, same for both
+// glyphs, rather than growing a background, so it reads as "now clickable"
+// without turning into a full button chip. No trailing label - the glyph
+// alone is the whole clickable control (see
+// isReplyKeyHovered/isReactKeyHovered).
+func (s uiStyles) renderMsgActionKey(key string, hovered bool) string {
 	if !hovered {
 		return s.messageMuted.Render(key)
 	}
-	fg := s.colors.themFg
-	if prominent {
-		fg = s.colors.accentCyan
-	}
-	return s.messageMuted.Foreground(fg).Bold(true).Underline(true).Render(key)
+	return s.messageMuted.Foreground(s.colors.accentCyan).Bold(true).Render(key)
 }
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended
