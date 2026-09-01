@@ -1,9 +1,11 @@
 package emojipicker
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestSearchFlagReturnsManyResultsAndDedupes(t *testing.T) {
@@ -88,13 +90,25 @@ func TestResizeReflowsAndClampsScroll(t *testing.T) {
 	// Widening to 10 columns collapses 20 cells into 2 rows - the cursor's
 	// row under the new shape (19/10 = row 1) must still end up in view,
 	// not stuck at a scrollRow computed for the old, narrower grid.
-	m.Resize(10, 2)
+	m.Resize(10, 2, 0)
 	if m.Columns != 10 || m.VisibleRows != 2 {
 		t.Fatalf("expected Columns=10 VisibleRows=2, got Columns=%d VisibleRows=%d", m.Columns, m.VisibleRows)
 	}
 	row := m.cursor / m.Columns
 	if row < m.scrollRow || row >= m.scrollRow+m.VisibleRows {
 		t.Fatalf("cursor row %d not within scrolled view [%d, %d)", row, m.scrollRow, m.scrollRow+m.VisibleRows)
+	}
+}
+
+func TestViewLinesNeverExceedWidth(t *testing.T) {
+	m := New(nil)
+	m.Title = "react to \"a very long message preview that would otherwise overflow a narrow popup\""
+	m.Resize(4, 3, 24)
+
+	for i, line := range strings.Split(m.View(), "\n") {
+		if w := ansi.StringWidth(line); w > m.Width {
+			t.Fatalf("line %d (%q) is %d columns wide, wider than Width=%d", i, line, w, m.Width)
+		}
 	}
 }
 

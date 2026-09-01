@@ -16,6 +16,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/enescakir/emoji"
 	"github.com/sahilm/fuzzy"
 )
@@ -107,6 +108,7 @@ type Model struct {
 	Styles      Styles
 	Columns     int // grid width in cells; rows follow from len(visible)
 	VisibleRows int // how many grid rows show at once before scrolling
+	Width       int // content width budget in columns - single-line rows (title, picked summary, footer) longer than this are truncated with an ellipsis rather than overflowing the popup
 
 	Title string // e.g. "react to \"...\"" - shown above the query box; empty renders no title row
 
@@ -140,6 +142,7 @@ func New(recent []string) Model {
 		Styles:      DefaultStyles(),
 		Columns:     8,
 		VisibleRows: defaultVisibleRows,
+		Width:       queryWidth,
 		query:       q,
 		recent:      recent,
 		common:      commonEmoji,
@@ -155,17 +158,24 @@ func (m *Model) SetPicked(emojis []string) {
 	m.picked = append([]string(nil), emojis...)
 }
 
-// Resize sets Columns/VisibleRows (leaving either unchanged if <= 0) and
-// re-clamps the cursor/scroll to stay valid under the new grid shape - call
-// this whenever the space available to render the picker changes (e.g. a
-// terminal resize), not just once at construction, so the popup adapts
-// instead of a fixed size that can overflow a small terminal.
-func (m *Model) Resize(columns, visibleRows int) {
+// Resize sets Columns/VisibleRows/Width (each left unchanged if <= 0),
+// shrinks the query box to fit, and re-clamps the cursor/scroll to stay
+// valid under the new grid shape - call this whenever the space available
+// to render the picker changes (e.g. a terminal resize), not just once at
+// construction, so the popup adapts instead of a fixed size that can
+// overflow a small terminal.
+func (m *Model) Resize(columns, visibleRows, width int) {
 	if columns > 0 {
 		m.Columns = columns
 	}
 	if visibleRows > 0 {
 		m.VisibleRows = visibleRows
+	}
+	if width > 0 {
+		m.Width = width
+		// The query prompt "🔍 " eats a few columns of its own; textinput's
+		// Width is the value field alone, not the prompt+field total.
+		m.query.SetWidth(max(1, width-ansi.StringWidth(m.query.Prompt)))
 	}
 	if m.cursor >= len(m.visible) {
 		m.cursor = max(0, len(m.visible)-1)
@@ -324,17 +334,17 @@ func (m *Model) isPicked(e string) bool {
 func (m Model) View() string {
 	var b strings.Builder
 	if m.Title != "" {
-		b.WriteString(m.Styles.Title.Render(m.Title))
+		b.WriteString(m.line(m.Styles.Title, m.Title))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(m.Styles.Query.Render(m.query.View()))
+	b.WriteString(m.line(m.Styles.Query, m.query.View()))
 	b.WriteString("\n\n")
 
 	// Always shown, separate from the (possibly filtered) grid below - a
 	// search query can easily hide cells that are already picked, and
 	// without this line there'd be no way to see the full multi-select set
 	// at all while it's narrowed out of view.
-	b.WriteString(m.Styles.PickedRow.Render(m.pickedRowText()))
+	b.WriteString(m.line(m.Styles.PickedRow, m.pickedRowText()))
 	b.WriteString("\n\n")
 
 	totalRows := 0
@@ -361,13 +371,24 @@ func (m Model) View() string {
 	}
 
 	if totalRows > m.VisibleRows {
-		b.WriteString(m.Styles.Footer.Render(fmt.Sprintf("rows %d-%d of %d", min(m.scrollRow+1, totalRows), min(m.scrollRow+m.VisibleRows, totalRows), totalRows)))
+		b.WriteString(m.line(m.Styles.Footer, fmt.Sprintf("rows %d-%d of %d", min(m.scrollRow+1, totalRows), min(m.scrollRow+m.VisibleRows, totalRows), totalRows)))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(m.Styles.Footer.Render("↑↓←→ move · tab toggle multi · ctrl+x clear picked · enter confirm · esc cancel"))
+	b.WriteString(m.line(m.Styles.Footer, "↑↓←→ move · tab multi · ctrl+x clear · enter pick · esc cancel"))
 	return b.String()
+}
+
+// line truncates text to m.Width (with an ellipsis) before rendering it
+// with style - keeps a single-line row (title, picked summary, footer) from
+// ever overflowing the popup regardless of terminal size or how long a
+// message preview/hint happens to be.
+func (m Model) line(style lipgloss.Style, text string) string {
+	if m.Width > 0 {
+		text = ansi.Truncate(text, m.Width, "…")
+	}
+	return style.Render(text)
 }
 
 // pickedRowText renders the "Picked: ..." summary line's content.

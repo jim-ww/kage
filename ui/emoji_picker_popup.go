@@ -88,5 +88,5 @@ func (m *Model) sizeEmojiPicker() {
 
 	columns := clamp(innerWidth/emojiPickerCellWidth, 4, 10)
 	rows := clamp(innerHeight-emojiPickerChromeLines, 2, 8)
-	m.emojiPicker.Resize(columns, rows)
+	m.emojiPicker.Resize(columns, rows, innerWidth)
 }
