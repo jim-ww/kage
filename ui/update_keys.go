@@ -340,6 +340,10 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	case matchesKey(msg, m.keys.Back):
+		if m.editingMsgIdx >= 0 || m.replyToIdx >= 0 || m.reactingMsgIdx >= 0 || m.emojiPicker != nil {
+			m.cancelPending()
+			return m, nil, true
+		}
 		if m.selectedView != viewAccounts && m.selectedView != viewChats {
 			m.notifyTypingStopped()
 			m.cancelPending()
