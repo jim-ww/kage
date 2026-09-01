@@ -112,6 +112,18 @@ func TestViewLinesNeverExceedWidth(t *testing.T) {
 	}
 }
 
+func TestBrokenTagSequenceFlagsExcluded(t *testing.T) {
+	known := make(map[string]bool, len(shortcodes))
+	for _, code := range shortcodes {
+		known[code] = true
+	}
+	for _, code := range []string{":england:", ":scotland:", ":wales:", ":flag_for_england:", ":flag_for_scotland:", ":flag_for_wales:"} {
+		if known[code] {
+			t.Fatalf("%s should be excluded from shortcodes - it's a tag-sequence subdivision flag most terminal fonts can't render as one glyph, breaking grid alignment", code)
+		}
+	}
+}
+
 func TestUntouchedConfirmFallsBackToCursorCell(t *testing.T) {
 	m := New(nil)
 	if len(m.visible) == 0 {

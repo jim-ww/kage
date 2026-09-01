@@ -376,7 +376,7 @@ func (m Model) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(m.line(m.Styles.Footer, "↑↓←→ move · tab multi · ctrl+x clear · enter pick · esc cancel"))
+	b.WriteString(m.line(m.Styles.Footer, "↑↓←→ move · tab multi · ctrl+x clear · enter confirm · esc cancel"))
 	return b.String()
 }
 

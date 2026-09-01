@@ -6,12 +6,29 @@ import (
 	"github.com/enescakir/emoji"
 )
 
+// brokenTagSequenceFlags are the three "regional subdivision" flags gemoji
+// ships (England, Scotland, Wales) - each is the black-flag base glyph
+// followed by several Unicode tag characters (U+E00xx), a sequence most
+// terminal fonts don't recognize as a single flag. Instead of rendering one
+// flag glyph they show the black flag plus a handful of extra
+// invisible-but-width-consuming characters, which throws off the picker
+// grid's column alignment for the whole row they land in. Excluded from
+// shortcodes entirely - a niche subdivision flag isn't worth a broken row.
+var brokenTagSequenceFlags = map[string]bool{
+	"\U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f": true, // :england:/:flag_for_england:
+	"\U0001f3f4\U000e0067\U000e0062\U000e0073\U000e0063\U000e0074\U000e007f": true, // :scotland:/:flag_for_scotland:
+	"\U0001f3f4\U000e0067\U000e0062\U000e0077\U000e006c\U000e0073\U000e007f": true, // :wales:/:flag_for_wales:
+}
+
 // shortcodes is the full :shortcode: list, computed once - emoji.Map() is a
 // static built-in table, no need to rebuild it on every keystroke.
 var shortcodes = func() []string {
 	m := emoji.Map()
 	codes := make([]string, 0, len(m))
-	for code := range m {
+	for code, glyph := range m {
+		if brokenTagSequenceFlags[glyph] {
+			continue
+		}
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
