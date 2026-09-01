@@ -342,10 +342,24 @@ func search(query string) []entry {
 		return ranked[i].code < ranked[j].code
 	})
 
-	n := min(len(ranked), maxResults)
-	out := make([]entry, n)
-	for i := range n {
-		out[i] = entry{Shortcode: ranked[i].code, Emoji: emoji.Parse(ranked[i].code)}
+	// Many shortcodes are aliases for the same glyph (":thumbsup:" and
+	// ":+1:" both render 👍) - without deduping here, a query would surface
+	// the same emoji as multiple grid cells, and since picking/highlighting
+	// match by glyph (see isPicked/toggleCursor), toggling one would
+	// visually light up its "duplicate" too. Keep only the
+	// highest-scoring shortcode per glyph.
+	seen := make(map[string]bool, maxResults)
+	out := make([]entry, 0, min(len(ranked), maxResults))
+	for _, r := range ranked {
+		if len(out) >= maxResults {
+			break
+		}
+		e := emoji.Parse(r.code)
+		if seen[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, entry{Shortcode: r.code, Emoji: e})
 	}
 	return out
 }
