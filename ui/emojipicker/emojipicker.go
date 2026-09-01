@@ -293,7 +293,16 @@ func (m Model) confirmFrom(index int) []string {
 		return m.picked
 	}
 	if index >= 0 && index < len(m.visible) {
-		return []string{m.visible[index].Emoji}
+		e := m.visible[index].Emoji
+		// Appended onto whatever's already picked (typically a message's
+		// existing reactions, seeded by SetPicked) rather than replacing it
+		// outright - a click/Enter on a new emoji is adding a reaction, not
+		// starting the set over, matching what Toggle already does once
+		// touched.
+		if m.isPicked(e) {
+			return m.picked
+		}
+		return append(append([]string(nil), m.picked...), e)
 	}
 	return []string{}
 }

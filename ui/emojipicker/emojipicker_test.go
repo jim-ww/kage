@@ -54,14 +54,14 @@ func TestClearPickedThenConfirmSendsEmptySet(t *testing.T) {
 	m := New(nil)
 	m.SetPicked([]string{"👍", "❤️"})
 
-	// enter with existing (seeded, untouched) picks confirms the
-	// highlighted cell, same as a fresh empty picker would - see
-	// TestSeededPickedConfirmsCursorCellUntilTouched for why: reconfirming
-	// the seeded set unchanged made a plain Enter (or click) on a *new*
-	// emoji look like it did nothing at all whenever the message already
-	// had a reaction.
-	if got, ok := m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); !ok || len(got) != 1 || got[0] != m.visible[m.cursor].Emoji {
-		t.Fatalf("expected untouched confirm to pick the highlighted cell, got %v ok=%v", got, ok)
+	// enter with existing (seeded, untouched) picks appends the highlighted
+	// cell to them - see TestSeededPickedConfirmsCursorCellUntilTouched for
+	// why: reconfirming the seeded set unchanged made a plain Enter (or
+	// click) on a *new* emoji look like it did nothing at all whenever the
+	// message already had a reaction. The default cursor cell here happens
+	// to already be one of the seeded emoji, so appending it is a no-op.
+	if got, ok := m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); !ok || len(got) != 2 {
+		t.Fatalf("expected untouched confirm to keep the seeded set (cursor cell already picked), got %v ok=%v", got, ok)
 	}
 
 	m, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
@@ -184,9 +184,11 @@ func TestUntouchedConfirmFallsBackToCursorCell(t *testing.T) {
 // before the user has touched anything) the same as an explicitly toggled
 // one: reopening the picker on an already-reacted-to message left m.picked
 // non-empty from the start, so a plain click or Enter on a *different*
-// emoji silently re-returned the untouched seeded set instead of the
+// emoji silently re-returned the untouched seeded set instead of adding the
 // clicked one - clicking or pressing Enter looked like it did nothing at
-// all, while Tab (which always sets touched) worked fine.
+// all, while Tab (which always sets touched) worked fine. An untouched
+// click/Enter appends to the seeded set rather than replacing it outright -
+// reacting with a second emoji shouldn't drop the first.
 func TestSeededPickedConfirmsCursorCellUntilTouched(t *testing.T) {
 	m := New(nil)
 	m.SetPicked([]string{"👍"})
@@ -206,8 +208,23 @@ func TestSeededPickedConfirmsCursorCellUntilTouched(t *testing.T) {
 	}
 
 	got := m.ClickConfirm(target)
-	if len(got) != 1 || got[0] != m.visible[target].Emoji {
-		t.Fatalf("expected an untouched click to confirm just the clicked cell, got %v", got)
+	if len(got) != 2 || got[0] != "👍" || got[1] != m.visible[target].Emoji {
+		t.Fatalf("expected an untouched click to append the clicked cell to the seeded set, got %v", got)
+	}
+
+	// Clicking an already-picked cell is a no-op, not a duplicate append.
+	seededIdx := -1
+	for i, e := range m.visible {
+		if e.Emoji == "👍" {
+			seededIdx = i
+			break
+		}
+	}
+	if seededIdx >= 0 {
+		got = m.ClickConfirm(seededIdx)
+		if len(got) != 1 || got[0] != "👍" {
+			t.Fatalf("expected clicking the already-picked cell to be a no-op, got %v", got)
+		}
 	}
 
 	// Once actually touched (Tab), the full toggled set confirms as usual.
