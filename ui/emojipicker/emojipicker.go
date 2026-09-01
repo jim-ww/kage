@@ -68,13 +68,20 @@ type Styles struct {
 
 // DefaultStyles returns plain, theme-agnostic default styles - callers
 // embedding this in a themed app will normally override Styles after New.
+//
+// CellPicked deliberately carries no text attributes (bold/underline/etc) -
+// many terminals mis-measure or mis-render a wide emoji grapheme (e.g. a
+// heart plus its U+FE0F emoji-presentation selector) when an SGR attribute
+// like underline is applied on top of it, silently falling back to the
+// narrow text-presentation glyph. renderCell instead marks a picked cell by
+// bracketing the glyph, which can't have that failure mode.
 func DefaultStyles() Styles {
 	return Styles{
 		Title:       lipgloss.NewStyle().Bold(true),
 		Query:       lipgloss.NewStyle(),
 		Cell:        lipgloss.NewStyle().Padding(0, 1),
 		CellCursor:  lipgloss.NewStyle().Padding(0, 1).Reverse(true),
-		CellPicked:  lipgloss.NewStyle().Padding(0, 1).Bold(true).Underline(true),
+		CellPicked:  lipgloss.NewStyle().Padding(0, 1),
 		Footer:      lipgloss.NewStyle().Faint(true),
 		Placeholder: lipgloss.NewStyle().Faint(true),
 	}
@@ -268,16 +275,21 @@ func (m Model) View() string {
 
 func (m Model) renderCell(i int) string {
 	e := m.visible[i].Emoji
-	style := m.Styles.Cell
-	switch {
-	case i == m.cursor && m.isPicked(e):
-		style = m.Styles.CellCursor.Bold(true)
-	case i == m.cursor:
-		style = m.Styles.CellCursor
-	case m.isPicked(e):
-		style = m.Styles.CellPicked
+	// Picked is marked by bracketing the glyph rather than a text attribute
+	// (see DefaultStyles' CellPicked doc) - applied to the plain glyph
+	// before any style wraps it, so cursor+picked together just brackets
+	// inside the reversed cell instead of stacking attributes on the glyph.
+	text := e
+	if m.isPicked(e) {
+		text = "[" + e + "]"
 	}
-	return style.Render(e)
+	if i == m.cursor {
+		return m.Styles.CellCursor.Render(text)
+	}
+	if m.isPicked(e) {
+		return m.Styles.CellPicked.Render(text)
+	}
+	return m.Styles.Cell.Render(text)
 }
 
 // defaultEntries builds the grid shown before any query is typed: recent
