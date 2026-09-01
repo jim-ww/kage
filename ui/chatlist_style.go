@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"io"
 	"strings"
 
@@ -157,7 +158,7 @@ func renderHoverChatRow(c Chat, colors uiColors, width int) string {
 	nameWidth := max(1, width-3) // pad + dot + pad
 	name := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(true).
 		Render(ansi.Truncate(c.Name, nameWidth, "…"))
-	title := pad + dot + pad + name
+	title := fillBg(pad+dot+pad+name, bg, width)
 
 	desc := ""
 	if text := c.Description(); text != "" {
@@ -165,8 +166,20 @@ func renderHoverChatRow(c Chat, colors uiColors, width int) string {
 		desc = pad + lipgloss.NewStyle().Background(bg).Foreground(descFg).
 			Render(ansi.Truncate(text, descWidth, "…"))
 	}
+	desc = fillBg(desc, bg, width)
 
 	return title + "\n" + desc
+}
+
+// fillBg pads content with background-colored spaces out to width, so the
+// hover/selection tint covers the whole row instead of stopping at the last
+// glyph — padLinesToWidth (which runs after this, over the whole rendered
+// item) only pads with plain, uncolored spaces.
+func fillBg(content string, bg color.Color, width int) string {
+	if pad := width - lipgloss.Width(content); pad > 0 {
+		content += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
+	}
+	return content
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {
