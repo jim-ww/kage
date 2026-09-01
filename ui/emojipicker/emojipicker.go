@@ -8,6 +8,7 @@
 package emojipicker
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -27,14 +28,18 @@ type entry struct {
 	Shortcode string
 }
 
-// maxResults caps how many cells the grid ever shows at once, search or
-// default - keeps the popup a fixed, predictable size instead of growing
-// with the underlying shortcode table.
-const maxResults = 32
+// maxResults caps how many matches search ever ranks, so a very loose query
+// (fuzzy subsequence matching is permissive) can't make one keystroke sort
+// thousands of shortcodes - the grid itself scrolls (see VisibleRows) to
+// reach anything beyond the first screenful.
+const maxResults = 120
 
 // queryWidth is the filter box's fixed width - wide enough to show the
 // whole placeholder hint without truncation.
 const queryWidth = 40
+
+// defaultVisibleRows is how many grid rows show at once before scrolling.
+const defaultVisibleRows = 4
 
 // KeyMap is the picker's keybindings. Deliberately arrow-keys-only for
 // navigation (not vim h/j/k/l) since the query box is always "focused" -
@@ -42,6 +47,7 @@ const queryWidth = 40
 type KeyMap struct {
 	Up, Down, Left, Right key.Binding
 	Toggle                key.Binding // add/remove the highlighted cell from the multi-select set without closing
+	ClearPicked           key.Binding // empty the multi-select set entirely
 	Confirm               key.Binding // close, returning the multi-select set (or just the highlighted cell if nothing was toggled)
 	Cancel                key.Binding
 }
@@ -49,13 +55,14 @@ type KeyMap struct {
 // DefaultKeyMap returns the picker's default keybindings.
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
-		Up:      key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "up")),
-		Down:    key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "down")),
-		Left:    key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "left")),
-		Right:   key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "right")),
-		Toggle:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "toggle")),
-		Confirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
-		Cancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+		Up:          key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "up")),
+		Down:        key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "down")),
+		Left:        key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "left")),
+		Right:       key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "right")),
+		Toggle:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "toggle")),
+		ClearPicked: key.NewBinding(key.WithKeys("ctrl+x"), key.WithHelp("ctrl+x", "clear picked")),
+		Confirm:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
+		Cancel:      key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 	}
 }
 
@@ -66,6 +73,7 @@ type Styles struct {
 	Cell        lipgloss.Style
 	CellCursor  lipgloss.Style
 	CellPicked  lipgloss.Style
+	PickedRow   lipgloss.Style // the "Picked: ..." summary line, always shown regardless of query
 	Footer      lipgloss.Style
 	Placeholder lipgloss.Style
 }
@@ -86,6 +94,7 @@ func DefaultStyles() Styles {
 		Cell:        lipgloss.NewStyle().Padding(0, 1),
 		CellCursor:  lipgloss.NewStyle().Padding(0, 1).Reverse(true),
 		CellPicked:  lipgloss.NewStyle().Padding(0, 1),
+		PickedRow:   lipgloss.NewStyle(),
 		Footer:      lipgloss.NewStyle().Faint(true),
 		Placeholder: lipgloss.NewStyle().Faint(true),
 	}
@@ -94,18 +103,21 @@ func DefaultStyles() Styles {
 // Model is the emoji picker's Bubble Tea sub-model. Zero value isn't
 // usable - construct with New.
 type Model struct {
-	KeyMap  KeyMap
-	Styles  Styles
-	Columns int // grid width in cells; rows follow from len(visible)
+	KeyMap      KeyMap
+	Styles      Styles
+	Columns     int // grid width in cells; rows follow from len(visible)
+	VisibleRows int // how many grid rows show at once before scrolling
 
 	Title string // e.g. "react to \"...\"" - shown above the query box; empty renders no title row
 
-	query   textinput.Model
-	cursor  int
-	visible []entry
-	picked  []string // toggled emoji, in the order picked (Toggle), independent of visible/cursor
-	recent  []string
-	common  []string
+	query     textinput.Model
+	cursor    int
+	scrollRow int // index of the first grid row currently shown, follows cursor (see ensureCursorVisible)
+	visible   []entry
+	picked    []string // toggled emoji, in the order picked (Toggle), independent of visible/cursor - always shown in full via the "Picked:" row regardless of scroll/query
+	touched   bool     // true once Toggle or ClearPicked has been used at least once, even if picked ended up empty again - see DidConfirm
+	recent    []string
+	common    []string
 }
 
 // New returns a ready-to-use Model. recent is this user's own most-used
@@ -124,12 +136,13 @@ func New(recent []string) Model {
 	q.Focus()
 
 	m := Model{
-		KeyMap:  DefaultKeyMap(),
-		Styles:  DefaultStyles(),
-		Columns: 8,
-		query:   q,
-		recent:  recent,
-		common:  commonEmoji,
+		KeyMap:      DefaultKeyMap(),
+		Styles:      DefaultStyles(),
+		Columns:     8,
+		VisibleRows: defaultVisibleRows,
+		query:       q,
+		recent:      recent,
+		common:      commonEmoji,
 	}
 	m.refresh()
 	return m
@@ -174,6 +187,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(keyMsg, m.KeyMap.Toggle):
 			m.toggleCursor()
 			return m, nil
+		case key.Matches(keyMsg, m.KeyMap.ClearPicked):
+			m.picked = nil
+			m.touched = true
+			return m, nil
 		case key.Matches(keyMsg, m.KeyMap.Confirm), key.Matches(keyMsg, m.KeyMap.Cancel):
 			return m, nil
 		}
@@ -190,14 +207,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 // DidConfirm reports whether msg is the Confirm key, and if so the emoji set
-// it confirms: the toggled multi-select set, or just the highlighted cell if
-// nothing was toggled (so a single pick needs no Tab at all).
+// it confirms: the toggled multi-select set (including an explicitly
+// cleared-to-empty one, once ClearPicked/Toggle has been touched at least
+// once - see touched), or just the highlighted cell if the picker was never
+// touched at all (so a single pick needs no Tab first).
 func (m Model) DidConfirm(msg tea.Msg) ([]string, bool) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok || !key.Matches(keyMsg, m.KeyMap.Confirm) {
 		return nil, false
 	}
-	if len(m.picked) > 0 {
+	if len(m.picked) > 0 || m.touched {
 		return m.picked, true
 	}
 	if m.cursor >= 0 && m.cursor < len(m.visible) {
@@ -212,18 +231,46 @@ func (m Model) DidCancel(msg tea.Msg) bool {
 	return ok && key.Matches(keyMsg, m.KeyMap.Cancel)
 }
 
+// moveCursor moves the cursor by delta cells (±1 for left/right, ±Columns
+// for up/down), clamped to the visible list's bounds - no wraparound, since
+// combined with scrolling that would be disorienting (jumping from the last
+// match straight back to the first, several scroll pages away). Always
+// re-follows the cursor's row into view afterward.
 func (m *Model) moveCursor(delta int) {
 	if len(m.visible) == 0 {
 		return
 	}
-	n := len(m.visible)
-	m.cursor = ((m.cursor+delta)%n + n) % n
+	next := m.cursor + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(m.visible) {
+		next = len(m.visible) - 1
+	}
+	m.cursor = next
+	m.ensureCursorVisible()
+}
+
+// ensureCursorVisible scrolls the minimum amount needed to bring the
+// cursor's row back within [scrollRow, scrollRow+VisibleRows).
+func (m *Model) ensureCursorVisible() {
+	if m.Columns <= 0 {
+		return
+	}
+	row := m.cursor / m.Columns
+	switch {
+	case row < m.scrollRow:
+		m.scrollRow = row
+	case m.VisibleRows > 0 && row >= m.scrollRow+m.VisibleRows:
+		m.scrollRow = row - m.VisibleRows + 1
+	}
 }
 
 func (m *Model) toggleCursor() {
 	if m.cursor < 0 || m.cursor >= len(m.visible) {
 		return
 	}
+	m.touched = true
 	e := m.visible[m.cursor].Emoji
 	for i, p := range m.picked {
 		if p == e {
@@ -243,6 +290,7 @@ func (m *Model) refresh() {
 	if m.cursor >= len(m.visible) {
 		m.cursor = max(0, len(m.visible)-1)
 	}
+	m.scrollRow = 0
 }
 
 func (m *Model) isPicked(e string) bool {
@@ -264,13 +312,29 @@ func (m Model) View() string {
 	b.WriteString(m.Styles.Query.Render(m.query.View()))
 	b.WriteString("\n\n")
 
+	// Always shown, separate from the (possibly filtered) grid below - a
+	// search query can easily hide cells that are already picked, and
+	// without this line there'd be no way to see the full multi-select set
+	// at all while it's narrowed out of view.
+	b.WriteString(m.Styles.PickedRow.Render(m.pickedRowText()))
+	b.WriteString("\n\n")
+
+	totalRows := 0
+	if len(m.visible) > 0 && m.Columns > 0 {
+		totalRows = (len(m.visible) + m.Columns - 1) / m.Columns
+	}
+
 	if len(m.visible) == 0 {
 		b.WriteString(m.Styles.Placeholder.Render("no matches"))
+		b.WriteString("\n")
 	} else {
-		for i := 0; i < len(m.visible); i += m.Columns {
-			end := min(i+m.Columns, len(m.visible))
-			row := make([]string, 0, end-i)
-			for j := i; j < end; j++ {
+		startRow := m.scrollRow
+		endRow := min(startRow+m.VisibleRows, totalRows)
+		for r := startRow; r < endRow; r++ {
+			start := r * m.Columns
+			end := min(start+m.Columns, len(m.visible))
+			row := make([]string, 0, end-start)
+			for j := start; j < end; j++ {
 				row = append(row, m.renderCell(j))
 			}
 			b.WriteString(strings.Join(row, ""))
@@ -278,9 +342,22 @@ func (m Model) View() string {
 		}
 	}
 
+	if totalRows > m.VisibleRows {
+		b.WriteString(m.Styles.Footer.Render(fmt.Sprintf("rows %d-%d of %d", min(m.scrollRow+1, totalRows), min(m.scrollRow+m.VisibleRows, totalRows), totalRows)))
+		b.WriteString("\n")
+	}
+
 	b.WriteString("\n")
-	b.WriteString(m.Styles.Footer.Render("↑↓←→ move · tab toggle multi · enter confirm · esc cancel"))
+	b.WriteString(m.Styles.Footer.Render("↑↓←→ move · tab toggle multi · ctrl+x clear picked · enter confirm · esc cancel"))
 	return b.String()
+}
+
+// pickedRowText renders the "Picked: ..." summary line's content.
+func (m Model) pickedRowText() string {
+	if len(m.picked) == 0 {
+		return "Picked: (none)"
+	}
+	return "Picked: " + strings.Join(m.picked, " ")
 }
 
 func (m Model) renderCell(i int) string {

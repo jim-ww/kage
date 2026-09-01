@@ -215,6 +215,7 @@ func applyEmojiPickerStyles(p *emojipicker.Model, colors uiColors) {
 	p.Styles.Title = p.Styles.Title.Foreground(colors.borderA)
 	p.Styles.CellCursor = p.Styles.CellCursor.Foreground(colors.accentCyan)
 	p.Styles.CellPicked = p.Styles.CellPicked.Foreground(colors.accentCyan)
+	p.Styles.PickedRow = p.Styles.PickedRow.Foreground(colors.accentCyan)
 	p.Styles.Footer = p.Styles.Footer.Foreground(colors.time)
 	p.Styles.Placeholder = p.Styles.Placeholder.Foreground(colors.time)
 }
