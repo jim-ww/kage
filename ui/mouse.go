@@ -317,8 +317,13 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.emojiPicker != nil {
-		if i, ok := m.emojiPickerCellUnderMouse(msg); ok {
-			m.emojiPicker.SetCursor(i)
+		if i, ok := m.emojiPickerPickedUnderMouse(msg); ok {
+			m.emojiPicker.SetPickedHover(i)
+		} else {
+			m.emojiPicker.ClearPickedHover()
+			if i, ok := m.emojiPickerCellUnderMouse(msg); ok {
+				m.emojiPicker.SetCursor(i)
+			}
 		}
 		return m, nil
 	}
@@ -1020,6 +1025,23 @@ func (m *Model) selectChatItem(i int) {
 	}
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+}
+
+// emojiPickerPickedUnderMouse returns the index into the picker's Selection()
+// the mouse is over, and whether it's over any picked chip at all - checked
+// against the "Picked: ..." row's zone marks (see
+// emojipicker.Model.PickedZoneID) the same way emojiPickerCellUnderMouse
+// checks the grid.
+func (m Model) emojiPickerPickedUnderMouse(msg tea.MouseMsg) (int, bool) {
+	if m.emojiPicker.Zone == nil {
+		return 0, false
+	}
+	for i := range m.emojiPicker.Selection() {
+		if m.zone.Get(m.emojiPicker.PickedZoneID(i)).InBounds(msg) {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // emojiPickerCellUnderMouse returns the visible grid cell index the mouse is

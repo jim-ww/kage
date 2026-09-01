@@ -205,7 +205,10 @@ func applyTextAreaStyles(ta *textarea.Model, colors uiColors) {
 
 func applyEmojiPickerStyles(p *emojipicker.Model, colors uiColors) {
 	p.Styles.Title = p.Styles.Title.Foreground(colors.borderA)
-	p.Styles.CellCursor = p.Styles.CellCursor.Foreground(colors.accentCyan)
+	// CellCursor (and PickedHover below) is deliberately left as plain
+	// Reverse - no Foreground override - so hover/cursor highlighting reads
+	// as "this cell", not as a themed accent color competing with the
+	// picked-state coloring.
 	p.Styles.CellPicked = p.Styles.CellPicked.Foreground(colors.accentCyan)
 	p.Styles.PickedRow = p.Styles.PickedRow.Foreground(colors.accentCyan)
 	p.Styles.Footer = p.Styles.Footer.Foreground(colors.time)

@@ -77,6 +77,7 @@ type Styles struct {
 	CellCursor  lipgloss.Style
 	CellPicked  lipgloss.Style
 	PickedRow   lipgloss.Style // the "Picked: ..." summary line, always shown regardless of query
+	PickedHover lipgloss.Style // a single picked chip within PickedRow, under the pointer (see SetPickedHover)
 	Footer      lipgloss.Style
 	Placeholder lipgloss.Style
 }
@@ -98,6 +99,7 @@ func DefaultStyles() Styles {
 		CellCursor:  lipgloss.NewStyle().Padding(0, 1).Reverse(true),
 		CellPicked:  lipgloss.NewStyle().Padding(0, 1),
 		PickedRow:   lipgloss.NewStyle(),
+		PickedHover: lipgloss.NewStyle().Reverse(true),
 		Footer:      lipgloss.NewStyle().Faint(true),
 		Placeholder: lipgloss.NewStyle().Faint(true),
 	}
@@ -127,14 +129,15 @@ type Model struct {
 	Zone *zone.Manager
 	ID   string
 
-	query     textinput.Model
-	cursor    int
-	scrollRow int // index of the first grid row currently shown, follows cursor (see ensureCursorVisible)
-	visible   []entry
-	picked    []string // toggled emoji, in the order picked (Toggle), independent of visible/cursor - always shown in full via the "Picked:" row regardless of scroll/query
-	touched   bool     // true once Toggle or ClearPicked has been used at least once, even if picked ended up empty again - see DidConfirm
-	recent    []string
-	common    []string
+	query       textinput.Model
+	cursor      int
+	scrollRow   int // index of the first grid row currently shown, follows cursor (see ensureCursorVisible)
+	visible     []entry
+	picked      []string // toggled emoji, in the order picked (Toggle), independent of visible/cursor - always shown in full via the "Picked:" row regardless of scroll/query
+	touched     bool     // true once Toggle or ClearPicked has been used at least once, even if picked ended up empty again - see DidConfirm
+	recent      []string
+	common      []string
+	pickedHover int // index into picked currently under the pointer, or -1 - see SetPickedHover
 }
 
 // New returns a ready-to-use Model. recent is this user's own most-used
@@ -161,6 +164,7 @@ func New(recent []string) Model {
 		query:       q,
 		recent:      recent,
 		common:      commonEmoji,
+		pickedHover: -1,
 	}
 	m.refresh()
 	return m
@@ -327,6 +331,22 @@ func (m *Model) SetCursor(i int) {
 	m.ensureCursorVisible()
 }
 
+// SetPickedHover marks picked-chip index i (see PickedZoneID) as the one
+// under the pointer, so pickedRowView renders it with Styles.PickedHover -
+// an embedding app's mouse handler calls this on every motion event that
+// lands on a chip, and ClearPickedHover when the pointer leaves the row.
+func (m *Model) SetPickedHover(i int) {
+	if i < 0 || i >= len(m.picked) {
+		return
+	}
+	m.pickedHover = i
+}
+
+// ClearPickedHover reports no picked chip is under the pointer.
+func (m *Model) ClearPickedHover() {
+	m.pickedHover = -1
+}
+
 func clampInt(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -432,7 +452,7 @@ func (m Model) View() string {
 	// could slice through a zone mark's escape sequence and corrupt hit
 	// testing for every chip after the cut - see PickedZoneID/RemovePickedAt.
 	if m.Zone != nil {
-		b.WriteString(m.Styles.PickedRow.Render(m.pickedRowView()))
+		b.WriteString(m.pickedRowView())
 	} else {
 		b.WriteString(m.line(m.Styles.PickedRow, m.pickedRowText()))
 	}
@@ -497,14 +517,19 @@ func (m Model) pickedRowText() string {
 // the only way to deselect something once a search query has scrolled its
 // grid cell out of view.
 func (m Model) pickedRowView() string {
+	label := m.Styles.PickedRow.Render("Picked: ")
 	if len(m.picked) == 0 {
-		return "Picked: (none)"
+		return label + m.Styles.PickedRow.Render("(none)")
 	}
 	chips := make([]string, len(m.picked))
 	for i, e := range m.picked {
-		chips[i] = m.Zone.Mark(m.PickedZoneID(i), e)
+		style := m.Styles.PickedRow
+		if i == m.pickedHover {
+			style = m.Styles.PickedHover
+		}
+		chips[i] = m.Zone.Mark(m.PickedZoneID(i), style.Render(e))
 	}
-	return "Picked: " + strings.Join(chips, " ")
+	return label + strings.Join(chips, " ")
 }
 
 // PickedZoneID returns the bubblezone mark ID pickedRowView uses for the i'th
