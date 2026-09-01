@@ -316,6 +316,13 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		return m, filePickerMoveCmd(m.filePicker.SelectedRow(), row)
 	}
 
+	if m.emojiPicker != nil {
+		if i, ok := m.emojiPickerCellUnderMouse(msg); ok {
+			m.emojiPicker.SetCursor(i)
+		}
+		return m, nil
+	}
+
 	m.hover.x = msg.Mouse().X
 	m.hover.y = msg.Mouse().Y
 
@@ -1013,6 +1020,23 @@ func (m *Model) selectChatItem(i int) {
 	}
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+}
+
+// emojiPickerCellUnderMouse returns the visible grid cell index the mouse is
+// over, and whether it's over any cell at all - checked against the
+// picker's own zone marks left over from its last render (see
+// filePickerRowUnderMouse for why: re-deriving them means re-rendering
+// View(), too expensive per mouse-motion event).
+func (m Model) emojiPickerCellUnderMouse(msg tea.MouseMsg) (int, bool) {
+	if m.emojiPicker.Zone == nil {
+		return 0, false
+	}
+	for _, i := range m.emojiPicker.VisibleCells() {
+		if m.zone.Get(m.emojiPicker.CellZoneID(i)).InBounds(msg) {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // filePickerRowUnderMouse returns the file-picker row the mouse is over, or

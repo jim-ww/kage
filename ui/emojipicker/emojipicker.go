@@ -314,6 +314,29 @@ func (m Model) VisibleCells() []int {
 	return out
 }
 
+// SetCursor moves the highlighted cell to index i (clamped to the visible
+// list's bounds, no-op if empty) and re-follows it into view - lets an
+// embedding app's mouse handler make hovering a cell behave like arrowing to
+// it (see handleMouseMotion in ui/mouse.go), since the cursor field itself
+// isn't exported.
+func (m *Model) SetCursor(i int) {
+	if len(m.visible) == 0 {
+		return
+	}
+	m.cursor = clampInt(i, 0, len(m.visible)-1)
+	m.ensureCursorVisible()
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
 // DidCancel reports whether msg is the Cancel key.
 func (m Model) DidCancel(msg tea.Msg) bool {
 	keyMsg, ok := msg.(tea.KeyMsg)
