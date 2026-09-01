@@ -265,12 +265,31 @@ type ComposedSendResultMsg struct {
 	QueuedPath    string
 	QueuedText    string
 
+	// RetryOfLocalID is set when this batch is actionRetryMessage retrying an
+	// existing Failed attachment placeholder rather than a fresh send: the
+	// first outcome (success or a new failure) updates that placeholder by
+	// LocalID in place instead of appending a new message; any further files
+	// in the batch still append as usual.
+	RetryOfLocalID string
+
+	// FailedLocalID/FailedText/FailedPaths mirror QueuedLocalID/QueuedPath/
+	// QueuedText for a genuine failure (Err set, Queued false): the caption
+	// text and the local file path(s) that never made it out - including
+	// whichever one actually failed, plus any after it in the batch that
+	// were never attempted - so the handler can leave behind a Failed,
+	// retryable placeholder (Message.PendingAttachmentPaths) instead of only
+	// a toast.
+	FailedLocalID string
+	FailedText    string
+	FailedPaths   []string
+
 	Err error
 }
 
 // SentMessage is one message startAttachedSend successfully sent.
 type SentMessage struct {
 	ID          string
+	LocalID     string // set when this was startAttachedSend's first message in an actionRetryMessage retry - see ComposedSendResultMsg.RetryOfLocalID
 	Content     string
 	Attachments []string
 }

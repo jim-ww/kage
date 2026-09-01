@@ -510,6 +510,82 @@ func TestQueuedAttachmentResolvesPlaceholderWithoutDuplicating(t *testing.T) {
 // TestComposedSendFailureDoesNotAddMessage mirrors
 // TestFileSendFailureDoesNotAddMessage for the combined text+attachments
 // send path.
+// TestFailedAttachmentSendIsRetryable covers the cancel/fail-then-resend
+// path: a failed upload leaves a Failed, retryable placeholder in the chat
+// (not just a toast, unlike TestComposedSendFailureDoesNotAddMessage's
+// synthetic no-metadata Err below), and actionRetryMessage re-uploads it
+// from the original local path, patching the same row rather than adding a
+// duplicate.
+func TestFailedAttachmentSendIsRetryable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeFileSender{uploadErr: errors.New("upload canceled")}
+	m := newTestModelWithSender(sender, nil)
+	m.selectedView = viewChat
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.stageAttachment(path)
+	m.input.SetValue("check this out")
+
+	sendCmd := m.sendCurrentInput()
+	if sendCmd == nil {
+		t.Fatal("sendCurrentInput returned nil")
+	}
+	result := sendCmd()
+	next, _ := m.Update(result)
+	m = next.(Model)
+
+	msgs := m.accounts[0].Messages[0]
+	if len(msgs) != 1 {
+		t.Fatalf("got %d messages after failed upload, want 1 (Failed placeholder)", len(msgs))
+	}
+	if !msgs[0].Failed {
+		t.Fatal("placeholder not flagged Failed")
+	}
+	if len(msgs[0].PendingAttachmentPaths) != 1 || msgs[0].PendingAttachmentPaths[0] != path {
+		t.Fatalf("PendingAttachmentPaths = %#v, want [%q]", msgs[0].PendingAttachmentPaths, path)
+	}
+	localID := msgs[0].LocalID
+	if localID == "" {
+		t.Fatal("placeholder has no LocalID to retry against")
+	}
+
+	// Retry, this time succeeding.
+	sender.uploadErr = nil
+	sender.uploadURL = "https://upload.example.test/report.pdf"
+	m.selectedMsg = 0
+	retryCmd := m.actionRetryMessage()
+	if retryCmd == nil {
+		t.Fatal("actionRetryMessage returned nil")
+	}
+	retryResult := retryCmd()
+	next, _ = m.Update(retryResult)
+	m = next.(Model)
+
+	msgs = m.accounts[0].Messages[0]
+	if len(msgs) != 1 {
+		t.Fatalf("got %d messages after successful retry, want 1 (patched in place, not duplicated)", len(msgs))
+	}
+	if msgs[0].Failed {
+		t.Fatal("message still Failed after successful retry")
+	}
+	if msgs[0].LocalID != localID {
+		t.Fatalf("LocalID changed across retry: got %q, want %q", msgs[0].LocalID, localID)
+	}
+	if len(msgs[0].Attachments) != 1 || msgs[0].Attachments[0] != "https://upload.example.test/report.pdf" {
+		t.Fatalf("retried message Attachments = %#v, want the uploaded URL", msgs[0].Attachments)
+	}
+	if !strings.Contains(msgs[0].Content, "check this out") {
+		t.Fatalf("retried message Content = %q, want original caption preserved", msgs[0].Content)
+	}
+}
+
 func TestComposedSendFailureDoesNotAddMessage(t *testing.T) {
 	m := newTestModel(nil)
 	chat := Chat{Name: "Bob", Address: "bob@example.test"}

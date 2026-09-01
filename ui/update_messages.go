@@ -211,10 +211,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		if len(msg.Messages) == 0 {
 			if msg.Err != nil {
+				notification := "send failed: " + msg.Err.Error()
 				if msg.Err.Error() == uploadCanceledMsg {
-					return m, m.showNotification(uploadCanceledMsg), true
+					notification = uploadCanceledMsg
 				}
-				return m, m.showNotification("send failed: " + msg.Err.Error()), true
+				cmd, ok := m.showFailedAttachmentPlaceholder(msg)
+				if !ok {
+					return m, m.showNotification(notification), true
+				}
+				return m, tea.Batch(m.showNotification(notification), cmd), true
 			}
 			if msg.Queued {
 				// Same local-echo treatment a plain-text queued send already
@@ -280,14 +285,28 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			newMsgs = append(newMsgs, newMsg)
 			lastContent = MessagePreviewContent(newMsg)
 		}
+		// A retry's first outcome patches the existing Failed placeholder
+		// (by LocalID) in place instead of appending a duplicate row — any
+		// further files in the batch still append as usual.
+		if msg.RetryOfLocalID != "" && len(newMsgs) > 0 {
+			if idx := messageIndexByLocalID(existing, msg.RetryOfLocalID); idx >= 0 {
+				newMsgs[0].LocalID = msg.RetryOfLocalID
+				existing[idx] = newMsgs[0]
+				m.accounts[msg.AccountIdx].Messages[chatIdx] = existing
+				newMsgs = newMsgs[1:]
+			}
+		}
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsgs...)
 		var cmds []tea.Cmd
 		cmds = append(cmds, m.setChatLastMessage(msg.AccountIdx, chatIdx, lastContent))
 		if msg.Err != nil {
+			notification := "send failed: " + msg.Err.Error()
 			if msg.Err.Error() == uploadCanceledMsg {
-				cmds = append(cmds, m.showNotification(uploadCanceledMsg))
-			} else {
-				cmds = append(cmds, m.showNotification("send failed: "+msg.Err.Error()))
+				notification = uploadCanceledMsg
+			}
+			cmds = append(cmds, m.showNotification(notification))
+			if placeholder, ok := failedAttachmentPlaceholder(msg); ok {
+				msgs = m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
 			}
 		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {

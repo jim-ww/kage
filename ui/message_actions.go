@@ -236,9 +236,7 @@ func (m *Model) actionDeleteMessage() tea.Cmd {
 // actionRetryMessage re-sends the selected message after a failed send
 // (Message.Failed). Reuses the same LocalID so a later MessageSendResolvedMsg
 // (if this retry itself only gets queued, e.g. the account just went offline
-// again) still finds and patches this row. Attachments never actually set
-// Failed today (see ComposedSendResultMsg's handler) so there's no attachment
-// re-upload path to wire up here — only the plain-text send.
+// again) still finds and patches this row.
 func (m *Model) actionRetryMessage() tea.Cmd {
 	if m.currentChatIndex() < 0 {
 		return nil
@@ -248,6 +246,26 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 		return m.showNotification("no failed message selected")
 	}
 	idx := m.selectedMsg
+	if len(msgs[idx].PendingAttachmentPaths) > 0 {
+		// A failed startAttachedSend batch (see failedAttachmentPlaceholder) -
+		// re-upload rather than the plain-text retry below, since there's
+		// nothing sent yet for sender.Send to correct/supersede.
+		chat, ok := m.currentChat()
+		if !ok || chat.Address == "" {
+			return m.showNotification("not connected; message not sent")
+		}
+		var reply SendOptions
+		if msgs[idx].ReplyTo != nil {
+			if rt := *msgs[idx].ReplyTo; rt < len(msgs) && msgs[rt].ID != "" {
+				reply = SendOptions{
+					ReplyToID:    msgs[rt].ID,
+					QuotedAuthor: msgs[rt].Author,
+					QuotedBody:   MessagePreviewContent(msgs[rt]),
+				}
+			}
+		}
+		return m.retryAttachedSend(msgs[idx].PendingAttachmentText, chat.Address, reply, msgs[idx].PendingAttachmentPaths, msgs[idx].LocalID)
+	}
 	if len(msgs[idx].Attachments) > 0 {
 		return m.showNotification("can't retry attachments")
 	}
