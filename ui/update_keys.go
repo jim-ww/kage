@@ -331,10 +331,13 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
-	case (msg.String() == "tab" || matchesKey(msg, m.keys.SelectSend)) && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
-		// While a suggestion is showing, enter accepts it (like tab)
-		// instead of falling through to SelectSend and sending the
-		// reaction early — matches the emoji picker, not a message send.
+	case msg.String() == "tab" && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
+		// Tab picks the highlighted suggestion into the compose text.
+		// Deliberately not bound to SelectSend/enter too: with the
+		// quick-pick default list now always showing (even with nothing
+		// typed), enter doubling as "accept" meant it could never send
+		// directly - every reaction needed two enters. Tab (or a click)
+		// picks; enter always sends whatever's currently in the box.
 		m.acceptEmojiSuggestion(m.emojiSuggestIdx)
 		return m, nil, true
 

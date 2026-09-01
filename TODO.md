@@ -1,3 +1,4 @@
+- react to attachment still has aes url instead of pretty filename
 - writing multi-line draft hides last messages behind it
 - jump to latest hides sometimes
 - implement better emoji selector
