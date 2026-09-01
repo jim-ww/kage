@@ -34,7 +34,25 @@ func (m *Model) switchAccount(index int) tea.Cmd {
 // the rest of the way down themselves; the button is for the case where
 // they've paged/navigated far enough that "latest" is no longer one
 // scroll away.
+//
+// If the currently loaded window isn't the live tail (HistoryNewer set —
+// paged up far enough to fall off the tail window, or landed on a search
+// result), "distance from the bottom of this window" is meaningless as a
+// proxy for "distance from the actual latest message": the window can be
+// short (little history left in that direction, or a narrow search-result
+// window) and scrolling around inside it would cross the local YOffset/
+// TotalLineCount threshold back and forth, flickering the button even
+// though the real latest message is nowhere close. In that case the button
+// always shows — jumpToLatestMessage does a real fetch back to the tail
+// regardless of where in this window the viewport happens to sit.
 func (m Model) scrolledPastFirstPage() bool {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return false
+	}
+	if m.accounts[m.currentAccount].HistoryNewer[chatIdx] {
+		return true
+	}
 	height := m.viewport.Height()
 	if height <= 0 {
 		return false
