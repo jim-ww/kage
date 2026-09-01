@@ -235,7 +235,7 @@ func (m Model) isExpandButtonHovered(i int) bool {
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
+	return m.hover.x >= z.StartX && m.hover.x <= z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
 // isReactionHovered reports whether the pointer is over message i's j'th
@@ -249,7 +249,7 @@ func (m Model) isReactionHovered(i, j int) bool {
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
+	return m.hover.x >= z.StartX && m.hover.x <= z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
 // isReplyKeyHovered reports whether the pointer is over message i's "^r" key
@@ -266,7 +266,7 @@ func (m Model) isReplyKeyHovered(i int) bool {
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
+	return m.hover.x >= z.StartX && m.hover.x <= z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
 // isReactKeyHovered is isReplyKeyHovered's counterpart for the "^t" key
@@ -279,7 +279,7 @@ func (m Model) isReactKeyHovered(i int) bool {
 	if z.IsZero() {
 		return false
 	}
-	return m.hover.x >= z.StartX && m.hover.x < z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
+	return m.hover.x >= z.StartX && m.hover.x <= z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
 // handleMouseMotion recomputes which zone is under the pointer on every
