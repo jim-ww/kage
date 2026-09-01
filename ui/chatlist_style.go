@@ -143,8 +143,9 @@ func padLinesToWidth(content string, width int) string {
 // carries the row's background itself, and fragments are joined by plain
 // string concatenation — ordinary lipgloss usage, not manual SGR.
 func renderHoverChatRow(c Chat, colors uiColors, width int) string {
-	bg := colors.accentCyan
-	fg := colors.panelEdge
+	bg := colors.rowHoverBg
+	fg := colors.themFg
+	descFg := colors.textMuted
 
 	pad := lipgloss.NewStyle().Background(bg).Render(" ")
 	dot := presenceGlyphOn(c.Presence, bg)
@@ -161,7 +162,7 @@ func renderHoverChatRow(c Chat, colors uiColors, width int) string {
 	desc := ""
 	if text := c.Description(); text != "" {
 		descWidth := max(1, width-1) // pad
-		desc = pad + lipgloss.NewStyle().Background(bg).Foreground(fg).
+		desc = pad + lipgloss.NewStyle().Background(bg).Foreground(descFg).
 			Render(ansi.Truncate(text, descWidth, "…"))
 	}
 
