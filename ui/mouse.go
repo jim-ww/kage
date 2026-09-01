@@ -31,6 +31,7 @@ const (
 	zoneToggleSidebar         = "toggle-sidebar-button"
 	zoneMsgInfoPopup          = "msg-info-popup"
 	zoneContactManagerPopup   = "contact-manager-popup"
+	zoneEmojiPickerPopup      = "emoji-picker-popup"
 	zoneDeviceListPopup       = "device-list-popup"
 	zoneSearchResultsPopup    = "search-results-popup"
 	zoneCallAnswer            = "call-answer-button"
@@ -62,7 +63,6 @@ func zoneMessageReplyKey(i int) string    { return fmt.Sprintf("msg-reply-key-%d
 func zoneMessageReactKey(i int) string    { return fmt.Sprintf("msg-react-key-%d", i) }
 func zoneMessageExpand(i int) string      { return fmt.Sprintf("msg-expand-%d", i) }
 func zoneMessageReaction(i, j int) string { return fmt.Sprintf("msg-reaction-%d-%d", i, j) }
-func zoneEmojiSuggestion(i int) string    { return fmt.Sprintf("emoji-suggest-%d", i) }
 func zoneAttachmentRemove(i int) string   { return fmt.Sprintf("attachment-remove-%d", i) }
 func zoneMsgInfoAttachment(i int) string  { return fmt.Sprintf("msg-info-attachment-%d", i) }
 func zoneContactRow(i int) string         { return fmt.Sprintf("contact-row-%d", i) }
@@ -448,6 +448,12 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		return ""
 	}
 
+	if m.emojiPicker != nil {
+		// Keyboard-only for now (grid nav/type-to-filter/toggle) - no
+		// per-cell zones yet, so nothing in here to hover-highlight.
+		return ""
+	}
+
 	if m.contactManagerState != nil {
 		cs := m.contactManagerState
 		if !cs.adding && cs.pendingRemove == "" && cs.err == "" {
@@ -539,11 +545,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.zone.Get(zoneAccountBarStatus).InBounds(mouse) {
 		return zoneAccountBarStatus
 	}
-	for i := range m.emojiSuggestions {
-		if m.zone.Get(zoneEmojiSuggestion(i)).InBounds(mouse) {
-			return zoneEmojiSuggestion(i)
-		}
-	}
 	for i := range m.pendingAttachments {
 		if m.zone.Get(zoneAttachmentRemove(i)).InBounds(mouse) {
 			return zoneAttachmentRemove(i)
@@ -594,6 +595,12 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		return m, nil
+	}
+
+	if m.emojiPicker != nil {
+		// Keyboard-only for now - a click anywhere just no-ops instead of
+		// leaking through to whatever's underneath the popup.
 		return m, nil
 	}
 
@@ -732,13 +739,6 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.zone.Get(zoneJumpToBottom).InBounds(msg) {
 		return m, m.jumpToLatestMessage()
-	}
-
-	for i := range m.emojiSuggestions {
-		if m.zone.Get(zoneEmojiSuggestion(i)).InBounds(msg) {
-			m.acceptEmojiSuggestion(i)
-			return m, nil
-		}
 	}
 
 	for i := range m.pendingAttachments {

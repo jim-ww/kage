@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
@@ -208,6 +209,14 @@ func applyTextAreaStyles(ta *textarea.Model, colors uiColors) {
 	taStyles.Blurred.CursorLine = taStyles.Blurred.CursorLine.UnsetBackground().Foreground(colors.textMuted)
 	taStyles.Cursor.Color = colors.accentCyan
 	ta.SetStyles(taStyles)
+}
+
+func applyEmojiPickerStyles(p *emojipicker.Model, colors uiColors) {
+	p.Styles.Title = p.Styles.Title.Foreground(colors.borderA)
+	p.Styles.CellCursor = p.Styles.CellCursor.Foreground(colors.accentCyan)
+	p.Styles.CellPicked = p.Styles.CellPicked.Foreground(colors.accentCyan)
+	p.Styles.Footer = p.Styles.Footer.Foreground(colors.time)
+	p.Styles.Placeholder = p.Styles.Placeholder.Foreground(colors.time)
 }
 
 func applyFilePickerStyles(p *filepicker.Model, colors uiColors) {

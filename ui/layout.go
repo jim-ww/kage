@@ -313,12 +313,13 @@ func (m *Model) fixStuckComposeCursorDown() {
 	m.input.SetCursorColumn(len([]rune(lines[row])))
 }
 
-// inputAreaHeight accounts for the optional reply-hint / reacting-hint line
-// plus however many rows the compose textarea currently occupies (it grows
-// with multi-line content, up to inputMaxHeight).
+// inputAreaHeight accounts for the optional reply-hint line plus however
+// many rows the compose textarea currently occupies (it grows with
+// multi-line content, up to inputMaxHeight). Reacting no longer adds a hint
+// line here — it's a popup now (see renderEmojiPickerPopup).
 func (m Model) inputAreaHeight() int {
 	h := 1 + m.input.Height() // top border + input rows
-	if m.replyToIdx >= 0 || m.reactingMsgIdx >= 0 {
+	if m.replyToIdx >= 0 {
 		h++ // hint line
 	}
 	if len(m.pendingAttachments) > 0 {

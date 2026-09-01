@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
+	"github.com/jim-ww/kage/ui/emojipicker"
 )
 
 // localIDSeq backs newLocalID - only needs to be unique among messages
@@ -32,36 +33,6 @@ func newLocalID() string {
 // send button — both must produce identical behavior.
 func (m *Model) sendCurrentInput() tea.Cmd {
 	var cmds []tea.Cmd
-
-	if m.reactingMsgIdx >= 0 {
-		// Unlike a normal send, an empty input is meaningful here (it's how
-		// you clear your reaction set), so this bypasses the "empty means
-		// do nothing" rule below entirely.
-		newMine := toEmojiSet(m.input.Value())
-		if len(newMine) > 0 {
-			if m.reactionEmojiUsage == nil {
-				m.reactionEmojiUsage = make(map[string]int, len(newMine))
-			}
-			for _, e := range newMine {
-				m.reactionEmojiUsage[e]++
-			}
-			if m.reactionEmojiUsageRecorder != nil {
-				_ = m.reactionEmojiUsageRecorder.RecordReactionEmojiUsage(newMine)
-			}
-		}
-		cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, newMine))
-		m.notifyTypingStopped()
-		m.reactingMsgIdx = -1
-		m.setEmojiSuggestions(nil)
-		m.restoreStashedDraft()
-		if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-			cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
-		}
-		m.input.Placeholder = "message..."
-		m.updateSizes()
-		m.refreshViewport()
-		return tea.Batch(cmds...)
-	}
 
 	text := strings.TrimSpace(m.input.Value())
 	hasAttachments := len(m.pendingAttachments) > 0 && m.editingMsgIdx < 0
@@ -673,30 +644,29 @@ func (m *Model) submitSaveAs() tea.Cmd {
 	return m.startSaveAs(target, dest)
 }
 
+// actionReactMessage opens the emoji picker popup (see ui/emojipicker) on
+// the selected message. The compose box is untouched — reacting no longer
+// goes through it at all, unlike edit/reply — so there's no stash/restore
+// dance here the way actionEditMessage needs.
 func (m *Model) actionReactMessage() tea.Cmd {
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return m.showNotification("no message selected")
 	}
-	if m.reactingMsgIdx == m.selectedMsg {
+	if m.emojiPicker != nil && m.reactingMsgIdx == m.selectedMsg {
 		// Pressed/clicked again on the same message already being reacted
-		// to: cancel instead of restarting the same composition - a full
-		// cancelPending (not just clearing reactingMsgIdx, unlike
-		// actionReplyMessage's simpler toggle) since reacting stashed
-		// whatever draft was in the input box and needs it restored.
-		m.cancelPending()
+		// to: close instead of restarting the same picker.
+		m.emojiPicker = nil
+		m.reactingMsgIdx = -1
 		return nil
 	}
-	m.stashDraftForCompose()
+	picker := emojipicker.New(rankReactionUsage(m.reactionEmojiUsage))
+	picker.SetPicked(myReactionsEmoji(msgs[m.selectedMsg].Reactions))
+	picker.Title = fmt.Sprintf("react to %q", previewText(msgs[m.selectedMsg].Content, previewLen))
+	applyEmojiPickerStyles(&picker, m.styles.colors)
+	m.emojiPicker = &picker
 	m.reactingMsgIdx = m.selectedMsg
-	reactionText := myReactionsText(msgs[m.selectedMsg].Reactions)
-	m.input.SetValue(reactionText)
-	m.resetDraftHistory(reactionText)
-	m.input.CursorEnd()
-	m.input.Placeholder = "react: :shortcode: or emoji, enter to send..."
-	m.setEmojiSuggestions(defaultEmojiSuggestions(m.reactionEmojiUsage))
-	m.updateSizes()
-	return m.input.Focus()
+	return picker.Init()
 }
 
 // openPendingChat opens pendingOpenChatAddress (set from config's

@@ -114,6 +114,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
+	// ── Emoji-picker popup intercepts all input until dismissed ────────
+	if m.emojiPicker != nil {
+		return m.updateEmojiPickerKey(msg)
+	}
+
 	// ── OMEMO device-list popup intercepts all input until dismissed ───
 	if m.deviceList != nil {
 		return m.updateDeviceListKey(msg)
@@ -319,27 +324,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	switch {
-
-	// ── Reaction-composition suggestion nav (must precede ChatOpen,
-	// which also binds "right", and Switch, which binds "tab") ────────
-	case m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0 && (msg.String() == "left" || msg.String() == "right"):
-		n := len(m.emojiSuggestions)
-		if msg.String() == "left" {
-			m.emojiSuggestIdx = (m.emojiSuggestIdx - 1 + n) % n
-		} else {
-			m.emojiSuggestIdx = (m.emojiSuggestIdx + 1) % n
-		}
-		return m, nil, true
-
-	case msg.String() == "tab" && m.reactingMsgIdx >= 0 && len(m.emojiSuggestions) > 0:
-		// Tab picks the highlighted suggestion into the compose text.
-		// Deliberately not bound to SelectSend/enter too: with the
-		// quick-pick default list now always showing (even with nothing
-		// typed), enter doubling as "accept" meant it could never send
-		// directly - every reaction needed two enters. Tab (or a click)
-		// picks; enter always sends whatever's currently in the box.
-		m.acceptEmojiSuggestion(m.emojiSuggestIdx)
-		return m, nil, true
 
 	// ── Global ────────────────────────────────────────────────────────
 	case matchesKey(msg, m.keys.Help):

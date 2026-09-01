@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
 	"github.com/jim-ww/kage/ui/viewport"
 	zone "github.com/lrstanley/bubblezone/v2"
@@ -171,16 +172,15 @@ type Model struct {
 	stashedDraft *string
 
 	// message interaction state
-	selectedMsg            int               // index of highlighted message (meaningful in viewViewport)
-	editingMsgIdx          int               // >= 0 while editing a message; -1 otherwise
-	replyToIdx             int               // >= 0 while composing a reply; -1 otherwise
-	reactingMsgIdx         int               // >= 0 while composing a reaction; -1 otherwise
-	flashMsgIdx            int               // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
-	expandedMsgs           map[string]bool   // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
-	flashGen               int               // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
-	emojiSuggestions       []emojiSuggestion // live fuzzy matches for the shortcode being typed, or the default quick-pick list when reactingMsgIdx >= 0 and nothing's been typed yet
-	emojiSuggestIdx        int               // which suggestion is highlighted; left/right to move, tab to accept it
-	reactionEmojiUsage     map[string]int    // emoji -> times sent as a reaction (in-memory mirror of config.State.ReactionEmojiUsage); feeds defaultEmojiSuggestions so a user's most-used reactions surface before typing anything
+	selectedMsg            int                // index of highlighted message (meaningful in viewViewport)
+	editingMsgIdx          int                // >= 0 while editing a message; -1 otherwise
+	replyToIdx             int                // >= 0 while composing a reply; -1 otherwise
+	reactingMsgIdx         int                // >= 0 while the emoji picker is open reacting to a message; -1 otherwise
+	flashMsgIdx            int                // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
+	expandedMsgs           map[string]bool    // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
+	flashGen               int                // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
+	emojiPicker            *emojipicker.Model // non-nil while the react-emoji picker popup is open (see ui/emojipicker)
+	reactionEmojiUsage     map[string]int     // emoji -> times sent as a reaction (in-memory mirror of config.State.ReactionEmojiUsage); ranked and passed to emojipicker.New as its "recent" seed
 	confirmTarget          confirmTarget
 	contextMenu            *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
 	showMsgInfo            bool         // true while the message-info popup is open

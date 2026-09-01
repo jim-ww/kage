@@ -709,8 +709,8 @@ type InputHeightSetter interface {
 // ReactionEmojiUsageRecorder persists per-emoji reaction send counts,
 // implemented outside ui (main.go's adapter) so ui stays decoupled from the
 // config layer. A local file write, called inline like Send/SetTyping
-// rather than through a tea.Cmd — see defaultEmojiSuggestions, which ranks
-// the quick-pick list by these counts.
+// rather than through a tea.Cmd — see rankReactionUsage, which ranks the
+// emoji picker's "recent" seed by these counts.
 type ReactionEmojiUsageRecorder interface {
 	RecordReactionEmojiUsage(emojis []string) error
 }

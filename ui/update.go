@@ -311,18 +311,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 			// many rows just changed.
 			m.updateSizes()
 		}
-		// This branch runs for every message type routed here, including
-		// the textinput cursor-blink tick — not just keystrokes. Recomputing
-		// (and resetting the highlighted suggestion) on every blink would
-		// undo arrow-key navigation a few hundred ms after every move, so
-		// only do it when the text itself actually changed.
-		if m.reactingMsgIdx >= 0 && m.input.Value() != oldValue {
-			if token, _, ok := currentWordToken(m.input.Value()); ok {
-				m.setEmojiSuggestions(emojiSuggestionsFor(token))
-			} else {
-				m.setEmojiSuggestions(defaultEmojiSuggestions(m.reactionEmojiUsage))
-			}
-		}
 		if m.input.Value() != oldValue {
 			m.pushDraftSnapshot(m.input.Value())
 			// Editing/reacting content isn't a new-message draft — don't let

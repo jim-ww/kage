@@ -167,43 +167,15 @@ func (m *Model) showNotification(text string) tea.Cmd {
 	})
 }
 
-// setEmojiSuggestions replaces the live suggestion list and resets which one
-// is highlighted — always reset together so the highlight never points past
-// the end of a freshly narrowed list.
-func (m *Model) setEmojiSuggestions(sugs []emojiSuggestion) {
-	m.emojiSuggestions = sugs
-	m.emojiSuggestIdx = 0
-}
-
-// acceptEmojiSuggestion accepts emojiSuggestions[idx] into the input —
-// shared by the tab keybinding (idx == emojiSuggestIdx) and a click on a
-// suggestion in the react hint (see handleLeftClick).
-func (m *Model) acceptEmojiSuggestion(idx int) {
-	if idx < 0 || idx >= len(m.emojiSuggestions) {
-		return
-	}
-	// Insert the resolved glyph, not the raw shortcode text — otherwise a
-	// freshly-picked reaction shows as literal ":thing:" in the input while
-	// the prefilled existing reactions (myReactionsText) already show as
-	// real emoji, which looks inconsistent.
-	chosen := m.emojiSuggestions[idx].Emoji
-	m.input.SetValue(acceptEmojiSuggestion(m.input.Value(), chosen))
-	m.input.CursorEnd()
-	next := defaultEmojiSuggestions(m.reactionEmojiUsage)
-	if token, _, ok := currentWordToken(m.input.Value()); ok {
-		next = emojiSuggestionsFor(token)
-	}
-	m.setEmojiSuggestions(next)
-}
-
-// cancelPending clears any in-progress edit, reply, or reaction composition.
+// cancelPending clears any in-progress edit, reply, reaction, or emoji-picker
+// composition.
 func (m *Model) cancelPending() {
-	wasComposing := m.editingMsgIdx >= 0 || m.reactingMsgIdx >= 0
+	wasComposing := m.editingMsgIdx >= 0
 	m.editingMsgIdx = -1
 	m.replyToIdx = -1
 	m.reactingMsgIdx = -1
+	m.emojiPicker = nil
 	m.lastClickedMsgIdx = -1
-	m.setEmojiSuggestions(nil)
 	if wasComposing {
 		m.restoreStashedDraft()
 	}

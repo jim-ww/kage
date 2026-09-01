@@ -257,6 +257,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderInfoPopup()
 	case m.showHelp:
 		viewportArea = m.renderHelpPopup()
+	case m.emojiPicker != nil:
+		viewportArea = m.renderEmojiPickerPopup()
 	case m.deviceList != nil:
 		viewportArea = m.renderDeviceListPopup()
 	case m.contactManagerState != nil:
@@ -995,9 +997,9 @@ func (m Model) renderAccountsList(width int) string {
 	return strings.Join(rows, "\n")
 }
 
-// inputHint renders the optional line shown above the input box: a reply
-// quote, or the reacting-to hint plus live emoji-shortcode suggestions.
-// Empty if neither applies.
+// inputHint renders the optional reply-quote line shown above the input box.
+// Empty if not currently replying. Reacting no longer has a compose-area
+// hint of its own — it's a popup now (see renderEmojiPickerPopup).
 func (m Model) inputHint() string {
 	if m.replyToIdx >= 0 {
 		msgs := m.currentMessages()
@@ -1005,15 +1007,8 @@ func (m Model) inputHint() string {
 			orig := msgs[m.replyToIdx]
 			hint := m.styles.renderReplyHint(orig.Author, previewText(MessagePreviewContent(orig), previewLen))
 			// Clickable to cancel the pending reply (see zoneReplyHintCancel in
-			// mouse.go) - the reacting-to hint below deliberately isn't, since
-			// it has no equivalent click target of its own to mirror.
+			// mouse.go).
 			return m.zone.Mark(zoneReplyHintCancel, hint)
-		}
-	}
-	if m.reactingMsgIdx >= 0 {
-		msgs := m.currentMessages()
-		if m.reactingMsgIdx < len(msgs) {
-			return m.renderReactHint(previewText(msgs[m.reactingMsgIdx].Content, previewLen))
 		}
 	}
 	return ""
@@ -1036,25 +1031,6 @@ func (m Model) renderPendingAttachments(width int) string {
 		chips[i] = m.zone.Mark(zoneAttachmentRemove(i), chip)
 	}
 	return ansi.Truncate(strings.Join(chips, "  "), max(1, width), "…")
-}
-
-// renderReactHint renders the "react to ..." line plus the live
-// emoji-shortcode suggestions, each one a marked, hoverable zone so a click
-// accepts it exactly like pressing tab after arrowing onto it.
-func (m Model) renderReactHint(target string) string {
-	hint := fmt.Sprintf("react to %q", target)
-	if len(m.emojiSuggestions) == 0 {
-		return m.styles.messageReply.Render(hint)
-	}
-
-	codes := make([]string, len(m.emojiSuggestions))
-	for i, sug := range m.emojiSuggestions {
-		label := sug.Emoji + sug.Shortcode
-		styled := m.styles.emojiSuggestionLabel(label, i == m.emojiSuggestIdx, m.isHovered(zoneEmojiSuggestion(i)))
-		codes[i] = m.zone.Mark(zoneEmojiSuggestion(i), styled)
-	}
-	hint += "  →  " + strings.Join(codes, " ") + "  [←/→] pick·[tab/enter/click] accept"
-	return m.styles.messageReply.Render(hint)
 }
 
 func (m Model) renderChatStatusBar(width int) string {

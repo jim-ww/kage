@@ -606,20 +606,3 @@ func (s uiStyles) renderReplyHint(author, preview string) string {
 func (s uiStyles) renderQuoteReplyFragment(preview string) string {
 	return s.messageTime.Render("↑ " + previewText(preview, previewLen))
 }
-
-// emojiSuggestionLabel styles one react-hint suggestion label: bracketed
-// (like the selected-message prefix) when it's the arrow-key selection,
-// dimmer-bracketed on hover, plain otherwise. Applied once to the plain
-// label text — not layered on top of another already-rendered style — so
-// it can't hit the corruption double-render risk described on
-// zoneChatListDelegate.Render.
-func (s uiStyles) emojiSuggestionLabel(label string, selected, hovered bool) string {
-	switch {
-	case selected:
-		return s.messageSelectedPrefix.Render("[" + label + "]")
-	case hovered:
-		return s.messageHoverPrefix.Render("[" + label + "]")
-	default:
-		return label
-	}
-}
