@@ -10,6 +10,7 @@ package emojipicker
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -18,6 +19,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/enescakir/emoji"
+	"github.com/lrstanley/bubblezone/v2"
 	"github.com/sahilm/fuzzy"
 )
 
@@ -111,6 +113,19 @@ type Model struct {
 	Width       int // content width budget in columns - single-line rows (title, picked summary, footer) longer than this are truncated with an ellipsis rather than overflowing the popup
 
 	Title string // e.g. "react to \"...\"" - shown above the query box; empty renders no title row
+
+	// Zone/ID opt the picker into mouse support: when Zone is non-nil,
+	// every rendered grid cell is wrapped in a bubblezone mark (namespaced
+	// by ID, so multiple pickers - or other zone.Mark callers - can't
+	// collide) an embedding app hit-tests clicks against via CellZoneID/
+	// VisibleCells, translating a hit into ClickConfirm. Left nil, the
+	// picker is keyboard-only and renders identically to before this
+	// existed - Zone couples the package to bubblezone specifically
+	// (unlike everything else here, which only assumes bubbletea/bubbles/
+	// lipgloss), but there's no way to hit-test a click against arbitrary
+	// terminal content without some scan-the-final-frame mechanism like it.
+	Zone *zone.Manager
+	ID   string
 
 	query     textinput.Model
 	cursor    int
@@ -244,13 +259,59 @@ func (m Model) DidConfirm(msg tea.Msg) ([]string, bool) {
 	if !ok || !key.Matches(keyMsg, m.KeyMap.Confirm) {
 		return nil, false
 	}
+	return m.confirmFrom(m.cursor), true
+}
+
+// ClickConfirm returns the emoji set a direct click on grid cell index i
+// confirms - equivalent to moving the cursor there and pressing Confirm (see
+// confirmFrom), for an embedding app that wires up mouse clicks against the
+// zone marks View() produces once Zone/ID are set. index is whatever
+// VisibleCells() reported a click landed on.
+func (m Model) ClickConfirm(index int) []string {
+	return m.confirmFrom(index)
+}
+
+// confirmFrom is DidConfirm/ClickConfirm's shared logic: the toggled
+// multi-select set (including an explicitly cleared-to-empty one, once
+// ClearPicked/Toggle has been touched at least once - see touched), or just
+// the cell at index if the picker was never touched at all (so a single
+// pick needs no Tab first).
+func (m Model) confirmFrom(index int) []string {
 	if len(m.picked) > 0 || m.touched {
-		return m.picked, true
+		return m.picked
 	}
-	if m.cursor >= 0 && m.cursor < len(m.visible) {
-		return []string{m.visible[m.cursor].Emoji}, true
+	if index >= 0 && index < len(m.visible) {
+		return []string{m.visible[index].Emoji}
 	}
-	return []string{}, true
+	return []string{}
+}
+
+// CellZoneID returns the bubblezone mark ID renderCell uses for grid cell
+// index i once Zone is set - an embedding app's mouse handler hit-tests a
+// click against zone.Get(id).InBounds(mouse) for each index VisibleCells
+// returns, then calls ClickConfirm(i) on a hit.
+func (m Model) CellZoneID(i int) string {
+	return m.ID + "-cell-" + strconv.Itoa(i)
+}
+
+// VisibleCells returns the indices into the underlying match list currently
+// rendered as grid cells (i.e. within the scrolled-to window) - what an
+// embedding app's mouse handler should hit-test clicks against via
+// CellZoneID; a cell outside this range has no zone mark to hit at all.
+func (m Model) VisibleCells() []int {
+	if len(m.visible) == 0 || m.Columns <= 0 {
+		return nil
+	}
+	totalRows := (len(m.visible) + m.Columns - 1) / m.Columns
+	startRow := m.scrollRow
+	endRow := min(startRow+m.VisibleRows, totalRows)
+	start := startRow * m.Columns
+	end := min(endRow*m.Columns, len(m.visible))
+	out := make([]int, 0, end-start)
+	for i := start; i < end; i++ {
+		out = append(out, i)
+	}
+	return out
 }
 
 // DidCancel reports whether msg is the Cancel key.
@@ -409,13 +470,19 @@ func (m Model) renderCell(i int) string {
 	if m.isPicked(e) {
 		text = "[" + e + "]"
 	}
-	if i == m.cursor {
-		return m.Styles.CellCursor.Render(text)
+	var rendered string
+	switch {
+	case i == m.cursor:
+		rendered = m.Styles.CellCursor.Render(text)
+	case m.isPicked(e):
+		rendered = m.Styles.CellPicked.Render(text)
+	default:
+		rendered = m.Styles.Cell.Render(text)
 	}
-	if m.isPicked(e) {
-		return m.Styles.CellPicked.Render(text)
+	if m.Zone != nil {
+		rendered = m.Zone.Mark(m.CellZoneID(i), rendered)
 	}
-	return m.Styles.Cell.Render(text)
+	return rendered
 }
 
 // defaultEntries builds the grid shown before any query is typed: recent

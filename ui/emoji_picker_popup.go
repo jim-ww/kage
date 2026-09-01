@@ -12,23 +12,8 @@ import (
 // DidSelectFile convention (re-check the same msg right after Update).
 func (m Model) updateEmojiPickerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	if picked, ok := m.emojiPicker.DidConfirm(msg); ok {
-		var cmds []tea.Cmd
-		if len(picked) > 0 {
-			if m.reactionEmojiUsage == nil {
-				m.reactionEmojiUsage = make(map[string]int, len(picked))
-			}
-			for _, e := range picked {
-				m.reactionEmojiUsage[e]++
-			}
-			if m.reactionEmojiUsageRecorder != nil {
-				_ = m.reactionEmojiUsageRecorder.RecordReactionEmojiUsage(picked)
-			}
-		}
-		cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, picked))
-		m.emojiPicker = nil
-		m.reactingMsgIdx = -1
-		m.refreshViewport()
-		return m, tea.Batch(cmds...), true
+		model, cmd := m.confirmEmojiPick(picked)
+		return model, cmd, true
 	}
 	if m.emojiPicker.DidCancel(msg) {
 		m.emojiPicker = nil
@@ -38,6 +23,45 @@ func (m Model) updateEmojiPickerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	var cmd tea.Cmd
 	*m.emojiPicker, cmd = m.emojiPicker.Update(msg)
 	return m, cmd, true
+}
+
+// handleEmojiPickerClick hit-tests msg against the currently-rendered grid
+// cells' zone marks (see emojipicker.Model's Zone/CellZoneID/VisibleCells)
+// and, on a hit, confirms exactly as if that cell had been reached via the
+// keyboard and Confirm pressed - see confirmEmojiPick.
+func (m Model) handleEmojiPickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if m.emojiPicker.Zone == nil {
+		return m, nil
+	}
+	for _, i := range m.emojiPicker.VisibleCells() {
+		if m.zone.Get(m.emojiPicker.CellZoneID(i)).InBounds(msg) {
+			return m.confirmEmojiPick(m.emojiPicker.ClickConfirm(i))
+		}
+	}
+	return m, nil
+}
+
+// confirmEmojiPick is the shared tail of a confirmed emoji pick (via enter
+// or a click): record usage, send the reaction, and close the picker.
+// Shared so the two input paths can't drift.
+func (m Model) confirmEmojiPick(picked []string) (Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	if len(picked) > 0 {
+		if m.reactionEmojiUsage == nil {
+			m.reactionEmojiUsage = make(map[string]int, len(picked))
+		}
+		for _, e := range picked {
+			m.reactionEmojiUsage[e]++
+		}
+		if m.reactionEmojiUsageRecorder != nil {
+			_ = m.reactionEmojiUsageRecorder.RecordReactionEmojiUsage(picked)
+		}
+	}
+	cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, picked))
+	m.emojiPicker = nil
+	m.reactingMsgIdx = -1
+	m.refreshViewport()
+	return m, tea.Batch(cmds...)
 }
 
 // renderEmojiPickerPopup composites the emoji picker over the chat area,

@@ -124,6 +124,45 @@ func TestBrokenTagSequenceFlagsExcluded(t *testing.T) {
 	}
 }
 
+func TestClickConfirmMatchesEnterOnThatCell(t *testing.T) {
+	m := New(nil)
+	if len(m.visible) < 2 {
+		t.Fatal("expected a default grid with at least 2 cells")
+	}
+	target := 1
+	got := m.ClickConfirm(target)
+	if len(got) != 1 || got[0] != m.visible[target].Emoji {
+		t.Fatalf("expected clicking cell %d to confirm its emoji, got %v", target, got)
+	}
+
+	// With something already toggled via Tab, a click elsewhere confirms
+	// the whole toggled set - same as enter would - not just the clicked cell.
+	m.picked = []string{m.visible[0].Emoji}
+	m.touched = true
+	got = m.ClickConfirm(target)
+	if len(got) != 1 || got[0] != m.visible[0].Emoji {
+		t.Fatalf("expected click to confirm the toggled set, got %v", got)
+	}
+}
+
+func TestVisibleCellsMatchesScrollWindow(t *testing.T) {
+	m := New(nil)
+	m.Columns = 4
+	m.VisibleRows = 2
+	m.visible = make([]entry, 20)
+	for i := range m.visible {
+		m.visible[i] = entry{Emoji: string(rune('a' + i))}
+	}
+	m.scrollRow = 0
+	if got := m.VisibleCells(); len(got) != 8 || got[0] != 0 || got[7] != 7 {
+		t.Fatalf("expected cells [0,8) at scrollRow 0, got %v", got)
+	}
+	m.scrollRow = 1
+	if got := m.VisibleCells(); len(got) != 8 || got[0] != 4 || got[7] != 11 {
+		t.Fatalf("expected cells [4,12) at scrollRow 1, got %v", got)
+	}
+}
+
 func TestUntouchedConfirmFallsBackToCursorCell(t *testing.T) {
 	m := New(nil)
 	if len(m.visible) == 0 {

@@ -449,8 +449,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	}
 
 	if m.emojiPicker != nil {
-		// Keyboard-only for now (grid nav/type-to-filter/toggle) - no
-		// per-cell zones yet, so nothing in here to hover-highlight.
+		// Cells are clickable (see the click-dispatch handler below) but
+		// don't have a distinct hover style, so there's nothing for this to
+		// report - a click still works without ever appearing "hovered".
 		return ""
 	}
 
@@ -599,9 +600,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.emojiPicker != nil {
-		// Keyboard-only for now - a click anywhere just no-ops instead of
-		// leaking through to whatever's underneath the popup.
-		return m, nil
+		return m.handleEmojiPickerClick(msg)
 	}
 
 	if m.contactManagerState != nil {
