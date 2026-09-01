@@ -32,6 +32,10 @@ type entry struct {
 // with the underlying shortcode table.
 const maxResults = 32
 
+// queryWidth is the filter box's fixed width - wide enough to show the
+// whole placeholder hint without truncation.
+const queryWidth = 40
+
 // KeyMap is the picker's keybindings. Deliberately arrow-keys-only for
 // navigation (not vim h/j/k/l) since the query box is always "focused" -
 // any letter typed is a filter character, not a nav key.
@@ -111,6 +115,12 @@ func New(recent []string) Model {
 	q := textinput.New()
 	q.Placeholder = "type to search, e.g. fire, +1, idk..."
 	q.Prompt = "🔍 "
+	// Without an explicit width, textinput's placeholderView renders only
+	// the placeholder's first rune (it allocates len(Placeholder)+1 runes
+	// only when Width is set - unset defaults to 0, sizing the buffer to
+	// just 1) - the placeholder would show as a single stray "t" instead of
+	// the full hint text.
+	q.SetWidth(queryWidth)
 	q.Focus()
 
 	m := Model{
