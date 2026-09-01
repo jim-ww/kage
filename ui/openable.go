@@ -569,10 +569,10 @@ func uniqueDestPath(dir, base string) string {
 // just-uploaded file) into the user's downloads directory, reporting
 // progress as it goes (see throttledProgressSender).
 // For aesgcm:// URLs (XEP-0454), the file is decrypted after download.
-func saveURLToDownloads(target string) tea.Cmd {
+func saveURLToDownloads(target, jid string) tea.Cmd {
 	ch := make(chan tea.Msg, 8)
 	go func() {
-		ch <- downloadToDest(target, "", ch)
+		ch <- downloadToDest(target, "", jid, ch)
 	}()
 	return listenForTransferChan(ch)
 }
@@ -580,10 +580,10 @@ func saveURLToDownloads(target string) tea.Cmd {
 // saveURLToPath downloads target to the explicit destination path dest
 // (from the "save as" prompt) instead of the default downloads directory,
 // overwriting any existing file there — the user chose that exact path.
-func saveURLToPath(target, dest string) tea.Cmd {
+func saveURLToPath(target, dest, jid string) tea.Cmd {
 	ch := make(chan tea.Msg, 8)
 	go func() {
-		ch <- downloadToDest(target, dest, ch)
+		ch <- downloadToDest(target, dest, jid, ch)
 	}()
 	return listenForTransferChan(ch)
 }
@@ -594,7 +594,7 @@ func saveURLToPath(target, dest string) tea.Cmd {
 // computed from downloadsDir() + the URL's basename (deduped against
 // existing files via uniqueDestPath). Split out so the Cmd constructors
 // (which must return immediately) stay simple.
-func downloadToDest(target, dest string, ch chan tea.Msg) tea.Msg {
+func downloadToDest(target, dest, jid string, ch chan tea.Msg) tea.Msg {
 	var downloadURL string
 	var iv, key []byte
 	var err error
@@ -674,5 +674,27 @@ func downloadToDest(target, dest string, ch chan tea.Msg) tea.Msg {
 		os.Remove(dest)
 		return saveResultMsg{target: target, err: err}
 	}
+
+	if iv != nil && key != nil {
+		// aesgcm:// attachments are cached separately from downloadsDir,
+		// keyed by a hash of the full target (see downloadAndOpen) - without
+		// this, a later Ctrl+O on a file the user already Ctrl+S'd would
+		// re-download and re-decrypt it from scratch.
+		if cacheDir, cacheErr := attachmentCacheDir(jid); cacheErr == nil {
+			cacheBase := filepath.Base(downloadURL)
+			if idx := strings.IndexAny(cacheBase, "?#"); idx >= 0 {
+				cacheBase = cacheBase[:idx]
+			}
+			if cacheBase == "" || cacheBase == "." || cacheBase == "/" {
+				cacheBase = "download"
+			}
+			sum := sha256.Sum256([]byte(target))
+			cacheDest := filepath.Join(cacheDir, hex.EncodeToString(sum[:8])+"-"+cacheBase)
+			if _, statErr := os.Stat(cacheDest); os.IsNotExist(statErr) {
+				_ = os.WriteFile(cacheDest, data, 0o644)
+			}
+		}
+	}
+
 	return saveResultMsg{target: target, path: dest}
 }

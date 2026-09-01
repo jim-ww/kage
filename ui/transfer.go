@@ -122,7 +122,8 @@ func (m *Model) startSave(target string) tea.Cmd {
 	m.downloadsInFlight[target] = true
 	delete(m.finishedTransfers, target)
 	m.seedTransferProgress(target, "downloading "+attachmentDisplayName(target))
-	return saveURLToDownloads(target)
+	chat, _ := m.currentChat()
+	return saveURLToDownloads(target, chat.Address)
 }
 
 // startSaveAs begins downloading target to the user-chosen dest path (from
@@ -138,7 +139,8 @@ func (m *Model) startSaveAs(target, dest string) tea.Cmd {
 	m.downloadsInFlight[target] = true
 	delete(m.finishedTransfers, target)
 	m.seedTransferProgress(target, "downloading "+attachmentDisplayName(target))
-	return saveURLToPath(target, dest)
+	chat, _ := m.currentChat()
+	return saveURLToPath(target, dest, chat.Address)
 }
 
 // seedTransferProgress adds a 0/0 progress entry for target the instant a

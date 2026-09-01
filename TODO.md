@@ -1,5 +1,4 @@
-- should saving to downloads also copy file to attachments dir?
-- call logs might not be shown
+- call logs might not be shown in chat list and in chat (messages)
 - option to choose mic + mid call
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
 - fix: offline status shown (invalid), restart fixes it
