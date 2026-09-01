@@ -666,7 +666,8 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	applyEmojiPickerStyles(&picker, m.styles.colors)
 	m.emojiPicker = &picker
 	m.reactingMsgIdx = m.selectedMsg
-	return picker.Init()
+	m.sizeEmojiPicker()
+	return m.emojiPicker.Init()
 }
 
 // openPendingChat opens pendingOpenChatAddress (set from config's

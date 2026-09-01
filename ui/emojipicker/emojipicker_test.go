@@ -71,6 +71,33 @@ func TestClearPickedThenConfirmSendsEmptySet(t *testing.T) {
 	}
 }
 
+func TestResizeReflowsAndClampsScroll(t *testing.T) {
+	m := New(nil)
+	m.Columns = 4
+	m.VisibleRows = 2
+	m.visible = make([]entry, 20) // 5 rows of 4
+	for i := range m.visible {
+		m.visible[i] = entry{Emoji: string(rune('a' + i))}
+	}
+	m.cursor = 19 // last cell, row 4
+	m.ensureCursorVisible()
+	if m.scrollRow != 3 {
+		t.Fatalf("setup: expected scrollRow 3, got %d", m.scrollRow)
+	}
+
+	// Widening to 10 columns collapses 20 cells into 2 rows - the cursor's
+	// row under the new shape (19/10 = row 1) must still end up in view,
+	// not stuck at a scrollRow computed for the old, narrower grid.
+	m.Resize(10, 2)
+	if m.Columns != 10 || m.VisibleRows != 2 {
+		t.Fatalf("expected Columns=10 VisibleRows=2, got Columns=%d VisibleRows=%d", m.Columns, m.VisibleRows)
+	}
+	row := m.cursor / m.Columns
+	if row < m.scrollRow || row >= m.scrollRow+m.VisibleRows {
+		t.Fatalf("cursor row %d not within scrolled view [%d, %d)", row, m.scrollRow, m.scrollRow+m.VisibleRows)
+	}
+}
+
 func TestUntouchedConfirmFallsBackToCursorCell(t *testing.T) {
 	m := New(nil)
 	if len(m.visible) == 0 {

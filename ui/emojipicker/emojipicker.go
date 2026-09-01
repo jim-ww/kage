@@ -155,6 +155,24 @@ func (m *Model) SetPicked(emojis []string) {
 	m.picked = append([]string(nil), emojis...)
 }
 
+// Resize sets Columns/VisibleRows (leaving either unchanged if <= 0) and
+// re-clamps the cursor/scroll to stay valid under the new grid shape - call
+// this whenever the space available to render the picker changes (e.g. a
+// terminal resize), not just once at construction, so the popup adapts
+// instead of a fixed size that can overflow a small terminal.
+func (m *Model) Resize(columns, visibleRows int) {
+	if columns > 0 {
+		m.Columns = columns
+	}
+	if visibleRows > 0 {
+		m.VisibleRows = visibleRows
+	}
+	if m.cursor >= len(m.visible) {
+		m.cursor = max(0, len(m.visible)-1)
+	}
+	m.ensureCursorVisible()
+}
+
 // Selection returns the emoji currently toggled on, in pick order.
 func (m Model) Selection() []string {
 	return m.picked
