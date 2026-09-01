@@ -3,14 +3,13 @@ package ui
 import "strings"
 
 // messageRowMaxWidth is the widest a rendered message row can ever be: every
-// row is padded to chatAreaWidth() by renderMessagesWithOffsets, except a
-// selected/hovered row, which pads to totalWidth+2 for its left gutter (see
-// renderMessage's isSelected/rowHovered tint branch) before that same outer
-// pad becomes a no-op. Passed to viewport.SetContentLinesWidth so it can
-// skip its own ansi-width scan over every line — see bench_scroll_test.go
-// for what that scan costs on a long chat history.
+// row (renderMessage reserves 2 columns up front for its left gutter, then
+// wraps/pads everything else to fit what's left) tops out at chatAreaWidth().
+// Passed to viewport.SetContentLinesWidth so it can skip its own ansi-width
+// scan over every line — see bench_scroll_test.go for what that scan costs
+// on a long chat history.
 func messageRowMaxWidth(cw int) int {
-	return cw + 2
+	return cw
 }
 
 // refreshViewport re-renders all messages and updates the viewport content.

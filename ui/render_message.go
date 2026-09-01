@@ -126,7 +126,7 @@ func (m Model) callLogLine(msg Message, msgIdx, totalWidth int) string {
 		line = "  " + line
 	}
 	if isSelected || m.isHovered(zoneMessage(msgIdx)) {
-		line = m.styles.rowBackgroundTint(padLinesToWidth(line, totalWidth+2))
+		line = m.styles.rowBackgroundTint(padLinesToWidth(line, totalWidth))
 	}
 	return line
 }
@@ -207,6 +207,12 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 	isSelected := msgIdx == m.selectedMsg
 	rowHovered := m.isHovered(zoneMessage(msgIdx))
+
+	// Every row (selected or not) gets a 2-cell left gutter prepended below
+	// (the selection bar, or blank space to keep unselected rows aligned) -
+	// reserve that width up front so wrapping/padding land on totalWidth
+	// (the pane's real width) instead of overflowing it by 2 columns.
+	totalWidth -= 2
 
 	nameStyle := m.styles.messageNickThem
 	if msg.IsMe {
