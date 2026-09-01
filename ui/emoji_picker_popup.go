@@ -3,6 +3,8 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/jim-ww/kage/ui/emojipicker"
 )
 
 // updateEmojiPickerKey routes a key to the open emoji picker popup: Confirm
@@ -96,12 +98,11 @@ const (
 	popupChromeHeight = 2 + 1*2 // border (1 each side) + vertical padding (1 each side)
 )
 
-// emojiPickerCellWidth is a conservative per-cell column budget: Padding(0,1)
-// (2) plus a bracketed "[emoji]" (up to 4, since most emoji render 2 columns
-// wide) - sized for the widest a cell ever gets (picked), not the common
-// case, so picked cells can never push a row wider than its column was
-// sized for.
-const emojiPickerCellWidth = 6
+// emojiPickerCellWidth mirrors emojipicker.CellWidth - the picker forces
+// every cell to that fixed rendered width (see its doc for why), so the
+// columns-that-fit math here must agree with it or Resize would be handed a
+// Columns count that doesn't actually match the grid's real width.
+const emojiPickerCellWidth = emojipicker.CellWidth
 
 // emojiPickerChromeLines is everything in the picker's View() besides the
 // grid itself: title + blank, query + blank, picked-summary + blank, a
