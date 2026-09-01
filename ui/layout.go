@@ -193,7 +193,11 @@ func (m Model) chatAreaWidth() int {
 	if m.sidebarHidden && !m.sidebarPeeking() {
 		return m.width
 	}
-	return m.width - m.sidebarWidth() - 1
+	// sidebarWidth() already counts the sidebar's own right border column
+	// (see sidebarContentWidth's comment) — subtracting another 1 here
+	// double-counts that column and leaves the chat pane one column short of
+	// the terminal.
+	return m.width - m.sidebarWidth()
 }
 
 // sidebarContentWidth is how wide content rendered *inside* the sidebar box
