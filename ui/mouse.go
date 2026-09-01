@@ -1049,16 +1049,45 @@ func (m Model) emojiPickerPickedUnderMouse(msg tea.MouseMsg) (int, bool) {
 // picker's own zone marks left over from its last render (see
 // filePickerRowUnderMouse for why: re-deriving them means re-rendering
 // View(), too expensive per mouse-motion event).
+//
+// Falls back to the nearest cell in the same row (by X-center distance) when
+// no zone's box strictly contains the point: many emoji (flags, ZWJ family/
+// skin-tone sequences, a bare codepoint missing its U+FE0F presentation
+// selector) render at a display width the terminal disagrees with versus
+// what Go's width-measuring libraries computed when bubblezone recorded the
+// cell's box, so a click aimed at the visibly-drawn glyph can land just
+// outside its (slightly mismeasured) hitbox - intermittently, only for the
+// specific glyphs affected. Snapping to the nearest same-row cell turns that
+// into "always picks the intended glyph" instead of "click does nothing".
 func (m Model) emojiPickerCellUnderMouse(msg tea.MouseMsg) (int, bool) {
 	if m.emojiPicker.Zone == nil {
 		return 0, false
 	}
-	for _, i := range m.emojiPicker.VisibleCells() {
+	cells := m.emojiPicker.VisibleCells()
+	for _, i := range cells {
 		if m.zone.Get(m.emojiPicker.CellZoneID(i)).InBounds(msg) {
 			return i, true
 		}
 	}
-	return 0, false
+
+	y := msg.Mouse().Y
+	x := msg.Mouse().X
+	best, bestDist := -1, 0
+	for _, i := range cells {
+		z := m.zone.Get(m.emojiPicker.CellZoneID(i))
+		if z.IsZero() || y < z.StartY || y > z.EndY {
+			continue
+		}
+		center := (z.StartX + z.EndX) / 2
+		dist := center - x
+		if dist < 0 {
+			dist = -dist
+		}
+		if best < 0 || dist < bestDist {
+			best, bestDist = i, dist
+		}
+	}
+	return best, best >= 0
 }
 
 // filePickerRowUnderMouse returns the file-picker row the mouse is over, or

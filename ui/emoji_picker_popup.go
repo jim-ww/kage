@@ -43,10 +43,11 @@ func (m Model) handleEmojiPickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 			return m, nil
 		}
 	}
-	for _, i := range m.emojiPicker.VisibleCells() {
-		if m.zone.Get(m.emojiPicker.CellZoneID(i)).InBounds(msg) {
-			return m.confirmEmojiPick(m.emojiPicker.ClickConfirm(i))
-		}
+	// emojiPickerCellUnderMouse (not a plain InBounds loop) so a click that
+	// lands just outside a mismeasured emoji's hitbox still snaps to it -
+	// see that function's doc for why that happens.
+	if i, ok := m.emojiPickerCellUnderMouse(msg); ok {
+		return m.confirmEmojiPick(m.emojiPicker.ClickConfirm(i))
 	}
 	return m, nil
 }
