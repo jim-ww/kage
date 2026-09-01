@@ -378,7 +378,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			} else {
 				m.selectedMsg = len(msg.Messages) - 1
 			}
-			m.refreshViewportFullScrollTo(m.selectedMsg)
+			m.refreshViewportFullScrollToCentered(m.selectedMsg)
 		}
 		return m, nil, true
 

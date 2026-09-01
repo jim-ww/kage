@@ -141,13 +141,38 @@ func (m *Model) clearStaleMessageHover(oldIdx, newIdx int) int {
 }
 
 // refreshViewportFullScrollTo is refreshViewportScrollTo's full-re-render
-// counterpart, for callers where every message's offset may have shifted
-// (e.g. HistoryWindowMsg replacing the whole loaded window) so the
-// incremental refreshViewportSelection patch — which assumes only
-// oldIdx/msgIdx's own lines changed — cannot be used.
+// counterpart, for callers where every message's offset may have shifted but
+// the viewport's scroll position is still meaningful relative to the new
+// content (e.g. expanding/collapsing a long message, or jumping to a reply
+// still inside the currently loaded window) so the incremental
+// refreshViewportSelection patch — which assumes only oldIdx/msgIdx's own
+// lines changed — cannot be used.
 func (m *Model) refreshViewportFullScrollTo(msgIdx int) {
 	m.refreshViewport()
 	m.applyScrollMargin(msgIdx)
+}
+
+// refreshViewportFullScrollToCentered is refreshViewportFullScrollTo's
+// counterpart for a HistoryWindowMsg reload, where the entire loaded window
+// is replaced by an unrelated one anchored elsewhere in history —
+// applyScrollMargin's "top" (the viewport's pre-reload YOffset) carries no
+// relationship to the new content, so reusing it as a scroll-off margin
+// check landed the anchor at an arbitrary position (observed: right at the
+// bottom edge after paging up to load older history), which in turn made
+// scrolledPastFirstPage flicker as the button's show/hide condition was
+// evaluated against that arbitrary landing spot. Centering the anchor
+// instead is independent of any pre-reload state, so it's deterministic.
+func (m *Model) refreshViewportFullScrollToCentered(msgIdx int) {
+	m.refreshViewport()
+	if msgIdx < 0 || msgIdx >= len(m.msgOffsets) {
+		return
+	}
+	height := m.viewport.Height()
+	if height <= 0 {
+		return
+	}
+	start := m.msgOffsets[msgIdx]
+	m.viewport.SetYOffset(max(0, start-height/2))
 }
 
 // applyScrollMargin is the scrolloff logic shared by
