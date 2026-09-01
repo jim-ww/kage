@@ -1,3 +1,7 @@
+- sometimes message arrives, there is notification + message appears in chat list preview correctly, but doesnt appear in chat. reloading chat (by pressing chat name in chat list, loads messages correctly)
+- chat messages list is slightly wider then screen, making text overflow by x. probably whole view pane component overflows
+- chat list: change hover color
+- fix(emoji-picker): emoji are not hoverable/clickable, no ui indication too
 - react to attachment still has aes url instead of pretty filename
 - writing multi-line draft hides last messages behind it
 - jump to latest hides sometimes
@@ -7,6 +11,7 @@
 - uploading your own files must copy them to attachments dir (in same format as if they were downloaded)
 - esc should not de-focus chat when in editing state (only cancel editing)
 
+- should saving to downloads also copy file to attachments dir?
 - call logs might not be shown
 - option to choose mic + mid call
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
@@ -25,6 +30,7 @@
 - account manager: fix adding duplicate accounts
 - make sure user can paste to all textinputs (e.g. account add JID/password)
 
+- change picture attachment icon ? from 🖼
 - resubscribe action does nothing?
 - speed up moving cursor on textinput, based on how long is held, OR add ctrl+d/ctrl+u binds there?
 - refactor: create generic ui components and reuse them across repo
