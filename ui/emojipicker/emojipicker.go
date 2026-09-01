@@ -310,13 +310,23 @@ func (m Model) confirmFrom(index int) []string {
 	}
 	if index >= 0 && index < len(m.visible) {
 		e := m.visible[index].Emoji
-		// Appended onto whatever's already picked (typically a message's
-		// existing reactions, seeded by SetPicked) rather than replacing it
-		// outright - a click/Enter on a new emoji is adding a reaction, not
-		// starting the set over, matching what Toggle already does once
-		// touched.
+		// Toggled onto/off of whatever's already picked (typically a
+		// message's existing reactions, seeded by SetPicked) rather than
+		// replacing it outright - a click/Enter on a new emoji is adding a
+		// reaction, not starting the set over, matching what Toggle already
+		// does once touched. Symmetrically, confirming a cell that's
+		// *already* picked removes it - a no-op there would make clicking/
+		// pressing Enter on an emoji you'd already reacted with look like it
+		// did nothing at all, same failure mode as the replace-not-append
+		// bug this is next to.
 		if m.isPicked(e) {
-			return m.picked
+			out := make([]string, 0, len(m.picked)-1)
+			for _, p := range m.picked {
+				if p != e {
+					out = append(out, p)
+				}
+			}
+			return out
 		}
 		return append(append([]string(nil), m.picked...), e)
 	}

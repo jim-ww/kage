@@ -54,14 +54,15 @@ func TestClearPickedThenConfirmSendsEmptySet(t *testing.T) {
 	m := New(nil)
 	m.SetPicked([]string{"👍", "❤️"})
 
-	// enter with existing (seeded, untouched) picks appends the highlighted
-	// cell to them - see TestSeededPickedConfirmsCursorCellUntilTouched for
-	// why: reconfirming the seeded set unchanged made a plain Enter (or
-	// click) on a *new* emoji look like it did nothing at all whenever the
-	// message already had a reaction. The default cursor cell here happens
-	// to already be one of the seeded emoji, so appending it is a no-op.
-	if got, ok := m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); !ok || len(got) != 2 {
-		t.Fatalf("expected untouched confirm to keep the seeded set (cursor cell already picked), got %v ok=%v", got, ok)
+	// enter with existing (seeded, untouched) picks toggles the highlighted
+	// cell against them - see TestSeededPickedConfirmsCursorCellUntilTouched
+	// for why: always replacing/no-opping made a plain Enter (or click) on
+	// an emoji look like it did nothing whenever the message already had a
+	// reaction. The default cursor cell here happens to already be one of
+	// the seeded emoji ("👍"), so confirming it removes just that one.
+	got, ok := m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !ok || len(got) != 1 || got[0] != "❤️" {
+		t.Fatalf("expected untouched confirm to remove the already-picked cursor cell, got %v ok=%v", got, ok)
 	}
 
 	m, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
@@ -69,7 +70,7 @@ func TestClearPickedThenConfirmSendsEmptySet(t *testing.T) {
 		t.Fatalf("expected ClearPicked to empty the set, got %v", m.picked)
 	}
 
-	got, ok := m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got, ok = m.DidConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !ok {
 		t.Fatal("expected confirm to match enter")
 	}
@@ -212,7 +213,8 @@ func TestSeededPickedConfirmsCursorCellUntilTouched(t *testing.T) {
 		t.Fatalf("expected an untouched click to append the clicked cell to the seeded set, got %v", got)
 	}
 
-	// Clicking an already-picked cell is a no-op, not a duplicate append.
+	// Clicking an already-picked cell removes it (a no-op there would leave
+	// a click/Enter on an already-reacted emoji looking like it did nothing).
 	seededIdx := -1
 	for i, e := range m.visible {
 		if e.Emoji == "👍" {
@@ -222,8 +224,8 @@ func TestSeededPickedConfirmsCursorCellUntilTouched(t *testing.T) {
 	}
 	if seededIdx >= 0 {
 		got = m.ClickConfirm(seededIdx)
-		if len(got) != 1 || got[0] != "👍" {
-			t.Fatalf("expected clicking the already-picked cell to be a no-op, got %v", got)
+		if len(got) != 0 {
+			t.Fatalf("expected clicking the already-picked cell to remove it, got %v", got)
 		}
 	}
 
