@@ -1,4 +1,3 @@
-- chat list: change hover color
 - fix(emoji-picker): emoji are not hoverable/clickable, no ui indication too
 - react to attachment still has aes url instead of pretty filename
 - writing multi-line draft hides last messages behind it

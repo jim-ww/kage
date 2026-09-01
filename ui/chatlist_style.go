@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
 	zone "github.com/lrstanley/bubblezone/v2"
@@ -56,25 +57,9 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 	hoveredSelected.Styles.SelectedTitle = hoveredSelected.Styles.SelectedTitle.BorderForeground(colors.accentCyan)
 	hoveredSelected.Styles.SelectedDesc = hoveredSelected.Styles.SelectedDesc.BorderForeground(colors.accentCyan)
 
-	// Hover-only (not selected) uses the same left-border decoration as
-	// selected, just dimmer — one consistent "this row is highlighted"
-	// language across hover/selected/both, distinguished by border color
-	// instead of switching to a different mechanism (background fill) for
-	// hover alone.
-	hoverOnly := delegate
-	hoverOnly.Styles.NormalTitle = hoverOnly.Styles.NormalTitle.
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(colors.borderD).
-		PaddingLeft(0)
-	hoverOnly.Styles.NormalDesc = hoverOnly.Styles.NormalDesc.
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(colors.borderD).
-		PaddingLeft(0)
-
 	return zoneChatListDelegate{
 		DefaultDelegate: delegate,
 		hoverSelected:   hoveredSelected,
-		hoverOnly:       hoverOnly,
 		colors:          colors,
 		zone:            zm,
 		hover:           hv,
@@ -90,7 +75,6 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 type zoneChatListDelegate struct {
 	list.DefaultDelegate
 	hoverSelected list.DefaultDelegate // used when the hovered row is also the selected one
-	hoverOnly     list.DefaultDelegate // used when the hovered row isn't selected
 	colors        uiColors
 	zone          *zone.Manager
 	hover         *hoverState
@@ -105,7 +89,11 @@ func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item 
 	case hovered && selected:
 		d.hoverSelected.Render(&sb, m, index, item)
 	case hovered:
-		d.hoverOnly.Render(&sb, m, index, item)
+		if chat, ok := item.(Chat); ok {
+			sb.WriteString(renderHoverChatRow(chat, d.colors, m.Width()))
+		} else {
+			d.DefaultDelegate.Render(&sb, m, index, item)
+		}
 	default:
 		d.DefaultDelegate.Render(&sb, m, index, item)
 	}
@@ -141,6 +129,35 @@ func padLinesToWidth(content string, width int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderHoverChatRow builds the hovered-non-selected chat row's two lines,
+// mirroring SelectedTitle/SelectedDesc's left-border decoration (see
+// newChatListDelegate) but dimmer. It can't be done by tweaking a
+// DefaultDelegate copy's NormalTitle/NormalDesc the way Selected is: the
+// library always computes truncation width from NormalTitle's *padding*
+// alone (never its border, see bubbles' list.DefaultDelegate.Render), so a
+// NormalTitle carrying a border instead of padding under-truncates by
+// exactly the border's width and the row wraps. Selected sidesteps this
+// because SelectedTitle is a distinct style from the one truncation is
+// measured against; hover-only has no such second style to reuse, so this
+// truncates manually to the same width-minus-1 budget every other row uses.
+func renderHoverChatRow(c Chat, colors uiColors, width int) string {
+	textWidth := max(1, width-1) // 1 col for the left border, matching every other row's 1-col pad/border budget
+	border := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(colors.borderD)
+
+	title := border.Foreground(colors.themFg).Bold(true).
+		Render(ansi.Truncate(c.Title(), textWidth, "…"))
+
+	desc := ""
+	if text := c.Description(); text != "" {
+		desc = border.Foreground(colors.textMuted).
+			Render(ansi.Truncate(text, textWidth, "…"))
+	}
+
+	return title + "\n" + desc
 }
 
 func applyChatListStyles(l *list.Model, colors uiColors) {

@@ -287,7 +287,7 @@ type Chat struct {
 	// resources), sorted by resource name. Populated from live
 	// xmpp.PresenceEvents (see PresenceMsg.Resource) — a resource is added
 	// on becoming available and removed on an unavailable presence for that
-	// same resource. Shown on chat-list row hover (see zoneChatListDelegate.Render).
+	// same resource. Shown on chat-list row hover (see renderHoverChatRow).
 	Resources []ResourcePresence
 
 	// EncryptionMode is this chat's outgoing message encryption:
