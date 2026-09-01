@@ -1,9 +1,3 @@
-- fix(emoji-picker): emoji are not selectable
-- feat: cancel file upload mid-load (backspace)
-- add default encryption for chats config option, default omemov1
-- uploading your own files must copy them to attachments dir (in same format as if they were downloaded)
-- esc should not de-focus chat when in editing state (only cancel editing)
-
 - should saving to downloads also copy file to attachments dir?
 - call logs might not be shown
 - option to choose mic + mid call
