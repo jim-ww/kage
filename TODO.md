@@ -1,3 +1,7 @@
+- sometimes message arrives, there is notification + message appears in chat list preview correctly, but doesnt appear in chat. reloading chat (by pressing chat name in chat list, loads messages correctly). Probably merge pagination + live messages merge logic
+- always send attachments separately from text message
+- daemon sometimes stop sending notifications, after sleep/session reload (like nixos-rebuild)
+- presense sometimes not shown on hover
 - call logs might not be shown in chat list and in chat (messages)
 - option to choose mic + mid call
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
