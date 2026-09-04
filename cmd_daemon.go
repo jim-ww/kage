@@ -8,6 +8,7 @@ import (
 
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/daemon"
+	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
 	"github.com/spf13/cobra"
 )
@@ -127,6 +128,7 @@ func runDaemonProcess(cfgPath string, debug bool, debugXML bool) error {
 	if cfg.HistoryPageSize > 0 {
 		historyPageSize = cfg.HistoryPageSize
 	}
+	ui.AttachmentsDir = cfg.AttachmentsDir
 	if err := daemon.Run(cfg, newBackend()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
