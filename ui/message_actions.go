@@ -714,10 +714,23 @@ func (m *Model) openPendingChat() tea.Cmd {
 }
 
 func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
-	if m.currentChatIndex() < 0 {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
 		return m, nil
 	}
 	m.setSelectedView(viewChat)
+	// If the loaded window isn't the live tail (left mid-history from a
+	// previous page-up, e.g. by switching to another chat and back without
+	// jumping to latest first), opening the chat must fetch back to the true
+	// tail rather than just scrolling to the bottom of the stale window -
+	// otherwise a message that arrived while HistoryNewer was set never got
+	// appended (see IncomingMessageMsg's HistoryNewer branch) and stays
+	// invisible until something else happens to trigger this same fetch.
+	var jumpCmd tea.Cmd
+	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) &&
+		m.accounts[m.currentAccount].HistoryNewer[chatIdx] {
+		jumpCmd = m.jumpToLatestMessage()
+	}
 	if msgs := m.currentMessages(); len(msgs) > 0 {
 		m.selectedMsg = len(msgs) - 1
 	}
@@ -731,7 +744,7 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	draftCmd := m.swapComposeDraft(m.currentAccount, m.currentChatIndex())
 	m.updateSizes()
 	unreadCmd := m.resetChatUnread(m.currentAccount, m.currentChatIndex())
-	return m, tea.Batch(draftCmd, unreadCmd, m.input.Focus())
+	return m, tea.Batch(draftCmd, unreadCmd, m.input.Focus(), jumpCmd)
 }
 
 // canEdit returns true only when selectedMsg is the last "IsMe" message and
