@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -653,28 +654,45 @@ func downloadToDest(target, dest, jid string, ch chan tea.Msg) tea.Msg {
 		// it rather than erroring, matching what a save-as dialog does.
 		writeFlags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	}
-	f, err := os.OpenFile(dest, writeFlags, 0o644)
-	if err != nil {
-		return saveResultMsg{target: target, err: err}
-	}
-	defer f.Close()
-	if _, err := io.Copy(f, bytes.NewReader(data)); err != nil {
-		os.Remove(dest)
-		return saveResultMsg{target: target, err: err}
-	}
 
-	// Every save also lands a copy in the attachments cache, keyed by a hash
-	// of the full target (matching downloadAndOpen's naming) - without this,
-	// a later Ctrl+O on a file the user already Ctrl+S'd would re-download
-	// (and re-decrypt, for aesgcm://) it from scratch instead of reusing the
-	// copy just saved.
-	if cacheDir, cacheErr := attachmentCacheDir(jid); cacheErr == nil {
+	// The Downloads/explicit-path write and the attachments-cache write are
+	// independent destinations, so they run concurrently rather than one
+	// after the other - without this, a later Ctrl+O on a file the user
+	// already Ctrl+S'd would re-download (and re-decrypt, for aesgcm://) it
+	// from scratch instead of reusing the copy just cached.
+	var wg sync.WaitGroup
+	var destErr error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		f, err := os.OpenFile(dest, writeFlags, 0o644)
+		if err != nil {
+			destErr = err
+			return
+		}
+		defer f.Close()
+		if _, err := io.Copy(f, bytes.NewReader(data)); err != nil {
+			os.Remove(dest)
+			destErr = err
+		}
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cacheDir, err := attachmentCacheDir(jid)
+		if err != nil {
+			return
+		}
 		cacheBase := attachmentBaseName(downloadURL)
 		sum := sha256.Sum256([]byte(target))
 		cacheDest := filepath.Join(cacheDir, hex.EncodeToString(sum[:8])+"-"+cacheBase)
 		if _, statErr := os.Stat(cacheDest); os.IsNotExist(statErr) {
 			_ = os.WriteFile(cacheDest, data, 0o644)
 		}
+	}()
+	wg.Wait()
+	if destErr != nil {
+		return saveResultMsg{target: target, err: destErr}
 	}
 
 	return saveResultMsg{target: target, path: dest}
