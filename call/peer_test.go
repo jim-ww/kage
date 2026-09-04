@@ -38,6 +38,12 @@ func TestVideoMidIgnoresPreExistingVideoTransceiver(t *testing.T) {
 	}
 	t.Cleanup(func() { p.Close() })
 
+	peer, err := NewPeerConnection()
+	if err != nil {
+		t.Fatalf("NewPeerConnection (remote side): %v", err)
+	}
+	t.Cleanup(func() { peer.Close() })
+
 	// Simulate the peer's own inbound video already being part of the call
 	// (a recvonly transceiver with no local track), then negotiate it so it
 	// gets a real mid - same as what acceptSession leaves in place for an
@@ -47,9 +53,27 @@ func TestVideoMidIgnoresPreExistingVideoTransceiver(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("adding pre-existing recvonly video transceiver: %v", err)
 	}
-	if _, err := p.CreateOffer(); err != nil {
+	offer, err := p.CreateOffer()
+	if err != nil {
 		skipOfferErrIfNoNetwork(t, err)
 		t.Fatalf("negotiating pre-existing transceivers: %v", err)
+	}
+	// A real content-add offer only follows a completed offer/answer cycle
+	// (the session-initiate/-accept that established the call), which
+	// leaves p in have-remote-answer/stable - not have-local-offer.
+	// CreateOffer again without completing this cycle first hits pion's
+	// signaling-state guard ("have-local-offer->SetLocal(offer)->
+	// have-local-offer"), so drive one here with a second PeerConnection
+	// before the content-add CreateOffer below.
+	if err := peer.SetRemoteDescription(offer); err != nil {
+		t.Fatalf("remote side applying offer: %v", err)
+	}
+	answer, err := peer.CreateAnswer()
+	if err != nil {
+		t.Fatalf("remote side creating answer: %v", err)
+	}
+	if err := p.SetRemoteDescription(answer); err != nil {
+		t.Fatalf("applying answer: %v", err)
 	}
 
 	if mid := p.VideoMid(); mid != "" {
