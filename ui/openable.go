@@ -202,11 +202,11 @@ func AttachmentLocalPath(target, jid string) string {
 }
 
 // attachmentLocalPath returns the destination path target would already be
-// at if downloaded - either in the aesgcm view cache (attachmentCacheDir)
-// or in the downloads directory, mirroring the exact destination paths
-// openWithXDGOpen and saveURLToDownloads would use. Empty if target's
-// download URL can't be determined. Doesn't create either directory: this
-// runs on every render, so it must stay a pure read.
+// at if opened via Ctrl+O - always the attachments cache (attachmentCacheDir),
+// mirroring the exact destination downloadAndOpen uses regardless of whether
+// target is aesgcm:// or plain http(s)://. Empty if target's download URL
+// can't be determined. Doesn't create the directory: this runs on every
+// render, so it must stay a pure read.
 func attachmentLocalPath(target, jid string) string {
 	downloadURL := attachmentDownloadURL(target)
 	if downloadURL == "" {
@@ -214,29 +214,17 @@ func attachmentLocalPath(target, jid string) string {
 	}
 	base := attachmentBaseName(downloadURL)
 
-	if strings.HasPrefix(target, "aesgcm://") {
-		dir := AttachmentsDir
-		if dir == "" {
-			cacheBase, err := os.UserCacheDir()
-			if err != nil {
-				return ""
-			}
-			dir = filepath.Join(cacheBase, "kage", "attachments")
-		}
-		dir = filepath.Join(dir, sanitizeJIDForPath(jid))
-		sum := sha256.Sum256([]byte(target))
-		return filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
-	}
-
-	dir := strings.TrimSpace(os.Getenv("XDG_DOWNLOAD_DIR"))
+	dir := AttachmentsDir
 	if dir == "" {
-		home, err := os.UserHomeDir()
+		cacheBase, err := os.UserCacheDir()
 		if err != nil {
 			return ""
 		}
-		dir = filepath.Join(home, "Downloads")
+		dir = filepath.Join(cacheBase, "kage", "attachments")
 	}
-	return filepath.Join(dir, base)
+	dir = filepath.Join(dir, sanitizeJIDForPath(jid))
+	sum := sha256.Sum256([]byte(target))
+	return filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
 }
 
 // isAttachmentDownloaded reports whether target already has a local copy —
@@ -675,24 +663,17 @@ func downloadToDest(target, dest, jid string, ch chan tea.Msg) tea.Msg {
 		return saveResultMsg{target: target, err: err}
 	}
 
-	if iv != nil && key != nil {
-		// aesgcm:// attachments are cached separately from downloadsDir,
-		// keyed by a hash of the full target (see downloadAndOpen) - without
-		// this, a later Ctrl+O on a file the user already Ctrl+S'd would
-		// re-download and re-decrypt it from scratch.
-		if cacheDir, cacheErr := attachmentCacheDir(jid); cacheErr == nil {
-			cacheBase := filepath.Base(downloadURL)
-			if idx := strings.IndexAny(cacheBase, "?#"); idx >= 0 {
-				cacheBase = cacheBase[:idx]
-			}
-			if cacheBase == "" || cacheBase == "." || cacheBase == "/" {
-				cacheBase = "download"
-			}
-			sum := sha256.Sum256([]byte(target))
-			cacheDest := filepath.Join(cacheDir, hex.EncodeToString(sum[:8])+"-"+cacheBase)
-			if _, statErr := os.Stat(cacheDest); os.IsNotExist(statErr) {
-				_ = os.WriteFile(cacheDest, data, 0o644)
-			}
+	// Every save also lands a copy in the attachments cache, keyed by a hash
+	// of the full target (matching downloadAndOpen's naming) - without this,
+	// a later Ctrl+O on a file the user already Ctrl+S'd would re-download
+	// (and re-decrypt, for aesgcm://) it from scratch instead of reusing the
+	// copy just saved.
+	if cacheDir, cacheErr := attachmentCacheDir(jid); cacheErr == nil {
+		cacheBase := attachmentBaseName(downloadURL)
+		sum := sha256.Sum256([]byte(target))
+		cacheDest := filepath.Join(cacheDir, hex.EncodeToString(sum[:8])+"-"+cacheBase)
+		if _, statErr := os.Stat(cacheDest); os.IsNotExist(statErr) {
+			_ = os.WriteFile(cacheDest, data, 0o644)
 		}
 	}
 
