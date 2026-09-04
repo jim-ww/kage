@@ -1,3 +1,6 @@
+- do something about names of sent/downloaded files? e.g. preserve original name?
+- on upload, attachment file is not copied to attachments dir
+- on download (ctrl+s) should write to attachments dir and download dir concurrently? and gracefully handle mid-download errors, interruptions
 - sometimes message arrives, there is notification + message appears in chat list preview correctly, but doesnt appear in chat. reloading chat (by pressing chat name in chat list, loads messages correctly). Probably merge pagination + live messages merge logic
 - always send attachments separately from text message
 - daemon sometimes stop sending notifications, after sleep/session reload (like nixos-rebuild)
