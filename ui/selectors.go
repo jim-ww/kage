@@ -186,8 +186,28 @@ func (m Model) activeChatKey() (accountJID, chatAddress string) {
 // isChatFocused reports whether chatIdx within accountIdx is the chat
 // currently being actively viewed — the condition under which an incoming
 // message counts as already read rather than unread.
+//
+// This is deliberately narrower than isChatOnScreen: it is about whether the
+// user is *reading* the chat, not whether the chat is *visible*. Don't reach
+// for it to decide whether a re-render is needed — see isChatOnScreen.
 func (m Model) isChatFocused(accountIdx, chatIdx int) bool {
-	return accountIdx == m.currentAccount && chatIdx == m.currentChatIndex() && m.selectedView == viewChat
+	return m.isChatOnScreen(accountIdx, chatIdx) && m.selectedView == viewChat
+}
+
+// isChatOnScreen reports whether chatIdx within accountIdx is the chat the
+// message pane is currently rendering — the condition under which a change to
+// its messages has to be re-rendered into the viewport.
+//
+// The pane is drawn on every frame regardless of which pane holds the
+// keyboard focus (View always calls renderChatArea, which paints
+// m.viewport.View()), and the viewport only ever changes content when
+// something calls refreshViewport. So "is it visible" is a strictly weaker
+// condition than isChatFocused's "is the user reading it", and using the
+// latter to gate a re-render leaves the pane showing stale content: the
+// message lands in the model and the chat-list preview updates, but the chat
+// itself doesn't repaint until an unrelated event happens to refresh it.
+func (m Model) isChatOnScreen(accountIdx, chatIdx int) bool {
+	return accountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 }
 
 // incrementChatUnread bumps the in-memory unread count for chatIdx by delta

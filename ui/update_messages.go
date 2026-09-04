@@ -394,11 +394,16 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
-		if m.isChatFocused(msg.AccountIdx, chatIdx) {
+		// Repainting and marking-as-read are two different questions with two
+		// different answers: the pane showing this chat has to repaint even
+		// when the chat list (or the accounts panel) is what holds the focus,
+		// but only actually viewing the chat makes the message read.
+		if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
-		} else if !newMsg.IsMe && !newMsg.DecryptFailed {
+		}
+		if !m.isChatFocused(msg.AccountIdx, chatIdx) && !newMsg.IsMe && !newMsg.DecryptFailed {
 			cmd = tea.Batch(cmd, m.incrementChatUnread(msg.AccountIdx, chatIdx, 1))
 		}
 		return m, cmd, true
@@ -858,11 +863,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, msg.Messages...)
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msg.Messages[len(msg.Messages)-1]))
-		if m.isChatFocused(msg.AccountIdx, chatIdx) {
+		// Same repaint-vs-read split as IncomingMessageMsg above.
+		if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
-		} else {
+		}
+		if !m.isChatFocused(msg.AccountIdx, chatIdx) {
 			// MAM catch-up delivers messages that arrived while offline (see
 			// syncArchive), not just historical replay of what was already
 			// seen elsewhere — those genuinely-new, non-"me" messages count
