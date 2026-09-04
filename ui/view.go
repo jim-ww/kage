@@ -455,10 +455,10 @@ func (m Model) renderDeviceHoverPopup() (popup string, x, y int, ok bool) {
 	case chat.Presence == PresenceOffline:
 		lines = []string{deviceGlyph(PresenceOffline) + " offline"}
 	default:
-		// Roster says this contact is online/away/etc, but no live
-		// per-resource presence has arrived yet for it — nothing accurate
-		// to show either way, so stay silent rather than guess.
-		return "", 0, 0, false
+		// Roster says this contact is online/away/etc but no per-resource
+		// presence has arrived (e.g. a resource-less presence stanza) —
+		// fall back to the aggregate presence rather than showing nothing.
+		lines = []string{deviceGlyph(chat.Presence) + " " + presenceLabel(chat.Presence)}
 	}
 
 	z := m.zone.Get(m.hover.devicesID)
