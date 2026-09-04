@@ -268,6 +268,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	go func() {
 		select {
 		case <-conn.Done():
+			slog.Warn("runTUI: ipc connection to daemon closed (read error/EOF); quitting")
 			fmt.Fprintln(os.Stderr, "kage's background service disconnected; please restart kage")
 			p.Send(tea.Quit())
 		case <-quitting:

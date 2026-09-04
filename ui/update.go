@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -192,8 +193,14 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 				return
 			}
 			reporter := rm.focusReporter
+			slog.Debug("ui: focus state changed, reporting to daemon", "oldFocused", oldFocused, "newFocused", newFocused, "accountJID", newAccountJID, "chatAddress", newChatAddress)
 			retCmd = tea.Batch(retCmd, func() tea.Msg {
-				_ = reporter.SetFocusState(newAccountJID, newChatAddress, newFocused)
+				start := time.Now()
+				if err := reporter.SetFocusState(newAccountJID, newChatAddress, newFocused); err != nil {
+					slog.Warn("ui: SetFocusState RPC failed", "err", err, "elapsed", time.Since(start))
+				} else {
+					slog.Debug("ui: SetFocusState RPC done", "elapsed", time.Since(start))
+				}
 				return nil
 			})
 		}()

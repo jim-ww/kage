@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ErrClosed is returned by Call once the Conn's read loop has exited (the
@@ -107,6 +109,7 @@ func (c *Conn) shutdown() {
 // may be nil if the method has no return payload). It returns the daemon's
 // error, reconstructed from Response.Err, if the call failed there.
 func (c *Conn) Call(method string, params, result any) error {
+	start := time.Now()
 	paramBytes, err := json.Marshal(params)
 	if err != nil {
 		return fmt.Errorf("ipc: marshaling params for %s: %w", method, err)
@@ -127,8 +130,17 @@ func (c *Conn) Call(method string, params, result any) error {
 		c.pendingMu.Unlock()
 		return fmt.Errorf("ipc: sending request %s: %w", method, err)
 	}
+	slog.Debug("ipc: call sent, awaiting response", "method", method, "id", id)
 
 	resp, ok := <-ch
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		// A blocking channel receive with no deadline (see Call's doc) means a
+		// half-open socket - one that never errors, just stops flowing, a
+		// known failure mode across laptop sleep/resume - wedges this call
+		// forever instead of erroring. This log is the only trace of that
+		// happening; nothing else here would ever surface it.
+		slog.Warn("ipc: call took unusually long", "method", method, "id", id, "elapsed", elapsed, "ok", ok)
+	}
 	if !ok {
 		return ErrClosed
 	}

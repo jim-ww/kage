@@ -130,8 +130,10 @@ func Run(cfg config.Config, backend Backend) error {
 // at the current user's session bus socket directly, which systemd/dbus
 // place at this fixed path independent of any particular login session.
 func Notify(title, body string) {
+	busAddr := sessionBusAddress()
+	log.Printf("kage background service: notify-send invoked (title=%q bodyLen=%d bus=%s)", title, len(body), busAddr)
 	cmd := exec.Command("notify-send", "-a", "kage", title, body)
-	cmd.Env = append(os.Environ(), "DBUS_SESSION_BUS_ADDRESS="+sessionBusAddress())
+	cmd.Env = append(os.Environ(), "DBUS_SESSION_BUS_ADDRESS="+busAddr)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
