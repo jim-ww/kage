@@ -100,23 +100,7 @@ func (m Model) callLogLine(msg Message, msgIdx, totalWidth int) string {
 	if m.icons {
 		glyph = "📞"
 	}
-	var text string
-	switch msg.CallLog.Outcome {
-	case "missed":
-		text = "Missed call"
-	case "declined":
-		text = "Declined call"
-	case "failed":
-		text = "Call failed"
-	case "answered":
-		dir := "Incoming"
-		if msg.CallLog.Direction == "outgoing" {
-			dir = "Outgoing"
-		}
-		text = fmt.Sprintf("%s call · %s", dir, formatCallDuration(msg.CallLog.Duration))
-	default:
-		text = "Call ended"
-	}
+	text := callLogText(*msg.CallLog)
 	timeLabel := m.formatMessageTime(msg.SentAt)
 	line := m.styles.messageDeleted.Render(fmt.Sprintf("%s %s [%s]", glyph, text, timeLabel))
 	isSelected := msgIdx == m.selectedMsg
@@ -129,6 +113,28 @@ func (m Model) callLogLine(msg Message, msgIdx, totalWidth int) string {
 		line = m.styles.rowBackgroundTint(padLinesToWidth(line, totalWidth))
 	}
 	return line
+}
+
+// callLogText renders a call log's outcome as a short human-readable label,
+// shared between the message list's compact call-log row and the chat
+// list's last-message preview.
+func callLogText(info CallLogInfo) string {
+	switch info.Outcome {
+	case "missed":
+		return "Missed call"
+	case "declined":
+		return "Declined call"
+	case "failed":
+		return "Call failed"
+	case "answered":
+		dir := "Incoming"
+		if info.Direction == "outgoing" {
+			dir = "Outgoing"
+		}
+		return fmt.Sprintf("%s call · %s", dir, formatCallDuration(info.Duration))
+	default:
+		return "Call ended"
+	}
 }
 
 // maxCollapsedBodyLines is how many wrapped body lines a message shows
@@ -578,6 +584,9 @@ const previewLen = 40
 // URL's fragment is the file's decryption key) — show the decoded
 // filename(s) instead, same as the attachment's own rendered body line.
 func MessagePreviewContent(msg Message) string {
+	if msg.CallLog != nil {
+		return callLogText(*msg.CallLog)
+	}
 	if len(msg.Attachments) == 0 {
 		return StripMessageStyling(msg.Content)
 	}
