@@ -41,6 +41,12 @@ type fakeFileSender struct {
 
 func (f *fakeFileSender) Send(_ int, _ string, body string, opts SendOptions) (string, error) {
 	f.sendCalls = append(f.sendCalls, sendCall{body: body, opts: opts})
+	if f.uploadQueued {
+		// Mirrors production: Send and UploadFile share one account
+		// connection, so when the account is offline both queue rather than
+		// one succeeding and the other queuing.
+		return "", ErrQueued
+	}
 	if len(f.sendIDs) == 0 {
 		return "", nil
 	}
@@ -72,6 +78,40 @@ func (f *fakeFileSender) UploadFile(_ int, to, path, text string, opts SendOptio
 	return FileUploadResultMsg{Path: path, URL: url}
 }
 func (f *fakeFileSender) CancelUpload(path string) { f.canceledPath = path }
+
+// collectComposedSendResult runs cmd (unwrapping any tea.BatchMsg, mirroring
+// what the real Program loop does) and returns the ComposedSendResultMsg
+// among its resulting messages - needed since sendCurrentInput's
+// hasAttachments branch now batches the attachment upload command alongside
+// the caption send's own side-effect commands (notification,
+// setChatLastMessage), so the raw result of the returned tea.Cmd is a
+// tea.BatchMsg rather than the ComposedSendResultMsg directly.
+func collectComposedSendResult(t *testing.T, cmd tea.Cmd) ComposedSendResultMsg {
+	t.Helper()
+	var result ComposedSendResultMsg
+	found := false
+	var walk func(tea.Cmd)
+	walk = func(c tea.Cmd) {
+		if c == nil {
+			return
+		}
+		msg := c()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			for _, sub := range batch {
+				walk(sub)
+			}
+			return
+		}
+		if r, ok := msg.(ComposedSendResultMsg); ok {
+			result, found = r, true
+		}
+	}
+	walk(cmd)
+	if !found {
+		t.Fatal("no ComposedSendResultMsg among the send command's results")
+	}
+	return result
+}
 
 func TestFilePickerReceivesAsyncDirectoryRead(t *testing.T) {
 	dir := t.TempDir()
@@ -244,11 +284,13 @@ func TestTabCyclesSelectedAttachmentAndBackspaceRemovesIt(t *testing.T) {
 	}
 }
 
-// TestSendWithAttachmentAndReplyCombinesIntoOneMessage covers the requested
-// flow: stage files, type a reply, hit enter — nothing uploads until this
-// point, then one message goes out carrying both the text and every
-// attachment, wired as a reply exactly like a text-only send.
-func TestSendWithAttachmentAndReplyCombinesIntoOneMessage(t *testing.T) {
+// TestSendWithAttachmentAndReplySendsCaptionSeparately covers the requested
+// flow: stage a file, type a caption, hit enter — nothing uploads until this
+// point, and the caption goes out as its own message (sent synchronously,
+// before the attachment's async upload even starts) rather than being
+// folded into the attachment's body; both are wired as a reply exactly like
+// a text-only send.
+func TestSendWithAttachmentAndReplySendsCaptionSeparately(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.pdf")
 	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
@@ -285,26 +327,49 @@ func TestSendWithAttachmentAndReplyCombinesIntoOneMessage(t *testing.T) {
 		t.Fatal("upload started before the send command actually ran")
 	}
 
-	result := sendCmd()
+	// The caption is sent synchronously, inline in sendCurrentInput, so it's
+	// already in history before the async attachment command even runs.
+	msgs := m.accounts[0].Messages[0]
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages after sendCurrentInput, want 2 (original + caption)", len(msgs))
+	}
+	caption := msgs[1]
+	if caption.Content != "check this out" {
+		t.Fatalf("caption message Content = %q, want %q", caption.Content, "check this out")
+	}
+	if len(caption.Attachments) != 0 {
+		t.Fatalf("caption message Attachments = %#v, want none", caption.Attachments)
+	}
+	if caption.ReplyTo == nil || *caption.ReplyTo != 0 {
+		t.Fatalf("caption message ReplyTo = %v, want pointer to 0", caption.ReplyTo)
+	}
+	if len(sender.sendCalls) != 1 || sender.sendCalls[0].body != "check this out" {
+		t.Fatalf("sendCalls = %#v, want exactly one Send call carrying the caption", sender.sendCalls)
+	}
+
+	result := collectComposedSendResult(t, sendCmd)
 	if sender.path != path {
 		t.Fatalf("uploaded path = %q, want %q", sender.path, path)
 	}
 	next, _ := m.Update(result)
 	m = next.(Model)
 
-	msgs := m.accounts[0].Messages[0]
-	if len(msgs) != 2 {
-		t.Fatalf("got %d messages, want 2", len(msgs))
+	msgs = m.accounts[0].Messages[0]
+	if len(msgs) != 3 {
+		t.Fatalf("got %d messages, want 3 (original + caption + attachment)", len(msgs))
 	}
-	sent := msgs[1]
+	sent := msgs[2]
 	if sent.ReplyTo == nil || *sent.ReplyTo != 0 {
 		t.Fatalf("sent message ReplyTo = %v, want pointer to 0", sent.ReplyTo)
 	}
 	if len(sent.Attachments) != 1 || sent.Attachments[0] != "https://upload.example.test/report.pdf" {
 		t.Fatalf("sent message Attachments = %#v, want the uploaded URL", sent.Attachments)
 	}
-	if !strings.Contains(sent.Content, "check this out") || !strings.Contains(sent.Content, "https://upload.example.test/report.pdf") {
-		t.Fatalf("sent message Content = %q, want text and attachment URL both present", sent.Content)
+	if strings.Contains(sent.Content, "check this out") {
+		t.Fatalf("attachment message Content = %q, want no caption text mixed in", sent.Content)
+	}
+	if len(sender.sendCalls) != 2 || sender.sendCalls[1].body != "https://upload.example.test/report.pdf" {
+		t.Fatalf("sendCalls = %#v, want a second Send call carrying only the attachment URL", sender.sendCalls)
 	}
 }
 
@@ -313,8 +378,8 @@ func TestSendWithAttachmentAndReplyCombinesIntoOneMessage(t *testing.T) {
 // attachment) - other clients (verified against Dino's source) only read
 // the first attachment URL in a message and silently drop the rest, so a
 // combined multi-attachment message would only ever show its first file
-// elsewhere. Text goes on the first message only; every message shares the
-// same reply target.
+// elsewhere. The caption goes out as its own message, ahead of every
+// attachment; every message shares the same reply target.
 func TestMultiAttachmentSendSplitsIntoSeparateMessages(t *testing.T) {
 	dir := t.TempDir()
 	pathA := filepath.Join(dir, "a.jpg")
@@ -347,32 +412,45 @@ func TestMultiAttachmentSendSplitsIntoSeparateMessages(t *testing.T) {
 		t.Fatal("sendCurrentInput returned nil, want the async upload+send command")
 	}
 
-	result := sendCmd()
-	if len(sender.sendCalls) != 2 {
-		t.Fatalf("got %d Send calls, want 2 (one per staged attachment)", len(sender.sendCalls))
+	// The caption is sent synchronously, inline in sendCurrentInput, ahead
+	// of either attachment's (async) upload+send.
+	if len(sender.sendCalls) != 1 {
+		t.Fatalf("got %d Send calls after sendCurrentInput, want 1 (the caption)", len(sender.sendCalls))
 	}
-	first, second := sender.sendCalls[0], sender.sendCalls[1]
-	if !strings.Contains(first.body, "check these out") {
-		t.Fatalf("first message body = %q, want the typed text", first.body)
+	caption := sender.sendCalls[0]
+	if caption.body != "check these out" {
+		t.Fatalf("caption message body = %q, want %q", caption.body, "check these out")
 	}
-	if strings.Contains(second.body, "check these out") {
-		t.Fatalf("second message body = %q, want no typed text (only the first message carries it)", second.body)
+	if len(caption.opts.OOBURLs) != 0 {
+		t.Fatalf("caption Send call OOBURLs = %v, want none", caption.opts.OOBURLs)
 	}
-	if first.opts.ReplyToID != "orig-id" || second.opts.ReplyToID != "orig-id" {
-		t.Fatalf("ReplyToID = %q / %q, want both %q", first.opts.ReplyToID, second.opts.ReplyToID, "orig-id")
+
+	result := collectComposedSendResult(t, sendCmd)
+	if len(sender.sendCalls) != 3 {
+		t.Fatalf("got %d Send calls, want 3 (caption + one per staged attachment)", len(sender.sendCalls))
+	}
+	first, second := sender.sendCalls[1], sender.sendCalls[2]
+	if strings.Contains(first.body, "check these out") || strings.Contains(second.body, "check these out") {
+		t.Fatalf("attachment message bodies = %q / %q, want no caption text mixed in", first.body, second.body)
+	}
+	if caption.opts.ReplyToID != "orig-id" || first.opts.ReplyToID != "orig-id" || second.opts.ReplyToID != "orig-id" {
+		t.Fatalf("ReplyToID = %q / %q / %q, want all %q", caption.opts.ReplyToID, first.opts.ReplyToID, second.opts.ReplyToID, "orig-id")
 	}
 	if len(first.opts.OOBURLs) != 1 || len(second.opts.OOBURLs) != 1 {
-		t.Fatalf("each Send call should carry exactly one OOB URL, got %v / %v", first.opts.OOBURLs, second.opts.OOBURLs)
+		t.Fatalf("each attachment Send call should carry exactly one OOB URL, got %v / %v", first.opts.OOBURLs, second.opts.OOBURLs)
 	}
 
 	next, _ := m.Update(result)
 	m = next.(Model)
 
 	msgs := m.accounts[0].Messages[0]
-	if len(msgs) != 3 { // original + 2 sent
-		t.Fatalf("got %d messages, want 3", len(msgs))
+	if len(msgs) != 4 { // original + caption + 2 attachments
+		t.Fatalf("got %d messages, want 4", len(msgs))
 	}
-	for _, sent := range msgs[1:] {
+	if len(msgs[1].Attachments) != 0 {
+		t.Fatalf("caption message Attachments = %#v, want none", msgs[1].Attachments)
+	}
+	for _, sent := range msgs[2:] {
 		if sent.ReplyTo == nil || *sent.ReplyTo != 0 {
 			t.Fatalf("sent message ReplyTo = %v, want pointer to 0", sent.ReplyTo)
 		}
@@ -385,8 +463,11 @@ func TestMultiAttachmentSendSplitsIntoSeparateMessages(t *testing.T) {
 // TestAttachedSendQueuesWhenOffline verifies that when the account is
 // offline, startAttachedSend stops after the first UploadFile reports
 // Queued (rather than trying every staged file and calling Send with no
-// URL), never calls Send, and the resulting ComposedSendResultMsg surfaces a
-// distinct "queued" notification instead of "send failed".
+// URL), never calls Send for an attachment, and the resulting
+// ComposedSendResultMsg surfaces a distinct "queued" notification instead of
+// "send failed". The caption (sent separately, synchronously) queues too,
+// via the normal plain-text ErrQueued path, since it shares the same
+// offline account connection.
 func TestAttachedSendQueuesWhenOffline(t *testing.T) {
 	dir := t.TempDir()
 	pathA := filepath.Join(dir, "a.jpg")
@@ -412,21 +493,30 @@ func TestAttachedSendQueuesWhenOffline(t *testing.T) {
 		t.Fatal("sendCurrentInput returned nil, want the async upload+send command")
 	}
 
-	result := sendCmd().(ComposedSendResultMsg)
+	// The caption was sent (and queued) synchronously, inline.
+	if len(sender.sendCalls) != 1 || sender.sendCalls[0].body != "check these out" {
+		t.Fatalf("sendCalls = %#v, want exactly one queued caption Send call", sender.sendCalls)
+	}
+	captionMsgs := m.accounts[0].Messages[0]
+	if len(captionMsgs) != 1 || !captionMsgs[0].Pending {
+		t.Fatalf("got %#v, want 1 Pending placeholder for the queued caption", captionMsgs)
+	}
+
+	result := collectComposedSendResult(t, sendCmd)
 	if !result.Queued {
 		t.Fatal("ComposedSendResultMsg.Queued = false, want true")
 	}
 	if result.Err != nil {
 		t.Fatalf("ComposedSendResultMsg.Err = %v, want nil", result.Err)
 	}
-	if len(sender.sendCalls) != 0 {
-		t.Fatalf("got %d Send calls, want 0 (nothing uploaded, nothing to send)", len(sender.sendCalls))
+	if len(sender.sendCalls) != 1 {
+		t.Fatalf("got %d Send calls, want still 1 (nothing uploaded, nothing to send for the attachments)", len(sender.sendCalls))
 	}
 	if sender.uploadCalls != 1 {
 		t.Fatalf("got %d UploadFile calls, want 1 (stop at the first offline result)", sender.uploadCalls)
 	}
-	if sender.lastUploadText != "check these out" {
-		t.Fatalf("first UploadFile text = %q, want the typed text", sender.lastUploadText)
+	if sender.lastUploadText != "" {
+		t.Fatalf("first UploadFile text = %q, want empty (captions never ride along with an attachment)", sender.lastUploadText)
 	}
 	if result.QueuedLocalID == "" {
 		t.Fatal("QueuedLocalID is empty, want a LocalID so the placeholder can later be resolved by MessageSendResolvedMsg")
@@ -441,11 +531,11 @@ func TestAttachedSendQueuesWhenOffline(t *testing.T) {
 		t.Fatal("Update(ComposedSendResultMsg{Queued: true}) returned nil cmd, want a notification")
 	}
 	got := m.accounts[0].Messages[0]
-	if len(got) != 1 {
-		t.Fatalf("got %d messages, want 1 (a local Pending placeholder for the queued attachment)", len(got))
+	if len(got) != 2 {
+		t.Fatalf("got %d messages, want 2 (Pending placeholders for the caption and the queued attachment)", len(got))
 	}
-	if !got[0].Pending || !got[0].IsMe || got[0].LocalID != result.QueuedLocalID {
-		t.Fatalf("placeholder = %+v, want Pending=true IsMe=true LocalID=%q", got[0], result.QueuedLocalID)
+	if !got[1].Pending || !got[1].IsMe || got[1].LocalID != result.QueuedLocalID {
+		t.Fatalf("placeholder = %+v, want Pending=true IsMe=true LocalID=%q", got[1], result.QueuedLocalID)
 	}
 }
 
@@ -469,7 +559,7 @@ func TestQueuedAttachmentResolvesPlaceholderWithoutDuplicating(t *testing.T) {
 
 	next, _, handled := m.handleEventMsg(ComposedSendResultMsg{
 		AccountIdx: 0, To: chat.Address,
-		Queued: true, QueuedLocalID: "local-file-1", QueuedPath: "/tmp/photo.jpg", QueuedText: "check this out",
+		Queued: true, QueuedLocalID: "local-file-1", QueuedPath: "/tmp/photo.jpg",
 	})
 	if !handled {
 		t.Fatal("ComposedSendResultMsg was not handled")
@@ -511,11 +601,12 @@ func TestQueuedAttachmentResolvesPlaceholderWithoutDuplicating(t *testing.T) {
 // TestFileSendFailureDoesNotAddMessage for the combined text+attachments
 // send path.
 // TestFailedAttachmentSendIsRetryable covers the cancel/fail-then-resend
-// path: a failed upload leaves a Failed, retryable placeholder in the chat
-// (not just a toast, unlike TestComposedSendFailureDoesNotAddMessage's
-// synthetic no-metadata Err below), and actionRetryMessage re-uploads it
-// from the original local path, patching the same row rather than adding a
-// duplicate.
+// path: the caption (sent separately) succeeds independently of the
+// attachment; a failed upload leaves its own Failed, retryable placeholder
+// in the chat (not just a toast, unlike TestComposedSendFailureDoesNotAddMessage's
+// synthetic no-metadata Err below), and actionRetryMessage re-uploads just
+// the attachment from the original local path, patching the same row rather
+// than adding a duplicate.
 func TestFailedAttachmentSendIsRetryable(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.pdf")
@@ -537,21 +628,24 @@ func TestFailedAttachmentSendIsRetryable(t *testing.T) {
 	if sendCmd == nil {
 		t.Fatal("sendCurrentInput returned nil")
 	}
-	result := sendCmd()
+	result := collectComposedSendResult(t, sendCmd)
 	next, _ := m.Update(result)
 	m = next.(Model)
 
 	msgs := m.accounts[0].Messages[0]
-	if len(msgs) != 1 {
-		t.Fatalf("got %d messages after failed upload, want 1 (Failed placeholder)", len(msgs))
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2 (the sent caption, and a Failed placeholder for the attachment)", len(msgs))
 	}
-	if !msgs[0].Failed {
-		t.Fatal("placeholder not flagged Failed")
+	if msgs[0].Failed || msgs[0].Content != "check this out" {
+		t.Fatalf("caption message = %+v, want a successfully-sent, non-Failed message with the typed text", msgs[0])
 	}
-	if len(msgs[0].PendingAttachmentPaths) != 1 || msgs[0].PendingAttachmentPaths[0] != path {
-		t.Fatalf("PendingAttachmentPaths = %#v, want [%q]", msgs[0].PendingAttachmentPaths, path)
+	if !msgs[1].Failed {
+		t.Fatal("attachment placeholder not flagged Failed")
 	}
-	localID := msgs[0].LocalID
+	if len(msgs[1].PendingAttachmentPaths) != 1 || msgs[1].PendingAttachmentPaths[0] != path {
+		t.Fatalf("PendingAttachmentPaths = %#v, want [%q]", msgs[1].PendingAttachmentPaths, path)
+	}
+	localID := msgs[1].LocalID
 	if localID == "" {
 		t.Fatal("placeholder has no LocalID to retry against")
 	}
@@ -559,7 +653,7 @@ func TestFailedAttachmentSendIsRetryable(t *testing.T) {
 	// Retry, this time succeeding.
 	sender.uploadErr = nil
 	sender.uploadURL = "https://upload.example.test/report.pdf"
-	m.selectedMsg = 0
+	m.selectedMsg = 1
 	retryCmd := m.actionRetryMessage()
 	if retryCmd == nil {
 		t.Fatal("actionRetryMessage returned nil")
@@ -569,20 +663,20 @@ func TestFailedAttachmentSendIsRetryable(t *testing.T) {
 	m = next.(Model)
 
 	msgs = m.accounts[0].Messages[0]
-	if len(msgs) != 1 {
-		t.Fatalf("got %d messages after successful retry, want 1 (patched in place, not duplicated)", len(msgs))
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages after successful retry, want 2 (patched in place, not duplicated)", len(msgs))
 	}
-	if msgs[0].Failed {
+	if msgs[1].Failed {
 		t.Fatal("message still Failed after successful retry")
 	}
-	if msgs[0].LocalID != localID {
-		t.Fatalf("LocalID changed across retry: got %q, want %q", msgs[0].LocalID, localID)
+	if msgs[1].LocalID != localID {
+		t.Fatalf("LocalID changed across retry: got %q, want %q", msgs[1].LocalID, localID)
 	}
-	if len(msgs[0].Attachments) != 1 || msgs[0].Attachments[0] != "https://upload.example.test/report.pdf" {
-		t.Fatalf("retried message Attachments = %#v, want the uploaded URL", msgs[0].Attachments)
+	if len(msgs[1].Attachments) != 1 || msgs[1].Attachments[0] != "https://upload.example.test/report.pdf" {
+		t.Fatalf("retried message Attachments = %#v, want the uploaded URL", msgs[1].Attachments)
 	}
-	if !strings.Contains(msgs[0].Content, "check this out") {
-		t.Fatalf("retried message Content = %q, want original caption preserved", msgs[0].Content)
+	if strings.Contains(msgs[1].Content, "check this out") {
+		t.Fatalf("retried attachment message Content = %q, want no caption text mixed in", msgs[1].Content)
 	}
 }
 

@@ -234,17 +234,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				if chatIdx < 0 || msg.QueuedLocalID == "" {
 					return m, cmd, true
 				}
-				content := msg.QueuedText
-				name := "[queued: " + filepath.Base(msg.QueuedPath) + "]"
-				if content != "" {
-					content += "\n" + name
-				} else {
-					content = name
-				}
 				placeholder := Message{
 					LocalID: msg.QueuedLocalID,
 					Author:  "me",
-					Content: content,
+					Content: "[queued: " + filepath.Base(msg.QueuedPath) + "]",
 					SentAt:  time.Now(),
 					IsMe:    true,
 					Pending: true,

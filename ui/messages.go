@@ -253,17 +253,15 @@ type ComposedSendResultMsg struct {
 	Messages   []SentMessage
 	Queued     bool // true: account was offline, every not-yet-sent file in this batch was queued rather than attempted
 
-	// QueuedLocalID/QueuedPath/QueuedText are set alongside Queued: the
-	// file (and its caption text, if it was the first in the batch) that
-	// got queued, so the handler can show a local Pending placeholder for
-	// it — the same local-echo treatment a plain-text queued send already
-	// gets in sendCurrentInput — instead of just a toast. QueuedLocalID
-	// also carries through to the outbox row (FileSender.UploadFile passes
-	// it on), so adapter.flushOutbox can resolve this exact placeholder by
+	// QueuedLocalID/QueuedPath are set alongside Queued: the file that got
+	// queued, so the handler can show a local Pending placeholder for it —
+	// the same local-echo treatment a plain-text queued send already gets
+	// in sendCurrentInput — instead of just a toast. QueuedLocalID also
+	// carries through to the outbox row (FileSender.UploadFile passes it
+	// on), so adapter.flushOutbox can resolve this exact placeholder by
 	// LocalID once the queued upload+send actually happens.
 	QueuedLocalID string
 	QueuedPath    string
-	QueuedText    string
 
 	// RetryOfLocalID is set when this batch is actionRetryMessage retrying an
 	// existing Failed attachment placeholder rather than a fresh send: the
@@ -272,15 +270,13 @@ type ComposedSendResultMsg struct {
 	// in the batch still append as usual.
 	RetryOfLocalID string
 
-	// FailedLocalID/FailedText/FailedPaths mirror QueuedLocalID/QueuedPath/
-	// QueuedText for a genuine failure (Err set, Queued false): the caption
-	// text and the local file path(s) that never made it out - including
-	// whichever one actually failed, plus any after it in the batch that
-	// were never attempted - so the handler can leave behind a Failed,
-	// retryable placeholder (Message.PendingAttachmentPaths) instead of only
-	// a toast.
+	// FailedLocalID/FailedPaths mirror QueuedLocalID/QueuedPath for a
+	// genuine failure (Err set, Queued false): the local file path(s) that
+	// never made it out - including whichever one actually failed, plus any
+	// after it in the batch that were never attempted - so the handler can
+	// leave behind a Failed, retryable placeholder
+	// (Message.PendingAttachmentPaths) instead of only a toast.
 	FailedLocalID string
-	FailedText    string
 	FailedPaths   []string
 
 	Err error

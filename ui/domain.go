@@ -56,12 +56,6 @@ type Message struct {
 	// re-picking files. Always empty unless Failed is also true.
 	PendingAttachmentPaths []string
 
-	// PendingAttachmentText is the original caption typed alongside
-	// PendingAttachmentPaths, kept separately from Content (which additionally
-	// carries a human-readable "[failed: name]" marker for display) so a
-	// retry can resend the caption as-typed rather than that marker text.
-	PendingAttachmentText string
-
 	// Encrypted is set when the message was end-to-end encrypted (OMEMO or
 	// GPG) on the wire, rather than sent as plaintext.
 	Encrypted bool

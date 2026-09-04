@@ -54,8 +54,10 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			return m.showNotification("no chat selected")
 		}
 		var sendOpts SendOptions
+		replyIdx := -1
 		if m.replyToIdx >= 0 {
 			if msgs := m.currentMessages(); m.replyToIdx < len(msgs) && msgs[m.replyToIdx].ID != "" {
+				replyIdx = m.replyToIdx
 				sendOpts = SendOptions{
 					ReplyToID:    msgs[m.replyToIdx].ID,
 					QuotedAuthor: msgs[m.replyToIdx].Author,
@@ -67,7 +69,16 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		for _, a := range m.pendingAttachments {
 			delete(m.finishedTransfers, a.path)
 		}
-		cmds = append(cmds, m.startAttachedSend(text, chat.Address, sendOpts))
+		if text != "" {
+			// A caption typed alongside staged attachments always goes out as
+			// its own independent message - never folded into an attachment's
+			// body (see startAttachedSend's doc comment: other clients only
+			// read the first XEP-0066 URL in a message body anyway, and
+			// combining also entangled the caption's send/retry state with
+			// the attachment's own upload/queue state).
+			cmds = append(cmds, m.sendPlainTextCaption(text, chat, sendOpts, replyIdx))
+		}
+		cmds = append(cmds, m.startAttachedSend(chat.Address, sendOpts))
 		m.pendingAttachments = nil
 		m.selectedAttachment = -1
 		m.notifyTypingStopped()
@@ -214,6 +225,61 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// sendPlainTextCaption sends text as a standalone message alongside
+// attachments staged in the same compose (see sendCurrentInput's
+// hasAttachments branch) — a caption is always its own message, never
+// bundled into an attachment's body. Synchronous, like the plain-text-only
+// send path: unlike attachments there's no upload to wait on, so the local
+// echo can be built and appended immediately rather than via an async Cmd.
+// replyIdx is the index (in m.currentMessages()) of the message being
+// replied to, or -1 for none — captured by the caller before m.replyToIdx is
+// cleared.
+func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOptions, replyIdx int) tea.Cmd {
+	if m.sender == nil {
+		return m.showNotification("not connected; caption not sent")
+	}
+	newMsg := Message{
+		Author:  "me",
+		Content: text,
+		SentAt:  time.Now(),
+		IsMe:    true,
+	}
+	if replyIdx >= 0 {
+		rt := replyIdx
+		newMsg.ReplyTo = &rt
+	}
+	newMsg.LocalID = newLocalID()
+	sendOpts.LocalID = newMsg.LocalID
+
+	var cmds []tea.Cmd
+	id, err := m.sender.Send(m.currentAccount, chat.Address, text, sendOpts)
+	switch {
+	case err == nil:
+		newMsg.ID = id
+		switch mode := m.encryptionModeOrDefault(chat.EncryptionMode); {
+		case mode == "gpg":
+			newMsg.Encrypted, newMsg.EncMethod = true, "gpg"
+		case mode == "omemo-v1", mode == "omemo-v2":
+			newMsg.Encrypted, newMsg.EncMethod = true, mode
+		case mode != "none":
+			newMsg.Encrypted, newMsg.EncMethod = true, "omemo"
+		}
+	case errors.Is(err, ErrQueued):
+		newMsg.Pending = true
+		cmds = append(cmds, m.showNotification("offline; message queued"))
+	default:
+		newMsg.Failed = true
+		cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
+	}
+
+	msgs := append(m.currentMessages(), newMsg)
+	m.setCurrentMessages(msgs)
+	if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+		cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, MessagePreviewContent(newMsg)))
+	}
+	return tea.Batch(cmds...)
+}
+
 // The action* methods below each implement one message/chat action against
 // the current selection (m.selectedMsg / m.currentChatIndex()). They exist
 // so the DeleteMsg/YankMsg/EditMsg/etc. keybindings and the mouse
@@ -264,7 +330,7 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 				}
 			}
 		}
-		return m.retryAttachedSend(msgs[idx].PendingAttachmentText, chat.Address, reply, msgs[idx].PendingAttachmentPaths, msgs[idx].LocalID)
+		return m.retryAttachedSend(chat.Address, reply, msgs[idx].PendingAttachmentPaths, msgs[idx].LocalID)
 	}
 	if len(msgs[idx].Attachments) > 0 {
 		return m.showNotification("can't retry attachments")
