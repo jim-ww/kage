@@ -1,3 +1,9 @@
+- design proper tray icon/logo
+- sometimes attached files, that have been removed from submission still get submitted? or why else there might be duplicates
+- increase message size, before it becomes collapsible
+- open chat composer (textbox) of message size (with limits)
+- pasted text to chat composer(inputbox) isnt shown in chat as it is in composer. e.g. multiline insert lines get bad padding from left
+- ellipsis must not wrap on second line, if replied-to message text is overflowing (e.g. does not account for ellipsis char length itself)
 - option to choose mic + mid call
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
 - ui(config): allow setting single-line display of messages in chat, off by default (e.g. whole status line + control buttons on same line as message, after message text)
