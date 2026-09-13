@@ -57,14 +57,38 @@ in
     };
 
     systemd.enable = lib.mkEnableOption "a systemd user service that starts/stops the kage daemon with the graphical session";
+
+    accountsFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = ''
+        Path to a YAML file (e.g. a sops-nix/agenix secret path) holding
+        the top-level `accounts:` key, appended to `settings` at activation
+        time so it never enters the Nix store or a git repo.
+
+        `settings` must not also set `accounts`.
+      '';
+      example = lib.literalExpression ''
+        config.sops.secrets.kage-accounts.path
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
 
-    xdg.configFile."kage/config.yaml" = lib.mkIf (cfg.settings != { }) {
+    xdg.configFile."kage/config.yaml" = lib.mkIf (cfg.settings != { } && cfg.accountsFile == null) {
       source = yamlFormat.generate "kage-config.yaml" cfg.settings;
     };
+
+    home.activation.kageMergeAccounts = lib.mkIf (cfg.accountsFile != null) (
+      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        run mkdir -p ${lib.escapeShellArg "${config.xdg.configHome}/kage"}
+        run cat ${yamlFormat.generate "kage-config-base.yaml" cfg.settings} \
+          ${lib.escapeShellArg cfg.accountsFile} \
+          > ${lib.escapeShellArg "${config.xdg.configHome}/kage/config.yaml"}
+      ''
+    );
 
     systemd.user.services.kage = lib.mkIf cfg.systemd.enable {
       Unit = {
