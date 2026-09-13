@@ -55,6 +55,8 @@ in
         }
       '';
     };
+
+    systemd.enable = lib.mkEnableOption "a systemd user service that starts/stops the kage daemon with the graphical session";
   };
 
   config = lib.mkIf cfg.enable {
@@ -62,6 +64,21 @@ in
 
     xdg.configFile."kage/config.yaml" = lib.mkIf (cfg.settings != { }) {
       source = yamlFormat.generate "kage-config.yaml" cfg.settings;
+    };
+
+    systemd.user.services.kage = lib.mkIf cfg.systemd.enable {
+      Unit = {
+        Description = "kage background service";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" ];
+      };
+      Service = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${cfg.package}/bin/kage daemon start";
+        ExecStop = "${cfg.package}/bin/kage daemon stop";
+      };
+      Install.WantedBy = [ "graphical-session.target" ];
     };
   };
 }

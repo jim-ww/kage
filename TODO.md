@@ -1,3 +1,4 @@
+- fix: replied-to msg shifts as new messages appear
 - design proper tray icon/logo
 - sometimes attached files, that have been removed from submission still get submitted? or why else there might be duplicates
 - increase message size, before it becomes collapsible
