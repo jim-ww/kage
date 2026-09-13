@@ -47,12 +47,12 @@ kage --debug          # debug logging to <config dir>/kage/debug.log
 
 ## Configuration
 
-kage reads a YAML config (see [config.example.yaml](config.example.yaml) for every option, fully commented) from the default OS config directory unless `--config` is given. At minimum you need one account:
+kage reads a TOML config (see [config.example.toml](config.example.toml) for every option, fully commented) from the default OS config directory unless `--config` is given. At minimum you need one account:
 
-```yaml
-accounts:
-  - jid: user@example.com
-    password_cmd: pass show xmpp/user
+```toml
+[[accounts]]
+jid = "user@example.com"
+password_cmd = "pass show xmpp/user"
 ```
 
 Passwords (account and local storage) resolve in order: OS keyring → `password_cmd` → plaintext `password`.

@@ -38,7 +38,7 @@ const videoCaptureFramerate = 15
 
 // VideoQuality selects the capture profile (resolution/bitrate) used by both
 // ScreenShare (wf-recorder) and Camera (ffmpeg/v4l2) - see
-// VideoQualityFromString for the config.yaml string this maps from.
+// VideoQualityFromString for the config.toml string this maps from.
 type VideoQuality int
 
 const (
@@ -48,7 +48,7 @@ const (
 	VideoQualityHigh
 )
 
-// VideoQualityFromString maps config.yaml's video_quality string onto a
+// VideoQualityFromString maps config.toml's video_quality string onto a
 // VideoQuality, defaulting to VideoQualityMedium for "" or anything
 // unrecognized - the same lenient-default treatment other string config
 // options (e.g. FilePickerSortField) get.

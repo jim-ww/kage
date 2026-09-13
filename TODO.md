@@ -1,3 +1,5 @@
+- fix: rarely, cannot scroll past certain message and load older history
+- on edit msg, if other user sends message, and you hit save, it wont get saved
 - fix: replied-to msg shifts as new messages appear
 - design proper tray icon/logo
 - sometimes attached files, that have been removed from submission still get submitted? or why else there might be duplicates

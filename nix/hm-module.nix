@@ -9,7 +9,7 @@
 }:
 let
   cfg = config.programs.kage;
-  yamlFormat = pkgs.formats.yaml { };
+  tomlFormat = pkgs.formats.toml { };
 in
 {
   options.programs.kage = {
@@ -23,15 +23,15 @@ in
     };
 
     settings = lib.mkOption {
-      type = yamlFormat.type;
+      type = tomlFormat.type;
       default = { };
       description = ''
-        Settings written verbatim to config.yaml (keys as documented in
+        Settings written verbatim to config.toml (keys as documented in
         kage's config.Config, e.g. `mouse_disabled`, `theme`, `keybinds`,
         `accounts`, `storage`, ...). This is only the declarative half of
         kage's config: settings the app itself mutates at runtime (dragged
         sidebar width, last opened chat, cycled sort order, per-account
-        presence, ...) live in a separate state.yaml next to config.yaml
+        presence, ...) live in a separate state.toml next to config.toml
         that this module never touches - see config.State in kage's source
         for the full list.
 
@@ -62,9 +62,9 @@ in
       type = lib.types.nullOr lib.types.path;
       default = null;
       description = ''
-        Path to a YAML file (e.g. a sops-nix/agenix secret path) holding
-        the top-level `accounts:` key, appended to `settings` at activation
-        time so it never enters the Nix store or a git repo.
+        Path to a TOML file (e.g. a sops-nix/agenix secret path) holding
+        one or more `[[accounts]]` tables, appended to `settings` at
+        activation time so it never enters the Nix store or a git repo.
 
         `settings` must not also set `accounts`.
       '';
@@ -77,16 +77,16 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
 
-    xdg.configFile."kage/config.yaml" = lib.mkIf (cfg.settings != { } && cfg.accountsFile == null) {
-      source = yamlFormat.generate "kage-config.yaml" cfg.settings;
+    xdg.configFile."kage/config.toml" = lib.mkIf (cfg.settings != { } && cfg.accountsFile == null) {
+      source = tomlFormat.generate "kage-config.toml" cfg.settings;
     };
 
     home.activation.kageMergeAccounts = lib.mkIf (cfg.accountsFile != null) (
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run mkdir -p ${lib.escapeShellArg "${config.xdg.configHome}/kage"}
-        run cat ${yamlFormat.generate "kage-config-base.yaml" cfg.settings} \
+        run cat ${tomlFormat.generate "kage-config-base.toml" cfg.settings} \
           ${lib.escapeShellArg cfg.accountsFile} \
-          > ${lib.escapeShellArg "${config.xdg.configHome}/kage/config.yaml"}
+          > ${lib.escapeShellArg "${config.xdg.configHome}/kage/config.toml"}
       ''
     );
 

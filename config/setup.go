@@ -5,13 +5,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/zalando/go-keyring"
-	"gopkg.in/yaml.v3"
 )
 
 // DefaultWritePath returns where a newly generated config should be written:
 // $KAGE_CONFIG if set, otherwise the XDG-style default
-// ~/.config/kage/config.yaml (created if the directory doesn't exist).
+// ~/.config/kage/config.toml (created if the directory doesn't exist).
 func DefaultWritePath() (string, error) {
 	if env := os.Getenv("KAGE_CONFIG"); env != "" {
 		return env, nil
@@ -24,7 +24,7 @@ func DefaultWritePath() (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}
-	return filepath.Join(dir, "config.yaml"), nil
+	return filepath.Join(dir, "config.toml"), nil
 }
 
 // SetKeyringPassword stores password in the OS keyring for jid, under the
@@ -223,7 +223,7 @@ func SetStoragePlaintextPassword(path, password string) error {
 // storage.password_cmd from the config file at path — used when the local
 // storage password is changed to empty, i.e. local storage encryption is
 // being turned off. Since both fields are `omitempty`, zeroing them here
-// drops the keys from config.yaml entirely on the next write rather than
+// drops the keys from config.toml entirely on the next write rather than
 // leaving a `password: ""` behind.
 func ClearStoragePassword(path string) error {
 	cfg, err := loadOrEmpty(path)
@@ -241,11 +241,11 @@ func loadOrEmpty(path string) (Config, error) {
 }
 
 // writeFileConfig strips any field equal to its default (see stripDefaults)
-// before encoding, so config.yaml only ever contains settings that differ
+// before encoding, so config.toml only ever contains settings that differ
 // from default.
 func writeFileConfig(path string, cfg Config) error {
 	stripDefaults(&cfg, defaultConfig())
-	data, err := yaml.Marshal(cfg)
+	data, err := toml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}

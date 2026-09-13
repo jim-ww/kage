@@ -8,21 +8,21 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/pelletier/go-toml/v2"
 
 	"github.com/jim-ww/kage/ui"
 )
 
-// Config is both the yaml wire shape and the fully-resolved value the rest
+// Config is both the toml wire shape and the fully-resolved value the rest
 // of the app reads directly (cfg.MouseDisabled, cfg.HistoryPageSize, ...) —
 // no separate "raw file" struct. Defaults are applied by pre-filling a
 // Config with defaultConfig() before unmarshaling on top of it:
-// yaml.Unmarshal only touches keys actually present in the file, so an
+// toml.Unmarshal only touches keys actually present in the file, so an
 // absent key leaves the pre-filled default in place. See stripDefaults for
 // the write-back side of the same idea.
 //
 // Every boolean here is named so its Go zero value (false) is the default
-// (e.g. MouseDisabled rather than Mouse) — that means yaml.v3's plain
+// (e.g. MouseDisabled rather than Mouse) — that means go-toml's plain
 // `omitempty` already omits it correctly (its isZero treats false as
 // empty), no separate defaults-prefill needed for bools specifically. It's
 // only the handful of fields whose sensible default isn't the zero value
@@ -33,122 +33,122 @@ import (
 // simple defaultable scalars, so they're deliberately left out of
 // defaultConfig() and resolved on demand via ResolvedTheme/ResolvedKeyMap.
 type Config struct {
-	Keybinds map[string]any `yaml:"keybinds,omitempty"`
-	Theme    ui.Theme       `yaml:"theme,omitempty"`
+	Keybinds map[string]any `toml:"keybinds,omitempty"`
+	Theme    ui.Theme       `toml:"theme,omitempty"`
 
 	// MouseDisabled disables mouse click/scroll support; off (mouse
 	// enabled) by default.
-	MouseDisabled bool `yaml:"mouse_disabled,omitempty"`
+	MouseDisabled bool `toml:"mouse_disabled,omitempty"`
 	// IconsDisabled hides icons for attachments/encryption in favor of
 	// plain-text tags; off (icons shown) by default.
-	IconsDisabled bool `yaml:"icons_disabled,omitempty"`
+	IconsDisabled bool `toml:"icons_disabled,omitempty"`
 	// FilePickerFilesFirst shows files before directories in the
 	// attach-file picker regardless of sort order; off (dirs first) by
 	// default.
-	FilePickerFilesFirst bool `yaml:"file_picker_files_first,omitempty"`
+	FilePickerFilesFirst bool `toml:"file_picker_files_first,omitempty"`
 	// TimeLayout is a custom Go time layout for message timestamps;
 	// unset means the default bare "15:04" (dates are shown via a
 	// once-per-day divider line, not repeated on every message).
-	TimeLayout string `yaml:"time_layout,omitempty"`
+	TimeLayout string `toml:"time_layout,omitempty"`
 	// OpenLastChatDisabled disables reopening the last opened chat
 	// (State.LastChatAddress) on startup; off by default.
-	OpenLastChatDisabled bool `yaml:"open_last_chat_disabled,omitempty"`
+	OpenLastChatDisabled bool `toml:"open_last_chat_disabled,omitempty"`
 	// NotificationsDisabled disables desktop notifications for decrypted
 	// incoming messages (the background daemon itself always runs); off
 	// by default.
-	NotificationsDisabled bool `yaml:"notifications_disabled,omitempty"`
+	NotificationsDisabled bool `toml:"notifications_disabled,omitempty"`
 	// TerminalCmd is the terminal emulator to launch from the tray icon;
 	// unset means fall back to $TERMINAL, then xdg-terminal-exec, then a
 	// hardcoded list.
-	TerminalCmd string `yaml:"terminal_cmd,omitempty"`
+	TerminalCmd string `toml:"terminal_cmd,omitempty"`
 	// AttachmentsDir is the directory decrypted/downloaded attachments
 	// are cached in for viewing; unset means
 	// $XDG_CACHE_HOME/kage/attachments (see os.UserCacheDir).
-	AttachmentsDir string `yaml:"attachments_dir,omitempty"`
+	AttachmentsDir string `toml:"attachments_dir,omitempty"`
 	// GPGDisabled disables gpg encryption entirely (never shells out to
 	// gpg; "gpg" hidden from the per-chat encryption picker); off by
 	// default.
-	GPGDisabled bool `yaml:"gpg_disabled,omitempty"`
+	GPGDisabled bool `toml:"gpg_disabled,omitempty"`
 	// KeyringDisabled disables ever consulting the OS keyring; off by
 	// default.
-	KeyringDisabled bool `yaml:"keyring_disabled,omitempty"`
+	KeyringDisabled bool `toml:"keyring_disabled,omitempty"`
 	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
 	// off by default.
-	ShowEncryptedIcon bool `yaml:"show_encrypted_icon,omitempty"`
+	ShowEncryptedIcon bool `toml:"show_encrypted_icon,omitempty"`
 	// DefaultEncryptionMode is the outgoing encryption mode ("omemo-v1",
 	// "omemo-v2", "gpg", or "none") a chat starts with before the user ever
 	// picks one via the per-chat encryption menu; DefaultEncryptionMode
 	// (omemo-v1) when unset.
-	DefaultEncryptionMode string `yaml:"default_encryption_mode,omitempty"`
+	DefaultEncryptionMode string `toml:"default_encryption_mode,omitempty"`
 	// Debug logs at debug level to <config dir>/kage/debug.log instead of
 	// warn; overridden by the -debug flag or KAGE_DEBUG env var if either
 	// is set. Off by default.
-	Debug bool `yaml:"debug,omitempty"`
+	Debug bool `toml:"debug,omitempty"`
 	// HistoryPageSize is the number of messages loaded per chat at a
 	// time (initial load + each "load older"); DefaultHistoryPageSize
 	// when unset.
-	HistoryPageSize int `yaml:"history_page_size,omitempty"`
+	HistoryPageSize int `toml:"history_page_size,omitempty"`
 	// MaxMessagesPerChat caps how many messages are kept in memory/view
 	// per chat; DefaultMaxMessagesPerChat when unset.
-	MaxMessagesPerChat int `yaml:"max_messages_per_chat,omitempty"`
+	MaxMessagesPerChat int `toml:"max_messages_per_chat,omitempty"`
 	// NoticeDuration is seconds an in-app notification toast stays
 	// visible before auto-dismissing; DefaultNoticeDurationSeconds when
 	// unset.
-	NoticeDuration int `yaml:"notice_duration,omitempty"`
+	NoticeDuration int `toml:"notice_duration,omitempty"`
 	// VideoQuality picks the capture profile for outgoing screen-share/camera
 	// video: "very_low", "low", "medium" (DefaultVideoQuality when unset), or
 	// "high". Controls resolution/bitrate for both wf-recorder (screen) and
 	// ffmpeg (camera) - see call.VideoQualityFromString.
-	VideoQuality string        `yaml:"video_quality,omitempty"`
-	Storage      StorageConfig `yaml:"storage,omitempty"`
-	Accounts     []Account     `yaml:"accounts,omitempty"`
+	VideoQuality string        `toml:"video_quality,omitempty"`
+	Storage      StorageConfig `toml:"storage,omitempty"`
+	Accounts     []Account     `toml:"accounts,omitempty"`
 
 	// State holds settings the app itself persists at runtime (dragged
 	// sidebar width, last opened chat, ...), loaded from a separate
-	// state.yaml next to this file - see State's doc. Not part of the
-	// config.yaml shape, so a declaratively-managed config.yaml (e.g. from
+	// state.toml next to this file - see State's doc. Not part of the
+	// config.toml shape, so a declaratively-managed config.toml (e.g. from
 	// Nix/home-manager) is never clobbered by the app's own writes.
-	State State `yaml:"-"`
+	State State `toml:"-"`
 
 	// Path is the config file this was actually loaded from, or the
 	// default write location if none was found — always non-empty, so
 	// callers that need to persist a change (e.g. an auto-detected GPG
-	// key) have somewhere to write it back to. Not part of the yaml
+	// key) have somewhere to write it back to. Not part of the toml
 	// shape.
-	Path string `yaml:"-"`
+	Path string `toml:"-"`
 }
 
 // StorageConfig configures the password local message history is encrypted
 // under at rest (see ResolveStoragePassword) — one password for the whole
 // database, shared by every configured account.
 type StorageConfig struct {
-	Password    string `yaml:"password,omitempty"`     // plaintext fallback
-	PasswordCmd string `yaml:"password_cmd,omitempty"` // shell command printing the password on stdout
+	Password    string `toml:"password,omitempty"`     // plaintext fallback
+	PasswordCmd string `toml:"password_cmd,omitempty"` // shell command printing the password on stdout
 }
 
 // DefaultHistoryPageSize is how many messages are loaded per chat at a time
-// when history_page_size isn't set in config.yaml.
+// when history_page_size isn't set in config.toml.
 const DefaultHistoryPageSize = 60
 
 // DefaultMaxMessagesPerChat is how many messages are kept loaded per chat
-// when max_messages_per_chat isn't set in config.yaml.
+// when max_messages_per_chat isn't set in config.toml.
 const DefaultMaxMessagesPerChat = 120
 
 // DefaultNoticeDurationSeconds is how long (in seconds) an in-app
 // notification toast stays visible before auto-dismissing when
-// notice_duration isn't set in config.yaml.
+// notice_duration isn't set in config.toml.
 const DefaultNoticeDurationSeconds = 3
 
 // DefaultVideoQuality is the capture profile used when video_quality isn't
-// set in config.yaml.
+// set in config.toml.
 const DefaultVideoQuality = "medium"
 
 // DefaultEncryptionMode is the outgoing encryption mode a chat starts with
-// when default_encryption_mode isn't set in config.yaml.
+// when default_encryption_mode isn't set in config.toml.
 const DefaultEncryptionMode = "omemo-v1"
 
 // defaultConfig returns the Config to pre-fill before unmarshaling a file on
-// top of it, so an absent yaml key leaves the default in place. Theme/
+// top of it, so an absent toml key leaves the default in place. Theme/
 // Keybinds are deliberately left zero — see Config's doc.
 func defaultConfig() Config {
 	return Config{
@@ -209,16 +209,16 @@ func candidatePaths() []string {
 	if env := strings.TrimSpace(os.Getenv("KAGE_CONFIG")); env != "" {
 		paths = append(paths, env)
 	}
-	paths = append(paths, "config.yaml")
+	paths = append(paths, "config.toml")
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		paths = append(paths, filepath.Join(home, ".config", "kage", "config.yaml"))
+		paths = append(paths, filepath.Join(home, ".config", "kage", "config.toml"))
 	}
 	return paths
 }
 
 // Load reads the first config file found among path (if non-empty) and the
-// usual candidate locations ($KAGE_CONFIG, ./config.yaml,
-// ~/.config/kage/config.yaml), applying defaults for anything unset. If none
+// usual candidate locations ($KAGE_CONFIG, ./config.toml,
+// ~/.config/kage/config.toml), applying defaults for anything unset. If none
 // exist, returns defaultConfig() with Path set to where a new file would be
 // written.
 func Load(path string) (Config, error) {
@@ -242,9 +242,9 @@ func Load(path string) (Config, error) {
 	return loadStateInto(cfg)
 }
 
-// loadStateInto loads state.yaml next to cfg.Path into cfg.State, then
+// loadStateInto loads state.toml next to cfg.Path into cfg.State, then
 // overlays State.AccountStatuses onto cfg.Accounts (state wins over
-// whatever status a declarative config.yaml/Nix module set, since it
+// whatever status a declarative config.toml/Nix module set, since it
 // reflects the most recent change made from the UI).
 func loadStateInto(cfg Config) (Config, error) {
 	st, err := loadState(cfg.Path)
@@ -271,7 +271,7 @@ func loadConfigFile(path string) (cfg Config, found bool, err error) {
 		}
 		return cfg, false, fmt.Errorf("read config %q: %w", path, err)
 	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return cfg, false, fmt.Errorf("parse config %q: %w", path, err)
 	}
 	return cfg, true, nil
@@ -279,7 +279,7 @@ func loadConfigFile(path string) (cfg Config, found bool, err error) {
 
 // stripDefaults zeroes any field of cfg that equals the corresponding field
 // in def, so that field's `omitempty` tag drops it from the encoded output —
-// used before writing the file back so config.yaml only ever contains
+// used before writing the file back so config.toml only ever contains
 // settings that differ from default.
 func stripDefaults(cfg *Config, def Config) {
 	v := reflect.ValueOf(cfg).Elem()

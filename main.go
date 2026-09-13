@@ -154,7 +154,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVarP(&cfgPath, "config", "c", "", "path to config")
-	root.PersistentFlags().BoolVar(&debug, "debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise); also settable via KAGE_DEBUG env var or config.yaml's debug: true")
+	root.PersistentFlags().BoolVar(&debug, "debug", false, "log at debug level to <config dir>/kage/debug.log (warn level otherwise); also settable via KAGE_DEBUG env var or config.toml's debug = true")
 	root.PersistentFlags().BoolVar(&debugXML, "debug-xml", false, "log every decoded incoming/outgoing XMPP stanza to <config dir>/kage/xml.log — verbose, includes message content, for diagnosing interop issues with other clients")
 
 	root.AddCommand(newExportCmd(&cfgPath))

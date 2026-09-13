@@ -7,7 +7,7 @@ import (
 )
 
 // TestStatusConfigValueRoundTrip verifies statusConfigValue (persisted
-// config.yaml value) is the exact inverse of accountStatus (config value ->
+// config.toml value) is the exact inverse of accountStatus (config value ->
 // ui.Presence) for every Presence a user can pick via the status menu -
 // a mismatch here means a chosen status doesn't survive a daemon restart.
 func TestStatusConfigValueRoundTrip(t *testing.T) {

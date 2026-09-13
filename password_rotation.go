@@ -16,10 +16,10 @@ import (
 // ChangeStoragePassword implements ui.StoragePasswordChanger: re-encrypts
 // every locally-encrypted message body and draft under a new password,
 // derived from a freshly generated salt, then persists the new password
-// (keyring if configured, else plaintext in config.yaml). An empty
+// (keyring if configured, else plaintext in config.toml). An empty
 // newPassword instead turns local storage encryption *off*: every row gets
 // decrypted under the current key and written back as plaintext, and any
-// stored password (keyring and/or config.yaml) is cleared rather than set.
+// stored password (keyring and/or config.toml) is cleared rather than set.
 // The ui layer is expected to have already confirmed this with the user —
 // see ui/storage_password.go's confirmDisableStorageEncryption flow.
 //
@@ -30,7 +30,7 @@ import (
 // The new password is only written to keyring/config *after* that commit
 // succeeds, so a crash or error can never leave the database re-encrypted
 // under a password that was never actually saved anywhere. If persisting the
-// new password itself fails (keyring and config.yaml write both fail, which
+// new password itself fails (keyring and config.toml write both fail, which
 // would be unusual), the error says so explicitly rather than silently
 // leaving the database unreadable on next launch.
 //
@@ -67,7 +67,7 @@ func (a *adapter) ChangeStoragePassword(newPassword string) error {
 		// nobody knows the password now", which is far worse than a normal
 		// error. Say so explicitly.
 		return fmt.Errorf("storage was re-encrypted successfully, but SAVING the new password failed (%w) - "+
-			"set storage.password (or storage.password_cmd) in config.yaml to your new password manually, "+
+			"set storage.password (or storage.password_cmd) in config.toml to your new password manually, "+
 			"or the database will be unreadable on next launch", err)
 	}
 
@@ -166,18 +166,18 @@ func rotateStorageKey(ctx context.Context, db *sql.DB, queries *storage.Queries,
 
 // persistStoragePassword saves password wherever ResolveStoragePassword will
 // next look for it: the OS keyring if useKeyring is on, otherwise plaintext
-// in config.yaml — same precedence ResolveStoragePassword reads back with.
+// in config.toml — same precedence ResolveStoragePassword reads back with.
 // A keyring failure (no Secret Service running, etc.) falls back to the
 // plaintext config write rather than erroring outright, same tolerance
 // Account.ResolvePassword already extends elsewhere in this codebase. An
 // empty password clears both locations instead of writing an empty value to
-// either, so config.yaml ends up with no storage.password/password_cmd keys
+// either, so config.toml ends up with no storage.password/password_cmd keys
 // at all rather than a stray `password: ""`.
 func persistStoragePassword(cfgPath string, useKeyring bool, password string) error {
 	if password == "" {
 		if useKeyring {
 			// Best-effort, like the keyring write path below: a missing
-			// Secret Service shouldn't block clearing config.yaml.
+			// Secret Service shouldn't block clearing config.toml.
 			_ = config.ClearStorageKeyringPassword()
 		}
 		return config.ClearStoragePassword(cfgPath)

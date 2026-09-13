@@ -16,9 +16,9 @@
       systems = flake-utils.lib.defaultSystems;
 
       flake = {
-        # Declarative config.yaml generation for home-manager - see
+        # Declarative config.toml generation for home-manager - see
         # nix/hm-module.nix for the full option list and why it only covers
-        # settings.yaml's declarative half, not the runtime state.yaml half
+        # config.toml's declarative half, not the runtime state.toml half
         # (sidebar width, last opened chat, ...) the app itself persists.
         homeManagerModules.default = import ./nix/hm-module.nix { inherit (inputs) self; };
       };
@@ -49,7 +49,7 @@
               pname = "kage";
               version = v;
               src = pkgs.lib.cleanSource ./.;
-              vendorHash = "sha256-/IEJ7xuX8ftvwBTj0nSz8etHRPVN5a56e7KO43Nxka8=";
+              vendorHash = "sha256-YACS2POFyXwhdWchf8AjPSxjGJcX3hP3ewykcvkCqqY=";
 
               env.CGO_ENABLED = 1;
 

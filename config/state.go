@@ -5,61 +5,61 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // State holds settings the app itself persists at runtime - dragged sidebar
 // width, last opened chat, cycled sort order, ... - as opposed to Config,
 // which holds settings a user (or a Nix module) sets deliberately. Kept in
-// its own file (state.yaml, next to config.yaml) specifically so a
-// declaratively-managed config.yaml (e.g. written read-only by Nix/
+// its own file (state.toml, next to config.toml) specifically so a
+// declaratively-managed config.toml (e.g. written read-only by Nix/
 // home-manager) is never clobbered by the app's own runtime writes: every
-// Set* helper in setup.go that used to rewrite config.yaml now rewrites
-// state.yaml instead, and Load never writes state.yaml's fields back into
-// config.yaml.
+// Set* helper in setup.go that used to rewrite config.toml now rewrites
+// state.toml instead, and Load never writes state.toml's fields back into
+// config.toml.
 type State struct {
 	// SidebarWidth is persisted from dragging the sidebar border; 0 (unset)
 	// means the width/4-based default.
-	SidebarWidth int `yaml:"sidebar_width,omitempty"`
+	SidebarWidth int `toml:"sidebar_width,omitempty"`
 	// InputHeight is persisted from dragging the compose box border; 0
 	// (unset) means the DynamicHeight-based default.
-	InputHeight int `yaml:"input_height,omitempty"`
+	InputHeight int `toml:"input_height,omitempty"`
 	// SidebarHidden is persisted from toggling the chat list (Ctrl+\ /
 	// status-bar button); unset means open.
-	SidebarHidden bool `yaml:"sidebar_hidden,omitempty"`
+	SidebarHidden bool `toml:"sidebar_hidden,omitempty"`
 	// FilePickerSortField is "created" or "updated"; persisted from
 	// cycling sort in the attach-file picker; "updated" by default.
-	FilePickerSortField string `yaml:"file_picker_sort_field,omitempty"`
+	FilePickerSortField string `toml:"file_picker_sort_field,omitempty"`
 	// FilePickerSortAscending is persisted from cycling sort in the
 	// attach-file picker; unset means descending.
-	FilePickerSortAscending bool `yaml:"file_picker_sort_ascending,omitempty"`
+	FilePickerSortAscending bool `toml:"file_picker_sort_ascending,omitempty"`
 	// DefaultAccount is the JID selected on startup; unset means the first
 	// configured account. Persisted whenever the user switches the default
 	// account from the UI.
-	DefaultAccount string `yaml:"default_account,omitempty"`
+	DefaultAccount string `toml:"default_account,omitempty"`
 	// LastChatAccount is the JID of the account owning the last opened
 	// chat.
-	LastChatAccount string `yaml:"last_chat_account,omitempty"`
+	LastChatAccount string `toml:"last_chat_account,omitempty"`
 	// LastChatAddress is the peer JID of the last opened chat, reopened on
 	// startup unless Config.OpenLastChatDisabled.
-	LastChatAddress string `yaml:"last_chat_address,omitempty"`
+	LastChatAddress string `toml:"last_chat_address,omitempty"`
 	// AccountStatuses is JID -> configured presence ("", "chat", "away",
 	// "xa", "dnd", "offline"), persisted immediately whenever changed from
 	// the UI so a restart comes back up in the same status. Keyed
 	// separately from Config.Accounts (which is declarative/Nix-managed)
 	// rather than living on the Account struct.
-	AccountStatuses map[string]string `yaml:"account_statuses,omitempty"`
+	AccountStatuses map[string]string `toml:"account_statuses,omitempty"`
 	// ReactionEmojiUsage is emoji -> how many times the user has sent it as
 	// a reaction, incremented every time a reaction is sent (see
 	// ui.ReactionEmojiUsageRecorder). Ranked descending to build the
 	// quick-pick default suggestions offered before any typing (see
 	// ui.defaultEmojiSuggestions) so the picker converges on what this user
 	// actually reaches for instead of a fixed list.
-	ReactionEmojiUsage map[string]int `yaml:"reaction_emoji_usage,omitempty"`
+	ReactionEmojiUsage map[string]int `toml:"reaction_emoji_usage,omitempty"`
 
 	// Path is the state file this was loaded from / would be written to.
-	// Not part of the yaml shape.
-	Path string `yaml:"-"`
+	// Not part of the toml shape.
+	Path string `toml:"-"`
 }
 
 func defaultState() State {
@@ -68,10 +68,10 @@ func defaultState() State {
 	}
 }
 
-// statePath returns the state.yaml path that sits alongside the config file
+// statePath returns the state.toml path that sits alongside the config file
 // at cfgPath.
 func statePath(cfgPath string) string {
-	return filepath.Join(filepath.Dir(cfgPath), "state.yaml")
+	return filepath.Join(filepath.Dir(cfgPath), "state.toml")
 }
 
 // loadState reads the state file next to cfgPath, applying defaults for
@@ -87,15 +87,15 @@ func loadState(cfgPath string) (State, error) {
 		}
 		return st, fmt.Errorf("read state %q: %w", st.Path, err)
 	}
-	if err := yaml.Unmarshal(data, &st); err != nil {
+	if err := toml.Unmarshal(data, &st); err != nil {
 		return st, fmt.Errorf("parse state %q: %w", st.Path, err)
 	}
 	return st, nil
 }
 
 // writeState writes st to its Path, stripping fields equal to their default
-// so state.yaml only ever contains settings that differ from default -
-// mirrors stripDefaults/writeFileConfig's behavior for config.yaml.
+// so state.toml only ever contains settings that differ from default -
+// mirrors stripDefaults/writeFileConfig's behavior for config.toml.
 func writeState(st State) error {
 	def := defaultState()
 	out := st
@@ -115,7 +115,7 @@ func writeState(st State) error {
 			return fmt.Errorf("create state dir %q: %w", dir, err)
 		}
 	}
-	data, err := yaml.Marshal(out)
+	data, err := toml.Marshal(out)
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}

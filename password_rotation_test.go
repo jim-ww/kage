@@ -255,10 +255,10 @@ func TestRotateStorageKeyToPlaintext(t *testing.T) {
 }
 
 // TestPersistStoragePasswordWritesPlaintextConfig checks the
-// useKeyring=false path writes the new password into config.yaml.
+// useKeyring=false path writes the new password into config.toml.
 func TestPersistStoragePasswordWritesPlaintextConfig(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "config.yaml")
+	cfgPath := filepath.Join(dir, "config.toml")
 
 	if err := persistStoragePassword(cfgPath, false, "new-storage-password"); err != nil {
 		t.Fatalf("persistStoragePassword: %v", err)
@@ -274,12 +274,12 @@ func TestPersistStoragePasswordWritesPlaintextConfig(t *testing.T) {
 }
 
 // TestPersistStoragePasswordClearsConfigOnEmpty checks that an empty
-// password removes storage.password/password_cmd from config.yaml (rather
+// password removes storage.password/password_cmd from config.toml (rather
 // than writing an empty value), leaving no trace of local storage
 // encryption ever having been configured.
 func TestPersistStoragePasswordClearsConfigOnEmpty(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "config.yaml")
+	cfgPath := filepath.Join(dir, "config.toml")
 
 	if err := persistStoragePassword(cfgPath, false, "old-storage-password"); err != nil {
 		t.Fatalf("persistStoragePassword (seeding): %v", err)
@@ -298,9 +298,9 @@ func TestPersistStoragePasswordClearsConfigOnEmpty(t *testing.T) {
 
 	raw, err := os.ReadFile(cfgPath)
 	if err != nil {
-		t.Fatalf("reading config.yaml: %v", err)
+		t.Fatalf("reading config.toml: %v", err)
 	}
 	if strings.Contains(string(raw), "password") {
-		t.Fatalf("config.yaml still mentions a password: %s", raw)
+		t.Fatalf("config.toml still mentions a password: %s", raw)
 	}
 }
