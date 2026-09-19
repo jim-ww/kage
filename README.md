@@ -57,6 +57,26 @@ password_cmd = "pass show xmpp/user"
 
 Passwords (account and local storage) resolve in order: OS keyring → `password_cmd` → plaintext `password`.
 
+### Home Manager (flakes)
+
+```nix
+inputs.kage.url = "github:jim-ww/kage";
+# home-manager.sharedModules = [ inputs.kage.homeManagerModules.default ];
+
+programs.kage = {
+  enable = true;
+  settings.mouse_disabled = true; # written verbatim to config.toml
+  accounts = [
+    {
+      jidFile = config.sops.secrets.kage-jid.path;
+      passwordFile = config.sops.secrets.kage-password.path;
+    }
+  ];
+};
+```
+
+Accounts can also be set directly under `settings.accounts` (same shape as `[[accounts]]` in config.toml) instead of the `accounts` option.
+
 ## Optional dependencies
 
 - `mpv` — playing video (video calls)
