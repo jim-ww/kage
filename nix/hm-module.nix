@@ -10,6 +10,82 @@
 let
   cfg = config.programs.kage;
   tomlFormat = pkgs.formats.toml { };
+
+  accountModule = lib.types.submodule (
+    { config, ... }:
+    {
+      options = {
+        jidFile = lib.mkOption {
+          type = lib.types.path;
+          description = "Path to a file containing the account's JID.";
+        };
+        passwordFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          description = "Path to a file containing the account's password.";
+        };
+        alias = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Display name shown in place of the JID in the UI.";
+        };
+        gpgKeyId = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Own GPG key ID, used to decrypt/sign.";
+        };
+        gpgPeers = lib.mkOption {
+          type = lib.types.attrsOf lib.types.str;
+          default = { };
+          description = "Map of peer JID -> GPG key fingerprint.";
+        };
+        omemoPeers = lib.mkOption {
+          type = lib.types.attrsOf lib.types.str;
+          default = { };
+          description = ''Map of peer JID -> pinned OMEMO protocol version ("v1" or "v2").'';
+        };
+        status = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = ''Configured presence: "chat", "away", "xa", "dnd", or "offline".'';
+        };
+      };
+    }
+  );
+
+  accountsStaticJSON = builtins.toJSON (
+    map (
+      a:
+      lib.filterAttrs (_: v: v != null && v != { }) {
+        inherit (a) alias status;
+        gpg_key_id = a.gpgKeyId;
+        gpg_peers = if a.gpgPeers == { } then null else a.gpgPeers;
+        omemo_peers = if a.omemoPeers == { } then null else a.omemoPeers;
+      }
+    ) cfg.accounts
+  );
+
+  patchSecret =
+    i: field: file:
+    lib.optionalString (file != null) ''
+      value=$(cat ${lib.escapeShellArg file})
+      accounts=$(${lib.getExe pkgs.jq} --arg v "$value" '.[${toString i}].${field} = $v' <<<"$accounts")
+    '';
+
+  accountsActivationScript = ''
+    set -eu
+    accounts=${lib.escapeShellArg accountsStaticJSON}
+    ${lib.concatStrings (
+      lib.imap0 (i: a: patchSecret i "jid" a.jidFile + patchSecret i "password" a.passwordFile) cfg.accounts
+    )}
+    full=$(${lib.getExe pkgs.jq} --argjson accts "$accounts" '. + {accounts: $accts}' <<<${
+      lib.escapeShellArg (builtins.toJSON (builtins.removeAttrs cfg.settings [ "accounts" ]))
+    })
+    mkdir -p ${lib.escapeShellArg "${config.xdg.configHome}/kage"}
+    printf '%s' "$full" | ${pkgs.remarshal}/bin/json2toml > ${
+      lib.escapeShellArg "${config.xdg.configHome}/kage/config.toml"
+    }
+  '';
 in
 {
   options.programs.kage = {
@@ -28,17 +104,12 @@ in
       description = ''
         Settings written verbatim to config.toml (keys as documented in
         kage's config.Config, e.g. `mouse_disabled`, `theme`, `keybinds`,
-        `accounts`, `storage`, ...). This is only the declarative half of
-        kage's config: settings the app itself mutates at runtime (dragged
-        sidebar width, last opened chat, cycled sort order, per-account
-        presence, ...) live in a separate state.toml next to config.toml
-        that this module never touches - see config.State in kage's source
-        for the full list.
+        `storage`, ...). Does not include runtime state (dragged sidebar
+        width, last opened chat, cycled sort order, per-account presence,
+        ...), which lives in a separate state.toml this module never
+        touches - see config.State in kage's source for the full list.
 
-        Note: any `password`/`password_cmd`/`storage.password` set here is
-        copied verbatim into the Nix store (world-readable on multi-user
-        systems). Prefer `password_cmd` pointing at a secret manager (pass,
-        sops-nix, the OS keyring, ...) over a literal `password`.
+        Must not set `accounts` when the `accounts` option below is used.
       '';
       example = lib.literalExpression ''
         {
@@ -46,47 +117,45 @@ in
           default_encryption_mode = "omemo-v2";
           theme.app_bg = "#000000";
           keybinds.quit = [ "q" "ctrl+c" ];
-          accounts = [
-            {
-              jid = "me@example.org";
-              password_cmd = "cat ''${config.sops.secrets.kage-xmpp-password.path}";
-            }
-          ];
         }
       '';
     };
 
-    systemd.enable = lib.mkEnableOption "a systemd user service that starts/stops the kage daemon with the graphical session";
-
-    accountsFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.path;
-      default = null;
-      description = ''
-        Path to a TOML file (e.g. a sops-nix/agenix secret path) holding
-        one or more `[[accounts]]` tables, appended to `settings` at
-        activation time so it never enters the Nix store or a git repo.
-
-        `settings` must not also set `accounts`.
-      '';
+    accounts = lib.mkOption {
+      type = lib.types.listOf accountModule;
+      default = [ ];
+      description = "XMPP accounts, merged into config.toml's `[[accounts]]` array.";
       example = lib.literalExpression ''
-        config.sops.secrets.kage-accounts.path
+        [
+          {
+            jidFile = config.sops.secrets.kage-jid.path;
+            passwordFile = config.sops.secrets.kage-password.path;
+            alias = "work";
+          }
+        ]
       '';
     };
+
+    systemd.enable = lib.mkEnableOption "a systemd user service that starts/stops the kage daemon with the graphical session";
   };
 
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
 
-    xdg.configFile."kage/config.toml" = lib.mkIf (cfg.settings != { } && cfg.accountsFile == null) {
+    assertions = [
+      {
+        assertion = cfg.accounts == [ ] || !(cfg.settings ? accounts);
+        message = "programs.kage: set accounts via either `settings.accounts` or `accounts`, not both";
+      }
+    ];
+
+    xdg.configFile."kage/config.toml" = lib.mkIf (cfg.settings != { } && cfg.accounts == [ ]) {
       source = tomlFormat.generate "kage-config.toml" cfg.settings;
     };
 
-    home.activation.kageMergeAccounts = lib.mkIf (cfg.accountsFile != null) (
+    home.activation.kageAccounts = lib.mkIf (cfg.accounts != [ ]) (
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        run mkdir -p ${lib.escapeShellArg "${config.xdg.configHome}/kage"}
-        run cat ${tomlFormat.generate "kage-config-base.toml" cfg.settings} \
-          ${lib.escapeShellArg cfg.accountsFile} \
-          > ${lib.escapeShellArg "${config.xdg.configHome}/kage/config.toml"}
+        run bash -c ${lib.escapeShellArg accountsActivationScript}
       ''
     );
 
