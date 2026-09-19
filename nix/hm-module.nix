@@ -18,8 +18,7 @@ let
         description = "Path to a file containing the account's JID.";
       };
       passwordFile = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = null;
+        type = lib.types.path;
         description = "Path to a file containing the account's password.";
       };
       alias = lib.mkOption {
@@ -64,7 +63,7 @@ let
       gpg_key_id = a.gpgKeyId;
       gpg_peers = if a.gpgPeers == { } then null else a.gpgPeers;
       omemo_peers = if a.omemoPeers == { } then null else a.omemoPeers;
-      password_cmd = if a.passwordFile != null then "cat ${lib.escapeShellArg a.passwordFile}" else null;
+      password_cmd = "cat ${lib.escapeShellArg a.passwordFile}";
     };
 
   settingsWithAccounts =
