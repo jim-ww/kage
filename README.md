@@ -65,7 +65,10 @@ inputs.kage.url = "github:jim-ww/kage";
 
 programs.kage = {
   enable = true;
-  settings.mouse_disabled = true; # written verbatim to config.toml
+  settings = {
+    storage.password_cmd = "cat /path/to/password-file"; # local DB encryption password
+    mouse_disabled = true;
+  };
   accounts = [
     {
       jidFile = config.sops.secrets.kage-jid.path;
