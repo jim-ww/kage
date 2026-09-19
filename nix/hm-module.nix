@@ -11,80 +11,81 @@ let
   cfg = config.programs.kage;
   tomlFormat = pkgs.formats.toml { };
 
-  accountModule = lib.types.submodule (
-    { config, ... }:
-    {
-      options = {
-        jidFile = lib.mkOption {
-          type = lib.types.path;
-          description = "Path to a file containing the account's JID.";
-        };
-        passwordFile = lib.mkOption {
-          type = lib.types.nullOr lib.types.path;
-          default = null;
-          description = "Path to a file containing the account's password.";
-        };
-        alias = lib.mkOption {
-          type = lib.types.nullOr lib.types.str;
-          default = null;
-          description = "Display name shown in place of the JID in the UI.";
-        };
-        gpgKeyId = lib.mkOption {
-          type = lib.types.nullOr lib.types.str;
-          default = null;
-          description = "Own GPG key ID, used to decrypt/sign.";
-        };
-        gpgPeers = lib.mkOption {
-          type = lib.types.attrsOf lib.types.str;
-          default = { };
-          description = "Map of peer JID -> GPG key fingerprint.";
-        };
-        omemoPeers = lib.mkOption {
-          type = lib.types.attrsOf lib.types.str;
-          default = { };
-          description = ''Map of peer JID -> pinned OMEMO protocol version ("v1" or "v2").'';
-        };
-        status = lib.mkOption {
-          type = lib.types.nullOr lib.types.str;
-          default = null;
-          description = ''Configured presence: "chat", "away", "xa", "dnd", or "offline".'';
-        };
+  accountModule = lib.types.submodule {
+    options = {
+      jidFile = lib.mkOption {
+        type = lib.types.path;
+        description = "Path to a file containing the account's JID.";
       };
-    }
-  );
+      passwordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "Path to a file containing the account's password.";
+      };
+      alias = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Display name shown in place of the JID in the UI.";
+      };
+      gpgKeyId = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Own GPG key ID, used to decrypt/sign.";
+      };
+      gpgPeers = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        description = "Map of peer JID -> GPG key fingerprint.";
+      };
+      omemoPeers = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        description = ''Map of peer JID -> pinned OMEMO protocol version ("v1" or "v2").'';
+      };
+      status = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''Configured presence: "chat", "away", "xa", "dnd", or "offline".'';
+      };
+    };
+  };
 
-  accountsStaticJSON = builtins.toJSON (
-    map (
-      a:
-      lib.filterAttrs (_: v: v != null && v != { }) {
-        inherit (a) alias status;
-        gpg_key_id = a.gpgKeyId;
-        gpg_peers = if a.gpgPeers == { } then null else a.gpgPeers;
-        omemo_peers = if a.omemoPeers == { } then null else a.omemoPeers;
-      }
-    ) cfg.accounts
-  );
+  # jidPlaceholder is a non-secret sentinel substituted for the real JID at
+  # activation time - everything else in an account is either already
+  # static or (passwordFile) reducible to a static password_cmd, so only
+  # this one field needs a real runtime patch.
+  jidPlaceholder = i: "@@KAGE_JID_${toString i}@@";
 
-  patchSecret =
-    i: field: file:
-    lib.optionalString (file != null) ''
-      value=$(cat ${lib.escapeShellArg file})
-      accounts=$(${lib.getExe pkgs.jq} --arg v "$value" '.[${toString i}].${field} = $v' <<<"$accounts")
-    '';
+  toAccountSettings =
+    i: a:
+    lib.filterAttrs (_: v: v != null && v != { }) {
+      jid = jidPlaceholder i;
+      inherit (a) alias status;
+      gpg_key_id = a.gpgKeyId;
+      gpg_peers = if a.gpgPeers == { } then null else a.gpgPeers;
+      omemo_peers = if a.omemoPeers == { } then null else a.omemoPeers;
+      password_cmd = if a.passwordFile != null then "cat ${lib.escapeShellArg a.passwordFile}" else null;
+    };
+
+  settingsWithAccounts =
+    if cfg.accounts == [ ] then
+      cfg.settings
+    else
+      cfg.settings // {
+        accounts = lib.imap0 toAccountSettings cfg.accounts;
+      };
+
+  configToml = tomlFormat.generate "kage-config.toml" settingsWithAccounts;
 
   accountsActivationScript = ''
     set -eu
-    accounts=${lib.escapeShellArg accountsStaticJSON}
-    ${lib.concatStrings (
-      lib.imap0 (i: a: patchSecret i "jid" a.jidFile + patchSecret i "password" a.passwordFile) cfg.accounts
-    )}
-    full=$(${lib.getExe pkgs.jq} --argjson accts "$accounts" '. + {accounts: $accts}' <<<${
-      lib.escapeShellArg (builtins.toJSON (builtins.removeAttrs cfg.settings [ "accounts" ]))
-    })
-    mkdir -p ${lib.escapeShellArg "${config.xdg.configHome}/kage"}
-    printf '%s' "$full" | ${pkgs.remarshal}/bin/json2toml > ${
-      lib.escapeShellArg "${config.xdg.configHome}/kage/config.toml"
-    }
+    dest=${lib.escapeShellArg "${config.xdg.configHome}/kage/config.toml"}
+    mkdir -p "$(dirname "$dest")"
+    content=$(cat ${configToml})
+    ${lib.concatImapStrings (i: a: ''
+      content=''${content//${jidPlaceholder (i - 1)}/$(cat ${lib.escapeShellArg a.jidFile})}
+    '') cfg.accounts}
+    printf '%s' "$content" > "$dest"
   '';
 in
 {
@@ -150,7 +151,7 @@ in
     ];
 
     xdg.configFile."kage/config.toml" = lib.mkIf (cfg.settings != { } && cfg.accounts == [ ]) {
-      source = tomlFormat.generate "kage-config.toml" cfg.settings;
+      source = configToml;
     };
 
     home.activation.kageAccounts = lib.mkIf (cfg.accounts != [ ]) (
