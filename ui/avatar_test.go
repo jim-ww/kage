@@ -186,8 +186,8 @@ func TestChatTitleCarriesAvatarAndName(t *testing.T) {
 
 	c := Chat{Name: "alice", Address: "alice@localhost", Presence: PresenceOnline}
 	plain := ansi.Strip(c.Title())
-	if !strings.HasPrefix(plain, "A ") {
-		t.Errorf("Title() = %q, want the avatar initial first", plain)
+	if got := strings.TrimSpace(plain[:avatarCellWidth]); got != "A" {
+		t.Errorf("Title() = %q, want the avatar initial in the leading %d columns", plain, avatarCellWidth)
 	}
 	if !strings.HasSuffix(plain, " alice") {
 		t.Errorf("Title() = %q, want the name last", plain)
@@ -242,5 +242,107 @@ func writePNG(t *testing.T, path string, c color.RGBA) {
 	defer f.Close()
 	if err := encodePNG(f, solidImage(8, 8, c, 0)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The header block's height is what the viewport's own height is computed
+// against (see Model.chatStatusHeight), and its width is what the text
+// lines beside it are budgeted from — so both have to be exact.
+func TestRenderAvatarPictureDimensions(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	const jid = "alice@localhost"
+	SetAvatarImage(jid, solidImage(64, 64, color.RGBA{200, 40, 40, 255}, 32))
+
+	block, ok := renderAvatarPicture(jid, avatarHeaderCols, avatarHeaderRows)
+	if !ok {
+		t.Fatal("renderAvatarPicture reported no picture for a contact with one")
+	}
+	lines := strings.Split(block, "\n")
+	if len(lines) != avatarHeaderRows {
+		t.Fatalf("got %d rows, want %d", len(lines), avatarHeaderRows)
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != avatarHeaderCols {
+			t.Errorf("row %d width = %d, want %d", i, got, avatarHeaderCols)
+		}
+	}
+}
+
+// The left half of the fixture is grey and the right half red; the rendered
+// block must preserve that split rather than smearing one color across.
+func TestRenderAvatarPictureCarriesTheImage(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	const jid = "alice@localhost"
+	SetAvatarImage(jid, solidImage(64, 64, color.RGBA{220, 30, 30, 255}, 32))
+
+	block, ok := renderAvatarPicture(jid, 4, 1)
+	if !ok {
+		t.Fatal("renderAvatarPicture reported no picture")
+	}
+	if !strings.Contains(block, "128;128;128") {
+		t.Errorf("block %q lost the grey half of the image", block)
+	}
+	if !strings.Contains(block, "220;30;30") {
+		t.Errorf("block %q lost the red half of the image", block)
+	}
+}
+
+func TestRenderAvatarPictureWithoutImage(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	if _, ok := renderAvatarPicture("nobody@localhost", avatarHeaderCols, avatarHeaderRows); ok {
+		t.Error("renderAvatarPicture reported a picture for a contact with none")
+	}
+	if hasAvatarPicture("nobody@localhost") {
+		t.Error("hasAvatarPicture = true for a contact with no image")
+	}
+}
+
+func TestRenderAvatarPictureZeroSize(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	SetAvatarImage("alice@localhost", solidImage(8, 8, color.RGBA{200, 40, 40, 255}, 0))
+	if _, ok := renderAvatarPicture("alice@localhost", 0, 3); ok {
+		t.Error("renderAvatarPicture accepted zero columns")
+	}
+	if _, ok := renderAvatarPicture("alice@localhost", 6, 0); ok {
+		t.Error("renderAvatarPicture accepted zero rows")
+	}
+}
+
+// A greyscale avatar yields no swatch color, but the picture itself must
+// still be kept — the header draws the image, not the swatch.
+func TestGreyscaleAvatarStillStoresPicture(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	const jid = "bob@localhost"
+	SetAvatarImage(jid, solidImage(16, 16, color.RGBA{128, 128, 128, 255}, 16))
+	if !hasAvatarPicture(jid) {
+		t.Error("greyscale avatar was not stored as a picture")
+	}
+	if got := avatarColorFor(jid); got != hashColor(jid) {
+		t.Errorf("avatarColorFor = %v, want the hash color %v", got, hashColor(jid))
+	}
+}
+
+func TestDownscaleBounds(t *testing.T) {
+	small := solidImage(8, 8, color.RGBA{200, 40, 40, 255}, 0)
+	if got := downscale(small, avatarStoredSize); got != small {
+		t.Error("downscale copied an image already within the bound")
+	}
+	wide := downscale(solidImage(400, 200, color.RGBA{200, 40, 40, 255}, 0), 64)
+	if b := wide.Bounds(); b.Dx() != 64 || b.Dy() != 32 {
+		t.Errorf("downscale(400x200) = %dx%d, want 64x32 (aspect preserved)", b.Dx(), b.Dy())
+	}
+	tall := downscale(solidImage(200, 400, color.RGBA{200, 40, 40, 255}, 0), 64)
+	if b := tall.Bounds(); b.Dx() != 32 || b.Dy() != 64 {
+		t.Errorf("downscale(200x400) = %dx%d, want 32x64 (aspect preserved)", b.Dx(), b.Dy())
 	}
 }

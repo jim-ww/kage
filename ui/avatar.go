@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"image"
+	"image/color"
 	_ "image/jpeg"
 	"image/png"
 	"math"
@@ -29,37 +30,48 @@ import (
 // both cases render identically and a contact's swatch doesn't jump around
 // when their avatar arrives.
 //
-// avatarCellWidth is how many columns the swatch occupies. One keeps the
-// per-row cost to a single column on top of the presence dot that's
-// already there; the rendering handles wider values if that turns out to
-// read better.
-const avatarCellWidth = 1
+// avatarCellWidth is how many columns the monogram swatch occupies in a
+// chat-list row. Three so it reads as a swatch with a letter in it rather
+// than as one more colored dot beside the presence glyph; the rendering
+// pads and centers the initial, so this is the only place to change it.
+const avatarCellWidth = 3
 
 // avatarColor is a swatch background. Kept as plain RGB rather than a
 // color.Color so it can be hashed, compared, and averaged.
 type avatarColor struct{ R, G, B uint8 }
 
-// avatarColors maps bare JID to the color derived from that contact's real
-// avatar image. Package-level (like presenceGlyphs) because Chat.Title is
-// called by bubbles' list delegate, which hands us no place to thread a
-// store through. Only ever written before/between renders, via
-// SetAvatarImage.
+// avatarColors/avatarPictures map bare JID to that contact's swatch color
+// and to the avatar image itself. Package-level (like presenceGlyphs)
+// because Chat.Title is called by bubbles' list delegate, which hands us no
+// place to thread a store through. Only ever written before/between
+// renders, via SetAvatarImage.
 var (
-	avatarMu     sync.RWMutex
-	avatarImages = map[string]avatarColor{}
+	avatarMu       sync.RWMutex
+	avatarImages   = map[string]avatarColor{}
+	avatarPictures = map[string]image.Image{}
 )
+
+// avatarStoredSize is the edge length every avatar is downscaled to on the
+// way into the store. Large enough that any cell size the header asks for
+// still box-averages over several source pixels, small enough that holding
+// one per contact costs nothing.
+const avatarStoredSize = 64
 
 // SetAvatarImage records the swatch color for one contact's avatar image.
 // This is the seam real XEP-0084/XEP-0153 avatar fetching will feed once
 // it exists; for now LoadAvatarDir fills it from local files.
 func SetAvatarImage(jid string, img image.Image) {
-	c, ok := dominantColor(img)
-	if !ok {
-		return
-	}
+	key := strings.ToLower(jid)
+	scaled := downscale(img, avatarStoredSize)
+
 	avatarMu.Lock()
 	defer avatarMu.Unlock()
-	avatarImages[strings.ToLower(jid)] = c
+	avatarPictures[key] = scaled
+	// A greyscale avatar yields no usable swatch color; the picture is
+	// still kept, and the JID hash supplies the monogram's color.
+	if c, ok := dominantColor(img); ok {
+		avatarImages[key] = c
+	}
 }
 
 // ClearAvatarImages drops every recorded avatar color.
@@ -67,7 +79,129 @@ func ClearAvatarImages() {
 	avatarMu.Lock()
 	defer avatarMu.Unlock()
 	avatarImages = map[string]avatarColor{}
+	avatarPictures = map[string]image.Image{}
 }
+
+// avatarPicture returns the stored image for a contact, if any.
+func avatarPicture(address string) (image.Image, bool) {
+	avatarMu.RLock()
+	defer avatarMu.RUnlock()
+	img, ok := avatarPictures[strings.ToLower(address)]
+	return img, ok
+}
+
+// hasAvatarPicture reports whether a contact has a real avatar image, as
+// opposed to only a hashed monogram color. Drives whether the chat header
+// grows to picture height — see Model.chatStatusHeight.
+func hasAvatarPicture(address string) bool {
+	_, ok := avatarPicture(address)
+	return ok
+}
+
+// downscale box-averages img down to fit an edge*edge square, preserving
+// aspect ratio. Done once on the way into the store so every later render
+// samples a small image; an image already within the bound is returned
+// as-is.
+func downscale(img image.Image, edge int) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return img
+	}
+	if w <= edge && h <= edge {
+		return img
+	}
+	dw, dh := edge, edge
+	if w > h {
+		dh = max(1, h*edge/w)
+	} else {
+		dw = max(1, w*edge/h)
+	}
+	out := image.NewRGBA(image.Rect(0, 0, dw, dh))
+	for y := 0; y < dh; y++ {
+		for x := 0; x < dw; x++ {
+			out.Set(x, y, boxAverage(img, b, x, y, dw, dh))
+		}
+	}
+	return out
+}
+
+// boxAverage is the mean color of the source region that maps to cell
+// (cx, cy) of a cols*rows grid laid over bounds. Averaging rather than
+// nearest-neighbour matters at avatar sizes: a 6x6 nearest-neighbour
+// sampling of a face is six pixels of whatever happened to sit under the
+// sample points, which is noise, while the average at least preserves the
+// picture's large shapes.
+func boxAverage(img image.Image, bounds image.Rectangle, cx, cy, cols, rows int) color.RGBA {
+	x0 := bounds.Min.X + cx*bounds.Dx()/cols
+	x1 := bounds.Min.X + (cx+1)*bounds.Dx()/cols
+	y0 := bounds.Min.Y + cy*bounds.Dy()/rows
+	y1 := bounds.Min.Y + (cy+1)*bounds.Dy()/rows
+	if x1 <= x0 {
+		x1 = x0 + 1
+	}
+	if y1 <= y0 {
+		y1 = y0 + 1
+	}
+	var r, g, b, n uint64
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			pr, pg, pb, _ := img.At(x, y).RGBA()
+			r, g, b, n = r+uint64(pr>>8), g+uint64(pg>>8), b+uint64(pb>>8), n+1
+		}
+	}
+	if n == 0 {
+		return color.RGBA{A: 255}
+	}
+	return color.RGBA{R: uint8(r / n), G: uint8(g / n), B: uint8(b / n), A: 255}
+}
+
+// renderAvatarPicture renders a contact's avatar as cols x rows character
+// cells of half-blocks: one U+2580 per cell, foreground painting the upper
+// pixel and background the lower, so a cell carries two pixels and a row of
+// cells carries two pixel rows. Pure SGR text — every cell is exactly one
+// column wide to lipgloss.Width, which is what lets the result be composed
+// with ordinary styled strings (unlike sixel or the Kitty graphics
+// protocol, whose payloads measure as zero columns).
+//
+// Returns false when the contact has no avatar image, leaving the caller to
+// fall back to the monogram.
+func renderAvatarPicture(address string, cols, rows int) (string, bool) {
+	if cols <= 0 || rows <= 0 {
+		return "", false
+	}
+	img, ok := avatarPicture(address)
+	if !ok {
+		return "", false
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return "", false
+	}
+
+	pixelRows := rows * 2
+	lines := make([]string, 0, rows)
+	var line strings.Builder
+	for row := 0; row < rows; row++ {
+		line.Reset()
+		for col := 0; col < cols; col++ {
+			top := boxAverage(img, bounds, col, row*2, cols, pixelRows)
+			bottom := boxAverage(img, bounds, col, row*2+1, cols, pixelRows)
+			line.WriteString(lipgloss.NewStyle().
+				Foreground(lipgloss.Color(rgbHex(top))).
+				Background(lipgloss.Color(rgbHex(bottom))).
+				Render(upperHalfBlock))
+		}
+		lines = append(lines, line.String())
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+// upperHalfBlock is U+2580. Foreground colors its upper half, background
+// the lower.
+const upperHalfBlock = "\u2580"
+
+func rgbHex(c color.RGBA) string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
 // LoadAvatarDir reads every PNG/JPEG in dir as an avatar, keyed by the
 // file's base name (so "alice@localhost.png" is alice@localhost's avatar),

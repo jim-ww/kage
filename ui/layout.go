@@ -54,7 +54,7 @@ func (m *Model) updateSizes() {
 	m.chats.SetWidth(m.sidebarContentWidth())
 
 	m.viewport.SetWidth(cw)
-	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
+	m.viewport.SetHeight(max(0, m.height-ih-m.chatStatusHeight()))
 }
 
 // buttonGap is the blank column separating the attach and send buttons —
@@ -183,6 +183,25 @@ func (m Model) toggleSidebar() (Model, tea.Cmd) {
 	return m, nil
 }
 
+// chatStatusHeight is how many rows the chat pane's header occupies: the
+// avatar-carrying block when the open chat has a real avatar image, and a
+// single status line otherwise. Variable rather than fixed so a chat
+// without an avatar never pays two viewport rows for an empty picture
+// slot.
+func (m Model) chatStatusHeight() int {
+	if m.avatarHeaderVisible() {
+		return avatarHeaderRows
+	}
+	return chatStatusHeight
+}
+
+// avatarHeaderVisible reports whether the open chat has an avatar image to
+// draw in the header.
+func (m Model) avatarHeaderVisible() bool {
+	chat, ok := m.currentChat()
+	return ok && hasAvatarPicture(chat.Address)
+}
+
 func (m Model) chatAreaWidth() int {
 	if m.narrow() {
 		if m.narrowShowChat() {
@@ -239,7 +258,7 @@ func clamp(v, lo, hi int) int {
 // border — leaves at least a couple of rows for the viewport above it so
 // the chat pane never disappears entirely behind the input.
 func (m Model) inputHeightMaxDrag() int {
-	return max(1, m.height-chatStatusHeight-3)
+	return max(1, m.height-m.chatStatusHeight()-3)
 }
 
 // expandedComposeHeight is the compose box's height while
