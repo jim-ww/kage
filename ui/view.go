@@ -1060,5 +1060,10 @@ func (m Model) renderChatStatusBar(width int) string {
 	// off right after the dot, leaving the rest of the label uncolored.
 	label = m.styles.messageNickMe.Render(label)
 
-	return ansi.Truncate(label, max(1, width-2), "…")
+	// The swatch carries its own colors and trailing reset, so it's
+	// prefixed after the label is styled and truncated to the width it
+	// leaves behind, rather than being folded into the styled run.
+	avatar := renderAvatarCell(chat.Name, chat.Address)
+	budget := max(1, width-2-avatarCellWidth-1)
+	return avatar + " " + ansi.Truncate(label, budget, "…")
 }

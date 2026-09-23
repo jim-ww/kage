@@ -314,8 +314,12 @@ type Chat struct {
 	Draft string
 }
 
-// Title implements list.Item.
-func (c Chat) Title() string { return presenceGlyph(c.Presence) + " " + c.Name }
+// Title implements list.Item. The avatar swatch and presence dot are
+// pre-styled strings (each ending in its own ANSI reset), so the delegate's
+// title style colors only the name — see renderAvatarCell.
+func (c Chat) Title() string {
+	return renderAvatarCell(c.Name, c.Address) + " " + presenceGlyph(c.Presence) + " " + c.Name
+}
 
 // Description implements list.Item.
 func (c Chat) Description() string {
