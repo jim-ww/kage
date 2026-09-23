@@ -12,13 +12,14 @@ const (
 	sidebarStatusHeight = 2
 	chatStatusHeight    = 1
 	// avatarHeaderCols/avatarHeaderRows size the chat header's half-block
-	// avatar (see renderAvatarPicture): 6 columns by 3 rows of cells, which
-	// is 6x6 pixels since each cell carries two. The header grows to
-	// avatarHeaderRows only for a chat that actually has an avatar image —
-	// see Model.chatStatusHeight — so chats without one keep the full
-	// viewport.
-	avatarHeaderCols = 6
-	avatarHeaderRows = 3
+	// avatar (see renderAvatarPicture): 8 columns by 4 rows of cells, which
+	// is 8x8 pixels since each cell carries two. Below roughly this size a
+	// downscaled photo stops resolving into anything and reads as a colored
+	// smear. The header grows to avatarHeaderRows only for a chat that
+	// actually has an avatar image — see Model.chatStatusHeight — so chats
+	// without one keep the full viewport.
+	avatarHeaderCols = 8
+	avatarHeaderRows = 4
 	// callBarHeight is the persistent call bar's row count — only reserved
 	// in updateSizes while callBarActive() (see layout.go), so idle layout
 	// is unaffected.

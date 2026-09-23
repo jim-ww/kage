@@ -346,3 +346,56 @@ func TestDownscaleBounds(t *testing.T) {
 		t.Errorf("downscale(200x400) = %dx%d, want 32x64 (aspect preserved)", b.Dx(), b.Dy())
 	}
 }
+
+func TestFallbackAvatarCoversUnknownContacts(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	if hasAvatarPicture("stranger@example.com") {
+		t.Fatal("a picture before any avatar was set")
+	}
+	SetFallbackAvatarImage(solidImage(32, 32, color.RGBA{40, 120, 200, 255}, 0))
+	if !hasAvatarPicture("stranger@example.com") {
+		t.Error("fallback avatar not used for a contact without one")
+	}
+	// A shared picture must not collapse every list swatch to one color.
+	if got := avatarColorFor("stranger@example.com"); got != hashColor("stranger@example.com") {
+		t.Errorf("avatarColorFor = %v, want the JID hash %v", got, hashColor("stranger@example.com"))
+	}
+}
+
+func TestOwnAvatarBeatsFallback(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	SetFallbackAvatarImage(solidImage(32, 32, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(32, 32, color.RGBA{220, 30, 30, 255}, 0))
+
+	block, ok := renderAvatarPicture("alice@localhost", 2, 1)
+	if !ok {
+		t.Fatal("renderAvatarPicture reported no picture")
+	}
+	if !strings.Contains(block, "220;30;30") {
+		t.Errorf("block %q used the fallback instead of the contact's own avatar", block)
+	}
+}
+
+func TestLoadAvatarDirDefaultIsTheFallback(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	dir := t.TempDir()
+	writePNG(t, filepath.Join(dir, "default.png"), color.RGBA{40, 120, 200, 255})
+	writePNG(t, filepath.Join(dir, "alice@localhost.png"), color.RGBA{220, 30, 30, 255})
+
+	n, err := LoadAvatarDir(dir)
+	if err != nil {
+		t.Fatalf("LoadAvatarDir: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("loaded %d named avatars, want 1 — default.png is the fallback, not a contact", n)
+	}
+	if !hasAvatarPicture("stranger@example.com") {
+		t.Error("default.png was not installed as the fallback")
+	}
+}
