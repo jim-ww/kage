@@ -234,6 +234,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		startAccountIdx = lastChatAccountIdx
 	}
 	ui.AttachmentsDir = cfg.AttachmentsDir
+	loadLocalAvatars()
 	keyMap, err := cfg.ResolvedKeyMap()
 	if err != nil {
 		return err
@@ -329,4 +330,23 @@ func dataFilePath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "kage.db"), nil
+}
+
+// loadLocalAvatars fills the avatar swatch colors from PNG/JPEG files named
+// after the bare JID they belong to, in $KAGE_AVATAR_DIR (default
+// devtest/avatars). Temporary: a stand-in for fetching avatars over XMPP,
+// so the monogram rendering can be judged before the wire work exists.
+// Failures are logged and ignored — a missing avatar just means the swatch
+// color comes from the JID hash instead.
+func loadLocalAvatars() {
+	dir := os.Getenv("KAGE_AVATAR_DIR")
+	if dir == "" {
+		dir = filepath.Join("devtest", "avatars")
+	}
+	n, err := ui.LoadAvatarDir(dir)
+	if err != nil {
+		slog.Debug("loading local avatars", "dir", dir, "err", err)
+		return
+	}
+	slog.Debug("loaded local avatars", "dir", dir, "count", n)
 }
