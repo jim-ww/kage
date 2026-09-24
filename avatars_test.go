@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jim-ww/kage/ui"
+	"github.com/jim-ww/kage/xmpp"
 )
 
 // A bare JID arrives off the network and becomes a file name, so anything
@@ -199,5 +202,14 @@ func TestHumanBytes(t *testing.T) {
 		if got := humanBytes(tt.in); got != tt.want {
 			t.Errorf("humanBytes(%d) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+// ui can't import xmpp, so the limit the avatar preview refuses oversized
+// files against is a mirror of the wire limit. This is the only place that
+// sees both.
+func TestAvatarMaxBytesMatchesTheWireLimit(t *testing.T) {
+	if ui.AvatarMaxBytes != xmpp.AvatarMaxBytes {
+		t.Errorf("ui.AvatarMaxBytes = %d, want xmpp.AvatarMaxBytes (%d)", ui.AvatarMaxBytes, xmpp.AvatarMaxBytes)
 	}
 }

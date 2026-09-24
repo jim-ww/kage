@@ -3,12 +3,14 @@ package ui
 import (
 	"fmt"
 	"image"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Avatar preview: the confirmation step between picking a file and
@@ -22,8 +24,8 @@ import (
 // menu from the account bar.
 //
 // Rendered with the same half-block cells as contact avatars
-// (renderImageBlocks), so what the preview shows is what the chat list and
-// the avatar panel will show.
+// (renderImageBlocks), at the picked file's own aspect ratio — see
+// avatarPreviewSize.
 
 // avatarPreviewMaxEdge is the edge length the picked image is downscaled
 // to before rendering. Larger than avatarStoredSize because the preview is
@@ -36,6 +38,26 @@ const avatarPreviewMaxEdge = 192
 // picture stops resolving (same reasoning as avatarPanelMinCols) and the
 // popup shows the file's details alone.
 const avatarPreviewMinCols = 12
+
+// avatarPreviewTextWidth caps the popup's text lines. The picture is what
+// sets the dialog's width; a filename or a decoder error is truncated to
+// this rather than allowed to stretch it.
+const avatarPreviewTextWidth = 60
+
+// avatarPreviewMaxPixels is the largest image the preview will decode.
+// Decoding is what a pathological file costs — every pixel becomes four
+// bytes of heap regardless of how well it compressed on disk — and a file
+// small enough to publish can still be tens of megapixels. 16 megapixels
+// is roughly 64MB decoded: far beyond any avatar, and still far short of
+// hurting.
+const avatarPreviewMaxPixels = 16 << 20
+
+// AvatarMaxBytes is the largest avatar that can be published, mirroring
+// xmpp.AvatarMaxBytes so the preview can refuse an oversized file before
+// the user commits to it — ui doesn't import xmpp. The two are pinned
+// together by TestAvatarMaxBytesMatchesTheWireLimit in package main, which
+// imports both.
+const AvatarMaxBytes = 1 << 20
 
 // avatarPreviewState is the picked-but-not-yet-published candidate. img is
 // nil until the decode lands — or forever, if it failed; err says why.
@@ -85,22 +107,43 @@ func loadAvatarPreviewCmd(path string) tea.Cmd {
 			return out
 		}
 		defer f.Close()
-		img, format, err := image.Decode(f)
+		// The header is read first, and every refusal that can be decided
+		// from it is decided here: decoding is what costs, and it costs in
+		// proportion to the pixels rather than to the file — an 8000x8000
+		// PNG of flat color is well under the publishable size yet holds a
+		// quarter of a gigabyte once decoded.
+		cfg, format, err := image.DecodeConfig(f)
 		if err != nil {
 			out.err = fmt.Errorf("not a usable image: %w", err)
 			return out
 		}
+		out.width, out.height = cfg.Width, cfg.Height
+		out.format = format
 		// Only PNG and JPEG can be published (see the daemon's
 		// SetOwnAvatar), so anything else is refused here rather than
-		// after the user confirms. image.Decode is registered for both by
+		// after the user confirms. Both are registered for the decoder by
 		// the imports avatar.go already carries.
 		if format != "png" && format != "jpeg" {
 			out.err = fmt.Errorf("%s images cannot be published; use PNG or JPEG", format)
 			return out
 		}
-		b := img.Bounds()
-		out.width, out.height = b.Dx(), b.Dy()
-		out.format = format
+		if out.size > AvatarMaxBytes {
+			out.err = fmt.Errorf("%s, over the %s limit", humanBytes(out.size), humanBytes(AvatarMaxBytes))
+			return out
+		}
+		if px := int64(cfg.Width) * int64(cfg.Height); px > avatarPreviewMaxPixels {
+			out.err = fmt.Errorf("%d×%d is too large to preview", cfg.Width, cfg.Height)
+			return out
+		}
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			out.err = err
+			return out
+		}
+		img, _, err := image.Decode(f)
+		if err != nil {
+			out.err = fmt.Errorf("not a usable image: %w", err)
+			return out
+		}
 		out.img = downscale(img, avatarPreviewMaxEdge)
 		return out
 	}
@@ -115,13 +158,13 @@ func (m *Model) applyAvatarPreviewLoaded(msg avatarPreviewLoadedMsg) {
 	}
 	m.avatarPreview.loading = false
 	m.avatarPreview.size = msg.size
+	m.avatarPreview.width, m.avatarPreview.height = msg.width, msg.height
+	m.avatarPreview.format = msg.format
 	if msg.err != nil {
 		m.avatarPreview.err = msg.err.Error()
 		return
 	}
 	m.avatarPreview.img = msg.img
-	m.avatarPreview.width, m.avatarPreview.height = msg.width, msg.height
-	m.avatarPreview.format = msg.format
 }
 
 // updateAvatarPreviewKey handles input while the preview is up. Confirming
@@ -146,22 +189,39 @@ func (m Model) updateAvatarPreviewKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	return m, nil, true
 }
 
-// avatarPreviewSize is the picture's size in cells: as large as the popup
-// can be given the chat area, square (a cell carries two pixels
-// vertically, so rows are half of cols). Zero when there's no room, in
-// which case the popup shows the file's details without a picture.
-func (m Model) avatarPreviewSize() (cols, rows int) {
+// avatarPreviewSize is the picture's size in cells for a srcW x srcH
+// image: the largest box with the image's own aspect ratio that fits the
+// popup. Zero when there's no room, in which case the popup shows the
+// file's details without a picture.
+//
+// Letterboxed rather than stretched to a square, unlike the sidebar's
+// avatar panel — a preview exists to show what the file is, and a banner
+// squashed into a square is a picture of something that isn't in the file.
+// A cell carries two pixels vertically, so a square image is half as many
+// rows as columns and a wide one fewer still.
+func (m Model) avatarPreviewSize(srcW, srcH int) (cols, rows int) {
+	if srcW <= 0 || srcH <= 0 {
+		return 0, 0
+	}
 	// The popup's own chrome: border and padding, the title, the two
 	// detail lines, and the footer.
 	const chromeRows = 10
 	const chromeCols = 12
 	maxRows := m.height - m.inputAreaHeight() - chromeRows
-	cols = min(m.chatAreaWidth()-chromeCols, maxRows*2)
-	cols -= cols % 2 // an odd width can't split into whole pixel rows
+	maxCols := m.chatAreaWidth() - chromeCols
+	if maxRows < 1 || maxCols < avatarPreviewMinCols {
+		return 0, 0
+	}
+	// Widest that still fits maxRows at this aspect ratio: a picture cols
+	// wide is cols*srcH/srcW pixels tall, which is half that many rows.
+	cols = min(maxCols, 2*maxRows*srcW/srcH)
 	if cols < avatarPreviewMinCols {
 		return 0, 0
 	}
-	return cols, cols / 2
+	// Rounded, not truncated: at a banner's proportions the exact answer is
+	// a couple of rows, and truncating there halves the picture's height.
+	// A picture too wide even for one row still gets one.
+	return cols, max(1, (cols*srcH+srcW)/(2*srcW))
 }
 
 // renderAvatarPreviewPopup draws the candidate over the file picker.
@@ -170,20 +230,27 @@ func (m Model) renderAvatarPreviewPopup() string {
 	vh := m.height - m.inputAreaHeight()
 	preview := m.avatarPreview
 
+	// Every line but the picture is truncated: the picture is what sets the
+	// dialog's width, and a 300-character filename — or a decoder error
+	// with a path in it — would otherwise stretch the popup past the
+	// terminal's edge, taking the dialog's right-hand border with it.
+	textWidth := max(avatarPreviewMinCols, min(cw-12, avatarPreviewTextWidth))
+	name := ansi.Truncate(filepath.Base(preview.path), textWidth, "…")
+
 	var rows []string
 	switch {
 	case preview.loading:
-		rows = append(rows, "reading "+filepath.Base(preview.path)+"…")
+		rows = append(rows, ansi.Truncate("reading "+name+"…", textWidth, "…"))
 	case preview.err != "":
-		rows = append(rows, m.styles.popupDanger.Render(filepath.Base(preview.path)+": "+preview.err))
+		rows = append(rows, m.styles.popupDanger.Render(ansi.Truncate(name+": "+preview.err, textWidth, "…")))
 	default:
-		if cols, pictureRows := m.avatarPreviewSize(); cols > 0 {
+		if cols, pictureRows := m.avatarPreviewSize(preview.width, preview.height); cols > 0 {
 			rows = append(rows, renderImageBlocks(preview.img, cols, pictureRows), "")
 		}
 		rows = append(rows,
-			filepath.Base(preview.path),
-			m.styles.messageReply.Render(fmt.Sprintf("%s · %d×%d · %s",
-				strings.ToUpper(preview.format), preview.width, preview.height, humanBytes(preview.size))),
+			name,
+			m.styles.messageReply.Render(ansi.Truncate(fmt.Sprintf("%s · %d×%d · %s",
+				strings.ToUpper(preview.format), preview.width, preview.height, humanBytes(preview.size)), textWidth, "…")),
 		)
 	}
 
