@@ -1,20 +1,14 @@
-- avatar modal: add mouse support (use same modal preset + ensure good UX for file selection/preview/reselection)
 - green account alias out of place?
-- video calls: option to stop streaming video
 - fix: rarely, cannot scroll past certain message and load older history
 - design proper tray icon/logo
-- increase message size, before it becomes collapsible
 - open chat composer (textbox) of message size (with limits)
 - pasted text to chat composer(inputbox) isnt shown in chat as it is in composer. e.g. multiline insert lines get bad padding from left
 - ellipsis must not wrap on second line, if replied-to message text is overflowing (e.g. does not account for ellipsis char length itself)
 - option to choose mic + mid call
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
-- ui(config): allow setting single-line display of messages in chat, off by default (e.g. whole status line + control buttons on same line as message, after message text)
-- add set avatar option
 - connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
 - non-focused state of app, with open chat doesnt send notifications
 - some modals are overflowing out of window (e.g. localstorage password change)
-- add keyboard navigation to modals (and ways to open them)
 
 - select & yank text in draft with mouse
 
