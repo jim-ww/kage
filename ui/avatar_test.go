@@ -245,9 +245,9 @@ func writePNG(t *testing.T, path string, c color.RGBA) {
 	}
 }
 
-// The header block's height is what the viewport's own height is computed
-// against (see Model.chatStatusHeight), and its width is what the text
-// lines beside it are budgeted from — so both have to be exact.
+// Callers lay the block out against the size they asked for, so the
+// rendered result has to be exactly that many rows of exactly that many
+// columns.
 func TestRenderAvatarPictureDimensions(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
@@ -255,17 +255,17 @@ func TestRenderAvatarPictureDimensions(t *testing.T) {
 	const jid = "alice@localhost"
 	SetAvatarImage(jid, solidImage(64, 64, color.RGBA{200, 40, 40, 255}, 32))
 
-	block, ok := renderAvatarPicture(jid, avatarHeaderCols, avatarHeaderRows)
+	block, ok := renderAvatarPicture(jid, 8, 4)
 	if !ok {
 		t.Fatal("renderAvatarPicture reported no picture for a contact with one")
 	}
 	lines := strings.Split(block, "\n")
-	if len(lines) != avatarHeaderRows {
-		t.Fatalf("got %d rows, want %d", len(lines), avatarHeaderRows)
+	if len(lines) != 4 {
+		t.Fatalf("got %d rows, want 4", len(lines))
 	}
 	for i, line := range lines {
-		if got := lipgloss.Width(line); got != avatarHeaderCols {
-			t.Errorf("row %d width = %d, want %d", i, got, avatarHeaderCols)
+		if got := lipgloss.Width(line); got != 8 {
+			t.Errorf("row %d width = %d, want 8", i, got)
 		}
 	}
 }
@@ -295,7 +295,7 @@ func TestRenderAvatarPictureWithoutImage(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
 
-	if _, ok := renderAvatarPicture("nobody@localhost", avatarHeaderCols, avatarHeaderRows); ok {
+	if _, ok := renderAvatarPicture("nobody@localhost", 8, 4); ok {
 		t.Error("renderAvatarPicture reported a picture for a contact with none")
 	}
 	if hasAvatarPicture("nobody@localhost") {

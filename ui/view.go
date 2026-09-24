@@ -280,7 +280,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 	case m.pickingFile:
 		viewportArea = m.renderFilePickerPopup()
 	default:
-		viewportHeight := m.height - m.inputAreaHeight() - m.chatStatusHeight()
+		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
 		viewportArea = m.zone.Mark(zonePaneViewport, m.renderViewportFrame(viewportFrameCacheEntry{
 			width:   m.chatAreaWidth(),
 			height:  viewportHeight,
@@ -302,7 +302,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 	chatStatus := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		toggleBtn,
-		m.zone.Mark(zoneChatStatusBar, m.renderChatStatus(statusWidth)),
+		m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 }
@@ -1033,57 +1033,7 @@ func (m Model) renderPendingAttachments(width int) string {
 	return ansi.Truncate(strings.Join(chips, "  "), max(1, width), "…")
 }
 
-// renderChatStatus renders the chat pane's header: the avatar-carrying
-// block when the open chat has an avatar image, and the single status line
-// otherwise. Its height must agree with chatStatusHeight, which is what the
-// viewport's own height is computed against.
-func (m Model) renderChatStatus(width int) string {
-	if !m.avatarHeaderVisible() {
-		return m.styles.chatStatusLine(width, m.renderChatStatusBar(width))
-	}
-	chat, _ := m.currentChat()
-
-	picture, ok := renderAvatarPicture(chat.Address, avatarHeaderCols, avatarHeaderRows)
-	if !ok {
-		// avatarHeaderVisible said there was a picture; if it's gone by the
-		// time we render, fall back rather than emit a block of the wrong
-		// height.
-		return m.styles.chatStatusLine(width, m.renderChatStatusBar(width))
-	}
-
-	textWidth := max(1, width-avatarHeaderCols-2)
-	lines := []string{
-		m.styles.messageNickMe.Render(ansi.Truncate(m.chatStatusLabel(chat), textWidth, "…")),
-		presenceGlyph(chat.Presence) + " " + lipgloss.NewStyle().Foreground(m.styles.colors.textMuted).
-			Render(ansi.Truncate(presenceLabel(chat.Presence), max(1, textWidth-2), "…")),
-	}
-	if detail := chatHeaderDetail(chat); detail != "" {
-		lines = append(lines, lipgloss.NewStyle().Foreground(m.styles.colors.textMuted).
-			Render(ansi.Truncate(detail, textWidth, "…")))
-	}
-	for len(lines) < avatarHeaderRows {
-		lines = append(lines, "")
-	}
-
-	block := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		picture,
-		" "+strings.Join(lines[:avatarHeaderRows], "\n "),
-	)
-	return m.styles.chatStatusBlock(width, avatarHeaderRows, block)
-}
-
-// chatHeaderDetail is the avatar header's third line: the contact's address
-// when the name shown above it isn't already the address, and the chat's
-// encryption mode otherwise.
-func chatHeaderDetail(chat Chat) string {
-	if chat.Address != "" && chat.Address != chat.Name {
-		return chat.Address
-	}
-	return chat.EncryptionMode
-}
-
-// chatStatusLabel is the header's headline text: who the chat is with,
+// chatStatusLabel is the status bar's headline text: who the chat is with,
 // plus whatever transient state (typing, history sync) is worth saying
 // alongside it.
 func (m Model) chatStatusLabel(chat Chat) string {
