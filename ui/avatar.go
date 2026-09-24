@@ -450,3 +450,46 @@ func renderAvatarCell(name, address string) string {
 // fixture avatars doesn't need its own import of image/png alongside this
 // file's decoder registration.
 var encodePNG = png.Encode
+
+// anyAvatarKnown reports whether any avatar image at all has been loaded.
+// The sidebar's avatar panel reserves its rows only when this is true, so
+// an install with no avatars anywhere never pays for an empty picture slot
+// — and, unlike asking whether one particular contact has a picture, the
+// answer doesn't change as chats are switched, which would resize the chat
+// list underneath the selection on every move.
+func anyAvatarKnown() bool {
+	avatarMu.RLock()
+	defer avatarMu.RUnlock()
+	return len(avatarPictures) > 0 || avatarFallback != nil
+}
+
+// renderAvatarLarge renders a contact at cols x rows cells: their avatar
+// picture when there is one, and an enlarged monogram — the same swatch
+// color as their chat-list row, with the initial centered — when there
+// isn't. Always exactly rows lines of cols columns, so the caller's layout
+// arithmetic holds either way.
+func renderAvatarLarge(name, address string, cols, rows int) string {
+	if picture, ok := renderAvatarPicture(address, cols, rows); ok {
+		return picture
+	}
+	bg := avatarColorFor(address)
+	style := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(readableOn(bg).hex())).
+		Background(lipgloss.Color(bg.hex())).
+		Bold(true)
+
+	initial := avatarInitial(name, address)
+	middle := rows / 2
+	lines := make([]string, rows)
+	for i := range lines {
+		text := strings.Repeat(" ", cols)
+		if i == middle {
+			left := (cols - lipgloss.Width(initial)) / 2
+			if left >= 0 {
+				text = strings.Repeat(" ", left) + initial + strings.Repeat(" ", max(0, cols-left-lipgloss.Width(initial)))
+			}
+		}
+		lines[i] = style.Render(text)
+	}
+	return strings.Join(lines, "\n")
+}

@@ -65,6 +65,9 @@ func (m Model) View() tea.View {
 	case len(m.chats.Items()) == 0 && m.currentAccountConnecting():
 		sidebarBody = m.styles.accountNormal.Render("connecting...")
 	}
+	if panel := m.renderAvatarPanel(scw); panel != "" {
+		sidebarBody = lipgloss.JoinVertical(lipgloss.Left, sidebarBody, panel)
+	}
 	sidebar := ""
 	if sw > 0 {
 		innerHeight := max(0, m.height-sidebarStatusHeight)
