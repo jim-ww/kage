@@ -193,38 +193,17 @@ func boxAverage(img image.Image, bounds image.Rectangle, cx, cy, cols, rows int)
 	return color.RGBA{R: uint8(r / n), G: uint8(g / n), B: uint8(b / n), A: 255}
 }
 
-// renderAvatarPicture renders a contact's avatar as cols x rows character
-// cells of half-blocks: one U+2580 per cell, foreground painting the upper
-// pixel and background the lower, so a cell carries two pixels and a row of
-// cells carries two pixel rows. Pure SGR text — every cell is exactly one
-// column wide to lipgloss.Width, which is what lets the result be composed
-// with ordinary styled strings (unlike sixel or the Kitty graphics
-// protocol, whose payloads measure as zero columns).
-//
-// Returns false when the contact has no avatar image, leaving the caller to
-// fall back to the monogram.
-func renderAvatarPicture(address string, cols, rows int) (string, bool) {
-	if cols <= 0 || rows <= 0 {
-		return "", false
+// renderImageBlocks renders img as cols x rows half-block cells, shared by
+// the contact-avatar path below and the avatar preview (see
+// avatar_preview.go). Returns "" for a degenerate size or an empty image.
+func renderImageBlocks(img image.Image, cols, rows int) string {
+	if img == nil || cols <= 0 || rows <= 0 {
+		return ""
 	}
-	key := strings.ToLower(address)
-	avatarMu.RLock()
-	img, ok := avatarPictures[key]
-	c := avatarBlockCache
-	gen := avatarGen
-	avatarMu.RUnlock()
-	if !ok || img == nil {
-		return "", false
-	}
-	if c.rendered != "" && c.address == key && c.cols == cols && c.rows == rows && c.gen == gen {
-		return c.rendered, true
-	}
-
 	bounds := img.Bounds()
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
-		return "", false
+		return ""
 	}
-
 	pixelRows := rows * 2
 	// Written as SGR directly rather than one lipgloss.Style.Render per
 	// cell. A picture this size is hundreds of cells, and a Render each —
@@ -264,7 +243,40 @@ func renderAvatarPicture(address string, cols, rows int) (string, bool) {
 		}
 		sb.WriteString(ansiReset)
 	}
-	out := sb.String()
+	return sb.String()
+}
+
+// renderAvatarPicture renders a contact's avatar as cols x rows character
+// cells of half-blocks: one U+2580 per cell, foreground painting the upper
+// pixel and background the lower, so a cell carries two pixels and a row of
+// cells carries two pixel rows. Pure SGR text — every cell is exactly one
+// column wide to lipgloss.Width, which is what lets the result be composed
+// with ordinary styled strings (unlike sixel or the Kitty graphics
+// protocol, whose payloads measure as zero columns).
+//
+// Returns false when the contact has no avatar image, leaving the caller to
+// fall back to the monogram.
+func renderAvatarPicture(address string, cols, rows int) (string, bool) {
+	if cols <= 0 || rows <= 0 {
+		return "", false
+	}
+	key := strings.ToLower(address)
+	avatarMu.RLock()
+	img, ok := avatarPictures[key]
+	c := avatarBlockCache
+	gen := avatarGen
+	avatarMu.RUnlock()
+	if !ok || img == nil {
+		return "", false
+	}
+	if c.rendered != "" && c.address == key && c.cols == cols && c.rows == rows && c.gen == gen {
+		return c.rendered, true
+	}
+
+	out := renderImageBlocks(img, cols, rows)
+	if out == "" {
+		return "", false
+	}
 
 	avatarMu.Lock()
 	if avatarGen == gen {
