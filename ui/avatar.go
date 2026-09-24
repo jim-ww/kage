@@ -445,8 +445,9 @@ func hashColor(jid string) avatarColor {
 	return avatarColor{R: r, G: g, B: b}
 }
 
-// avatarHue is the one hashed dimension shared by a contact's swatch and
-// their tinted name, so the two always read as the same contact.
+// avatarHue is the hashed dimension of a contact's swatch — the only one,
+// so that saturation and lightness can be pinned where every result stays
+// legible.
 func avatarHue(jid string) float64 {
 	h := fnv.New32a()
 	h.Write([]byte(strings.ToLower(jid)))
@@ -574,8 +575,10 @@ func readableOn(bg avatarColor) avatarColor {
 
 func (c avatarColor) hex() string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
-// avatarColorFor returns the swatch color for a contact: the one derived
-// from their real avatar if we have it, else the JID hash.
+// avatarColorFor returns the swatch color for a contact, in order of how
+// much it's actually known about them: the color they were configured with
+// (see SetContactColors), else the dominant color of their real avatar,
+// else a hue hashed from their JID.
 func avatarColorFor(address string) avatarColor {
 	// A color the user set by hand outranks anything derived, including
 	// the one taken from their actual avatar image.
