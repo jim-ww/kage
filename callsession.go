@@ -187,6 +187,15 @@ type callSession struct {
 	// request a fresh keyframe without needing its own copy of the track.
 	remoteVideoTrack *webrtc.TrackRemote
 
+	// remoteVideoViewer is the mpv window currently showing the peer's video,
+	// mirrored here from playRemoteVideo's own local so applyContentRemove
+	// can close it the moment the peer withdraws the content - no frames
+	// arrive after that, so nothing in the read loop would ever notice on its
+	// own. The loop's local copy is left pointing at the closed viewer: its
+	// next WriteFrame fails, which is already the "mpv went away, reopen on
+	// the next keyframe" path.
+	remoteVideoViewer *call.ScreenViewer
+
 	// localFingerprint/remoteFingerprint are the two ends' DTLS-SRTP
 	// certificate fingerprints (XEP-0320), fingerprintSAS is the short
 	// authentication string derived from both (see computeSAS), and
@@ -787,6 +796,9 @@ func (s *accountSession) handleJingle(ctx context.Context, srv *ipc.Server, acco
 
 	case xmpp.JingleActionContentAccept:
 		c.applyContentAccept(ctx, ev.Jingle)
+
+	case xmpp.JingleActionContentRemove:
+		c.applyContentRemove(ev.Jingle)
 
 	case xmpp.JingleActionContentModify:
 		c.applyContentModify(ctx, ev.Jingle)
@@ -1887,6 +1899,50 @@ func (c *callSession) withdrawVideoShare(ctx context.Context) {
 	c.mu.Unlock()
 }
 
+// clearRemoteVideoViewer forgets the mpv window playRemoteVideo registered,
+// without closing it - for the paths that just closed it themselves.
+func (c *callSession) clearRemoteVideoViewer() {
+	c.mu.Lock()
+	c.remoteVideoViewer = nil
+	c.mu.Unlock()
+}
+
+// applyContentRemove is the receiving end of a peer withdrawing a content
+// (see withdrawVideoShare for our own side of it): close the viewer showing
+// that video and forget the content, so a later re-add of the same mid
+// merges cleanly. We deliberately don't renegotiate or end the call over it -
+// XEP-0166 §7.2.8 only ends the session when the last content goes away, and
+// for us that's never the case: the audio content always outlives it.
+func (c *callSession) applyContentRemove(jingle xmpp.JingleIQ) {
+	for _, req := range jingle.Contents {
+		if req.Name == "" {
+			continue
+		}
+		c.mu.Lock()
+		found, wasVideo := false, false
+		for i, rc := range c.remoteContents {
+			if rc.Name == req.Name {
+				found = true
+				wasVideo = rc.Description != nil && rc.Description.Media == "video"
+				c.remoteContents = append(c.remoteContents[:i], c.remoteContents[i+1:]...)
+				break
+			}
+		}
+		var viewer *call.ScreenViewer
+		if wasVideo {
+			viewer, c.remoteVideoViewer = c.remoteVideoViewer, nil
+		}
+		c.mu.Unlock()
+		if !found {
+			continue
+		}
+		slog.Debug("screen share: peer withdrew content", "sid", c.sid, "content", req.Name, "video", wasVideo)
+		if viewer != nil {
+			viewer.Close()
+		}
+	}
+}
+
 // playRemoteVideo pipes a peer's shared-screen video track into mpv,
 // mirroring playRemote's role for audio - reassembled via pion's H.264
 // depacketizer/samplebuilder rather than decoded ourselves; mpv does the
@@ -1980,6 +2036,7 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 		if viewer != nil {
 			viewer.Close()
 		}
+		c.clearRemoteVideoViewer()
 	}()
 	for {
 		for {
@@ -2009,6 +2066,9 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 					return
 				}
 				viewer = v
+				c.mu.Lock()
+				c.remoteVideoViewer = v
+				c.mu.Unlock()
 				slog.Debug("screen share: mpv viewer launched", "sid", c.sid)
 			}
 			if err := viewer.WriteFrame(sample.Data); err != nil {
@@ -2020,6 +2080,7 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				slog.Debug("screen share: writing to mpv failed, closing viewer", "sid", c.sid, "err", err)
 				viewer.Close()
 				viewer = nil
+				c.clearRemoteVideoViewer()
 				sawKeyframe = false
 				continue
 			}
