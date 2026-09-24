@@ -110,17 +110,14 @@ func (m *Model) messageContextMenuItems(idx int) []contextMenuItem {
 }
 
 // chatItemContextMenuItems builds the right-click menu for the chat at idx
-// (already selected by the caller).
+// (already selected by the caller). No "Open": opening is what a plain
+// click or enter on the row already does, so the entry only ever restated
+// the gesture that got you here.
 func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 	if idx < 0 || idx >= len(m.chats.Items()) {
 		return nil
 	}
 	return []contextMenuItem{
-		{label: "Open", run: func(m *Model) tea.Cmd {
-			model, cmd := m.openCurrentChat()
-			*m = model.(Model)
-			return cmd
-		}},
 		{label: "Rename", run: (*Model).actionRenameChat},
 		{label: "Encryption", run: (*Model).actionOpenEncryptionMenu},
 		{label: "Leave chat", run: (*Model).actionLeaveChat},
