@@ -46,9 +46,6 @@ func TestAvatarPanelSquareAndCapped(t *testing.T) {
 	if cols%2 != 0 {
 		t.Errorf("cols = %d, want even so it splits into whole pixel rows", cols)
 	}
-	if limit := m.height * avatarPanelMaxHeightPct / 100; rows > limit {
-		t.Errorf("rows = %d, want no more than %d%% of the sidebar's %d rows", rows, avatarPanelMaxHeightPct, m.height)
-	}
 	if cols > m.sidebarContentWidth() {
 		t.Errorf("cols = %d, wider than the sidebar's %d columns", cols, m.sidebarContentWidth())
 	}
@@ -62,18 +59,38 @@ func TestAvatarPanelGrowsWithSidebarWidth(t *testing.T) {
 	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	prev := 0
-	for _, sidebar := range []int{20, 26, 32, 40} {
-		m := avatarPanelModel(t, 200, 60)
+	for _, sidebar := range []int{20, 26, 32, 40, 52, 64} {
+		m := avatarPanelModel(t, 200, 80)
 		m.sidebarWidthOverride = sidebar
 		m.updateSizes()
 		cols, _ := m.avatarPanelSize()
-		if cols < prev {
-			t.Errorf("sidebar %d: picture shrank to %d columns from %d", sidebar, cols, prev)
-		}
-		if sidebar > 20 && cols <= prev && prev != 0 {
-			t.Errorf("sidebar %d: picture stuck at %d columns despite the wider sidebar", sidebar, cols)
+		if prev != 0 && cols <= prev {
+			t.Errorf("sidebar %d: picture stuck at %d columns despite the wider sidebar (was %d)", sidebar, cols, prev)
 		}
 		prev = cols
+	}
+}
+
+// The chat list's floor is the only thing that stops the picture growing —
+// so at a sidebar wide enough to hit it, that is exactly what's left.
+func TestAvatarPanelGrowsUntilTheListFloor(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+
+	m := avatarPanelModel(t, 200, 40)
+	m.sidebarWidthOverride = 120
+	m.updateSizes()
+
+	if got := m.chats.Height(); got != avatarPanelMinListRows {
+		t.Errorf("chat list has %d rows at a very wide sidebar, want the floor of %d", got, avatarPanelMinListRows)
+	}
+	cols, rows := m.avatarPanelSize()
+	if rows != cols/2 {
+		t.Errorf("rows = %d, want cols/2 = %d", rows, cols/2)
+	}
+	if cols > m.sidebarContentWidth() {
+		t.Errorf("cols = %d, wider than the sidebar's %d columns", cols, m.sidebarContentWidth())
 	}
 }
 

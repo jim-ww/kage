@@ -19,32 +19,29 @@ import (
 // of the list rather than a detail panel that happens to sit in the list's
 // territory.
 const (
-	// avatarPanelMaxHeightPct is the share of the sidebar the picture may
-	// take. The cap has to be on height, not width: a half-block cell is
-	// two pixels tall, so the picture is half as many rows as columns and
-	// every column the sidebar is dragged wider costs half a row of chat
-	// list. Capping columns directly instead would either pin the picture
-	// to one size no matter how much room it was given — which makes
-	// dragging the sidebar look broken — or let a wide sidebar swallow the
-	// list.
-	avatarPanelMaxHeightPct = 40
+	// avatarPanelMinListRows is how many chat rows the list keeps no matter
+	// what, and the only thing bounding the picture's size. Dragging the
+	// sidebar wider is the user saying how much room the avatar gets — a
+	// second, tighter cap on top of that (a fixed column count, or a share
+	// of the sidebar's height) only makes the drag stop working partway
+	// with no visible reason. A half-block cell is two pixels tall, so the
+	// picture is half as many rows as columns: every column of width costs
+	// half a row of chat list, and it keeps costing until these rows are
+	// all that's left.
+	avatarPanelMinListRows = 6
 	// avatarPanelMinCols is the narrowest picture worth drawing — below it
 	// the panel is suppressed entirely rather than rendered as mush.
 	avatarPanelMinCols = 8
 	// avatarPanelTextRows is the caption under the picture: name, then
 	// presence.
 	avatarPanelTextRows = 2
-	// avatarPanelMinListRows is how many chat rows the list keeps no matter
-	// what; the panel shrinks, then disappears, before eating into these.
-	avatarPanelMinListRows = 6
 )
 
 // avatarPanelSize is the picture's size in cells, or (0, 0) when the panel
 // shouldn't be drawn at all. Rows is half of cols because a half-block cell
 // carries two pixels vertically, so a square avatar needs half as many rows
-// as columns — which is why widening the sidebar grows the picture until
-// the height share (avatarPanelMaxHeightPct), and then the chat list's own
-// floor, stops it.
+// as columns — so widening the sidebar keeps growing the picture until the
+// chat list is down to avatarPanelMinListRows.
 //
 // Deliberately independent of which chat is open: the panel's height feeds
 // the chat list's own height (see updateSizes), and a height that changed
@@ -54,8 +51,7 @@ func (m Model) avatarPanelSize() (cols, rows int) {
 	if m.sidebarWidth() <= 0 || !anyAvatarKnown() {
 		return 0, 0
 	}
-	maxRows := m.height * avatarPanelMaxHeightPct / 100
-	cols = min(m.sidebarContentWidth()-2, maxRows*2)
+	cols = m.sidebarContentWidth() - 2
 	cols -= cols % 2 // an odd width can't split into whole pixel rows
 	rows = cols / 2
 
