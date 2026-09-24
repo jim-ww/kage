@@ -43,6 +43,21 @@ func TestChatListPreviewUpdatesOnUpdate(t *testing.T) {
 	}
 }
 
+// TestPreviewOfRetractedMessageHidesContent guards the path that rebuilds a
+// chat's preview from stored history (account.go on load, MAM backfill),
+// where the retraction flag is all that's left to go on - the body itself is
+// still in storage.
+func TestPreviewOfRetractedMessageHidesContent(t *testing.T) {
+	msg := Message{ID: "m1", Content: "secret", Retracted: true}
+	if got := MessagePreviewContent(msg); got != "message deleted" {
+		t.Fatalf("MessagePreviewContent = %q, want %q", got, "message deleted")
+	}
+	msg.Attachments = []string{"https://files.example.test/photo.png"}
+	if got := MessagePreviewContent(msg); got != "message deleted" {
+		t.Fatalf("with attachment: MessagePreviewContent = %q, want %q", got, "message deleted")
+	}
+}
+
 // TestChatListPreviewUpdatesOnLocalSendAndDelete guards the local/optimistic
 // echo paths in message_actions.go, which mutate the current chat's messages
 // directly rather than going through Update's IncomingMessageMsg-style

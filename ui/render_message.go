@@ -577,6 +577,10 @@ func parseQuoteReply(content string) (preview, rest string, ok bool) {
 // previews shown in reply hints and delete-confirmation popups.
 const previewLen = 40
 
+// retractedPreview is what every single-line preview of a retracted message
+// shows in place of its content.
+const retractedPreview = "message deleted"
+
 // MessagePreviewContent returns the text to preview for msg anywhere it's
 // shown as a single line (reply quotes/hints, delete-confirmation popups,
 // the chat list's last-message preview): for an attachment message, Content
@@ -585,6 +589,13 @@ const previewLen = 40
 // URL's fragment is the file's decryption key) — show the decoded
 // filename(s) instead, same as the attachment's own rendered body line.
 func MessagePreviewContent(msg Message) string {
+	// A retracted message's body stays in local storage (see the info
+	// popup), but no preview built from it may show what was deleted -
+	// including previews rebuilt from history on load, which is how a
+	// deleted message's text used to reappear in the chat list.
+	if msg.Retracted {
+		return retractedPreview
+	}
 	if msg.CallLog != nil {
 		return callLogText(*msg.CallLog)
 	}

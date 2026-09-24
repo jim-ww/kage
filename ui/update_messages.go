@@ -520,7 +520,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs[idx].Retracted = true
 		var cmd tea.Cmd
 		if idx == len(msgs)-1 {
-			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, "message deleted")
+			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, retractedPreview)
 		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.refreshViewport()

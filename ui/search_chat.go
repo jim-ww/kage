@@ -255,9 +255,6 @@ func (m Model) searchResultLabel(msg Message) (text, date string) {
 		glyph = "»"
 	}
 	content := MessagePreviewContent(msg)
-	if content == "" && msg.Retracted {
-		content = "*deleted*"
-	}
 	return style.Render(glyph) + " " + previewText(content, previewLen), style.Render(m.formatMessageTime(msg.SentAt))
 }
 

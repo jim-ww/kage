@@ -847,7 +847,7 @@ func (m *Model) retractSelectedMsg() tea.Cmd {
 	msgs[m.selectedMsg].Retracted = true
 	var cmd tea.Cmd
 	if m.selectedMsg == len(msgs)-1 {
-		cmd = m.setChatLastMessage(m.currentAccount, chatIdx, "message deleted")
+		cmd = m.setChatLastMessage(m.currentAccount, chatIdx, retractedPreview)
 	}
 	return cmd
 }
