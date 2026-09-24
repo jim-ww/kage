@@ -72,9 +72,19 @@ type Config struct {
 	// KeyringDisabled disables ever consulting the OS keyring; off by
 	// default.
 	KeyringDisabled bool `toml:"keyring_disabled,omitempty"`
-	// AvatarsDisabled hides contact avatars — both the swatch on each
-	// chat-list row and the picture panel under the list, which then
-	// gives its rows back to the list; off (avatars shown) by default.
+	// ContactColors tints a contact's name in the chat list, keyed by bare
+	// JID, with a "#rgb" or "#rrggbb" hex color. Opt-in and per contact:
+	// tinting everybody by a hash makes the list a fruit salad, while a
+	// handful of deliberately colored contacts is what actually makes them
+	// findable. Kept here rather than in state.toml because a color the
+	// user types is a deliberate setting, like gpg_peers — see State's own
+	// doc comment for the split, and ui.SetContactColors for how an
+	// invalid value is treated.
+	ContactColors map[string]string `toml:"contact_colors,omitempty"`
+	// AvatarsDisabled hides the avatar panel under the chat list, which
+	// then gives its rows back to the list, and stops the daemon fetching
+	// avatars at all; off (avatars shown) by default. Independent of
+	// ContactColors, which is its own opt-in.
 	AvatarsDisabled bool `toml:"avatars_disabled,omitempty"`
 	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
 	// off by default.

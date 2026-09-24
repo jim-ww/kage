@@ -234,6 +234,11 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		startAccountIdx = lastChatAccountIdx
 	}
 	ui.AttachmentsDir = cfg.AttachmentsDir
+	if err := ui.SetContactColors(cfg.ContactColors); err != nil {
+		// Not fatal: the rest of the colors still apply, and a typo in one
+		// entry shouldn't stop the app from starting.
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+	}
 	if !cfg.AvatarsDisabled {
 		loadLocalAvatars()
 	}

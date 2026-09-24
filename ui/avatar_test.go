@@ -3,7 +3,6 @@ package ui
 import (
 	"image"
 	"image/color"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,61 +157,112 @@ func TestSetAvatarImageKeepsHashForGreyscale(t *testing.T) {
 	}
 }
 
-func TestChatTitleTintsTheName(t *testing.T) {
+func TestChatTitleTintsOnlyConfiguredContacts(t *testing.T) {
 	ClearAvatarImages()
-	t.Cleanup(ClearAvatarImages)
+	t.Cleanup(func() {
+		ClearAvatarImages()
+		SetContactColors(nil)
+	})
+	if err := SetContactColors(map[string]string{"alice@localhost": "#7f9cf5"}); err != nil {
+		t.Fatalf("SetContactColors: %v", err)
+	}
 
-	c := Chat{Name: "alice", Address: "alice@localhost", Presence: PresenceOnline}
-	title := c.Title()
-	if plain := ansi.Strip(title); plain != "● alice" {
-		t.Errorf("Title() = %q, want %q — the name must not gain columns", plain, "● alice")
+	tinted := Chat{Name: "alice", Address: "alice@localhost", Presence: PresenceOnline}.Title()
+	plainContact := Chat{Name: "alice", Address: "alice@example.com", Presence: PresenceOnline}.Title()
+
+	if plain := ansi.Strip(tinted); plain != "● alice" {
+		t.Errorf("Title() = %q, want %q — tinting must not add columns", plain, "● alice")
 	}
-	// The whole point of the tint is that two contacts are told apart by
-	// color alone, since the text is identical.
-	other := Chat{Name: "alice", Address: "alice@example.com", Presence: PresenceOnline}
-	if title == other.Title() {
-		t.Error("two contacts with the same display name rendered identically")
+	if !strings.Contains(tinted, "127;156;245") {
+		t.Errorf("Title() = %q, missing the configured tint", tinted)
 	}
-	if lipgloss.Width(title) != lipgloss.Width(ansi.Strip(title)) {
-		t.Errorf("Title() measures %d columns but prints %d", lipgloss.Width(title), lipgloss.Width(ansi.Strip(title)))
+	// A contact with no configured color is left alone: opt-in is the whole
+	// point, since tinting everybody stops any one row standing out.
+	if strings.Contains(plainContact, "\x1b[38;2;") {
+		t.Errorf("Title() = %q for an unconfigured contact, want the name untinted", plainContact)
+	}
+	if lipgloss.Width(tinted) != lipgloss.Width(ansi.Strip(tinted)) {
+		t.Errorf("Title() measures %d columns but prints %d", lipgloss.Width(tinted), lipgloss.Width(ansi.Strip(tinted)))
 	}
 }
 
-// The tint and the panel's monogram swatch are the same contact's color,
-// so a row and its picture slot never disagree about who is who.
-func TestNameTintSharesTheSwatchHue(t *testing.T) {
-	for _, jid := range []string{"alice@localhost", "bob@example.com", "carol@x"} {
-		tint, swatch := nameTint(jid), hashColor(jid)
-		if hueOf(tint) != hueOf(swatch) {
-			t.Errorf("%s: name tint %v and swatch %v are different hues", jid, tint, swatch)
+func TestParseHexColor(t *testing.T) {
+	tests := []struct {
+		in     string
+		want   avatarColor
+		wantOK bool
+	}{
+		{"#7f9cf5", avatarColor{0x7f, 0x9c, 0xf5}, true},
+		{"7f9cf5", avatarColor{0x7f, 0x9c, 0xf5}, true},
+		{"#7F9CF5", avatarColor{0x7f, 0x9c, 0xf5}, true},
+		{"  #7f9cf5  ", avatarColor{0x7f, 0x9c, 0xf5}, true},
+		{"#abc", avatarColor{0xaa, 0xbb, 0xcc}, true}, // doubled, not zero-padded
+		{"#000", avatarColor{0, 0, 0}, true},
+		{"#fff", avatarColor{255, 255, 255}, true},
+		{"", avatarColor{}, false},
+		{"#", avatarColor{}, false},
+		{"#12345", avatarColor{}, false},
+		{"#1234567", avatarColor{}, false},
+		{"#gggggg", avatarColor{}, false},
+		{"rebeccapurple", avatarColor{}, false},
+	}
+	for _, tt := range tests {
+		got, ok := parseHexColor(tt.in)
+		if ok != tt.wantOK || got != tt.want {
+			t.Errorf("parseHexColor(%q) = (%v, %v), want (%v, %v)", tt.in, got, ok, tt.want, tt.wantOK)
 		}
 	}
 }
 
-// hueOf recovers an RGB color's hue in degrees, rounded — enough to check
-// two colors sit on the same hue at different lightness.
-func hueOf(c avatarColor) int {
-	r, g, b := float64(c.R)/255, float64(c.G)/255, float64(c.B)/255
-	hi := math.Max(r, math.Max(g, b))
-	lo := math.Min(r, math.Min(g, b))
-	d := hi - lo
-	if d == 0 {
-		return 0
+// A typo in one entry must be reported, not silently drop that contact's
+// color, and must not take the valid entries down with it.
+func TestSetContactColorsReportsBadValues(t *testing.T) {
+	t.Cleanup(func() { SetContactColors(nil) })
+
+	err := SetContactColors(map[string]string{
+		"alice@localhost": "#7f9cf5",
+		"bob@localhost":   "not-a-color",
+		"carol@localhost": "#12345",
+	})
+	if err == nil {
+		t.Fatal("SetContactColors accepted invalid colors")
 	}
-	var h float64
-	switch hi {
-	case r:
-		h = math.Mod((g-b)/d, 6)
-	case g:
-		h = (b-r)/d + 2
-	default:
-		h = (r-g)/d + 4
+	for _, want := range []string{"bob@localhost", "carol@localhost"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %s", err, want)
+		}
 	}
-	h *= 60
-	if h < 0 {
-		h += 360
+	if strings.Contains(err.Error(), "alice@localhost") {
+		t.Errorf("error %q names the valid entry", err)
 	}
-	return int(math.Round(h))
+	if _, ok := contactColor("alice@localhost"); !ok {
+		t.Error("a valid entry was dropped along with the invalid ones")
+	}
+	if _, ok := contactColor("bob@localhost"); ok {
+		t.Error("an invalid entry was kept")
+	}
+}
+
+// A configured color also drives the panel's monogram, and outranks the
+// color derived from the contact's own avatar image — the user said what
+// they wanted.
+func TestContactColorOutranksImageColor(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(func() {
+		ClearAvatarImages()
+		SetContactColors(nil)
+	})
+
+	SetAvatarImage("alice@localhost", solidImage(32, 32, color.RGBA{220, 30, 30, 255}, 0))
+	if got := avatarColorFor("alice@localhost"); got.R < 150 {
+		t.Fatalf("avatarColorFor = %v before any configured color, want the image red", got)
+	}
+	if err := SetContactColors(map[string]string{"ALICE@localhost": "#7f9cf5"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := avatarColorFor("alice@localhost"), (avatarColor{0x7f, 0x9c, 0xf5}); got != want {
+		t.Errorf("avatarColorFor = %v, want the configured %v (lookup is case-insensitive)", got, want)
+	}
 }
 
 func TestLoadAvatarDir(t *testing.T) {

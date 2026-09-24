@@ -378,9 +378,9 @@ type DisplayOptions struct {
 	// resolves to updated/mtime; see filepicker.ParseSortField.
 	FilePickerSortField     string
 	FilePickerSortAscending bool
-	// AvatarsDisabled hides contact avatars. Named for what turns them
-	// off, unlike the positive options above, so that the zero value is
-	// the default — avatars shown.
+	// AvatarsDisabled hides the sidebar's avatar panel. Named for what
+	// turns it off, unlike the positive options above, so that the zero
+	// value is the default — avatars shown.
 	AvatarsDisabled bool
 }
 

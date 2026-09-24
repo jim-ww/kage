@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,12 +36,13 @@ import (
 // color.Color so it can be hashed, compared, and averaged.
 type avatarColor struct{ R, G, B uint8 }
 
-// avatarsOn gates every avatar rendering: the chat-list swatch and the
-// sidebar panel both go away when it's off, and the panel's rows go back to
-// the chat list. Package-level (like AttachmentsDir) because Chat.Title is
-// called by bubbles' list delegate, which hands us no place to thread an
-// option through. Defaults on, so a Model built without DisplayOptions —
-// every test — behaves like the shipped default.
+// avatarsOn gates avatar rendering: the sidebar panel goes away when it's
+// off and its rows go back to the chat list. Package-level (like
+// AttachmentsDir) because the avatar store it guards is itself
+// package-level, reached from rendering paths the Model isn't threaded
+// through. Defaults on, so a Model built without DisplayOptions — every
+// test — behaves like the shipped default. Contact name tints are a
+// separate, opt-in setting and are not gated by this.
 var avatarsOn atomic.Bool
 
 func init() { avatarsOn.Store(true) }
@@ -451,29 +453,89 @@ func avatarHue(jid string) float64 {
 	return float64(h.Sum32() % 360)
 }
 
-// nameTint is a contact's hue as foreground text rather than as a filled
-// swatch: lighter than hashColor, since this has to carry against the
-// terminal's own background instead of under white text of our choosing.
-func nameTint(jid string) avatarColor {
-	r, g, b := hslToRGB(avatarHue(jid), 0.55, 0.62)
-	return avatarColor{R: r, G: g, B: b}
+// contactColors holds the per-contact name tints from config, keyed by
+// lowercased bare JID. Opt-in: a contact with no entry renders their name
+// plain. Hashing a color for everybody was tried and reverted — it turns
+// the list into a fruit salad and so stops any one row standing out, which
+// was the entire point.
+var (
+	contactColorMu sync.RWMutex
+	contactColors  = map[string]avatarColor{}
+)
+
+// SetContactColors replaces the configured per-contact tints. Values are
+// "#rgb" or "#rrggbb"; anything else is skipped and named in the returned
+// error, so a typo in config.toml is reported rather than silently
+// dropping that contact's color.
+func SetContactColors(colors map[string]string) error {
+	parsed := make(map[string]avatarColor, len(colors))
+	var bad []string
+	for jid, hex := range colors {
+		c, ok := parseHexColor(hex)
+		if !ok {
+			bad = append(bad, fmt.Sprintf("%s=%q", jid, hex))
+			continue
+		}
+		parsed[strings.ToLower(jid)] = c
+	}
+	contactColorMu.Lock()
+	contactColors = parsed
+	contactColorMu.Unlock()
+
+	avatarMu.Lock()
+	avatarGen++ // any cached render may have used an old tint
+	avatarMu.Unlock()
+
+	if len(bad) > 0 {
+		sort.Strings(bad)
+		return fmt.Errorf("invalid contact colors: %s", strings.Join(bad, ", "))
+	}
+	return nil
 }
 
-// renderTintedName colors a contact's name by their hashed hue — the part
-// of an avatar that actually helps in a list (finding a row without
-// reading it), delivered without spending any columns on it.
-//
-// This replaced a monogram swatch in front of the name: the swatch's letter
-// was the name's own first letter one column over, so all it really carried
-// was the color, at a cost of three columns out of a twenty-column sidebar.
-// Like presenceGlyph, the result ends in its own reset — callers must not
-// wrap it in an outer Foreground. Returns the name unstyled when avatars
-// are off.
+// contactColor is the tint configured for a contact, if any.
+func contactColor(address string) (avatarColor, bool) {
+	contactColorMu.RLock()
+	defer contactColorMu.RUnlock()
+	c, ok := contactColors[strings.ToLower(address)]
+	return c, ok
+}
+
+// parseHexColor accepts "#rgb" and "#rrggbb", with or without the leading
+// "#" and in either case.
+func parseHexColor(s string) (avatarColor, bool) {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "#"))
+	switch len(s) {
+	case 3:
+		// "#abc" is "#aabbcc" — each digit doubled, not zero-padded.
+		var expanded strings.Builder
+		for _, r := range s {
+			expanded.WriteRune(r)
+			expanded.WriteRune(r)
+		}
+		s = expanded.String()
+	case 6:
+	default:
+		return avatarColor{}, false
+	}
+	v, err := strconv.ParseUint(s, 16, 32)
+	if err != nil {
+		return avatarColor{}, false
+	}
+	return avatarColor{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v)}, true
+}
+
+// renderTintedName colors a contact's name with the tint configured for
+// them, and leaves it alone otherwise. Like presenceGlyph, a tinted result
+// ends in its own reset — callers must not wrap it in an outer Foreground.
 func renderTintedName(name, address string) string {
-	if !avatarsEnabled() || name == "" {
+	if name == "" {
 		return name
 	}
-	tint := nameTint(address)
+	tint, ok := contactColor(address)
+	if !ok {
+		return name
+	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(tint.hex())).Render(name)
 }
 
@@ -515,6 +577,11 @@ func (c avatarColor) hex() string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G
 // avatarColorFor returns the swatch color for a contact: the one derived
 // from their real avatar if we have it, else the JID hash.
 func avatarColorFor(address string) avatarColor {
+	// A color the user set by hand outranks anything derived, including
+	// the one taken from their actual avatar image.
+	if c, ok := contactColor(address); ok {
+		return c
+	}
 	key := strings.ToLower(address)
 	avatarMu.RLock()
 	c, ok := avatarImages[key]
