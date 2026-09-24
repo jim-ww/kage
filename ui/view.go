@@ -720,8 +720,8 @@ func (m Model) infoPrompt(width int) string {
 		fmt.Sprintf("Length: %d chars", len([]rune(msg.Content))),
 		fmt.Sprintf("Encryption: %s", encryptionLabel(msg)),
 	}
-	if msg.ReplyTo != nil {
-		rows = append(rows, fmt.Sprintf("Reply to: %s", m.replyPreview(*msg.ReplyTo, msgs)))
+	if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
+		rows = append(rows, fmt.Sprintf("Reply to: %s", m.replyPreview(replyIdx, msgs)))
 	}
 	chat, _ := m.currentChat()
 	for i, a := range msg.Attachments {

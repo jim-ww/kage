@@ -340,8 +340,8 @@ func TestSendWithAttachmentAndReplySendsCaptionSeparately(t *testing.T) {
 	if len(caption.Attachments) != 0 {
 		t.Fatalf("caption message Attachments = %#v, want none", caption.Attachments)
 	}
-	if caption.ReplyTo == nil || *caption.ReplyTo != 0 {
-		t.Fatalf("caption message ReplyTo = %v, want pointer to 0", caption.ReplyTo)
+	if caption.ReplyToID != "orig-id" {
+		t.Fatalf("caption message ReplyToID = %q, want %q", caption.ReplyToID, "orig-id")
 	}
 	if len(sender.sendCalls) != 1 || sender.sendCalls[0].body != "check this out" {
 		t.Fatalf("sendCalls = %#v, want exactly one Send call carrying the caption", sender.sendCalls)
@@ -359,8 +359,8 @@ func TestSendWithAttachmentAndReplySendsCaptionSeparately(t *testing.T) {
 		t.Fatalf("got %d messages, want 3 (original + caption + attachment)", len(msgs))
 	}
 	sent := msgs[2]
-	if sent.ReplyTo == nil || *sent.ReplyTo != 0 {
-		t.Fatalf("sent message ReplyTo = %v, want pointer to 0", sent.ReplyTo)
+	if sent.ReplyToID != "orig-id" {
+		t.Fatalf("sent message ReplyToID = %q, want %q", sent.ReplyToID, "orig-id")
 	}
 	if len(sent.Attachments) != 1 || sent.Attachments[0] != "https://upload.example.test/report.pdf" {
 		t.Fatalf("sent message Attachments = %#v, want the uploaded URL", sent.Attachments)
@@ -451,8 +451,8 @@ func TestMultiAttachmentSendSplitsIntoSeparateMessages(t *testing.T) {
 		t.Fatalf("caption message Attachments = %#v, want none", msgs[1].Attachments)
 	}
 	for _, sent := range msgs[2:] {
-		if sent.ReplyTo == nil || *sent.ReplyTo != 0 {
-			t.Fatalf("sent message ReplyTo = %v, want pointer to 0", sent.ReplyTo)
+		if sent.ReplyToID != "orig-id" {
+			t.Fatalf("sent message ReplyToID = %q, want %q", sent.ReplyToID, "orig-id")
 		}
 		if len(sent.Attachments) != 1 {
 			t.Fatalf("sent message Attachments = %#v, want exactly one", sent.Attachments)
@@ -849,8 +849,8 @@ func TestActionOpenMessageSingleAttachmentTreatedAsAttachment(t *testing.T) {
 func TestReplyPreviewShowsFilenameNotRawURLForAttachment(t *testing.T) {
 	m := newTestModel(nil)
 	msgs := []Message{
-		{Author: "Bob", Content: "https://upload.example.test/files/x/photo.jpg", Attachments: []string{"https://upload.example.test/files/x/photo.jpg"}},
-		{Author: "me", Content: "nice", ReplyTo: new(int)},
+		{ID: "photo-id", Author: "Bob", Content: "https://upload.example.test/files/x/photo.jpg", Attachments: []string{"https://upload.example.test/files/x/photo.jpg"}},
+		{Author: "me", Content: "nice", ReplyToID: "photo-id"},
 	}
 	preview := m.replyPreview(0, msgs)
 	if strings.Contains(preview, "https://") {

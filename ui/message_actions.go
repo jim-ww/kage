@@ -53,10 +53,8 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			return m.showNotification("no chat selected")
 		}
 		var sendOpts SendOptions
-		replyIdx := -1
 		if m.replyToIdx >= 0 {
 			if msgs := m.currentMessages(); m.replyToIdx < len(msgs) && msgs[m.replyToIdx].ID != "" {
-				replyIdx = m.replyToIdx
 				sendOpts = SendOptions{
 					ReplyToID:    msgs[m.replyToIdx].ID,
 					QuotedAuthor: msgs[m.replyToIdx].Author,
@@ -75,7 +73,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			// read the first XEP-0066 URL in a message body anyway, and
 			// combining also entangled the caption's send/retry state with
 			// the attachment's own upload/queue state).
-			cmds = append(cmds, m.sendPlainTextCaption(text, chat, sendOpts, replyIdx))
+			cmds = append(cmds, m.sendPlainTextCaption(text, chat, sendOpts))
 		}
 		cmds = append(cmds, m.startAttachedSend(chat.Address, sendOpts))
 		m.pendingAttachments = nil
@@ -139,13 +137,13 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 
 		var sendOpts SendOptions
 		if m.replyToIdx >= 0 {
-			rt := m.replyToIdx
-			newMsg.ReplyTo = &rt
-			if msgs := m.currentMessages(); rt < len(msgs) && msgs[rt].ID != "" {
+			if msgs := m.currentMessages(); m.replyToIdx < len(msgs) && msgs[m.replyToIdx].ID != "" {
+				rt := msgs[m.replyToIdx]
+				newMsg.ReplyToID = rt.ID
 				sendOpts = SendOptions{
-					ReplyToID:    msgs[rt].ID,
-					QuotedAuthor: msgs[rt].Author,
-					QuotedBody:   MessagePreviewContent(msgs[rt]),
+					ReplyToID:    rt.ID,
+					QuotedAuthor: rt.Author,
+					QuotedBody:   MessagePreviewContent(rt),
 				}
 			}
 			m.replyToIdx = -1
@@ -224,16 +222,32 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// replySendOptions builds the reply half of a SendOptions for a message
+// whose reply target is replyToID, filling the quoted author/body fallback
+// from the target if it's still in the loaded window (it may not be - a
+// reply older than the window it was loaded in still knows what it replies
+// to, it just can't quote it). Zero value when replyToID is empty.
+func replySendOptions(msgs []Message, replyToID string) SendOptions {
+	if replyToID == "" {
+		return SendOptions{}
+	}
+	opts := SendOptions{ReplyToID: replyToID}
+	if rt := messageIndexByID(msgs, replyToID); rt >= 0 {
+		opts.QuotedAuthor = msgs[rt].Author
+		opts.QuotedBody = MessagePreviewContent(msgs[rt])
+	}
+	return opts
+}
+
 // sendPlainTextCaption sends text as a standalone message alongside
 // attachments staged in the same compose (see sendCurrentInput's
 // hasAttachments branch) — a caption is always its own message, never
 // bundled into an attachment's body. Synchronous, like the plain-text-only
 // send path: unlike attachments there's no upload to wait on, so the local
 // echo can be built and appended immediately rather than via an async Cmd.
-// replyIdx is the index (in m.currentMessages()) of the message being
-// replied to, or -1 for none — captured by the caller before m.replyToIdx is
-// cleared.
-func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOptions, replyIdx int) tea.Cmd {
+// sendOpts carries the reply target (if any), captured by the caller before
+// m.replyToIdx is cleared.
+func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOptions) tea.Cmd {
 	if m.sender == nil {
 		return m.showNotification("not connected; caption not sent")
 	}
@@ -243,10 +257,7 @@ func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOption
 		SentAt:  time.Now(),
 		IsMe:    true,
 	}
-	if replyIdx >= 0 {
-		rt := replyIdx
-		newMsg.ReplyTo = &rt
-	}
+	newMsg.ReplyToID = sendOpts.ReplyToID
 	newMsg.LocalID = newLocalID()
 	sendOpts.LocalID = newMsg.LocalID
 
@@ -319,16 +330,7 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 		if !ok || chat.Address == "" {
 			return m.showNotification("not connected; message not sent")
 		}
-		var reply SendOptions
-		if msgs[idx].ReplyTo != nil {
-			if rt := *msgs[idx].ReplyTo; rt < len(msgs) && msgs[rt].ID != "" {
-				reply = SendOptions{
-					ReplyToID:    msgs[rt].ID,
-					QuotedAuthor: msgs[rt].Author,
-					QuotedBody:   MessagePreviewContent(msgs[rt]),
-				}
-			}
-		}
+		reply := replySendOptions(msgs, msgs[idx].ReplyToID)
 		return m.retryAttachedSend(chat.Address, reply, msgs[idx].PendingAttachmentPaths, msgs[idx].LocalID)
 	}
 	if len(msgs[idx].Attachments) > 0 {
@@ -349,12 +351,10 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 		// SendOptions.SupersedesID's doc comment.
 		sendOpts.SupersedesID = msgs[idx].ID
 	}
-	if msgs[idx].ReplyTo != nil {
-		if rt := *msgs[idx].ReplyTo; rt < len(msgs) && msgs[rt].ID != "" {
-			sendOpts.ReplyToID = msgs[rt].ID
-			sendOpts.QuotedAuthor = msgs[rt].Author
-			sendOpts.QuotedBody = MessagePreviewContent(msgs[rt])
-		}
+	if reply := replySendOptions(msgs, msgs[idx].ReplyToID); reply.ReplyToID != "" {
+		sendOpts.ReplyToID = reply.ReplyToID
+		sendOpts.QuotedAuthor = reply.QuotedAuthor
+		sendOpts.QuotedBody = reply.QuotedBody
 	}
 
 	var cmds []tea.Cmd

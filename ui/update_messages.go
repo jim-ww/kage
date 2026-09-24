@@ -13,8 +13,9 @@ import (
 // remain, used when new messages are appended at the tail (live incoming
 // traffic, MAM sync backfill) and the chat has grown past the configured
 // cap. Returns the trimmed slice and how many messages were dropped so the
-// caller can adjust any index (selectedMsg, ReplyTo) that pointed into the
-// old slice. limit <= 0 disables trimming.
+// caller can adjust any index (selectedMsg) that pointed into the old
+// slice. Reply targets need no such adjustment - they're message IDs, not
+// indices (see Message.ReplyToID). limit <= 0 disables trimming.
 func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	if limit <= 0 || len(msgs) <= limit {
 		return msgs, 0
@@ -22,17 +23,6 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	drop := len(msgs) - limit
 	trimmed := make([]Message, limit)
 	copy(trimmed, msgs[drop:])
-	for i := range trimmed {
-		if trimmed[i].ReplyTo == nil {
-			continue
-		}
-		if *trimmed[i].ReplyTo < drop {
-			trimmed[i].ReplyTo = nil
-		} else {
-			shifted := *trimmed[i].ReplyTo - drop
-			trimmed[i].ReplyTo = &shifted
-		}
-	}
 	return trimmed, drop
 }
 
@@ -272,9 +262,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				IsMe:        true,
 				Attachments: sent.Attachments,
 			}
-			if replyIdx := messageIndexByID(existing, msg.ReplyToID); replyIdx >= 0 {
-				newMsg.ReplyTo = &replyIdx
-			}
+			newMsg.ReplyToID = msg.ReplyToID
 			newMsgs = append(newMsgs, newMsg)
 			lastContent = MessagePreviewContent(newMsg)
 		}
@@ -332,9 +320,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			IsMe:        true,
 			Attachments: []string{msg.URL},
 		}
-		if replyIdx := messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.ReplyToID); replyIdx >= 0 {
-			newMsg.ReplyTo = &replyIdx
-		}
+		newMsg.ReplyToID = msg.ReplyToID
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
@@ -396,9 +382,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
 		newMsg := msg.Message
-		if replyIdx := messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.ReplyToID); replyIdx >= 0 {
-			newMsg.ReplyTo = &replyIdx
-		}
+		newMsg.ReplyToID = msg.ReplyToID
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		// Repainting and marking-as-read are two different questions with two

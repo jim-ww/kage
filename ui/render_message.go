@@ -234,8 +234,9 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		headerLine += " "
 	}
 	hasTextQuoteReply := false
-	if msg.ReplyTo != nil {
-		reply := m.replyHeaderFragment(*msg.ReplyTo, allMsgs)
+	replyIdx := messageIndexByID(allMsgs, msg.ReplyToID)
+	if replyIdx >= 0 {
+		reply := m.replyHeaderFragment(replyIdx, allMsgs)
 		headerLine += m.zone.Mark(zoneMessageReply(msgIdx), reply)
 	}
 
@@ -267,9 +268,9 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		bodyContent = strings.Join(parts, "\n")
 	default:
 		content := msg.Content
-		// A real XEP-0461 reply (Message.ReplyTo) always wins over the
+		// A real XEP-0461 reply (Message.ReplyToID) always wins over the
 		// text convention below - a message can't be both.
-		if msg.ReplyTo == nil {
+		if replyIdx < 0 {
 			if preview, rest, ok := parseQuoteReply(content); ok {
 				hasTextQuoteReply = true
 				content = rest
@@ -284,7 +285,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	// parsed ">"-quote convention both push the body down to its own line
 	// instead, since the quote already occupies the space right after the
 	// name.
-	bodyOnHeaderLine := msg.ReplyTo == nil && !hasTextQuoteReply
+	bodyOnHeaderLine := replyIdx < 0 && !hasTextQuoteReply
 	wrapWidth := max(totalWidth-prefixWidth, 8)
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	fullBodyLineCount := len(bodyLines)
@@ -550,7 +551,7 @@ var quoteLinePrefix = regexp.MustCompile(`^\s*>+\s?`)
 // at the start of content and splits it into a synthetic reply preview -
 // the last (least-nested) quoted line, markers stripped - and the actual
 // new text following the quote block. Unlike a real XEP-0461 reply
-// (Message.ReplyTo), this is just a text convention with no message to
+// (Message.ReplyToID), this is just a text convention with no message to
 // jump to: some clients (and manually-typed replies) still write it this
 // way instead of using an actual reply. ok is false if content doesn't
 // start with at least one quoted line, or if nothing follows the quote

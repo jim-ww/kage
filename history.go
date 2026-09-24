@@ -76,12 +76,11 @@ func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row
 }
 
 // buildMessages decrypts and converts rows (already in chronological, oldest
-// first, order) into ui.Message, resolving reply targets to indices within
-// the returned slice. Rows with no body (encryption failed at write time)
-// are skipped since there is nothing to recover.
+// first, order) into ui.Message. Rows with no body (encryption failed at
+// write time) are skipped since there is nothing to recover.
 func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName string, rows []historyRow) []ui.Message {
 	msgs := make([]ui.Message, 0, len(rows))
-	replyTo := make([]string, 0, len(rows)) // parallel to msgs: each entry's ReplyToIdAttr, resolved to an index below
+	replyTo := make([]string, 0, len(rows)) // parallel to msgs: each entry's ReplyToIdAttr
 	for _, row := range rows {
 		if row.Stanzatype == "call" {
 			msgs = append(msgs, ui.Message{
@@ -148,12 +147,8 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 		replyTo = append(replyTo, row.Replytoidattr.String)
 	}
 
-	// Resolve stored reply-target IDs into local indices now that the whole
-	// slice (and thus every message's position) is known.
 	for i, id := range replyTo {
-		if idx := messageIndexByIDs(msgs, id); idx >= 0 {
-			msgs[i].ReplyTo = &idx
-		}
+		msgs[i].ReplyToID = id
 	}
 	return msgs
 }

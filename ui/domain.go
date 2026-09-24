@@ -19,11 +19,16 @@ type Message struct {
 	// message before it's been persisted, for instance. Used purely as a
 	// pagination anchor (see HistoryAnchor) to ask storage for a fresh
 	// window of history centered on this exact message; never rendered.
-	StoreID     int64
-	Content     string
-	SentAt      time.Time
-	IsMe        bool
-	ReplyTo     *int     // index into the message slice; nil = not a reply
+	StoreID int64
+	Content string
+	SentAt  time.Time
+	IsMe    bool
+	// ReplyToID is the ID of the message this one replies to (XEP-0461),
+	// empty when it isn't a reply. Deliberately an ID and not an index into
+	// the message slice: that slice is rebuilt wholesale on every history
+	// window load and trimmed at the front as the tail grows, so a stored
+	// index silently comes to point at a different message.
+	ReplyToID   string
 	Attachments []string // file paths or URLs attached to the message
 
 	// LocalID is a client-generated correlation key set on a message the

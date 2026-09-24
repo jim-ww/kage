@@ -855,14 +855,15 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		for i, mm := range msgs {
-			if mm.ReplyTo != nil && m.zone.Get(zoneMessageReply(i)).InBounds(msg) {
+			target := messageIndexByID(msgs, mm.ReplyToID)
+			if target >= 0 && m.zone.Get(zoneMessageReply(i)).InBounds(msg) {
 				m.notifyTypingStopped()
 				m.lastClickedMsgIdx = -1
 				m.lastClickTime = time.Time{}
-				m.selectedMsg = *mm.ReplyTo
-				m.flashMsgIdx = *mm.ReplyTo
+				m.selectedMsg = target
+				m.flashMsgIdx = target
 				m.flashGen++
-				m.refreshViewportFullScrollTo(*mm.ReplyTo)
+				m.refreshViewportFullScrollTo(target)
 				return m, flashTimer(m.flashGen)
 			}
 		}

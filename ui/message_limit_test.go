@@ -13,10 +13,8 @@ func TestTrimMessagesFront(t *testing.T) {
 	for i := range msgs {
 		msgs[i] = Message{ID: string(rune('a' + i))}
 	}
-	replyToFirst := 0
-	msgs[4].ReplyTo = &replyToFirst // points at a message that will be dropped
-	replyToLast := 4
-	msgs[3].ReplyTo = &replyToLast // survives, index should shift down
+	msgs[4].ReplyToID = "a" // points at a message that will be dropped
+	msgs[3].ReplyToID = "e" // points at a message that survives
 
 	trimmed, dropped := trimMessagesFront(msgs, 3)
 	if dropped != 2 {
@@ -25,11 +23,16 @@ func TestTrimMessagesFront(t *testing.T) {
 	if len(trimmed) != 3 || trimmed[0].ID != "c" || trimmed[2].ID != "e" {
 		t.Fatalf("unexpected trimmed slice: %+v", trimmed)
 	}
-	if trimmed[2].ReplyTo != nil { // was "e", pointed at dropped "a"
-		t.Fatalf("ReplyTo to a dropped message should be nil, got %v", *trimmed[2].ReplyTo)
+	// Reply targets are IDs, so trimming leaves them alone: the one whose
+	// target was dropped simply stops resolving, the other still points at "e".
+	if trimmed[2].ReplyToID != "a" || trimmed[1].ReplyToID != "e" {
+		t.Fatalf("trimming rewrote reply targets: %q / %q", trimmed[2].ReplyToID, trimmed[1].ReplyToID)
 	}
-	if trimmed[1].ReplyTo == nil || *trimmed[1].ReplyTo != 2 { // was "d", pointed at "e" (shifted 4-2=2)
-		t.Fatalf("ReplyTo should have shifted to 2, got %v", trimmed[1].ReplyTo)
+	if messageIndexByID(trimmed, trimmed[2].ReplyToID) >= 0 {
+		t.Fatal("dropped reply target should no longer resolve")
+	}
+	if messageIndexByID(trimmed, trimmed[1].ReplyToID) != 2 {
+		t.Fatalf("surviving reply target should resolve to 2, got %d", messageIndexByID(trimmed, trimmed[1].ReplyToID))
 	}
 
 	// no-op when under the limit
