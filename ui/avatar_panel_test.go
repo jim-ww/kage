@@ -39,7 +39,7 @@ func TestAvatarPanelSuppressedWithoutAvatars(t *testing.T) {
 func TestAvatarPanelSquareAndCapped(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModel(t, 200, 60)
 	cols, rows := m.avatarPanelSize()
@@ -62,7 +62,7 @@ func TestAvatarPanelSquareAndCapped(t *testing.T) {
 func TestAvatarPanelGrowsWithSidebarWidth(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	prev := 0
 	for _, sidebar := range []int{20, 26, 32, 40, 52, 64} {
@@ -82,7 +82,7 @@ func TestAvatarPanelGrowsWithSidebarWidth(t *testing.T) {
 func TestAvatarPanelStopsAtHeightShare(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModel(t, 200, 40)
 	m.sidebarWidthOverride = 120
@@ -106,7 +106,7 @@ func TestAvatarPanelStopsAtHeightShare(t *testing.T) {
 func TestAvatarPanelHeightMatchesRender(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	for _, size := range [][2]int{{100, 40}, {120, 24}, {200, 60}, {90, 30}} {
 		m := avatarPanelModel(t, size[0], size[1])
@@ -133,7 +133,7 @@ func TestAvatarPanelReservedInListHeight(t *testing.T) {
 	m := avatarPanelModel(t, 120, 40)
 	without := m.chats.Height()
 
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 	m.updateSizes()
 	with := m.chats.Height()
 
@@ -149,7 +149,7 @@ func TestAvatarPanelReservedInListHeight(t *testing.T) {
 func TestAvatarPanelYieldsToShortTerminals(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	prev := 0
 	for _, height := range []int{60, 40, 30, 24, 18, 12} {
@@ -174,7 +174,7 @@ func TestAvatarPanelYieldsToShortTerminals(t *testing.T) {
 func TestAvatarPanelSuppressedInNarrowSidebar(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModel(t, 120, 40)
 	m.sidebarHidden = true
@@ -187,7 +187,7 @@ func TestAvatarPanelSuppressedInNarrowSidebar(t *testing.T) {
 func TestAvatarPanelLinesFitSidebarWidth(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModel(t, 120, 40)
 	width := m.sidebarContentWidth()
@@ -242,7 +242,7 @@ func avatarPanelModelWithChats(t *testing.T, width, height int) Model {
 func TestAvatarPanelOverlaysBelowTheList(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModelWithChats(t, 100, 30)
 	_, _, y, ok := m.avatarPanelOverlay()
@@ -279,7 +279,7 @@ func TestAvatarPanelOverlayKeepsFrameWidth(t *testing.T) {
 
 	plain := strings.Split(fmt.Sprint(avatarPanelModelWithChats(t, 100, 30).View()), "\n")
 
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 	withPanel := strings.Split(fmt.Sprint(avatarPanelModelWithChats(t, 100, 30).View()), "\n")
 
 	if len(plain) != len(withPanel) {
@@ -298,7 +298,7 @@ func TestAvatarPanelOverlayKeepsFrameWidth(t *testing.T) {
 func TestAvatarPanelNotOverlaidOverAccounts(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModelWithChats(t, 100, 30)
 	m.selectedView = viewAccounts
@@ -311,7 +311,7 @@ func TestAvatarPanelNotOverlaidOverAccounts(t *testing.T) {
 // carries a swatch — see DisplayOptions.AvatarsDisabled.
 func TestAvatarsDisabled(t *testing.T) {
 	ClearAvatarImages()
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 	t.Cleanup(func() {
 		ClearAvatarImages()
 		setAvatarsEnabled(true)

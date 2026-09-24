@@ -347,40 +347,27 @@ func TestDownscaleBounds(t *testing.T) {
 	}
 }
 
-func TestFallbackAvatarCoversUnknownContacts(t *testing.T) {
+// A contact who publishes no avatar gets the monogram, not somebody
+// else's picture — see LoadAvatarDir on why there is no shared fallback.
+func TestContactWithoutAvatarHasNoPicture(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
 
+	SetAvatarImage("alice@localhost", solidImage(32, 32, color.RGBA{220, 30, 30, 255}, 0))
 	if hasAvatarPicture("stranger@example.com") {
-		t.Fatal("a picture before any avatar was set")
+		t.Error("a contact with no avatar of their own was given a picture")
 	}
-	SetFallbackAvatarImage(solidImage(32, 32, color.RGBA{40, 120, 200, 255}, 0))
-	if !hasAvatarPicture("stranger@example.com") {
-		t.Error("fallback avatar not used for a contact without one")
+	if _, ok := renderAvatarPicture("stranger@example.com", 6, 3); ok {
+		t.Error("renderAvatarPicture served a picture to a contact without one")
 	}
-	// A shared picture must not collapse every list swatch to one color.
 	if got := avatarColorFor("stranger@example.com"); got != hashColor("stranger@example.com") {
 		t.Errorf("avatarColorFor = %v, want the JID hash %v", got, hashColor("stranger@example.com"))
 	}
 }
 
-func TestOwnAvatarBeatsFallback(t *testing.T) {
-	ClearAvatarImages()
-	t.Cleanup(ClearAvatarImages)
-
-	SetFallbackAvatarImage(solidImage(32, 32, color.RGBA{40, 120, 200, 255}, 0))
-	SetAvatarImage("alice@localhost", solidImage(32, 32, color.RGBA{220, 30, 30, 255}, 0))
-
-	block, ok := renderAvatarPicture("alice@localhost", 2, 1)
-	if !ok {
-		t.Fatal("renderAvatarPicture reported no picture")
-	}
-	if !strings.Contains(block, "220;30;30") {
-		t.Errorf("block %q used the fallback instead of the contact's own avatar", block)
-	}
-}
-
-func TestLoadAvatarDirDefaultIsTheFallback(t *testing.T) {
+// "default.png" used to be a magic name for a shared fallback; it is now
+// just a contact like any other, so nothing inherits it.
+func TestLoadAvatarDirHasNoMagicNames(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
 
@@ -392,11 +379,14 @@ func TestLoadAvatarDirDefaultIsTheFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAvatarDir: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("loaded %d named avatars, want 1 — default.png is the fallback, not a contact", n)
+	if n != 2 {
+		t.Errorf("loaded %d avatars, want 2", n)
 	}
-	if !hasAvatarPicture("stranger@example.com") {
-		t.Error("default.png was not installed as the fallback")
+	if hasAvatarPicture("stranger@example.com") {
+		t.Error("a contact inherited default.png")
+	}
+	if !hasAvatarPicture("default") {
+		t.Error("default.png was not loaded as its own contact")
 	}
 }
 
@@ -446,20 +436,19 @@ func TestAvatarPictureCacheInvalidatedOnNewImage(t *testing.T) {
 	}
 }
 
-// A contact falling back to the shared default must not be served another
-// contact's cached block.
+// One contact's cached block must not be served to another.
 func TestAvatarPictureCacheKeyedByContact(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
-	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{220, 30, 30, 255}, 0))
+	SetAvatarImage("bob@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	alice, _ := renderAvatarPicture("alice@localhost", 6, 3)
-	stranger, _ := renderAvatarPicture("stranger@example.com", 6, 3)
-	if alice == stranger {
-		t.Error("a contact with their own avatar and one on the fallback rendered identically")
+	bob, _ := renderAvatarPicture("bob@localhost", 6, 3)
+	if alice == bob {
+		t.Error("two contacts with different avatars rendered identically")
 	}
-	if !strings.Contains(stranger, "40;120;200") {
-		t.Errorf("block %q is not the fallback avatar", stranger)
+	if !strings.Contains(bob, "40;120;200") {
+		t.Errorf("block %q is not bob's avatar", bob)
 	}
 }

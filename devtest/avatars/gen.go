@@ -46,15 +46,6 @@ func main() {
 			shirt: color.RGBA{80, 170, 120, 255},
 			hair:  color.RGBA{30, 25, 25, 255},
 		},
-		{
-			// "default" is the stand-in shown for any contact without an
-			// avatar of their own — see ui.LoadAvatarDir. High contrast on
-			// purpose, so it stays legible at the header's 8x8 pixels.
-			jid:   "default",
-			bg:    [2]color.RGBA{{235, 235, 230, 255}, {180, 185, 195, 255}},
-			shirt: color.RGBA{40, 50, 70, 255},
-			hair:  color.RGBA{25, 25, 30, 255},
-		},
 	}
 	for _, s := range subjects {
 		if err := write(s); err != nil {

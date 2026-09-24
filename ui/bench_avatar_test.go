@@ -63,7 +63,7 @@ func BenchmarkAvatarPictureWarm(b *testing.B) {
 func benchModel(b *testing.B, withAvatars bool) Model {
 	ClearAvatarImages()
 	if withAvatars {
-		SetFallbackAvatarImage(gradientImage(256))
+		SetAvatarImage("c@localhost", gradientImage(256))
 	}
 	m := newTestModel(nil)
 	items := make([]list.Item, 0, 30)

@@ -1,3 +1,9 @@
-# The fallback avatar is whatever local image you drop here (see
-# ui.LoadAvatarDir) — personal, not a fixture. gen.go writes a starter one.
-default.*
+# Local avatar overrides are personal, not fixtures — see ui.LoadAvatarDir.
+# The generated ones below are checked in; anything else you drop here is
+# yours.
+*
+!.gitignore
+!gen.go
+!alice@localhost.png
+!bob@localhost.png
+!carol@localhost.png

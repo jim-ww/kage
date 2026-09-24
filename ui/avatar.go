@@ -67,13 +67,6 @@ var (
 	avatarMu       sync.RWMutex
 	avatarImages   = map[string]avatarColor{}
 	avatarPictures = map[string]image.Image{}
-	// avatarFallback stands in for every contact with no avatar of their
-	// own. Only ever set from a file literally named "default" in the
-	// avatar directory — real avatar fetching will have no such thing, but
-	// without it the local-file stand-in only ever matches the handful of
-	// JIDs someone happened to create files for, which is useless for
-	// looking at the rendering against a real account.
-	avatarFallback image.Image
 	// avatarGen is bumped whenever any of the above changes, so the render
 	// cache below can be invalidated without comparing images.
 	avatarGen uint64
@@ -92,10 +85,6 @@ type avatarBlockKey struct {
 	gen        uint64
 	rendered   string
 }
-
-// avatarFallbackName is the base name (sans extension) that marks a file in
-// the avatar directory as the stand-in for every contact without their own.
-const avatarFallbackName = "default"
 
 // avatarStoredSize is the edge length every avatar is downscaled to on the
 // way into the store. Large enough that any cell size the header asks for
@@ -127,34 +116,16 @@ func ClearAvatarImages() {
 	defer avatarMu.Unlock()
 	avatarImages = map[string]avatarColor{}
 	avatarPictures = map[string]image.Image{}
-	avatarFallback = nil
 	avatarGen++
 	avatarBlockCache = avatarBlockKey{}
-}
-
-// SetFallbackAvatarImage records the image used for every contact with no
-// avatar of its own. The swatch color is deliberately not taken from it:
-// one shared picture must not collapse every chat-list monogram to the same
-// color, which is the one thing the list swatch is for.
-func SetFallbackAvatarImage(img image.Image) {
-	scaled := downscale(img, avatarStoredSize)
-	avatarMu.Lock()
-	defer avatarMu.Unlock()
-	avatarFallback = scaled
-	avatarGen++
 }
 
 // avatarPicture returns the stored image for a contact, if any.
 func avatarPicture(address string) (image.Image, bool) {
 	avatarMu.RLock()
 	defer avatarMu.RUnlock()
-	if img, ok := avatarPictures[strings.ToLower(address)]; ok {
-		return img, true
-	}
-	if avatarFallback != nil {
-		return avatarFallback, true
-	}
-	return nil, false
+	img, ok := avatarPictures[strings.ToLower(address)]
+	return img, ok
 }
 
 // hasAvatarPicture reports whether a contact has a real avatar image, as
@@ -254,13 +225,10 @@ func renderAvatarPicture(address string, cols, rows int) (string, bool) {
 	key := strings.ToLower(address)
 	avatarMu.RLock()
 	img, ok := avatarPictures[key]
-	if !ok {
-		img = avatarFallback
-	}
 	c := avatarBlockCache
 	gen := avatarGen
 	avatarMu.RUnlock()
-	if img == nil {
+	if !ok || img == nil {
 		return "", false
 	}
 	if c.rendered != "" && c.address == key && c.cols == cols && c.rows == rows && c.gen == gen {
@@ -399,10 +367,6 @@ func LoadAvatarDir(dir string) (int, error) {
 		img, err := decodeImageFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			return loaded, fmt.Errorf("reading avatar %s: %w", e.Name(), err)
-		}
-		if strings.EqualFold(jid, avatarFallbackName) {
-			SetFallbackAvatarImage(img)
-			continue
 		}
 		SetAvatarImage(jid, img)
 		loaded++
@@ -606,7 +570,7 @@ func anyAvatarKnown() bool {
 	}
 	avatarMu.RLock()
 	defer avatarMu.RUnlock()
-	return len(avatarPictures) > 0 || avatarFallback != nil
+	return len(avatarPictures) > 0
 }
 
 // renderAvatarLarge renders a contact at cols x rows cells: their avatar
