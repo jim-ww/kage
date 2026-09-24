@@ -40,23 +40,38 @@ func avatarMenuModel(t *testing.T, pub *fakeAvatarPublisher) Model {
 	return m
 }
 
-// The menu is account-scoped, like the storage-password popup — opening it
-// from a chat would be asking which account it meant.
-func TestAvatarMenuOnlyOpensOnAccountsPanel(t *testing.T) {
+func avatarMenuItem(t *testing.T, m Model, label string) int {
+	t.Helper()
+	if m.contextMenu == nil {
+		t.Fatal("no menu is open")
+	}
+	for i, item := range m.contextMenu.items {
+		if item.label == label {
+			return i
+		}
+	}
+	t.Fatalf("menu %v has no %q entry", menuLabels(m.contextMenu), label)
+	return -1
+}
+
+// Built as an ordinary context menu, so it is clickable and
+// keyboard-navigable like every other menu rather than carrying its own
+// input handling.
+func TestAvatarMenuIsAContextMenu(t *testing.T) {
 	m := avatarMenuModel(t, &fakeAvatarPublisher{})
+	m.width, m.height, m.termHeight = 120, 40, 40
+	m.updateSizes()
 
-	m.selectedView = viewChat
-	next := updated(t, m, tea.KeyPressMsg{Code: 'v', Text: "v"})
-	if next.avatarMenu != nil {
-		t.Error("avatar menu opened from the chat view")
+	if cmd := m.openAvatarMenu(); cmd != nil {
+		t.Fatalf("openAvatarMenu returned a notification: %v", cmd())
 	}
-
-	m.selectedView = viewAccounts
-	next = updated(t, m, tea.KeyPressMsg{Code: 'v', Text: "v"})
-	if next.avatarMenu == nil {
-		t.Fatal("avatar menu did not open on the accounts panel")
+	if m.contextMenu == nil {
+		t.Fatal("no context menu opened")
 	}
-	rendered := ansi.Strip(next.avatarMenuPrompt())
+	if m.contextMenu.title != "Avatar" {
+		t.Errorf("menu title = %q, want %q", m.contextMenu.title, "Avatar")
+	}
+	rendered := ansi.Strip(m.renderContextMenuPopup())
 	for _, want := range []string{"Avatar", "Set from file", "Remove avatar"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("menu %q is missing %q", rendered, want)
@@ -73,24 +88,24 @@ func TestAvatarMenuNeedsAPublisher(t *testing.T) {
 	if cmd := m.openAvatarMenu(); cmd == nil {
 		t.Error("openAvatarMenu with no publisher gave no feedback")
 	}
-	if m.avatarMenu != nil {
+	if m.contextMenu != nil {
 		t.Error("avatar menu opened with no publisher behind it")
 	}
 }
 
-func TestAvatarMenuRemove(t *testing.T) {
+// A click on a menu row runs it — the thing the bespoke popup couldn't do.
+func TestAvatarMenuRemoveByClick(t *testing.T) {
 	pub := &fakeAvatarPublisher{}
 	m := avatarMenuModel(t, pub)
-	m.avatarMenu = &avatarMenuState{index: avatarMenuRemove}
+	m.width, m.height, m.termHeight = 120, 40, 40
+	m.updateSizes()
+	m.openAvatarMenu()
 
-	next, cmd, handled := m.updateAvatarMenuKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if !handled || cmd == nil {
-		t.Fatalf("enter on Remove: handled=%v cmd=%v", handled, cmd)
+	idx := avatarMenuItem(t, m, "Remove avatar")
+	cmd := m.contextMenu.items[idx].run(&m)
+	if cmd == nil {
+		t.Fatal("Remove avatar produced no command")
 	}
-	if !next.avatarMenu.busy {
-		t.Error("menu is not marked busy while the removal is in flight")
-	}
-
 	msg, ok := cmd().(AvatarPublishedMsg)
 	if !ok {
 		t.Fatalf("command returned %T, want AvatarPublishedMsg", cmd())
@@ -101,10 +116,26 @@ func TestAvatarMenuRemove(t *testing.T) {
 	if !msg.Removed || msg.Err != nil {
 		t.Errorf("msg = %+v, want a successful removal", msg)
 	}
+}
 
-	done := updated(t, next, msg)
-	if done.avatarMenu != nil {
-		t.Error("menu stayed open after a successful removal")
+func TestAvatarMenuRemoveByKeyboard(t *testing.T) {
+	pub := &fakeAvatarPublisher{}
+	m := avatarMenuModel(t, pub)
+	m.openAvatarMenu()
+	m.contextMenu.cursor = avatarMenuItem(t, m, "Remove avatar")
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter produced no command")
+	}
+	if got := next.(Model); got.contextMenu != nil {
+		t.Error("the menu stayed open after running an item")
+	}
+	if !containsAvatarPublished(cmd) {
+		t.Error("enter produced no AvatarPublishedMsg")
+	}
+	if pub.removeCall != 1 {
+		t.Errorf("RemoveOwnAvatar called %d times, want 1", pub.removeCall)
 	}
 }
 
@@ -113,20 +144,15 @@ func TestAvatarMenuRemove(t *testing.T) {
 func TestAvatarMenuSetGoesThroughFilePicker(t *testing.T) {
 	pub := &fakeAvatarPublisher{}
 	m := avatarMenuModel(t, pub)
-	m.avatarMenu = &avatarMenuState{index: avatarMenuSet}
+	m.openAvatarMenu()
 
-	next, _, handled := m.updateAvatarMenuKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if !handled {
-		t.Fatal("enter on Set was not handled")
-	}
-	if !next.pickingFile || !next.pickingAvatar {
-		t.Fatalf("pickingFile=%v pickingAvatar=%v, want both true", next.pickingFile, next.pickingAvatar)
-	}
-	if next.avatarMenu != nil {
-		t.Error("menu stayed open behind the picker")
+	idx := avatarMenuItem(t, m, "Set from file…")
+	m.contextMenu.items[idx].run(&m)
+	if !m.pickingFile || !m.pickingAvatar {
+		t.Fatalf("pickingFile=%v pickingAvatar=%v, want both true", m.pickingFile, m.pickingAvatar)
 	}
 
-	cmd := next.setOwnAvatarCmd(0, "/tmp/face.png")
+	cmd := m.setOwnAvatarCmd(0, "/tmp/face.png")
 	msg, ok := cmd().(AvatarPublishedMsg)
 	if !ok {
 		t.Fatalf("command returned %T, want AvatarPublishedMsg", cmd())
@@ -151,48 +177,18 @@ func TestCancellingAvatarPickerClearsMode(t *testing.T) {
 	}
 }
 
-// The failures worth reporting here — unreadable file, wrong format, too
-// large — are ones the user fixes by picking a different file, so the
-// message belongs in the popup they're looking at.
-func TestAvatarPublishErrorStaysInTheMenu(t *testing.T) {
-	pub := &fakeAvatarPublisher{err: errors.New("only PNG and JPEG can be published")}
-	m := avatarMenuModel(t, pub)
-	m.avatarMenu = &avatarMenuState{busy: true}
+// The result is reported the same way every other async result is.
+func TestAvatarPublishResultIsANotice(t *testing.T) {
+	m := avatarMenuModel(t, &fakeAvatarPublisher{})
 
-	msg := AvatarPublishedMsg{AccountIdx: 0, Err: pub.err}
-	next := updated(t, m, msg)
-	if next.avatarMenu == nil {
-		t.Fatal("menu closed on failure, losing the reason")
-	}
-	if next.avatarMenu.busy {
-		t.Error("menu still marked busy after the result arrived")
-	}
-	if !strings.Contains(next.avatarMenu.err, "PNG") {
-		t.Errorf("menu error = %q, want the publisher's reason", next.avatarMenu.err)
-	}
-	if !strings.Contains(ansi.Strip(next.avatarMenuPrompt()), "PNG") {
-		t.Error("the reason is not rendered in the popup")
-	}
-}
-
-// A second enter while a publish is in flight would start a second one.
-func TestAvatarMenuIgnoresInputWhileBusy(t *testing.T) {
-	pub := &fakeAvatarPublisher{}
-	m := avatarMenuModel(t, pub)
-	m.avatarMenu = &avatarMenuState{index: avatarMenuRemove, busy: true}
-
-	next, cmd, handled := m.updateAvatarMenuKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if !handled || cmd != nil {
-		t.Errorf("enter while busy: handled=%v cmd=%v, want handled with no command", handled, cmd)
-	}
-	if pub.removeCall != 0 {
-		t.Errorf("RemoveOwnAvatar called %d times while busy", pub.removeCall)
+	next := updated(t, m, AvatarPublishedMsg{AccountIdx: 0, Err: errors.New("only PNG and JPEG can be published")})
+	if !strings.Contains(next.noticeText, "PNG") {
+		t.Errorf("notice = %q, want the publisher's reason", next.noticeText)
 	}
 
-	// Esc still works, so a hung publish can't trap the user in the popup.
-	next, _, _ = next.updateAvatarMenuKey(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if next.avatarMenu != nil {
-		t.Error("esc did not close the menu while busy")
+	next = updated(t, next, AvatarPublishedMsg{AccountIdx: 0, Removed: true})
+	if !strings.Contains(next.noticeText, "avatar removed") {
+		t.Errorf("notice = %q, want the removal reported", next.noticeText)
 	}
 }
 
@@ -205,4 +201,23 @@ func updated(t *testing.T, m Model, msg tea.Msg) Model {
 		t.Fatalf("Update returned %T, want Model", next)
 	}
 	return got
+}
+
+// containsAvatarPublished reports whether cmd yields an AvatarPublishedMsg,
+// looking inside a batch since Update batches its commands.
+func containsAvatarPublished(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	switch msg := cmd().(type) {
+	case AvatarPublishedMsg:
+		return true
+	case tea.BatchMsg:
+		for _, inner := range msg {
+			if containsAvatarPublished(inner) {
+				return true
+			}
+		}
+	}
+	return false
 }

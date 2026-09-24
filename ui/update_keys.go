@@ -159,13 +159,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return model.(Model), cmd, true
 	}
 
-	if m.avatarMenu != nil {
-		next, cmd, handled := m.updateAvatarMenuKey(msg)
-		if handled {
-			return next, cmd, true
-		}
-	}
-
 	// ── File picker intercepts all input until selected or canceled ─────
 	if m.pickingFile {
 		if matchesKey(msg, m.keys.AttachFile) || matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) {
@@ -197,7 +190,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				// one of, so the picker closes.
 				m.pickingFile = false
 				m.pickingAvatar = false
-				m.avatarMenu = &avatarMenuState{busy: true}
 				return m, m.setOwnAvatarCmd(m.currentAccount, path), true
 			}
 			return m, pickerCmd, true

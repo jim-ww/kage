@@ -125,11 +125,11 @@ func TestContextMenuEnterRunsTheItem(t *testing.T) {
 	m.contextMenu.cursor = idx
 
 	next := updated(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	if next.avatarMenu == nil {
-		t.Fatal("enter on Avatar did not open the avatar menu")
+	if next.contextMenu == nil {
+		t.Fatal("enter on Avatar closed the menus instead of opening the avatar one")
 	}
-	if next.contextMenu != nil {
-		t.Error("the account menu stayed open behind the avatar menu")
+	if next.contextMenu.title != "Avatar" {
+		t.Errorf("menu title = %q, want the avatar menu to have replaced the account one", next.contextMenu.title)
 	}
 }
 

@@ -345,9 +345,6 @@ type Model struct {
 	// ui/omemo_devices.go.
 	deviceList *deviceListState
 
-	// avatarMenu is non-nil while the account's avatar menu is open — see
-	// ui/avatar_menu.go.
-	avatarMenu *avatarMenuState
 	// pickingAvatar marks the file picker as having been opened to choose
 	// an avatar rather than to attach a file, since both share one picker.
 	pickingAvatar bool
