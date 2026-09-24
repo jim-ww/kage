@@ -1,44 +1,34 @@
-- green account alias out of place?
+## bugs
 - fix: rarely, cannot scroll past certain message and load older history
-- design proper tray icon/logo
-- open chat composer (textbox) of message size (with limits)
-- pasted text to chat composer(inputbox) isnt shown in chat as it is in composer. e.g. multiline insert lines get bad padding from left
-- ellipsis must not wrap on second line, if replied-to message text is overflowing (e.g. does not account for ellipsis char length itself)
-- option to choose mic + mid call
+- non-focused state of app, with open chat doesnt send notifications?
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
-- connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
-- non-focused state of app, with open chat doesnt send notifications
-- some modals are overflowing out of window (e.g. localstorage password change)
-
-- select & yank text in draft with mouse
-
-- improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - account manager: fix adding duplicate accounts
 - make sure user can paste to all textinputs (e.g. account add JID/password)
+- handle extremely large text AND images pasted in message prompt / sent in chat (lags/slow), maybe connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
+- improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
+- if tui relaunched, then calling statusbar not shown?
+- check how local/remote messages timestampt are handled?
+- contacts: resubscribe action does nothing?
 
-- change picture attachment icon ? from 🖼
-- resubscribe action does nothing?
-- speed up moving cursor on textinput, based on how long is held, OR add ctrl+d/ctrl+u binds there?
-- refactor: create generic ui components and reuse them across repo
-- implement notes? e.g. writing yourself
-- on error during call, should hang up the call (send event to other peer)
-- if tui relaunched, then calling statusbar not shown
-- show own full account address somewhere (in case alias is set)
-- move change password(encryption) functionality to RMB click on accounts tab modal
-- simplify emoji selection
-
-- handle extremely large text files pasted in message prompt / sent in chat (lags/slow)
-- check how local/remote messages timestampt are handled
-- in devices show proper OMEMO fingerprint
-- show more contact info on status line Name press
-- option to remove specific chat history (on server)
-- implement backups, compatible with conversations
-
-- refactor: move components to ui/ package
+## optimization
 - optimization speed up cursor message selection in chat and for scrolling
-- preview files text contents (in separate viewport?)
-- implement group chat support
-- list group chat participants, ability to see info about them, start chat with them
+- speed up moving cursor on textinput, based on how long is held, OR add ctrl+d/ctrl+u binds there?
+
+## refactor
+- create generic ui components and reuse them across repo
+
+## features
+- calls: option to choose mic + mid call
+- ux: open chat composer (textbox) of message size (with limits)
+- ui: show own full account address somewhere (in case alias is set)
+- search: go-to specific date in chat history (implement as part of search feature?)
+- show more contact info on status line Name press
+- group chat support + list group chat participants, ability to see their info, start chat with any participant
+- in devices show proper OMEMO fingerprint
+- select & yank text in draft with mouse
 - chat view: vim motions for textinput (visual/insert mode emulation)
-- implement go-to specific date in chat history
-- add OTR as encryption method
+- preview files text contents (in separate viewport?)
+
+## design
+- green account alias text out of place?
+- design proper tray icon/logo
