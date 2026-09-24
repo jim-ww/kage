@@ -258,16 +258,19 @@ func TestAvatarPanelOverlaysBelowTheList(t *testing.T) {
 	if y+height > len(lines) {
 		t.Fatalf("panel runs past the frame: y=%d height=%d frame=%d rows", y, height, len(lines))
 	}
-	for i := y; i < y+height-avatarPanelTextRows; i++ {
+	// Every reserved row is picture: the panel carries no caption, since
+	// the name and presence are already on the row it previews and in the
+	// chat status bar.
+	for i := y; i < y+height; i++ {
 		if !strings.Contains(lines[i], upperHalfBlock) {
 			t.Errorf("row %d has no picture: %q", i, lines[i])
+		}
+		if strings.Contains(lines[i], "alice") {
+			t.Errorf("row %d repeats the contact's name: %q", i, lines[i])
 		}
 	}
 	if above := lines[y-1]; strings.Contains(above, upperHalfBlock) {
 		t.Errorf("row %d, above the panel, has picture in it: %q", y-1, above)
-	}
-	if !strings.Contains(lines[y+height-avatarPanelTextRows], "alice") {
-		t.Errorf("caption row missing the name: %q", lines[y+height-avatarPanelTextRows])
 	}
 }
 

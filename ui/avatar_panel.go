@@ -3,9 +3,6 @@ package ui
 import (
 	"strings"
 	"sync"
-
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // The sidebar's avatar panel: the contact's picture, pinned below the chat
@@ -19,6 +16,11 @@ import (
 // open chat otherwise (see avatarPanelChat) — which is what makes it part
 // of the list rather than a detail panel that happens to sit in the list's
 // territory.
+//
+// Deliberately picture-only, with no caption: the name and presence it
+// would carry are already on the chat-list row it is previewing, directly
+// above it and highlighted, and again in the chat status bar for the open
+// chat. A third copy an inch from the second is not information.
 const (
 	// avatarPanelMaxHeightPct is the share of the sidebar the picture may
 	// take. A half-block cell is two pixels tall, so the picture is half as
@@ -34,9 +36,6 @@ const (
 	// avatarPanelMinCols is the narrowest picture worth drawing — below it
 	// the panel is suppressed entirely rather than rendered as mush.
 	avatarPanelMinCols = 8
-	// avatarPanelTextRows is the caption under the picture: name, then
-	// presence.
-	avatarPanelTextRows = 2
 )
 
 // avatarPanelSize is the picture's size in cells, or (0, 0) when the panel
@@ -60,7 +59,7 @@ func (m Model) avatarPanelSize() (cols, rows int) {
 	rows = cols / 2
 
 	// Give back rows until the chat list has its floor again.
-	avail := m.height - sidebarStatusHeight - avatarPanelMinListRows - avatarPanelTextRows
+	avail := m.height - sidebarStatusHeight - avatarPanelMinListRows
 	for rows > 0 && rows > avail {
 		rows--
 		cols = rows * 2
@@ -71,14 +70,11 @@ func (m Model) avatarPanelSize() (cols, rows int) {
 	return cols, rows
 }
 
-// avatarPanelHeight is how many sidebar rows the panel occupies, picture
-// plus caption. Zero when it isn't drawn.
+// avatarPanelHeight is how many sidebar rows the panel occupies. Zero when
+// it isn't drawn.
 func (m Model) avatarPanelHeight() int {
 	_, rows := m.avatarPanelSize()
-	if rows == 0 {
-		return 0
-	}
-	return rows + avatarPanelTextRows
+	return rows
 }
 
 // avatarPanelChat is whose avatar the panel shows: the row the chat list
@@ -106,31 +102,25 @@ func (m Model) renderAvatarPanel(width int) string {
 		// Rows are already reserved (the height can't depend on the
 		// selection), so fill them rather than letting the sidebar's
 		// contents shift up by exactly the panel's height.
-		return strings.Repeat("\n", rows+avatarPanelTextRows-1)
+		return strings.Repeat("\n", rows-1)
 	}
 
 	key := avatarPanelCacheKey{
 		width: width, cols: cols, rows: rows,
-		address: chat.Address, name: chat.Name, presence: chat.Presence,
+		address: chat.Address, name: chat.Name,
 		gen: avatarGeneration(),
 	}
 	if cached, ok := avatarPanelCache.get(key); ok {
 		return cached
 	}
 
-	name := m.styles.messageNickMe.Render(ansi.Truncate(chat.Name, max(1, width), "…"))
-	presence := presenceGlyph(chat.Presence) + " " +
-		lipgloss.NewStyle().Foreground(m.styles.colors.textMuted).
-			Render(ansi.Truncate(presenceLabel(chat.Presence), max(1, width-2), "…"))
-
 	var sb strings.Builder
-	for _, line := range strings.Split(renderAvatarLarge(chat.Name, chat.Address, cols, rows), "\n") {
+	for i, line := range strings.Split(renderAvatarLarge(chat.Name, chat.Address, cols, rows), "\n") {
+		if i > 0 {
+			sb.WriteByte('\n')
+		}
 		writeCentered(&sb, line, cols, width)
-		sb.WriteByte('\n')
 	}
-	writeCentered(&sb, name, lipgloss.Width(name), width)
-	sb.WriteByte('\n')
-	writeCentered(&sb, presence, lipgloss.Width(presence), width)
 
 	out := sb.String()
 	avatarPanelCache.put(key, out)
@@ -191,13 +181,12 @@ func (m Model) avatarPanelOverlay() (content string, x, y int, ok bool) {
 type avatarPanelCacheKey struct {
 	width, cols, rows int
 	address, name     string
-	presence          Presence
 	gen               uint64
 }
 
-// avatarPanelCache memoizes the whole rendered panel, not just the picture
-// inside it: the caption and centering are cheap next to a cold picture
-// render but not next to nothing, and most frames change none of it.
+// avatarPanelCache memoizes the centered panel, not just the picture
+// inside it: the centering is cheap next to a cold picture render but not
+// next to nothing, and most frames change neither.
 var avatarPanelCache avatarPanelMemo
 
 type avatarPanelMemo struct {
