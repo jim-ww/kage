@@ -27,6 +27,8 @@ const (
 	rpcChatUnreadCounts         = "ChatUnreadCounts"
 	rpcSaveDraft                = "SaveDraft"
 	rpcChangeStoragePassword    = "ChangeStoragePassword"
+	rpcSetOwnAvatar             = "SetOwnAvatar"
+	rpcRemoveOwnAvatar          = "RemoveOwnAvatar"
 	rpcSendFile                 = "SendFile"
 	rpcUploadFile               = "UploadFile"
 	rpcCancelUpload             = "CancelUpload"
@@ -333,4 +335,9 @@ type wireAccountLiveMsg struct {
 type wireAccountConnectErrorMsg struct {
 	Index int
 	Err   string
+}
+
+type setOwnAvatarParams struct {
+	AccountIdx int    `json:"account_idx"`
+	Path       string `json:"path"`
 }

@@ -2,11 +2,15 @@ package xmpp
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"mellium.im/xmlstream"
 	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/pubsub"
 	"mellium.im/xmpp/stanza"
@@ -21,6 +25,15 @@ import (
 const (
 	avatarMetadataNode = "urn:xmpp:avatar:metadata"
 	avatarDataNode     = "urn:xmpp:avatar:data"
+	// The namespaces are spelled the same as the node names, but are a
+	// separate thing — the node is where an item lives, the namespace is
+	// what the item's payload is.
+	avatarMetadataNS = "urn:xmpp:avatar:metadata"
+	avatarDataNS     = "urn:xmpp:avatar:data"
+	// avatarEmptyItemID is the item id the "no avatar" metadata is
+	// published under. Any id would do; a fixed one keeps a contact's
+	// removal from accumulating items.
+	avatarEmptyItemID = "current"
 )
 
 // AvatarMaxBytes caps how large an avatar we're willing to pull down. A
@@ -129,4 +142,83 @@ func (c *Client) FetchAvatarData(ctx context.Context, peerJID, id string) ([]byt
 		return nil, fmt.Errorf("avatar from %s is %d bytes, over the %d limit", peerJID, len(data), AvatarMaxBytes)
 	}
 	return data, nil
+}
+
+// PublishAvatar publishes data as this account's avatar: the bytes go to
+// the data node under an item id equal to their SHA-1, and the metadata
+// node advertises that same id, so a contact can tell from metadata alone
+// whether what they already cached is current.
+//
+// Both nodes are reconfigured to open access, for the same reason
+// PublishOpenPGPKey does it: an avatar nobody can fetch is pointless, and
+// PEP's default access model is not "anyone".
+func (c *Client) PublishAvatar(ctx context.Context, data []byte, mediaType string, width, height int) (string, error) {
+	if len(data) == 0 {
+		return "", fmt.Errorf("avatar is empty")
+	}
+	if len(data) > AvatarMaxBytes {
+		return "", fmt.Errorf("avatar is %d bytes, over the %d limit", len(data), AvatarMaxBytes)
+	}
+	id := avatarID(data)
+
+	dataElem := xmlstream.Wrap(
+		xmlstream.Token(xml.CharData(base64.StdEncoding.EncodeToString(data))),
+		xml.StartElement{Name: xml.Name{Space: avatarDataNS, Local: "data"}},
+	)
+	if _, err := pubsub.Publish(ctx, c.session, avatarDataNode, id, dataElem); err != nil {
+		return "", fmt.Errorf("publishing avatar data: %w", err)
+	}
+	c.makeNodeOpen(ctx, avatarDataNode)
+
+	attrs := []xml.Attr{
+		{Name: xml.Name{Local: "id"}, Value: id},
+		{Name: xml.Name{Local: "bytes"}, Value: strconv.Itoa(len(data))},
+		{Name: xml.Name{Local: "type"}, Value: mediaType},
+	}
+	if width > 0 && height > 0 {
+		attrs = append(attrs,
+			xml.Attr{Name: xml.Name{Local: "width"}, Value: strconv.Itoa(width)},
+			xml.Attr{Name: xml.Name{Local: "height"}, Value: strconv.Itoa(height)},
+		)
+	}
+	metaElem := xmlstream.Wrap(
+		xmlstream.Wrap(nil, xml.StartElement{
+			Name: xml.Name{Space: avatarMetadataNS, Local: "info"},
+			Attr: attrs,
+		}),
+		xml.StartElement{Name: xml.Name{Space: avatarMetadataNS, Local: "metadata"}},
+	)
+	// The metadata item carries the same id as the data item: XEP-0084 has
+	// contacts compare that id against what they cached, and an "id" that
+	// varied per publish would make every contact re-download.
+	if _, err := pubsub.Publish(ctx, c.session, avatarMetadataNode, id, metaElem); err != nil {
+		return "", fmt.Errorf("publishing avatar metadata: %w", err)
+	}
+	c.makeNodeOpen(ctx, avatarMetadataNode)
+	return id, nil
+}
+
+// avatarID is the item id an avatar is published under: the SHA-1 of its
+// bytes, per XEP-0084. Contacts decide whether to re-download by comparing
+// this against what they cached, so it must be derived from the content and
+// nothing else.
+func avatarID(data []byte) string {
+	sum := sha1.Sum(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// DeleteAvatar stops advertising an avatar, by publishing an empty
+// <metadata/> — which is how XEP-0084 spells "I have no avatar". The data
+// node is left alone deliberately: contacts key their cache on the id the
+// metadata advertises, so with nothing advertised the old bytes are
+// unreachable, and retracting them is an extra round trip that can fail
+// separately and leave the two nodes disagreeing.
+func (c *Client) DeleteAvatar(ctx context.Context) error {
+	empty := xmlstream.Wrap(nil, xml.StartElement{
+		Name: xml.Name{Space: avatarMetadataNS, Local: "metadata"},
+	})
+	if _, err := pubsub.Publish(ctx, c.session, avatarMetadataNode, avatarEmptyItemID, empty); err != nil {
+		return fmt.Errorf("publishing empty avatar metadata: %w", err)
+	}
+	return nil
 }

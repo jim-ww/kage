@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -215,4 +219,155 @@ func (s *accountSession) syncAvatarOnce(ctx context.Context, srv *ipc.Server, ac
 		return
 	}
 	s.syncAvatar(ctx, srv, accountIdx, bare)
+}
+
+// SetOwnAvatar publishes a local image file as this account's avatar
+// (XEP-0084) and caches it locally under the account's own JID, so the
+// account bar and any chat with oneself show it without waiting for a
+// round trip back from the server.
+func (a *adapter) SetOwnAvatar(accountIdx int, path string) error {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	client, err := s.liveClient()
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading avatar: %w", err)
+	}
+	if len(data) > xmpp.AvatarMaxBytes {
+		return fmt.Errorf("avatar is %s, over the %s limit",
+			humanBytes(len(data)), humanBytes(xmpp.AvatarMaxBytes))
+	}
+	// Decoded rather than trusted by extension: the media type we publish
+	// is what contacts decode by, and the dimensions are part of the
+	// metadata. A file that doesn't decode here would have been a broken
+	// avatar for everyone who fetched it.
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("reading avatar: not a usable image: %w", err)
+	}
+	var mediaType string
+	switch format {
+	case "png":
+		mediaType = "image/png"
+	case "jpeg":
+		mediaType = "image/jpeg"
+	default:
+		return fmt.Errorf("avatar is %s; only PNG and JPEG can be published", format)
+	}
+
+	id, err := client.PublishAvatar(context.Background(), data, mediaType, cfg.Width, cfg.Height)
+	if err != nil {
+		return err
+	}
+
+	bare := bareJID(s.account.JID)
+	if err := storeAvatar(bare, data, mediaType); err != nil {
+		// Published fine; only the local copy failed, so say so rather
+		// than reporting the publish as failed.
+		slog.Warn("caching own avatar", "jid", bare, "err", err)
+		return nil
+	}
+	slog.Debug("published own avatar", "jid", bare, "id", id, "bytes", len(data))
+	if path, ok := cachedAvatarPath(bare); ok {
+		broadcast(a.srv, evAvatar, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: path})
+	}
+	return nil
+}
+
+// RemoveOwnAvatar stops publishing this account's avatar and drops the
+// local copy.
+func (a *adapter) RemoveOwnAvatar(accountIdx int) error {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	client, err := s.liveClient()
+	if err != nil {
+		return err
+	}
+	if err := client.DeleteAvatar(context.Background()); err != nil {
+		return err
+	}
+
+	bare := bareJID(s.account.JID)
+	removeCachedAvatar(bare)
+	broadcast(a.srv, evAvatar, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: ""})
+	return nil
+}
+
+// storeAvatar writes one contact's (or our own) avatar into the cache,
+// clearing whichever other extension they previously used.
+func storeAvatar(bare string, data []byte, mediaType string) error {
+	dir, err := avatarCacheDir()
+	if err != nil {
+		return err
+	}
+	ext, ok := avatarExt(mediaType)
+	if !ok {
+		return fmt.Errorf("unsupported avatar type %q", mediaType)
+	}
+	name := avatarFileName(bare, ext)
+	if name == "" {
+		return fmt.Errorf("unusable jid %q", bare)
+	}
+	if err := writeFileAtomic(filepath.Join(dir, name), data); err != nil {
+		return err
+	}
+	for _, other := range []string{".png", ".jpg"} {
+		if other == ext {
+			continue
+		}
+		if stale := avatarFileName(bare, other); stale != "" {
+			os.Remove(filepath.Join(dir, stale))
+		}
+	}
+	return nil
+}
+
+// cachedAvatarPath is where a contact's cached avatar lives, if it has one.
+func cachedAvatarPath(bare string) (string, bool) {
+	dir, err := avatarCacheDir()
+	if err != nil {
+		return "", false
+	}
+	for _, ext := range []string{".png", ".jpg"} {
+		name := avatarFileName(bare, ext)
+		if name == "" {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); err == nil {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func removeCachedAvatar(bare string) {
+	dir, err := avatarCacheDir()
+	if err != nil {
+		return
+	}
+	for _, ext := range []string{".png", ".jpg"} {
+		if name := avatarFileName(bare, ext); name != "" {
+			os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
+
+// humanBytes renders a byte count for an error a person reads.
+func humanBytes(n int) string {
+	if n < 1<<10 {
+		return fmt.Sprintf("%d bytes", n)
+	}
+	if n < 1<<20 {
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
 }

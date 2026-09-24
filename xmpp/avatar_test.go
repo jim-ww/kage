@@ -1,7 +1,9 @@
 package xmpp
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
 	"strings"
 	"testing"
@@ -144,4 +146,50 @@ func TestAvatarMetadataNotifyAdvertised(t *testing.T) {
 		}
 	}
 	t.Errorf("discoFeatures is missing %q", want)
+}
+
+// A contact decides whether to re-download by comparing the advertised id
+// against what they cached, and the daemon's cache does the same by hashing
+// the file — so the published id must be the SHA-1 of the published bytes
+// and nothing else.
+func TestAvatarIDIsContentHash(t *testing.T) {
+	data := []byte("pretend this is a png")
+	sum := sha1.Sum(data)
+	want := hex.EncodeToString(sum[:])
+
+	got := avatarID(data)
+	if got != want {
+		t.Fatalf("avatarID = %q, want the SHA-1 %q", got, want)
+	}
+	if len(got) != 40 {
+		t.Errorf("avatarID is %d chars, want 40 hex chars", len(got))
+	}
+	if same := avatarID(data); same != got {
+		t.Error("avatarID is not stable for identical bytes")
+	}
+	if other := avatarID([]byte("different bytes")); other == got {
+		t.Error("avatarID collided for different bytes")
+	}
+}
+
+// An empty <metadata/> is how XEP-0084 says "no avatar"; if it decoded as
+// anything else, removal would read as a broken publish on the far side.
+func TestEmptyMetadataMeansNoAvatar(t *testing.T) {
+	var meta metadataElem
+	if err := xml.Unmarshal([]byte(`<metadata xmlns="urn:xmpp:avatar:metadata"/>`), &meta); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(meta.Info) != 0 {
+		t.Errorf("empty metadata decoded %d info entries, want 0", len(meta.Info))
+	}
+}
+
+func TestPublishAvatarRejectsUnusableInput(t *testing.T) {
+	var c Client
+	if _, err := c.PublishAvatar(t.Context(), nil, "image/png", 0, 0); err == nil {
+		t.Error("PublishAvatar accepted empty data")
+	}
+	if _, err := c.PublishAvatar(t.Context(), make([]byte, AvatarMaxBytes+1), "image/png", 0, 0); err == nil {
+		t.Error("PublishAvatar accepted data over the size limit")
+	}
 }

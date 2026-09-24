@@ -176,6 +176,14 @@ func (c *ipcClient) ChangeStoragePassword(newPassword string) error {
 	return c.conn.Call(rpcChangeStoragePassword, changeStoragePasswordParams{NewPassword: newPassword}, nil)
 }
 
+func (c *ipcClient) SetOwnAvatar(accountIdx int, path string) error {
+	return c.conn.Call(rpcSetOwnAvatar, setOwnAvatarParams{AccountIdx: accountIdx, Path: path}, nil)
+}
+
+func (c *ipcClient) RemoveOwnAvatar(accountIdx int) error {
+	return c.conn.Call(rpcRemoveOwnAvatar, accountIdxParams{AccountIdx: accountIdx}, nil)
+}
+
 func (c *ipcClient) SendFile(accountIdx int, to, path string, opts ui.SendOptions) tea.Msg {
 	var msg ui.FileSendResultMsg
 	if err := c.conn.Call(rpcSendFile, sendFileParams{AccountIdx: accountIdx, To: to, Path: path, Opts: opts}, &msg); err != nil {
@@ -469,6 +477,12 @@ func (c *ipcClient) dispatchAvatar(data []byte) {
 	var msg ui.AvatarUpdatedMsg
 	if err := json.Unmarshal(data, &msg); err != nil {
 		slog.Warn("unmarshaling Avatar event", "err", err)
+		return
+	}
+	if msg.Path == "" {
+		// An avatar was removed rather than changed.
+		ui.RemoveAvatarImage(msg.JID)
+		c.program.Send(msg)
 		return
 	}
 	if err := ui.LoadAvatarFile(msg.JID, msg.Path); err != nil {

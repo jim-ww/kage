@@ -171,6 +171,20 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.ChangeStoragePassword(p.NewPassword)
 
+	case rpcSetOwnAvatar:
+		p, err := unmarshalParams[setOwnAvatarParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.SetOwnAvatar(p.AccountIdx, p.Path)
+
+	case rpcRemoveOwnAvatar:
+		p, err := unmarshalParams[accountIdxParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.RemoveOwnAvatar(p.AccountIdx)
+
 	case rpcSendFile:
 		p, err := unmarshalParams[sendFileParams](params)
 		if err != nil {

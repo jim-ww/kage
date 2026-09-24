@@ -135,3 +135,69 @@ func TestWriteFileAtomic(t *testing.T) {
 		t.Errorf("directory holds %v, want just the avatar", names)
 	}
 }
+
+func TestStoreAvatarReplacesOtherExtension(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+
+	const bare = "me@example.com"
+	if err := storeAvatar(bare, []byte("png bytes"), "image/png"); err != nil {
+		t.Fatalf("storeAvatar png: %v", err)
+	}
+	path, ok := cachedAvatarPath(bare)
+	if !ok || filepath.Ext(path) != ".png" {
+		t.Fatalf("cachedAvatarPath = %q, %v, want a .png", path, ok)
+	}
+
+	// Switching format must not leave both files behind — LoadAvatarDir
+	// would then load whichever it happened to reach last.
+	if err := storeAvatar(bare, []byte("jpeg bytes"), "image/jpeg"); err != nil {
+		t.Fatalf("storeAvatar jpeg: %v", err)
+	}
+	path, ok = cachedAvatarPath(bare)
+	if !ok || filepath.Ext(path) != ".jpg" {
+		t.Fatalf("cachedAvatarPath = %q, %v, want a .jpg", path, ok)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(path), bare+".png")); !os.IsNotExist(err) {
+		t.Error("the old .png was left behind")
+	}
+}
+
+func TestRemoveCachedAvatar(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+
+	const bare = "me@example.com"
+	if err := storeAvatar(bare, []byte("png bytes"), "image/png"); err != nil {
+		t.Fatal(err)
+	}
+	removeCachedAvatar(bare)
+	if path, ok := cachedAvatarPath(bare); ok {
+		t.Errorf("cachedAvatarPath = %q after removal", path)
+	}
+}
+
+func TestStoreAvatarRejectsUnsupportedType(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	if err := storeAvatar("me@example.com", []byte("gif bytes"), "image/gif"); err == nil {
+		t.Error("storeAvatar accepted an unsupported media type")
+	}
+}
+
+func TestHumanBytes(t *testing.T) {
+	tests := []struct {
+		in   int
+		want string
+	}{
+		{0, "0 bytes"},
+		{512, "512 bytes"},
+		{2048, "2 KB"},
+		{1 << 20, "1.0 MB"},
+		{3 << 19, "1.5 MB"},
+	}
+	for _, tt := range tests {
+		if got := humanBytes(tt.in); got != tt.want {
+			t.Errorf("humanBytes(%d) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

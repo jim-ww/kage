@@ -695,3 +695,15 @@ func LoadAvatarFile(jid, path string) error {
 	SetAvatarImage(jid, img)
 	return nil
 }
+
+// RemoveAvatarImage forgets a contact's avatar — they stopped publishing
+// one, so they go back to their monogram rather than keeping a picture
+// they've taken down.
+func RemoveAvatarImage(jid string) {
+	key := strings.ToLower(jid)
+	avatarMu.Lock()
+	defer avatarMu.Unlock()
+	delete(avatarImages, key)
+	delete(avatarPictures, key)
+	avatarGen++
+}
