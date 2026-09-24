@@ -2,12 +2,10 @@ package ui
 
 import (
 	"fmt"
-	"hash/fnv"
 	"image"
 	"image/color"
 	_ "image/jpeg"
 	"image/png"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"unicode"
 
 	"charm.land/lipgloss/v2"
 )
@@ -32,8 +29,8 @@ import (
 // both cases render identically and a contact's swatch doesn't jump around
 // when their avatar arrives.
 //
-// avatarColor is a swatch background. Kept as plain RGB rather than a
-// color.Color so it can be hashed, compared, and averaged.
+// avatarColor is a configured contact tint. Kept as plain RGB rather than
+// a color.Color so it can be compared.
 type avatarColor struct{ R, G, B uint8 }
 
 // avatarsOn gates avatar rendering: the sidebar panel goes away when it's
@@ -54,14 +51,12 @@ func setAvatarsEnabled(on bool) { avatarsOn.Store(on) }
 // avatarsEnabled reports whether avatars are shown at all.
 func avatarsEnabled() bool { return avatarsOn.Load() }
 
-// avatarColors/avatarPictures map bare JID to that contact's swatch color
-// and to the avatar image itself. Package-level (like presenceGlyphs)
-// because Chat.Title is called by bubbles' list delegate, which hands us no
-// place to thread a store through. Only ever written before/between
-// renders, via SetAvatarImage.
+// avatarPictures maps bare JID to that contact's avatar image.
+// Package-level (like presenceGlyphs) because the rendering paths that
+// reach it aren't threaded through the Model. Only ever written
+// before/between renders, via SetAvatarImage.
 var (
 	avatarMu       sync.RWMutex
-	avatarImages   = map[string]avatarColor{}
 	avatarPictures = map[string]image.Image{}
 	// avatarGen is bumped whenever any of the above changes, so the render
 	// cache below can be invalidated without comparing images.
@@ -99,18 +94,12 @@ func SetAvatarImage(jid string, img image.Image) {
 	defer avatarMu.Unlock()
 	avatarPictures[key] = scaled
 	avatarGen++
-	// A greyscale avatar yields no usable swatch color; the picture is
-	// still kept, and the JID hash supplies the monogram's color.
-	if c, ok := dominantColor(img); ok {
-		avatarImages[key] = c
-	}
 }
 
 // ClearAvatarImages drops every recorded avatar color.
 func ClearAvatarImages() {
 	avatarMu.Lock()
 	defer avatarMu.Unlock()
-	avatarImages = map[string]avatarColor{}
 	avatarPictures = map[string]image.Image{}
 	avatarGen++
 	avatarBlockCache = avatarBlockKey{}
@@ -380,80 +369,6 @@ func decodeImageFile(path string) (image.Image, error) {
 	return img, err
 }
 
-// dominantColor quantizes an image into a 4x4x4 color cube and returns the
-// most populous bucket's mean color. Near-greys are skipped so a portrait's
-// background or clothing wins over skin tones, which otherwise dominate any
-// photo of a person and make every contact's swatch the same beige. Reports
-// false for an image with no saturated pixels at all (a greyscale avatar),
-// leaving the JID hash to supply the color.
-func dominantColor(img image.Image) (avatarColor, bool) {
-	type bucket struct{ r, g, b, n uint64 }
-	buckets := map[int]*bucket{}
-	bounds := img.Bounds()
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r32, g32, b32, a32 := img.At(x, y).RGBA()
-			if a32 < 0x8000 { // mostly transparent: not part of the picture
-				continue
-			}
-			r, g, b := uint64(r32>>8), uint64(g32>>8), uint64(b32>>8)
-			hi, lo := max(r, max(g, b)), min(r, min(g, b))
-			if hi-lo < 40 {
-				continue
-			}
-			key := int(r>>6)<<4 | int(g>>6)<<2 | int(b>>6)
-			bkt := buckets[key]
-			if bkt == nil {
-				bkt = &bucket{}
-				buckets[key] = bkt
-			}
-			bkt.r, bkt.g, bkt.b, bkt.n = bkt.r+r, bkt.g+g, bkt.b+b, bkt.n+1
-		}
-	}
-	if len(buckets) == 0 {
-		return avatarColor{}, false
-	}
-	keys := make([]int, 0, len(buckets))
-	for k := range buckets {
-		keys = append(keys, k)
-	}
-	// Sorted by population, then by key, so an image with two equally
-	// populous buckets always picks the same one instead of rendering a
-	// different color per run (Go randomizes map iteration order).
-	sort.Slice(keys, func(i, j int) bool {
-		bi, bj := buckets[keys[i]], buckets[keys[j]]
-		if bi.n != bj.n {
-			return bi.n > bj.n
-		}
-		return keys[i] < keys[j]
-	})
-	b := buckets[keys[0]]
-	return avatarColor{
-		R: uint8(b.r / b.n),
-		G: uint8(b.g / b.n),
-		B: uint8(b.b / b.n),
-	}, true
-}
-
-// hashColor derives a stable swatch color from a bare JID: the hash picks a
-// hue, while saturation and lightness are fixed at values that stay legible
-// under white text in both light and dark terminals. Hue is the only free
-// dimension precisely so that no contact can hash to an unreadably pale or
-// muddy swatch.
-func hashColor(jid string) avatarColor {
-	r, g, b := hslToRGB(avatarHue(jid), 0.55, 0.45)
-	return avatarColor{R: r, G: g, B: b}
-}
-
-// avatarHue is the hashed dimension of a contact's swatch — the only one,
-// so that saturation and lightness can be pinned where every result stays
-// legible.
-func avatarHue(jid string) float64 {
-	h := fnv.New32a()
-	h.Write([]byte(strings.ToLower(jid)))
-	return float64(h.Sum32() % 360)
-}
-
 // contactColors holds the per-contact name tints from config, keyed by
 // lowercased bare JID. Opt-in: a contact with no entry renders their name
 // plain. Hashing a color for everybody was tried and reverted — it turns
@@ -540,89 +455,7 @@ func renderTintedName(name, address string) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(tint.hex())).Render(name)
 }
 
-func hslToRGB(h, s, l float64) (uint8, uint8, uint8) {
-	c := (1 - math.Abs(2*l-1)) * s
-	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
-	m := l - c/2
-	var r, g, b float64
-	switch {
-	case h < 60:
-		r, g, b = c, x, 0
-	case h < 120:
-		r, g, b = x, c, 0
-	case h < 180:
-		r, g, b = 0, c, x
-	case h < 240:
-		r, g, b = 0, x, c
-	case h < 300:
-		r, g, b = x, 0, c
-	default:
-		r, g, b = c, 0, x
-	}
-	return uint8(math.Round((r + m) * 255)), uint8(math.Round((g + m) * 255)), uint8(math.Round((b + m) * 255))
-}
-
-// readableOn picks black or white for text drawn on bg, by relative
-// luminance — so an initial stays legible on a pale avatar as well as a
-// dark one.
-func readableOn(bg avatarColor) avatarColor {
-	lum := 0.2126*float64(bg.R) + 0.7152*float64(bg.G) + 0.0722*float64(bg.B)
-	if lum > 140 {
-		return avatarColor{0, 0, 0}
-	}
-	return avatarColor{255, 255, 255}
-}
-
 func (c avatarColor) hex() string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
-
-// avatarColorFor returns the swatch color for a contact, in order of how
-// much it's actually known about them: the color they were configured with
-// (see SetContactColors), else the dominant color of their real avatar,
-// else a hue hashed from their JID.
-func avatarColorFor(address string) avatarColor {
-	// A color the user set by hand outranks anything derived, including
-	// the one taken from their actual avatar image.
-	if c, ok := contactColor(address); ok {
-		return c
-	}
-	key := strings.ToLower(address)
-	avatarMu.RLock()
-	c, ok := avatarImages[key]
-	avatarMu.RUnlock()
-	if ok {
-		return c
-	}
-	return hashColor(key)
-}
-
-// avatarInitial is the character drawn in the swatch: the first letter or
-// digit of the display name, uppercased. Leading punctuation is skipped so
-// a nickname like "…alice" still shows an A — except when the name is *all*
-// punctuation (a MUC's "#kage"), where that leading character is the
-// identifying one and gets used as-is. Falls back to the address, then to
-// "?" for a contact with neither.
-func avatarInitial(name, address string) string {
-	for _, source := range []string{name, address} {
-		if r, ok := firstAlnum(source); ok {
-			return string(unicode.ToUpper(r))
-		}
-		for _, r := range source {
-			if !unicode.IsSpace(r) {
-				return string(r)
-			}
-		}
-	}
-	return "?"
-}
-
-func firstAlnum(s string) (rune, bool) {
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return r, true
-		}
-	}
-	return 0, false
-}
 
 // encodePNG is png.Encode, named here so the test helper that writes
 // fixture avatars doesn't need its own import of image/png alongside this
@@ -644,35 +477,12 @@ func anyAvatarKnown() bool {
 	return len(avatarPictures) > 0
 }
 
-// renderAvatarLarge renders a contact at cols x rows cells: their avatar
-// picture when there is one, and an enlarged monogram — the same swatch
-// color as their chat-list row, with the initial centered — when there
-// isn't. Always exactly rows lines of cols columns, so the caller's layout
-// arithmetic holds either way.
-func renderAvatarLarge(name, address string, cols, rows int) string {
-	if picture, ok := renderAvatarPicture(address, cols, rows); ok {
-		return picture
-	}
-	bg := avatarColorFor(address)
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(readableOn(bg).hex())).
-		Background(lipgloss.Color(bg.hex())).
-		Bold(true)
-
-	initial := avatarInitial(name, address)
-	middle := rows / 2
-	lines := make([]string, rows)
-	for i := range lines {
-		text := strings.Repeat(" ", cols)
-		if i == middle {
-			left := (cols - lipgloss.Width(initial)) / 2
-			if left >= 0 {
-				text = strings.Repeat(" ", left) + initial + strings.Repeat(" ", max(0, cols-left-lipgloss.Width(initial)))
-			}
-		}
-		lines[i] = style.Render(text)
-	}
-	return strings.Join(lines, "\n")
+// mustRenderAvatarPicture is renderAvatarPicture for callers that have
+// already checked the contact has one (hasAvatarPicture). An empty result
+// would be a caller bug, not a contact without an avatar.
+func mustRenderAvatarPicture(address string, cols, rows int) string {
+	block, _ := renderAvatarPicture(address, cols, rows)
+	return block
 }
 
 // avatarGeneration is bumped every time any stored avatar changes; render
@@ -703,7 +513,6 @@ func RemoveAvatarImage(jid string) {
 	key := strings.ToLower(jid)
 	avatarMu.Lock()
 	defer avatarMu.Unlock()
-	delete(avatarImages, key)
 	delete(avatarPictures, key)
 	avatarGen++
 }

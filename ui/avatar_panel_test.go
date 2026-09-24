@@ -109,13 +109,19 @@ func TestAvatarPanelHeightMatchesRender(t *testing.T) {
 	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	for _, size := range [][2]int{{100, 40}, {120, 24}, {200, 60}, {90, 30}} {
-		m := avatarPanelModel(t, size[0], size[1])
+		// With chats, so the panel has a contact to draw — and alice, the
+		// selected one, is the contact whose avatar was just set.
+		m := avatarPanelModelWithChats(t, size[0], size[1])
 		want := m.avatarPanelHeight()
 		panel := m.renderAvatarPanel(m.sidebarContentWidth())
 		if want == 0 {
 			if panel != "" {
 				t.Errorf("%dx%d: height 0 but panel rendered %q", size[0], size[1], panel)
 			}
+			continue
+		}
+		if panel == "" {
+			t.Errorf("%dx%d: %d rows reserved but nothing drawn for a contact with an avatar", size[0], size[1], want)
 			continue
 		}
 		if got := len(strings.Split(panel, "\n")); got != want {
@@ -198,24 +204,25 @@ func TestAvatarPanelLinesFitSidebarWidth(t *testing.T) {
 	}
 }
 
-// renderAvatarLarge must fill exactly the box it was given even for a
-// contact with no picture, or the reserved rows and the drawn rows drift.
-func TestRenderAvatarLargeMonogramFallback(t *testing.T) {
+// A contact with no avatar gets no panel at all. The rows stay reserved
+// (the height can't depend on the selection), but nothing is drawn into
+// them — a big colored block with a letter in it doesn't read as anybody.
+func TestAvatarPanelBlankWithoutAPicture(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
+	// Somebody has an avatar, so the rows are reserved...
+	SetAvatarImage("someone-else@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
-	block := renderAvatarLarge("alice", "alice@localhost", 10, 5)
-	lines := strings.Split(block, "\n")
-	if len(lines) != 5 {
-		t.Fatalf("got %d rows, want 5", len(lines))
+	m := avatarPanelModelWithChats(t, 100, 30)
+	if m.avatarPanelHeight() == 0 {
+		t.Fatal("no rows reserved even though an avatar is known")
 	}
-	for i, line := range lines {
-		if got := lipgloss.Width(line); got != 10 {
-			t.Errorf("row %d width = %d, want 10", i, got)
-		}
+	// ...but the selected contact is not that somebody.
+	if got := m.renderAvatarPanel(m.sidebarContentWidth()); got != "" {
+		t.Errorf("renderAvatarPanel = %q for a contact with no picture, want nothing drawn", got)
 	}
-	if !strings.Contains(block, "A") {
-		t.Error("monogram fallback lost the initial")
+	if _, _, _, ok := m.avatarPanelOverlay(); ok {
+		t.Error("a panel was composited for a contact with no picture")
 	}
 }
 

@@ -98,11 +98,15 @@ func (m Model) renderAvatarPanel(width int) string {
 		return ""
 	}
 	chat, ok := m.avatarPanelChat()
-	if !ok {
-		// Rows are already reserved (the height can't depend on the
-		// selection), so fill them rather than letting the sidebar's
-		// contents shift up by exactly the panel's height.
-		return strings.Repeat("\n", rows-1)
+	if !ok || !hasAvatarPicture(chat.Address) {
+		// Nothing to draw. The rows stay reserved — the panel's height
+		// can't depend on which contact is selected without resizing the
+		// chat list as the cursor moves through it — and the sidebar's own
+		// padding leaves them blank, which reads as the end of the list
+		// rather than as a placeholder. A large monogram here was tried
+		// and it reads as a colored block with a letter in it, not as
+		// anybody's identity.
+		return ""
 	}
 
 	key := avatarPanelCacheKey{
@@ -115,7 +119,7 @@ func (m Model) renderAvatarPanel(width int) string {
 	}
 
 	var sb strings.Builder
-	for i, line := range strings.Split(renderAvatarLarge(chat.Name, chat.Address, cols, rows), "\n") {
+	for i, line := range strings.Split(mustRenderAvatarPicture(chat.Address, cols, rows), "\n") {
 		if i > 0 {
 			sb.WriteByte('\n')
 		}
