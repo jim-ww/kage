@@ -65,9 +65,6 @@ func (m Model) View() tea.View {
 	case len(m.chats.Items()) == 0 && m.currentAccountConnecting():
 		sidebarBody = m.styles.accountNormal.Render("connecting...")
 	}
-	if panel := m.renderAvatarPanel(scw); panel != "" {
-		sidebarBody = lipgloss.JoinVertical(lipgloss.Left, sidebarBody, panel)
-	}
 	sidebar := ""
 	if sw > 0 {
 		innerHeight := max(0, m.height-sidebarStatusHeight)
@@ -101,6 +98,9 @@ func (m Model) View() tea.View {
 	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, rootRows...))
 
 	rendered := m.zone.Scan(root)
+	if panel, px, py, ok := m.avatarPanelOverlay(); ok {
+		rendered = overlayAtWidth(rendered, panel, px, py, m.sidebarContentWidth())
+	}
 	var toastLines []string
 	if transferLines := m.renderTransferLines(); len(transferLines) > 0 {
 		toastLines = transferLines
@@ -500,9 +500,17 @@ func (m Model) renderDeviceHoverPopup() (popup string, x, y int, ok bool) {
 // line-by-line with ansi.Cut so it doesn't break escape codes or
 // wide-character boundaries in whatever base content it covers.
 func overlayAt(base, content string, x, y int) string {
+	return overlayAtWidth(base, content, x, y, lipgloss.Width(content))
+}
+
+// overlayAtWidth is overlayAt for content whose width the caller already
+// knows. Measuring it costs a grapheme-width scan of the whole string,
+// which for the avatar panel (tens of kilobytes of escape sequences, every
+// line padded to exactly the sidebar's width) is most of the overlay's
+// cost and tells us nothing we didn't already have.
+func overlayAtWidth(base, content string, x, y, contentWidth int) string {
 	baseLines := strings.Split(base, "\n")
 	contentLines := strings.Split(content, "\n")
-	contentWidth := lipgloss.Width(content)
 
 	for i, contentLine := range contentLines {
 		row := y + i

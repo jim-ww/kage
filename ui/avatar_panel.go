@@ -145,10 +145,46 @@ func (m Model) renderAvatarPanel(width int) string {
 // cost more than rendering the picture in the first place, and a window
 // resize paid it on every size message.
 func writeCentered(sb *strings.Builder, line string, lineWidth, width int) {
-	if pad := (width - lineWidth) / 2; pad > 0 {
-		sb.WriteString(strings.Repeat(" ", pad))
+	left := max(0, (width-lineWidth)/2)
+	if left > 0 {
+		sb.WriteString(strings.Repeat(" ", left))
 	}
 	sb.WriteString(line)
+	// Padded out to the full width, not just indented: the panel is
+	// composited over the finished frame (see avatarPanelOverlay), and an
+	// overlay whose lines are different widths would leave slices of the
+	// frame underneath showing through the short ones.
+	if right := width - left - lineWidth; right > 0 {
+		sb.WriteString(ansiReset)
+		sb.WriteString(strings.Repeat(" ", right))
+	}
+}
+
+// avatarPanelOverlay is the panel plus where to composite it onto the
+// finished frame: the sidebar's own columns, directly below the chat list.
+//
+// Drawn as an overlay rather than joined into the sidebar's content because
+// the picture is tens of kilobytes of escape sequences, and everything the
+// sidebar's content passes through afterwards — the list style, the panel
+// style, the bordered box, the join with the chat pane — is a lipgloss
+// Render that rescans all of it for grapheme widths. Overlaying costs one
+// pass over the frame's own lines instead, and keeps the picture out of the
+// sidebar's render cache key, so scrolling the chat list no longer
+// re-renders it either.
+func (m Model) avatarPanelOverlay() (content string, x, y int, ok bool) {
+	// The accounts panel replaces the chat list with its own content, which
+	// the panel's reserved rows say nothing about — it would draw over it.
+	if m.selectedView == viewAccounts || m.avatarPanelHeight() == 0 {
+		return "", 0, 0, false
+	}
+	panel := m.renderAvatarPanel(m.sidebarContentWidth())
+	if panel == "" {
+		return "", 0, 0, false
+	}
+	// The sidebar has no top or left border (see uiStyles.sidebar), so its
+	// content starts at column 0, below the two-row account bar and the
+	// chat list's own rows.
+	return panel, 0, sidebarStatusHeight + m.chats.Height(), true
 }
 
 // avatarPanelCacheKey is everything renderAvatarPanel's output depends on.

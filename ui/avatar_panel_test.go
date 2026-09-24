@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/list"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func avatarPanelModel(t *testing.T, width, height int) Model {
@@ -213,5 +216,93 @@ func TestRenderAvatarLargeMonogramFallback(t *testing.T) {
 	}
 	if !strings.Contains(block, "A") {
 		t.Error("monogram fallback lost the initial")
+	}
+}
+
+// avatarPanelModelWithChats is avatarPanelModel with a populated chat list,
+// so View() renders a real sidebar to composite the panel onto.
+func avatarPanelModelWithChats(t *testing.T, width, height int) Model {
+	t.Helper()
+	m := newTestModel(nil)
+	items := []list.Item{
+		Chat{Name: "alice", Address: "alice@localhost", Presence: PresenceOnline, LastMessage: "hey"},
+		Chat{Name: "bob", Address: "bob@localhost", Presence: PresenceAway, LastMessage: "patch"},
+	}
+	m.accounts = []Account{{Name: "me", Chats: items}}
+	m.chats.SetItems(items)
+	m.width, m.height, m.termHeight = width, height, height
+	m.updateSizes()
+	return m
+}
+
+// The panel is composited onto the finished frame rather than joined into
+// the sidebar's content, so its position is arithmetic rather than layout —
+// it has to land on exactly the rows reserved for it, directly below the
+// chat list.
+func TestAvatarPanelOverlaysBelowTheList(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+
+	m := avatarPanelModelWithChats(t, 100, 30)
+	_, _, y, ok := m.avatarPanelOverlay()
+	if !ok {
+		t.Fatal("no overlay at 100x30")
+	}
+	if want := sidebarStatusHeight + m.chats.Height(); y != want {
+		t.Fatalf("overlay y = %d, want %d (account bar + chat list rows)", y, want)
+	}
+
+	lines := strings.Split(ansi.Strip(fmt.Sprint(m.View())), "\n")
+	height := m.avatarPanelHeight()
+	if y+height > len(lines) {
+		t.Fatalf("panel runs past the frame: y=%d height=%d frame=%d rows", y, height, len(lines))
+	}
+	for i := y; i < y+height-avatarPanelTextRows; i++ {
+		if !strings.Contains(lines[i], upperHalfBlock) {
+			t.Errorf("row %d has no picture: %q", i, lines[i])
+		}
+	}
+	if above := lines[y-1]; strings.Contains(above, upperHalfBlock) {
+		t.Errorf("row %d, above the panel, has picture in it: %q", y-1, above)
+	}
+	if !strings.Contains(lines[y+height-avatarPanelTextRows], "alice") {
+		t.Errorf("caption row missing the name: %q", lines[y+height-avatarPanelTextRows])
+	}
+}
+
+// Every panel line is padded to the sidebar's full width, so compositing it
+// can't shorten a frame row and leave the chat pane ragged.
+func TestAvatarPanelOverlayKeepsFrameWidth(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	plain := strings.Split(fmt.Sprint(avatarPanelModelWithChats(t, 100, 30).View()), "\n")
+
+	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	withPanel := strings.Split(fmt.Sprint(avatarPanelModelWithChats(t, 100, 30).View()), "\n")
+
+	if len(plain) != len(withPanel) {
+		t.Fatalf("frame is %d rows with the panel, %d without", len(withPanel), len(plain))
+	}
+	for i := range plain {
+		// Columns, not bytes: a half-block is three bytes and one column.
+		if got, want := ansi.StringWidth(withPanel[i]), ansi.StringWidth(plain[i]); got != want {
+			t.Errorf("row %d is %d columns with the panel, %d without", i, got, want)
+		}
+	}
+}
+
+// The accounts panel replaces the chat list with its own content, which the
+// panel's reserved rows say nothing about.
+func TestAvatarPanelNotOverlaidOverAccounts(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+
+	m := avatarPanelModelWithChats(t, 100, 30)
+	m.selectedView = viewAccounts
+	if _, _, _, ok := m.avatarPanelOverlay(); ok {
+		t.Error("panel composited over the accounts list")
 	}
 }
