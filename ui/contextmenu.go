@@ -14,15 +14,20 @@ type contextMenuItem struct {
 	run   func(m *Model) tea.Cmd
 }
 
-// contextMenu is the right-click popup state: a fixed list of actions
-// applicable to whatever component was right-clicked, rendered as a small
-// centered popup (renderContextMenuPopup in view.go) until an item is
-// picked or the menu is dismissed. Keyboard-only users don't need this —
-// every action here already has its own keybinding — so the menu only
-// responds to mouse clicks (see handleContextMenuClick) plus Back/ConfirmNo
-// to close it.
+// contextMenu is the popup-menu state: a fixed list of actions applicable
+// to whatever it was opened on, rendered as a small centered popup
+// (renderContextMenuPopup in view.go) until an item is picked or the menu
+// is dismissed. Driven by mouse (see handleContextMenuClick) and by
+// keyboard (cursor plus SelectSend, see updateContextMenuKey) — it used to
+// be mouse-only on the grounds that every action it listed had its own
+// keybinding, which stopped being true once the account menu became the
+// home for actions that have none.
 type contextMenu struct {
 	items []contextMenuItem
+	// cursor is the keyboard-selected row. Mouse hover is tracked
+	// separately (hoverState), so moving the pointer doesn't yank the
+	// keyboard's place in the list.
+	cursor int
 }
 
 func zoneContextMenuItem(i int) string { return fmt.Sprintf("ctxmenu-item-%d", i) }
@@ -36,6 +41,32 @@ func (m *Model) openContextMenu(items []contextMenuItem) {
 
 func (m *Model) closeContextMenu() {
 	m.contextMenu = nil
+}
+
+// updateContextMenuKey drives the popup from the keyboard: cursor moves,
+// SelectSend runs the highlighted item, Back/ConfirmNo closes.
+func (m Model) updateContextMenuKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	menu := m.contextMenu
+	switch {
+	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
+		m.closeContextMenu()
+	case matchesKey(msg, m.keys.MsgUp):
+		menu.cursor = (menu.cursor - 1 + len(menu.items)) % len(menu.items)
+	case matchesKey(msg, m.keys.MsgDown):
+		menu.cursor = (menu.cursor + 1) % len(menu.items)
+	case matchesKey(msg, m.keys.SelectSend):
+		if menu.cursor < 0 || menu.cursor >= len(menu.items) {
+			return m, nil
+		}
+		cmd := menu.items[menu.cursor].run(&m)
+		// An action that opened a menu of its own must not have it closed
+		// again from under it — the same guard handleContextMenuClick uses.
+		if m.contextMenu == menu {
+			m.closeContextMenu()
+		}
+		return m, cmd
+	}
+	return m, nil
 }
 
 // messageContextMenuItems builds the right-click menu for the message at
@@ -124,17 +155,52 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 	if idx < 0 || idx >= len(m.accounts) || m.accounts[idx].Removed {
 		return nil
 	}
-	return []contextMenuItem{
+	items := []contextMenuItem{
 		{label: "Status", run: func(m *Model) tea.Cmd { return m.actionOpenAccountStatusMenu(idx) }},
+		{label: "Avatar", run: func(m *Model) tea.Cmd {
+			m.switchAccount(idx)
+			return m.openAvatarMenu()
+		}},
+		{label: "Contacts", run: func(m *Model) tea.Cmd {
+			m.switchAccount(idx)
+			model, cmd := m.openContactManager()
+			*m = model
+			return cmd
+		}},
 		{label: "OMEMO devices", run: func(m *Model) tea.Cmd {
 			m.switchAccount(idx)
 			model, cmd := m.openDeviceList()
 			*m = model
 			return cmd
 		}},
-		{label: "Make default", run: func(m *Model) tea.Cmd { return m.actionMakeDefaultAccount(idx) }},
-		{label: "Remove account", run: func(m *Model) tea.Cmd { return m.actionRemoveAccount(idx) }},
 	}
+	if m.storagePasswordChanger != nil {
+		items = append(items, contextMenuItem{label: "Storage password", run: func(m *Model) tea.Cmd {
+			m.switchAccount(idx)
+			return m.openChangePasswordPopup()
+		}})
+	}
+	return append(items,
+		contextMenuItem{label: "Make default", run: func(m *Model) tea.Cmd { return m.actionMakeDefaultAccount(idx) }},
+		contextMenuItem{label: "Remove account", run: func(m *Model) tea.Cmd { return m.actionRemoveAccount(idx) }},
+	)
+}
+
+// openAccountMenu opens the account actions menu for the current account —
+// the one place every account-scoped action lives. Reached by the account
+// bar's menu button, by right-clicking an account row, and by the
+// AccountMenu keybinding, rather than only from inside the accounts panel.
+func (m *Model) openAccountMenu() tea.Cmd {
+	idx := m.currentAccount
+	if idx < 0 || idx >= len(m.accounts) {
+		return m.showNotification("no account selected")
+	}
+	items := m.accountRowContextMenuItems(idx)
+	if len(items) == 0 {
+		return m.showNotification("no actions for this account")
+	}
+	m.openContextMenu(items)
+	return nil
 }
 
 // actionRemoveAccount opens the remove-account confirmation for the account

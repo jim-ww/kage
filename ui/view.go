@@ -41,7 +41,11 @@ func (m Model) View() tea.View {
 		accountFg = colors.accentCyan
 	}
 	accountName, accountStatus := m.renderAccountBar(scw, accountHovered, accountOpen)
-	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(scw, accountBg, accountFg, accountName))
+	// The account menu's button sits on the name row rather than being
+	// hidden behind a right-click on a row of a panel that has to be
+	// opened first — every account-scoped action lives in that menu.
+	menuBtn := m.zone.Mark(zoneAccountMenuButton, m.styles.renderAccountMenuButton(m.icons, accountBg, accountFg, m.isHovered(zoneAccountMenuButton)))
+	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(max(1, scw-lipgloss.Width(menuBtn)), accountBg, accountFg, accountName)) + menuBtn
 	statusRow := ""
 	if accountOpen {
 		// Only shown while the accounts panel itself is open — it's an
@@ -585,7 +589,10 @@ func (m Model) renderContextMenuPopup() string {
 
 	rows := make([]string, len(m.contextMenu.items))
 	for i, item := range m.contextMenu.items {
-		row := m.styles.contextMenuRow(item.label, m.isHovered(zoneContextMenuItem(i)), itemWidth)
+		// Highlighted when the pointer is over it or the keyboard cursor
+		// is on it — the menu is driven both ways.
+		active := m.isHovered(zoneContextMenuItem(i)) || i == m.contextMenu.cursor
+		row := m.styles.contextMenuRow(item.label, active, itemWidth)
 		rows[i] = m.zone.Mark(zoneContextMenuItem(i), row)
 	}
 

@@ -49,6 +49,7 @@ type KeyMap struct {
 	RedoDraft             key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
 	ChangeStoragePassword key.Binding // Ctrl+Shift+P — change the local message/draft storage encryption password (accounts panel)
 	AvatarMenu            key.Binding // v (accounts panel) — set or remove this account's published avatar
+	AccountMenu           key.Binding // Ctrl+A — the account's actions (avatar, contacts, OMEMO devices, storage password, ...)
 	CallToggle            key.Binding // Ctrl+G — start a voice call to the open chat, or hang up the current call
 	VideoCallToggle       key.Binding // Ctrl+Shift+G — start a video call to the open chat (prompts camera/screen), or hang up the current call
 	ToggleComposeExpand   key.Binding // Ctrl+` — grow the compose box to ~half the chat pane, or shrink it back
@@ -131,12 +132,17 @@ var DefaultKeyMap = KeyMap{
 	// under non-Latin layouts instead of just in theory. Reused from
 	// SaveMsg's binding is fine: the file picker intercepts all input while
 	// open, so SaveMsg never sees a keypress in that state.
-	SortFilePicker:        NewBinding([]string{"ctrl+s"}, "cycle sort"),
-	PasteImage:            NewBinding([]string{"ctrl+p"}, "paste image"),
-	RenameChat:            NewBinding([]string{"r"}, "rename chat"),
-	ToggleSidebar:         NewBinding([]string{"ctrl+shift+\\"}, "toggle chat list"),
-	DeviceList:            NewBinding([]string{"u"}, "omemo devices"),
-	AvatarMenu:            NewBinding([]string{"v"}, "avatar"),
+	SortFilePicker: NewBinding([]string{"ctrl+s"}, "cycle sort"),
+	PasteImage:     NewBinding([]string{"ctrl+p"}, "paste image"),
+	RenameChat:     NewBinding([]string{"r"}, "rename chat"),
+	ToggleSidebar:  NewBinding([]string{"ctrl+shift+\\"}, "toggle chat list"),
+	DeviceList:     NewBinding([]string{"u"}, "omemo devices"),
+	AvatarMenu:     NewBinding([]string{"v"}, "avatar"),
+	// Ctrl+A for "account" — the mnemonic, and free here. Ctrl+<letter> is
+	// matched by physical key position on essentially every terminal,
+	// unlike the Ctrl+Shift+<letter> this replaced, whose shift only
+	// survives under the Kitty keyboard protocol.
+	AccountMenu:           NewBinding([]string{"ctrl+a"}, "account menu"),
 	ContactManager:        NewBinding([]string{"c"}, "manage contacts"),
 	RemoveAttachment:      NewBinding([]string{"backspace"}, "remove attachment"),
 	ClearDraft:            NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
@@ -240,6 +246,7 @@ func shortestKey(b key.Binding) string {
 func (k KeyMap) globalEntries() []helpEntry {
 	return []helpEntry{
 		{k.Switch, "switch focus"},
+		{k.AccountMenu, "account menu"},
 		{k.Help, "help"},
 		{k.Quit, "quit"},
 	}
@@ -260,7 +267,6 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.DeviceList, "omemo devices"},
 			{k.ContactManager, "contacts"},
 			{k.AvatarMenu, "avatar"},
-			{k.ChangeStoragePassword, "change storage password"},
 		}
 	case viewChats:
 		return []helpEntry{

@@ -23,6 +23,7 @@ const (
 	zoneInputTextarea         = "input-textarea"
 	zoneAccountBarName        = "account-bar-name"
 	zoneAccountBarStatus      = "account-bar-status"
+	zoneAccountMenuButton     = "account-menu-button"
 	zoneStoragePasswordButton = "storage-password-button"
 	zoneChatStatusBar         = "chat-status-bar"
 	zoneSendButton            = "send-button"
@@ -552,6 +553,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.zone.Get(zoneStoragePasswordButton).InBounds(mouse) {
 		return zoneStoragePasswordButton
 	}
+	if m.zone.Get(zoneAccountMenuButton).InBounds(mouse) {
+		return zoneAccountMenuButton
+	}
 	if m.zone.Get(zoneAccountBarName).InBounds(mouse) {
 		return zoneAccountBarName
 	}
@@ -768,6 +772,9 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.zone.Get(zoneAccountMenuButton).InBounds(msg) {
+		return m, m.openAccountMenu()
+	}
 	if m.zone.Get(zoneAccountBarStatus).InBounds(msg) {
 		m.notifyTypingStopped()
 		m.lastClickedMsgIdx = -1

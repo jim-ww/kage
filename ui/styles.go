@@ -402,6 +402,21 @@ func (s uiStyles) renderJumpToBottomButton(hovered bool) string {
 // contextMenuRow renders one action label, padded/highlighted to width so
 // every row is a consistent, easy-to-hit target — narrow rows packed
 // tightly together (the original complaint) invite misclicks.
+// renderAccountMenuButton draws the account bar's menu affordance. Painted
+// with the account bar's own colors so it reads as part of that bar rather
+// than as something floating on top of it.
+func (s uiStyles) renderAccountMenuButton(icons bool, bg, fg color.Color, hovered bool) string {
+	label := " ⋯ "
+	if !icons {
+		label = " ... "
+	}
+	st := lipgloss.NewStyle().Background(bg).Foreground(fg)
+	if hovered {
+		st = st.Foreground(s.colors.accentCyan).Bold(true)
+	}
+	return st.Render(label)
+}
+
 func (s uiStyles) contextMenuRow(label string, hovered bool, width int) string {
 	st := s.contextMenuItem
 	if hovered {

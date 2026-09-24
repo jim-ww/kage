@@ -26,14 +26,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	// ── Context menu intercepts all input until dismissed ───────────────
-	// It's mouse-only otherwise (every action it lists already has its
-	// own keybinding), so the keyboard's only job here is closing it.
 	if m.contextMenu != nil {
-		switch {
-		case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
-			m.closeContextMenu()
-		}
-		return m, nil, true
+		next, cmd := m.updateContextMenuKey(msg)
+		return next, cmd, true
 	}
 
 	// ── Delete confirmation popup intercepts all input ─────────────────
@@ -415,6 +410,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			model, cmd := m.openDeviceList()
 			return model, cmd, true
 		}
+
+	case matchesKey(msg, m.keys.AccountMenu):
+		// Deliberately not gated to the accounts panel: the point of this
+		// menu is that the account's actions are reachable without having
+		// found that panel first.
+		return m, m.openAccountMenu(), true
 
 	case matchesKey(msg, m.keys.ContactManager):
 		if m.selectedView == viewAccounts {
