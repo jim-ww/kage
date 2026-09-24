@@ -395,7 +395,10 @@ func (m Model) renderCallBar(width int) string {
 		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[ctrl+h] hang up", m.isHovered(zoneCallHangup)))
 		reopenBtn := m.zone.Mark(zoneCallReopenVideo, m.styles.renderCallBarButton("[ctrl+r] reopen video", m.isHovered(zoneCallReopenVideo)))
 		buttons := muteBtn + dot + reopenBtn + dot + hangupBtn
-		if !m.call.sharing {
+		if m.call.sharing {
+			stopBtn := m.zone.Mark(zoneCallStopVideo, m.styles.renderCallBarButton("[ctrl+v] stop video", m.isHovered(zoneCallStopVideo)))
+			buttons += dot + stopBtn
+		} else {
 			videoBtn := m.zone.Mark(zoneCallVideo, m.styles.renderCallBarButton("[ctrl+v] video", m.isHovered(zoneCallVideo)))
 			buttons += dot + videoBtn
 		}

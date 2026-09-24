@@ -208,7 +208,7 @@ func (m Model) callBarLine() string {
 		}
 		share := "[ctrl+s] share screen"
 		if m.call.sharing {
-			share = "🖥 sharing·[ctrl+s] stop"
+			share = "🖥 sharing·[ctrl+v] stop video"
 		}
 		line := "📞 " + who + "·" + dur + "·" + mic + "·" + quality + "·[ctrl+m] mute·" + share + "·[ctrl+r] reopen video·[ctrl+h] hang up"
 		if m.call.fingerprintChanged {

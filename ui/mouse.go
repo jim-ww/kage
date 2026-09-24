@@ -42,6 +42,7 @@ const (
 	zoneCallVideo             = "call-video-button"
 	zoneCallVideoCamera       = "call-video-camera-button"
 	zoneCallVideoScreen       = "call-video-screen-button"
+	zoneCallStopVideo         = "call-stop-video-button"
 	zoneCallReopenVideo       = "call-reopen-video-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
 	zoneFilePickerPopup       = "file-picker-popup"
@@ -535,6 +536,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		if m.zone.Get(zoneCallVideo).InBounds(mouse) {
 			return zoneCallVideo
 		}
+		if m.zone.Get(zoneCallStopVideo).InBounds(mouse) {
+			return zoneCallStopVideo
+		}
 		if m.zone.Get(zoneCallVideoCamera).InBounds(mouse) {
 			return zoneCallVideoCamera
 		}
@@ -761,6 +765,8 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		} else if m.zone.Get(zoneCallVideo).InBounds(msg) {
 			return m.startVideoPrompt(), nil
+		} else if m.zone.Get(zoneCallStopVideo).InBounds(msg) {
+			return m, m.toggleScreenShare()
 		}
 	}
 
