@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"sync"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // The sidebar's avatar panel: the contact's picture, pinned below the chat
@@ -30,9 +32,9 @@ const (
 	// count so that widening the sidebar does keep buying a bigger picture,
 	// up to this share of it.
 	avatarPanelMaxHeightPct = 50
-	// avatarPanelMinListRows is how many chat rows the list keeps no matter
-	// what; the panel shrinks, then disappears, before eating into these.
-	avatarPanelMinListRows = 6
+	// avatarPanelMinFreeRows is the least free space worth drawing into —
+	// below a 12x12-pixel picture's six rows there is nothing to draw.
+	avatarPanelMinFreeRows = avatarPanelMinCols / 2
 	// avatarPanelMinCols is the narrowest picture worth drawing: a cell
 	// carries two pixels vertically, so this is a 12x12-pixel image. Below
 	// roughly that a photo stops resolving into a face and becomes a
@@ -42,18 +44,23 @@ const (
 	avatarPanelMinCols = 12
 )
 
-// avatarPanelSize is the picture's size in cells, or (0, 0) when the panel
+// avatarPanelSize is the picture's size in cells given how many rows at the
+// bottom of the chat list are currently unused, or (0, 0) when the panel
 // shouldn't be drawn at all. Rows is half of cols because a half-block cell
 // carries two pixels vertically, so a square avatar needs half as many rows
-// as columns — so widening the sidebar grows the picture until it reaches
-// avatarPanelMaxHeightPct of the sidebar, and then until the chat list is
-// down to avatarPanelMinListRows.
+// as columns.
+//
+// Sized to free space rather than taking rows from the list: a contact
+// without an avatar is the common case, and reserving rows for them left a
+// blank region where chats should be. The list never changes height, so
+// nothing shifts under the cursor either — the picture simply appears in
+// space the list isn't using, and gives way as chats fill it.
 //
 // Deliberately independent of which chat is open: the panel's height feeds
 // the chat list's own height (see updateSizes), and a height that changed
 // with the selected contact would resize the list under the selection on
 // every move.
-func (m Model) avatarPanelSize() (cols, rows int) {
+func (m Model) avatarPanelSize(freeRows int) (cols, rows int) {
 	if m.sidebarWidth() <= 0 || !anyAvatarKnown() {
 		return 0, 0
 	}
@@ -64,27 +71,22 @@ func (m Model) avatarPanelSize() (cols, rows int) {
 	if m.narrow() {
 		return 0, 0
 	}
-	maxRows := m.height * avatarPanelMaxHeightPct / 100
+	if freeRows < avatarPanelMinFreeRows {
+		return 0, 0
+	}
+	maxRows := min(freeRows, m.height*avatarPanelMaxHeightPct/100)
 	cols = min(m.sidebarContentWidth()-2, maxRows*2)
 	cols -= cols % 2 // an odd width can't split into whole pixel rows
-	rows = cols / 2
-
-	// Give back rows until the chat list has its floor again.
-	avail := m.height - sidebarStatusHeight - avatarPanelMinListRows
-	for rows > 0 && rows > avail {
-		rows--
-		cols = rows * 2
-	}
 	if cols < avatarPanelMinCols {
 		return 0, 0
 	}
-	return cols, rows
+	return cols, cols / 2
 }
 
 // avatarPanelHeight is how many sidebar rows the panel occupies. Zero when
 // it isn't drawn.
-func (m Model) avatarPanelHeight() int {
-	_, rows := m.avatarPanelSize()
+func (m Model) avatarPanelHeight(freeRows int) int {
+	_, rows := m.avatarPanelSize(freeRows)
 	return rows
 }
 
@@ -103,20 +105,16 @@ func (m Model) avatarPanelChat() (Chat, bool) {
 // renderAvatarPanel builds the panel, centered in the sidebar's content
 // width. Returns "" when the panel isn't drawn, in which case
 // avatarPanelHeight is zero and no rows were reserved for it.
-func (m Model) renderAvatarPanel(width int) string {
-	cols, rows := m.avatarPanelSize()
+func (m Model) renderAvatarPanel(width, freeRows int) string {
+	cols, rows := m.avatarPanelSize(freeRows)
 	if rows == 0 {
 		return ""
 	}
 	chat, ok := m.avatarPanelChat()
 	if !ok || !hasAvatarPicture(chat.Address) {
-		// Nothing to draw. The rows stay reserved — the panel's height
-		// can't depend on which contact is selected without resizing the
-		// chat list as the cursor moves through it — and the sidebar's own
-		// padding leaves them blank, which reads as the end of the list
-		// rather than as a placeholder. A large monogram here was tried
-		// and it reads as a colored block with a letter in it, not as
-		// anybody's identity.
+		// Nothing to draw, and nothing was taken from the list to draw it
+		// into. A large monogram was tried here and reads as a colored
+		// block with a letter in it, not as anybody's identity.
 		return ""
 	}
 
@@ -176,20 +174,42 @@ func writeCentered(sb *strings.Builder, line string, lineWidth, width int) {
 // pass over the frame's own lines instead, and keeps the picture out of the
 // sidebar's render cache key, so scrolling the chat list no longer
 // re-renders it either.
-func (m Model) avatarPanelOverlay() (content string, x, y int, ok bool) {
-	// The accounts panel replaces the chat list with its own content, which
-	// the panel's reserved rows say nothing about — it would draw over it.
-	if m.selectedView == viewAccounts || m.avatarPanelHeight() == 0 {
+func (m Model) avatarPanelOverlay(sidebarBody string) (content string, x, y int, ok bool) {
+	// The accounts panel replaces the chat list with its own content, whose
+	// blank rows are its own business.
+	if m.selectedView == viewAccounts {
 		return "", 0, 0, false
 	}
-	panel := m.renderAvatarPanel(m.sidebarContentWidth())
+	freeRows := trailingBlankRows(sidebarBody)
+	rows := m.avatarPanelHeight(freeRows)
+	if rows == 0 {
+		return "", 0, 0, false
+	}
+	panel := m.renderAvatarPanel(m.sidebarContentWidth(), freeRows)
 	if panel == "" {
 		return "", 0, 0, false
 	}
 	// The sidebar has no top or left border (see uiStyles.sidebar), so its
-	// content starts at column 0, below the two-row account bar and the
-	// chat list's own rows.
-	return panel, 0, sidebarStatusHeight + m.chats.Height(), true
+	// content starts at column 0. The picture sits at the bottom of the
+	// list's unused rows, so it stays put as the list grows down toward it.
+	return panel, 0, sidebarStatusHeight + m.chats.Height() - rows, true
+}
+
+// trailingBlankRows counts the unused rows at the end of the chat list —
+// what the list is padded out with when it has fewer chats than height.
+// Counted from the rendered body rather than from the item count so it
+// stays right whatever chrome the list draws (pagination, filter prompt)
+// without this having to know about any of it.
+func trailingBlankRows(body string) int {
+	lines := strings.Split(body, "\n")
+	blank := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(ansi.Strip(lines[i])) != "" {
+			break
+		}
+		blank++
+	}
+	return blank
 }
 
 // avatarPanelCacheKey is everything renderAvatarPanel's output depends on.

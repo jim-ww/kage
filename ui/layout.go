@@ -50,7 +50,7 @@ func (m *Model) updateSizes() {
 	m.input.SetWidth(m.inputFieldWidth())
 	ih := m.inputAreaHeight()
 
-	m.chats.SetHeight(max(0, m.height-sidebarStatusHeight-m.avatarPanelHeight()))
+	m.chats.SetHeight(max(0, m.height-sidebarStatusHeight))
 	m.chats.SetWidth(m.sidebarContentWidth())
 
 	m.viewport.SetWidth(cw)

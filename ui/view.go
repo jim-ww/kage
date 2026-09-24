@@ -107,7 +107,7 @@ func (m Model) View() tea.View {
 	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, rootRows...))
 
 	rendered := m.zone.Scan(root)
-	if panel, px, py, ok := m.avatarPanelOverlay(); ok {
+	if panel, px, py, ok := m.avatarPanelOverlay(sidebarBody); ok {
 		rendered = overlayAtWidth(rendered, panel, px, py, m.sidebarContentWidth())
 	}
 	var toastLines []string

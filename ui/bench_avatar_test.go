@@ -82,10 +82,11 @@ func benchModel(b *testing.B, withAvatars bool) Model {
 func BenchmarkAvatarPanel(b *testing.B) {
 	m := benchModel(b, true)
 	w := m.sidebarContentWidth()
+	free := trailingBlankRows(m.chats.View())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m.renderAvatarPanel(w)
+		m.renderAvatarPanel(w, free)
 	}
 }
 

@@ -25,13 +25,13 @@ func TestAvatarPanelSuppressedWithoutAvatars(t *testing.T) {
 	t.Cleanup(ClearAvatarImages)
 
 	m := avatarPanelModel(t, 100, 40)
-	if cols, rows := m.avatarPanelSize(); cols != 0 || rows != 0 {
+	if cols, rows := m.avatarPanelSize(freeRowsOf(m)); cols != 0 || rows != 0 {
 		t.Errorf("avatarPanelSize = (%d, %d) with no avatars loaded, want (0, 0)", cols, rows)
 	}
-	if got := m.avatarPanelHeight(); got != 0 {
+	if got := m.avatarPanelHeight(freeRowsOf(m)); got != 0 {
 		t.Errorf("avatarPanelHeight = %d, want 0", got)
 	}
-	if got := m.renderAvatarPanel(m.sidebarContentWidth()); got != "" {
+	if got := m.renderAvatarPanel(m.sidebarContentWidth(), freeRowsOf(m)); got != "" {
 		t.Errorf("renderAvatarPanel = %q, want empty", got)
 	}
 }
@@ -42,7 +42,7 @@ func TestAvatarPanelSquareAndCapped(t *testing.T) {
 	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModel(t, 200, 60)
-	cols, rows := m.avatarPanelSize()
+	cols, rows := m.avatarPanelSize(freeRowsOf(m))
 	if rows != cols/2 {
 		t.Errorf("rows = %d, want cols/2 = %d — a half-block cell is two pixels tall", rows, cols/2)
 	}
@@ -69,7 +69,7 @@ func TestAvatarPanelGrowsWithSidebarWidth(t *testing.T) {
 		m := avatarPanelModel(t, 200, 80)
 		m.sidebarWidthOverride = sidebar
 		m.updateSizes()
-		cols, _ := m.avatarPanelSize()
+		cols, _ := m.avatarPanelSize(freeRowsOf(m))
 		if prev != 0 && cols <= prev {
 			t.Errorf("sidebar %d: picture stuck at %d columns despite the wider sidebar (was %d)", sidebar, cols, prev)
 		}
@@ -88,7 +88,7 @@ func TestAvatarPanelStopsAtHeightShare(t *testing.T) {
 	m.sidebarWidthOverride = 120
 	m.updateSizes()
 
-	cols, rows := m.avatarPanelSize()
+	cols, rows := m.avatarPanelSize(freeRowsOf(m))
 	if want := m.height * avatarPanelMaxHeightPct / 100; rows != want {
 		t.Errorf("rows = %d at a very wide sidebar, want the %d%% share of %d rows = %d",
 			rows, avatarPanelMaxHeightPct, m.height, want)
@@ -96,8 +96,8 @@ func TestAvatarPanelStopsAtHeightShare(t *testing.T) {
 	if rows != cols/2 {
 		t.Errorf("rows = %d, want cols/2 = %d", rows, cols/2)
 	}
-	if got := m.chats.Height(); got <= avatarPanelMinListRows {
-		t.Errorf("chat list has %d rows, want well above the floor of %d once the share caps the picture", got, avatarPanelMinListRows)
+	if got, want := m.chats.Height(), m.height-sidebarStatusHeight; got != want {
+		t.Errorf("chat list has %d rows, want the full %d — the panel takes none", got, want)
 	}
 }
 
@@ -112,8 +112,8 @@ func TestAvatarPanelHeightMatchesRender(t *testing.T) {
 		// With chats, so the panel has a contact to draw — and alice, the
 		// selected one, is the contact whose avatar was just set.
 		m := avatarPanelModelWithChats(t, size[0], size[1])
-		want := m.avatarPanelHeight()
-		panel := m.renderAvatarPanel(m.sidebarContentWidth())
+		want := m.avatarPanelHeight(freeRowsOf(m))
+		panel := m.renderAvatarPanel(m.sidebarContentWidth(), freeRowsOf(m))
 		if want == 0 {
 			if panel != "" {
 				t.Errorf("%dx%d: height 0 but panel rendered %q", size[0], size[1], panel)
@@ -130,23 +130,39 @@ func TestAvatarPanelHeightMatchesRender(t *testing.T) {
 	}
 }
 
-// Reserving panel rows must come out of the chat list, or the sidebar
-// overflows its box and every line wraps.
-func TestAvatarPanelReservedInListHeight(t *testing.T) {
+// The panel draws into rows the list isn't using, so the list's own height
+// never changes — nothing shifts under the cursor, and a contact without an
+// avatar costs no chat rows.
+func TestAvatarPanelTakesNoListRows(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
 
-	m := avatarPanelModel(t, 120, 40)
+	m := avatarPanelModelWithChats(t, 120, 40)
 	without := m.chats.Height()
 
 	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 	m.updateSizes()
-	with := m.chats.Height()
 
-	if panel := m.avatarPanelHeight(); panel == 0 {
+	if m.avatarPanelHeight(freeRowsOf(m)) == 0 {
 		t.Fatal("no panel at 120x40")
-	} else if without-with != panel {
-		t.Errorf("chat list lost %d rows, panel takes %d", without-with, panel)
+	}
+	if got := m.chats.Height(); got != without {
+		t.Errorf("chat list went from %d rows to %d once an avatar existed", without, got)
+	}
+}
+
+// And it never claims more rows than the list has left over.
+func TestAvatarPanelFitsInFreeRows(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+
+	for _, size := range [][2]int{{120, 40}, {100, 30}, {200, 60}, {80, 24}} {
+		m := avatarPanelModelWithChats(t, size[0], size[1])
+		free := freeRowsOf(m)
+		if got := m.avatarPanelHeight(free); got > free {
+			t.Errorf("%dx%d: picture takes %d rows, only %d are free", size[0], size[1], got, free)
+		}
 	}
 }
 
@@ -160,7 +176,7 @@ func TestAvatarPanelYieldsToShortTerminals(t *testing.T) {
 	prev := 0
 	for _, height := range []int{60, 40, 30, 24, 18, 12} {
 		m := avatarPanelModel(t, 120, height)
-		h := m.avatarPanelHeight()
+		h := m.avatarPanelHeight(freeRowsOf(m))
 		if prev != 0 && h > prev {
 			t.Errorf("height %d: panel grew to %d rows from %d on a shorter terminal", height, h, prev)
 		}
@@ -168,11 +184,11 @@ func TestAvatarPanelYieldsToShortTerminals(t *testing.T) {
 		if h == 0 {
 			continue
 		}
-		if listRows := m.chats.Height(); listRows < avatarPanelMinListRows {
-			t.Errorf("height %d: chat list squeezed to %d rows, floor is %d", height, listRows, avatarPanelMinListRows)
+		if got, want := m.chats.Height(), m.height-sidebarStatusHeight; got != want {
+			t.Errorf("height %d: chat list has %d rows, want the full %d", height, got, want)
 		}
 	}
-	if m := avatarPanelModel(t, 120, 12); m.avatarPanelHeight() != 0 {
+	if m := avatarPanelModel(t, 120, 12); m.avatarPanelHeight(freeRowsOf(m)) != 0 {
 		t.Error("panel still drawn on a 12-row terminal")
 	}
 }
@@ -185,7 +201,7 @@ func TestAvatarPanelSuppressedInNarrowSidebar(t *testing.T) {
 	m := avatarPanelModel(t, 120, 40)
 	m.sidebarHidden = true
 	m.updateSizes()
-	if got := m.avatarPanelHeight(); got != 0 {
+	if got := m.avatarPanelHeight(freeRowsOf(m)); got != 0 {
 		t.Errorf("avatarPanelHeight = %d with the sidebar hidden, want 0", got)
 	}
 }
@@ -197,7 +213,7 @@ func TestAvatarPanelLinesFitSidebarWidth(t *testing.T) {
 
 	m := avatarPanelModel(t, 120, 40)
 	width := m.sidebarContentWidth()
-	for i, line := range strings.Split(m.renderAvatarPanel(width), "\n") {
+	for i, line := range strings.Split(m.renderAvatarPanel(width, freeRowsOf(m)), "\n") {
 		if got := lipgloss.Width(line); got > width {
 			t.Errorf("panel line %d is %d columns wide, sidebar content is %d", i, got, width)
 		}
@@ -214,14 +230,14 @@ func TestAvatarPanelBlankWithoutAPicture(t *testing.T) {
 	SetAvatarImage("someone-else@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModelWithChats(t, 100, 30)
-	if m.avatarPanelHeight() == 0 {
+	if m.avatarPanelHeight(freeRowsOf(m)) == 0 {
 		t.Fatal("no rows reserved even though an avatar is known")
 	}
 	// ...but the selected contact is not that somebody.
-	if got := m.renderAvatarPanel(m.sidebarContentWidth()); got != "" {
+	if got := m.renderAvatarPanel(m.sidebarContentWidth(), freeRowsOf(m)); got != "" {
 		t.Errorf("renderAvatarPanel = %q for a contact with no picture, want nothing drawn", got)
 	}
-	if _, _, _, ok := m.avatarPanelOverlay(); ok {
+	if _, _, _, ok := m.avatarPanelOverlay(m.chats.View()); ok {
 		t.Error("a panel was composited for a contact with no picture")
 	}
 }
@@ -243,31 +259,30 @@ func avatarPanelModelWithChats(t *testing.T, width, height int) Model {
 }
 
 // The panel is composited onto the finished frame rather than joined into
-// the sidebar's content, so its position is arithmetic rather than layout —
-// it has to land on exactly the rows reserved for it, directly below the
-// chat list.
-func TestAvatarPanelOverlaysBelowTheList(t *testing.T) {
+// the sidebar's content, so its position is arithmetic rather than layout.
+// It sits at the bottom of the list's unused rows, so it stays put as the
+// list grows down toward it.
+func TestAvatarPanelOverlaysInTheListsFreeRows(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
 	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
 	m := avatarPanelModelWithChats(t, 100, 30)
-	_, _, y, ok := m.avatarPanelOverlay()
+	_, _, y, ok := m.avatarPanelOverlay(m.chats.View())
 	if !ok {
 		t.Fatal("no overlay at 100x30")
 	}
-	if want := sidebarStatusHeight + m.chats.Height(); y != want {
-		t.Fatalf("overlay y = %d, want %d (account bar + chat list rows)", y, want)
+	height := m.avatarPanelHeight(freeRowsOf(m))
+	if want := sidebarStatusHeight + m.chats.Height() - height; y != want {
+		t.Fatalf("overlay y = %d, want %d (the bottom of the list's rows)", y, want)
 	}
 
-	lines := strings.Split(ansi.Strip(fmt.Sprint(m.View())), "\n")
-	height := m.avatarPanelHeight()
+	lines := strings.Split(ansi.Strip(fmt.Sprint(m.View().Content)), "\n")
 	if y+height > len(lines) {
 		t.Fatalf("panel runs past the frame: y=%d height=%d frame=%d rows", y, height, len(lines))
 	}
-	// Every reserved row is picture: the panel carries no caption, since
-	// the name and presence are already on the row it previews and in the
-	// chat status bar.
+	// Every row it covers is picture, and none of them repeats the name —
+	// the panel carries no caption.
 	for i := y; i < y+height; i++ {
 		if !strings.Contains(lines[i], upperHalfBlock) {
 			t.Errorf("row %d has no picture: %q", i, lines[i])
@@ -276,8 +291,14 @@ func TestAvatarPanelOverlaysBelowTheList(t *testing.T) {
 			t.Errorf("row %d repeats the contact's name: %q", i, lines[i])
 		}
 	}
-	if above := lines[y-1]; strings.Contains(above, upperHalfBlock) {
-		t.Errorf("row %d, above the panel, has picture in it: %q", y-1, above)
+	// It landed in blank space, not on top of a chat — judged on the
+	// sidebar's own columns, since the rest of the row is the chat pane.
+	sidebarPart := func(line string) string {
+		r := []rune(line)
+		return string(r[:min(len(r), m.sidebarContentWidth())])
+	}
+	if above := sidebarPart(lines[y-1]); strings.TrimSpace(above) != "" {
+		t.Errorf("row %d of the sidebar, just above the panel, is not blank: %q", y-1, above)
 	}
 }
 
@@ -312,7 +333,7 @@ func TestAvatarPanelNotOverlaidOverAccounts(t *testing.T) {
 
 	m := avatarPanelModelWithChats(t, 100, 30)
 	m.selectedView = viewAccounts
-	if _, _, _, ok := m.avatarPanelOverlay(); ok {
+	if _, _, _, ok := m.avatarPanelOverlay(m.chats.View()); ok {
 		t.Error("panel composited over the accounts list")
 	}
 }
@@ -330,7 +351,7 @@ func TestAvatarsDisabled(t *testing.T) {
 	on := avatarPanelModelWithChats(t, 100, 30)
 	// Captured now: these are live methods, and everything below turns
 	// avatars off underneath them.
-	onListRows, onPanelRows := on.chats.Height(), on.avatarPanelHeight()
+	onListRows, onPanelRows := on.chats.Height(), on.avatarPanelHeight(freeRowsOf(on))
 	if onPanelRows == 0 {
 		t.Fatal("no panel with avatars enabled")
 	}
@@ -339,15 +360,18 @@ func TestAvatarsDisabled(t *testing.T) {
 	setAvatarsEnabled(false) // after New, which applies DisplayOptions itself
 	off.updateSizes()
 
-	if got := off.avatarPanelHeight(); got != 0 {
+	if got := off.avatarPanelHeight(freeRowsOf(off)); got != 0 {
 		t.Errorf("avatarPanelHeight = %d with avatars off, want 0", got)
 	}
-	if _, _, _, ok := off.avatarPanelOverlay(); ok {
+	if _, _, _, ok := off.avatarPanelOverlay(off.chats.View()); ok {
 		t.Error("panel composited with avatars off")
 	}
-	if got, want := off.chats.Height(), onListRows+onPanelRows; got != want {
-		t.Errorf("chat list has %d rows with avatars off, want %d — the panel's rows should go back to it", got, want)
+	// The list's height never depended on the panel, so turning avatars
+	// off changes nothing about it — only the picture goes away.
+	if got := off.chats.Height(); got != onListRows {
+		t.Errorf("chat list has %d rows with avatars off, want the same %d as with them on", got, onListRows)
 	}
+	_ = onPanelRows
 	if got := renderTintedName("alice", "alice@localhost"); got != "alice" {
 		t.Errorf("renderTintedName = %q with avatars off, want the name unstyled", got)
 	}
@@ -372,39 +396,49 @@ func TestAvatarPanelSuppressedInNarrowMode(t *testing.T) {
 		if !m.narrow() {
 			t.Fatalf("%dx%d is not narrow; pick a width below %d", size[0], size[1], narrowWidth)
 		}
-		if got := m.avatarPanelHeight(); got != 0 {
+		if got := m.avatarPanelHeight(freeRowsOf(m)); got != 0 {
 			t.Errorf("%dx%d: panel takes %d rows in narrow mode, want none", size[0], size[1], got)
 		}
-		if _, _, _, ok := m.avatarPanelOverlay(); ok {
+		if _, _, _, ok := m.avatarPanelOverlay(m.chats.View()); ok {
 			t.Errorf("%dx%d: panel composited in narrow mode", size[0], size[1])
 		}
 	}
 }
 
-// Small terminals get no panel rather than a picture too small to resolve
-// into a face — the same judgement that removed the large monogram.
+// A picture too small to resolve into a face is worse than nothing — the
+// same judgement that removed the large monogram. It is the free rows, not
+// the terminal size, that decide: a short terminal whose list is nearly
+// empty still has somewhere to put one.
 func TestAvatarPanelSuppressedWhenTooSmallToRead(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
 	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
-	// Short and wide: the sidebar has columns to spare, the terminal has
-	// no rows, and rows are what a square picture actually costs.
-	for _, size := range [][2]int{{200, 8}, {160, 10}, {120, 12}, {200, 14}, {60, 15}} {
-		m := avatarPanelModelWithChats(t, size[0], size[1])
-		if got := m.avatarPanelHeight(); got != 0 {
-			cols, _ := m.avatarPanelSize()
-			t.Errorf("%dx%d: panel takes %d rows for a %dx%d-pixel picture, want none",
-				size[0], size[1], got, cols, cols)
+	for _, free := range []int{0, 1, 3, avatarPanelMinFreeRows - 1} {
+		m := avatarPanelModelWithChats(t, 200, 40)
+		if cols, rows := m.avatarPanelSize(free); cols != 0 || rows != 0 {
+			t.Errorf("%d free rows: drew a %dx%d picture, want none", free, cols, rows)
 		}
 	}
 
-	// And a terminal with the room keeps it.
-	m := avatarPanelModelWithChats(t, 80, 24)
-	if m.avatarPanelHeight() == 0 {
-		t.Error("80x24 has room for a picture but drew none")
-	}
-	if cols, _ := m.avatarPanelSize(); cols < avatarPanelMinCols {
+	// A sidebar too narrow for a readable picture gets none however much
+	// vertical space is going spare.
+	m := avatarPanelModelWithChats(t, 62, 40)
+	m.sidebarWidthOverride = sidebarMinWidth
+	m.updateSizes()
+	if cols, _ := m.avatarPanelSize(40); cols != 0 && cols < avatarPanelMinCols {
 		t.Errorf("picture is %d columns, below the %d minimum", cols, avatarPanelMinCols)
 	}
+
+	// And a terminal with the room keeps it.
+	wide := avatarPanelModelWithChats(t, 120, 40)
+	if wide.avatarPanelHeight(freeRowsOf(wide)) == 0 {
+		t.Error("120x40 has room for a picture but drew none")
+	}
+}
+
+// freeRowsOf is how many rows at the bottom of the chat list are unused —
+// the space the avatar panel sizes itself to.
+func freeRowsOf(m Model) int {
+	return trailingBlankRows(m.chats.View())
 }
