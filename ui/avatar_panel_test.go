@@ -356,3 +356,55 @@ func TestAvatarsDisabled(t *testing.T) {
 		t.Errorf("Title() = %q, want it to still end in the name", ansi.Strip(title))
 	}
 }
+
+// In narrow mode the sidebar is the entire terminal: a square picture as
+// wide as the screen is half as tall as it again, leaving the chat list a
+// strip at the top of the only pane there is.
+func TestAvatarPanelSuppressedInNarrowMode(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+
+	for _, size := range [][2]int{{40, 10}, {40, 50}, {24, 20}, {59, 40}} {
+		m := avatarPanelModelWithChats(t, size[0], size[1])
+		m.selectedView = viewChats // the list is the visible pane
+		m.updateSizes()
+		if !m.narrow() {
+			t.Fatalf("%dx%d is not narrow; pick a width below %d", size[0], size[1], narrowWidth)
+		}
+		if got := m.avatarPanelHeight(); got != 0 {
+			t.Errorf("%dx%d: panel takes %d rows in narrow mode, want none", size[0], size[1], got)
+		}
+		if _, _, _, ok := m.avatarPanelOverlay(); ok {
+			t.Errorf("%dx%d: panel composited in narrow mode", size[0], size[1])
+		}
+	}
+}
+
+// Small terminals get no panel rather than a picture too small to resolve
+// into a face — the same judgement that removed the large monogram.
+func TestAvatarPanelSuppressedWhenTooSmallToRead(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+
+	// Short and wide: the sidebar has columns to spare, the terminal has
+	// no rows, and rows are what a square picture actually costs.
+	for _, size := range [][2]int{{200, 8}, {160, 10}, {120, 12}, {200, 14}, {60, 15}} {
+		m := avatarPanelModelWithChats(t, size[0], size[1])
+		if got := m.avatarPanelHeight(); got != 0 {
+			cols, _ := m.avatarPanelSize()
+			t.Errorf("%dx%d: panel takes %d rows for a %dx%d-pixel picture, want none",
+				size[0], size[1], got, cols, cols)
+		}
+	}
+
+	// And a terminal with the room keeps it.
+	m := avatarPanelModelWithChats(t, 80, 24)
+	if m.avatarPanelHeight() == 0 {
+		t.Error("80x24 has room for a picture but drew none")
+	}
+	if cols, _ := m.avatarPanelSize(); cols < avatarPanelMinCols {
+		t.Errorf("picture is %d columns, below the %d minimum", cols, avatarPanelMinCols)
+	}
+}

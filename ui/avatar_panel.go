@@ -33,9 +33,13 @@ const (
 	// avatarPanelMinListRows is how many chat rows the list keeps no matter
 	// what; the panel shrinks, then disappears, before eating into these.
 	avatarPanelMinListRows = 6
-	// avatarPanelMinCols is the narrowest picture worth drawing — below it
-	// the panel is suppressed entirely rather than rendered as mush.
-	avatarPanelMinCols = 8
+	// avatarPanelMinCols is the narrowest picture worth drawing: a cell
+	// carries two pixels vertically, so this is a 12x12-pixel image. Below
+	// roughly that a photo stops resolving into a face and becomes a
+	// colored smear, which is worse than nothing — the same reason a
+	// contact without an avatar gets no panel rather than a monogram. A
+	// short or narrow terminal therefore simply has no avatar panel.
+	avatarPanelMinCols = 12
 )
 
 // avatarPanelSize is the picture's size in cells, or (0, 0) when the panel
@@ -51,6 +55,13 @@ const (
 // every move.
 func (m Model) avatarPanelSize() (cols, rows int) {
 	if m.sidebarWidth() <= 0 || !anyAvatarKnown() {
+		return 0, 0
+	}
+	// In narrow mode the sidebar is the entire terminal, so the picture
+	// would be as wide as the screen and — being square — half as tall as
+	// it again, leaving the chat list a strip at the top. The list is the
+	// only thing on screen there; it should be the whole of it.
+	if m.narrow() {
 		return 0, 0
 	}
 	maxRows := m.height * avatarPanelMaxHeightPct / 100
