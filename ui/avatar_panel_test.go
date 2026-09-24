@@ -49,6 +49,9 @@ func TestAvatarPanelSquareAndCapped(t *testing.T) {
 	if cols > m.sidebarContentWidth() {
 		t.Errorf("cols = %d, wider than the sidebar's %d columns", cols, m.sidebarContentWidth())
 	}
+	if limit := m.height * avatarPanelMaxHeightPct / 100; rows > limit {
+		t.Errorf("rows = %d, want no more than %d%% of the sidebar's %d rows", rows, avatarPanelMaxHeightPct, m.height)
+	}
 }
 
 // Dragging the sidebar wider must actually buy a bigger picture — a cap
@@ -71,9 +74,9 @@ func TestAvatarPanelGrowsWithSidebarWidth(t *testing.T) {
 	}
 }
 
-// The chat list's floor is the only thing that stops the picture growing —
-// so at a sidebar wide enough to hit it, that is exactly what's left.
-func TestAvatarPanelGrowsUntilTheListFloor(t *testing.T) {
+// However wide the sidebar is dragged, the picture stops at its share of
+// the sidebar and the chat list keeps the rest.
+func TestAvatarPanelStopsAtHeightShare(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
 	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
@@ -82,15 +85,16 @@ func TestAvatarPanelGrowsUntilTheListFloor(t *testing.T) {
 	m.sidebarWidthOverride = 120
 	m.updateSizes()
 
-	if got := m.chats.Height(); got != avatarPanelMinListRows {
-		t.Errorf("chat list has %d rows at a very wide sidebar, want the floor of %d", got, avatarPanelMinListRows)
-	}
 	cols, rows := m.avatarPanelSize()
+	if want := m.height * avatarPanelMaxHeightPct / 100; rows != want {
+		t.Errorf("rows = %d at a very wide sidebar, want the %d%% share of %d rows = %d",
+			rows, avatarPanelMaxHeightPct, m.height, want)
+	}
 	if rows != cols/2 {
 		t.Errorf("rows = %d, want cols/2 = %d", rows, cols/2)
 	}
-	if cols > m.sidebarContentWidth() {
-		t.Errorf("cols = %d, wider than the sidebar's %d columns", cols, m.sidebarContentWidth())
+	if got := m.chats.Height(); got <= avatarPanelMinListRows {
+		t.Errorf("chat list has %d rows, want well above the floor of %d once the share caps the picture", got, avatarPanelMinListRows)
 	}
 }
 
