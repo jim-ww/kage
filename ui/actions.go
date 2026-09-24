@@ -188,8 +188,8 @@ func (m *Model) showNotification(text string) tea.Cmd {
 // cancelPending clears any in-progress edit, reply, reaction, or emoji-picker
 // composition.
 func (m *Model) cancelPending() {
-	wasComposing := m.editingMsgIdx >= 0
-	m.editingMsgIdx = -1
+	wasComposing := !m.editingMsg.empty()
+	m.editingMsg = msgRef{}
 	m.replyToIdx = -1
 	m.reactingMsgIdx = -1
 	m.emojiPicker = nil

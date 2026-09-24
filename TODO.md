@@ -2,7 +2,6 @@
 - green account alias out of place?
 - video calls: option to stop streaming video
 - fix: rarely, cannot scroll past certain message and load older history
-- on edit msg, if other user sends message, and you hit save, it wont get saved
 - design proper tray icon/logo
 - increase message size, before it becomes collapsible
 - open chat composer (textbox) of message size (with limits)

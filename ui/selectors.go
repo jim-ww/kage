@@ -348,6 +348,48 @@ func (m *Model) swapComposeDraft(newAccountIdx, newChatIdx int) tea.Cmd {
 	return cmd
 }
 
+// msgRef identifies one message by its stable identities rather than by its
+// position, for state that has to outlive a rebuild of the chat's message
+// slice - which is replaced wholesale on a history window load and trimmed
+// at the front whenever the tail grows past maxMessagesPerChat. A stored
+// index survives neither: it quietly comes to name a different message
+// (see the edit target in sendCurrentInput).
+type msgRef struct {
+	id      string // stanza ID; empty until a send actually succeeds
+	localID string // client-side correlation key for a locally composed message
+	storeID int64  // storage rowid; zero for anything not persisted yet
+}
+
+// refMessage builds a msgRef naming msg.
+func refMessage(msg Message) msgRef {
+	return msgRef{id: msg.ID, localID: msg.LocalID, storeID: msg.StoreID}
+}
+
+// empty reports whether r names no message at all - the zero value, used as
+// the "not editing anything" state.
+func (r msgRef) empty() bool {
+	return r.id == "" && r.localID == "" && r.storeID == 0
+}
+
+// index locates r within msgs, or -1 if it isn't there any more (trimmed
+// off the front, or outside the currently loaded history window).
+func (r msgRef) index(msgs []Message) int {
+	if i := messageIndexByID(msgs, r.id); i >= 0 {
+		return i
+	}
+	if i := messageIndexByLocalID(msgs, r.localID); i >= 0 {
+		return i
+	}
+	if r.storeID != 0 {
+		for i, msg := range msgs {
+			if msg.StoreID == r.storeID {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 // messageIndexByID returns the index of the message with the given stanza ID
 // within msgs, or -1 if none matches (or id is empty).
 func messageIndexByID(msgs []Message, id string) int {

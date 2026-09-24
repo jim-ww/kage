@@ -173,7 +173,7 @@ type Model struct {
 
 	// message interaction state
 	selectedMsg            int                // index of highlighted message (meaningful in viewViewport)
-	editingMsgIdx          int                // >= 0 while editing a message; -1 otherwise
+	editingMsg             msgRef             // names the message being edited; zero value while not editing
 	replyToIdx             int                // >= 0 while composing a reply; -1 otherwise
 	reactingMsgIdx         int                // >= 0 while the emoji picker is open reacting to a message; -1 otherwise
 	flashMsgIdx            int                // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
@@ -507,7 +507,6 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		input:                      &ti,
 		draftHistory:               []string{""},
 		viewport:                   viewport.New(),
-		editingMsgIdx:              -1,
 		replyToIdx:                 -1,
 		selectedAttachment:         -1,
 		reactingMsgIdx:             -1,

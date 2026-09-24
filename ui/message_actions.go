@@ -34,7 +34,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	var cmds []tea.Cmd
 
 	text := strings.TrimSpace(m.input.Value())
-	hasAttachments := len(m.pendingAttachments) > 0 && m.editingMsgIdx < 0
+	hasAttachments := len(m.pendingAttachments) > 0 && m.editingMsg.empty()
 	if text == "" && !hasAttachments {
 		return nil
 	}
@@ -85,46 +85,48 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 
-	if m.editingMsgIdx >= 0 {
+	if !m.editingMsg.empty() {
 		// Apply edit in-place, and wire it as a XEP-0308 correction so the
 		// other party actually sees the update — a message can only be
 		// corrected on the network if it was sent with an ID in the first
 		// place (e.g. locally-seeded/demo data never was), so degrade to a
 		// local-only edit otherwise.
+		//
+		// The target is looked up by identity every time rather than held as
+		// an index: messages arriving while the edit is being typed can trim
+		// the front of the chat (maxMessagesPerChat), which would slide a
+		// remembered index onto a neighbouring message - one that may not
+		// even be ours - and correct that instead.
 		msgs := m.currentMessages()
-		if m.editingMsgIdx < len(msgs) && text == msgs[m.editingMsgIdx].Content {
+		editIdx := m.editingMsg.index(msgs)
+		switch {
+		case editIdx < 0:
+			// The message went out of the loaded window while it was being
+			// edited. Nothing to apply the edit to; say so rather than
+			// writing it onto whatever sits nearby now.
+			cmds = append(cmds, m.showNotification("message no longer loaded; edit not saved"))
+		case text == msgs[editIdx].Content:
 			// Unchanged edit: nothing to send or record.
-			m.editingMsgIdx = -1
-			m.input.Placeholder = "message..."
-			m.notifyTypingStopped()
-			m.restoreStashedDraft()
-			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-				cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
-			}
-			m.updateSizes()
-			m.refreshViewport()
-			return tea.Batch(cmds...)
-		}
-		if m.editingMsgIdx < len(msgs) {
-			msgs[m.editingMsgIdx].Content = text
-			msgs[m.editingMsgIdx].Edited = true
+		default:
+			msgs[editIdx].Content = text
+			msgs[editIdx].Edited = true
 			m.setCurrentMessages(msgs)
-			if m.editingMsgIdx == len(msgs)-1 {
+			if editIdx == len(msgs)-1 {
 				if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-					cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, MessagePreviewContent(msgs[m.editingMsgIdx])))
+					cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, MessagePreviewContent(msgs[editIdx])))
 				}
 			}
 
-			if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil && msgs[m.editingMsgIdx].ID != "" {
+			if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil && msgs[editIdx].ID != "" {
 				_, err := m.sender.Send(m.currentAccount, chat.Address, text, SendOptions{
-					ReplaceID: msgs[m.editingMsgIdx].ID,
+					ReplaceID: msgs[editIdx].ID,
 				})
 				if err != nil {
 					cmds = append(cmds, m.showNotification("edit not delivered: "+err.Error()))
 				}
 			}
 		}
-		m.editingMsgIdx = -1
+		m.editingMsg = msgRef{}
 		m.input.Placeholder = "message..."
 	} else {
 		// Send new message, optionally quoting a reply.
@@ -552,7 +554,7 @@ func (m *Model) actionEditMessage() tea.Cmd {
 	m.selectedMsg = idx
 	m.refreshViewportScrollTo(old, idx)
 	m.stashDraftForCompose()
-	m.editingMsgIdx = idx
+	m.editingMsg = refMessage(msgs[idx])
 	m.input.SetValue(msgs[idx].Content)
 	m.resetDraftHistory(msgs[idx].Content)
 	m.input.Placeholder = "edit message..."

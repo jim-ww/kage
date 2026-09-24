@@ -46,7 +46,7 @@ func (m *Model) redoDraft() bool {
 // which would otherwise silently discard whatever new-message draft was
 // being typed.
 func (m *Model) stashDraftForCompose() {
-	if m.editingMsgIdx >= 0 || m.reactingMsgIdx >= 0 {
+	if !m.editingMsg.empty() || m.reactingMsgIdx >= 0 {
 		return
 	}
 	if v := m.input.Value(); v != "" {
