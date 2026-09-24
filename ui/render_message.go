@@ -236,7 +236,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	hasTextQuoteReply := false
 	replyIdx := messageIndexByID(allMsgs, msg.ReplyToID)
 	if replyIdx >= 0 {
-		reply := m.replyHeaderFragment(replyIdx, allMsgs)
+		reply := m.replyHeaderFragment(replyIdx, allMsgs, totalWidth-prefixWidth)
 		headerLine += m.zone.Mark(zoneMessageReply(msgIdx), reply)
 	}
 
@@ -274,7 +274,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 			if preview, rest, ok := parseQuoteReply(content); ok {
 				hasTextQuoteReply = true
 				content = rest
-				headerLine += m.styles.renderQuoteReplyFragment(preview)
+				headerLine += m.styles.renderQuoteReplyFragment(preview, totalWidth-prefixWidth)
 			}
 		}
 		bodyContent = FormatMessageBody(content)
@@ -526,7 +526,10 @@ func (m Model) replyPreview(idx int, allMsgs []Message) string {
 // replyHeaderFragment renders the "↑ name │ preview" fragment trailing a
 // reply's header line: the quoted author's name in the same color they get
 // as a sender in their own messages, the truncated preview text dimmed.
-func (m Model) replyHeaderFragment(idx int, allMsgs []Message) string {
+// budget is how many display cells the whole fragment may occupy; the
+// preview is truncated to whatever's left after the glyph, name and
+// separator, so a long preview's ellipsis can't wrap onto a line of its own.
+func (m Model) replyHeaderFragment(idx int, allMsgs []Message, budget int) string {
 	if idx < 0 || idx >= len(allMsgs) {
 		return ""
 	}
@@ -535,9 +538,12 @@ func (m Model) replyHeaderFragment(idx int, allMsgs []Message) string {
 	if orig.IsMe {
 		nameStyle = m.styles.messageNickMe
 	}
-	name := nameStyle.Render(senderDisplayName(orig.Author))
-	preview := m.styles.messageTime.Render(previewText(MessagePreviewContent(orig), previewLen))
+	displayName := senderDisplayName(orig.Author)
+	name := nameStyle.Render(displayName)
 	sep := m.styles.messageTime.Render("│")
+	// "↑ " + name + " " + "│" + " "
+	fixed := 2 + lipgloss.Width(displayName) + 3
+	preview := m.styles.messageTime.Render(previewText(MessagePreviewContent(orig), min(previewLen, budget-fixed)))
 	return "↑ " + name + " " + sep + " " + preview
 }
 
@@ -618,15 +624,17 @@ func MessagePreviewContent(msg Message) string {
 	return label
 }
 
-// previewText collapses newlines and truncates s to at most n runes,
-// appending an ellipsis when truncated.
+// previewText collapses newlines and truncates s to at most n display
+// cells, appending an ellipsis when truncated. n is the budget for the
+// *result*, ellipsis included - a caller sizing a preview against the space
+// it has left on a line would otherwise get back n+1 cells and see the
+// ellipsis wrap onto a line of its own.
 func previewText(s string, n int) string {
 	flat := strings.ReplaceAll(s, "\n", " ")
-	runes := []rune(flat)
-	if len(runes) <= n {
-		return flat
+	if n <= 0 {
+		return ""
 	}
-	return string(runes[:n]) + "…"
+	return ansi.Truncate(flat, n, "…")
 }
 
 func sameDay(a, b time.Time) bool {

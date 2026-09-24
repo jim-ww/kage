@@ -77,7 +77,7 @@ func TestReplyHeaderQuotesTargetAfterTrim(t *testing.T) {
 	if idx != 0 {
 		t.Fatalf("reply target resolved to %d, want 0 (%q)", idx, "b")
 	}
-	if header := updated.replyHeaderFragment(idx, msgs); !strings.Contains(header, "the quoted one") {
+	if header := updated.replyHeaderFragment(idx, msgs, 80); !strings.Contains(header, "the quoted one") {
 		t.Fatalf("reply header = %q, want it to quote the target message", header)
 	}
 }

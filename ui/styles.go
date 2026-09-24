@@ -618,6 +618,8 @@ func (s uiStyles) renderReplyHint(author, preview string) string {
 // rather than a real XEP-0461 reply - dimmed like a real reply's preview
 // text, but with no author name (a text quote doesn't carry one) and no
 // bar separator (there's nothing to separate the name from).
-func (s uiStyles) renderQuoteReplyFragment(preview string) string {
-	return s.messageTime.Render("↑ " + previewText(preview, previewLen))
+// budget is how many display cells the fragment may occupy, "↑ " included,
+// so a long quote's ellipsis can't spill onto the next line.
+func (s uiStyles) renderQuoteReplyFragment(preview string, budget int) string {
+	return s.messageTime.Render("↑ " + previewText(preview, min(previewLen, budget-2)))
 }
