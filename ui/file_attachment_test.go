@@ -389,7 +389,10 @@ func TestMultiAttachmentSendSplitsIntoSeparateMessages(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sender := &fakeFileSender{sendIDs: []string{"msg-a", "msg-b"}}
+	// One ID per Send call (caption + both attachments): stanza IDs are
+	// unique per message, and the duplicate-broadcast guard in
+	// ComposedSendResultMsg's handler takes a repeated one at its word.
+	sender := &fakeFileSender{sendIDs: []string{"msg-caption", "msg-a", "msg-b"}}
 	m := newTestModelWithSender(sender, nil)
 	chat := Chat{Name: "Bob", Address: "bob@example.test"}
 	m.accounts = []Account{{

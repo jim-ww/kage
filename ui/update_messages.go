@@ -256,6 +256,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		for _, sent := range msg.Messages {
 			newMsg := Message{
 				ID:          sent.ID,
+				LocalID:     sent.LocalID,
 				Author:      "me",
 				Content:     sent.Content,
 				SentAt:      time.Now(),
@@ -263,8 +264,21 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				Attachments: sent.Attachments,
 			}
 			newMsg.ReplyToID = msg.ReplyToID
-			newMsgs = append(newMsgs, newMsg)
 			lastContent = MessagePreviewContent(newMsg)
+			// The daemon broadcasts every message the moment it goes out
+			// (adapter.send), but this batch result only lands once the
+			// whole batch has uploaded - so the broadcasts for all but the
+			// last file typically arrive first and are already in the chat
+			// by now. Appending them again is what showed five rows for a
+			// three-file send. A retry's own placeholder is the exception:
+			// it's matched by that same LocalID below and patched in place,
+			// so it must not be treated as an already-appended duplicate.
+			isRetriedPlaceholder := msg.RetryOfLocalID != "" && newMsg.LocalID == msg.RetryOfLocalID
+			if !isRetriedPlaceholder &&
+				(messageIndexByID(existing, newMsg.ID) >= 0 || messageIndexByLocalID(existing, newMsg.LocalID) >= 0) {
+				continue
+			}
+			newMsgs = append(newMsgs, newMsg)
 		}
 		// A retry's first outcome patches the existing Failed placeholder
 		// (by LocalID) in place instead of appending a duplicate row — any
@@ -321,14 +335,21 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			Attachments: []string{msg.URL},
 		}
 		newMsg.ReplyToID = msg.ReplyToID
-		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
+		notice := m.showNotification("file sent: " + filepath.Base(msg.Path))
+		// Same race as ComposedSendResultMsg's batch: the upload runs async,
+		// so the daemon's broadcast of this very message can land before the
+		// result does and already be in the chat.
+		if messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], newMsg.ID) >= 0 {
+			return m, tea.Batch(lastMsgCmd, notice), true
+		}
+		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
-		return m, tea.Batch(lastMsgCmd, m.showNotification("file sent: "+filepath.Base(msg.Path))), true
+		return m, tea.Batch(lastMsgCmd, notice), true
 
 	case IncomingMessageMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
