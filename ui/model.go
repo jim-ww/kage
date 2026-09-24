@@ -378,6 +378,10 @@ type DisplayOptions struct {
 	// resolves to updated/mtime; see filepicker.ParseSortField.
 	FilePickerSortField     string
 	FilePickerSortAscending bool
+	// AvatarsDisabled hides contact avatars. Named for what turns them
+	// off, unlike the positive options above, so that the zero value is
+	// the default — avatars shown.
+	AvatarsDisabled bool
 }
 
 // New builds the initial Model. initialCallState, if non-nil, seeds the
@@ -385,6 +389,7 @@ type DisplayOptions struct {
 // daemon that already has a call in progress, so the bar shows up without
 // waiting for the next live CallStateMsg transition.
 func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, initialReactionEmojiUsage map[string]int, display DisplayOptions, initialCallState *CallStateMsg) Model {
+	setAvatarsEnabled(!display.AvatarsDisabled)
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)

@@ -1083,6 +1083,9 @@ func (m Model) renderChatStatusBar(width int) string {
 	// prefixed after the label is styled and truncated to the width it
 	// leaves behind, rather than being folded into the styled run.
 	avatar := renderAvatarCell(chat.Name, chat.Address)
+	if avatar == "" {
+		return ansi.Truncate(label, max(1, width-2), "…")
+	}
 	budget := max(1, width-2-avatarCellWidth-1)
 	return avatar + " " + ansi.Truncate(label, budget, "…")
 }

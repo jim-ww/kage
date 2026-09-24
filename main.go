@@ -234,7 +234,9 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		startAccountIdx = lastChatAccountIdx
 	}
 	ui.AttachmentsDir = cfg.AttachmentsDir
-	loadLocalAvatars()
+	if !cfg.AvatarsDisabled {
+		loadLocalAvatars()
+	}
 	keyMap, err := cfg.ResolvedKeyMap()
 	if err != nil {
 		return err
@@ -250,6 +252,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		FilePickerDirsFirst:     !cfg.FilePickerFilesFirst,
 		FilePickerSortField:     cfg.State.FilePickerSortField,
 		FilePickerSortAscending: cfg.State.FilePickerSortAscending,
+		AvatarsDisabled:         cfg.AvatarsDisabled,
 	}
 	model := ui.New(uiAccounts, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, initialCallState)
 	if len(uiAccounts) == 0 {

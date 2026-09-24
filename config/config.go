@@ -72,6 +72,10 @@ type Config struct {
 	// KeyringDisabled disables ever consulting the OS keyring; off by
 	// default.
 	KeyringDisabled bool `toml:"keyring_disabled,omitempty"`
+	// AvatarsDisabled hides contact avatars — both the swatch on each
+	// chat-list row and the picture panel under the list, which then
+	// gives its rows back to the list; off (avatars shown) by default.
+	AvatarsDisabled bool `toml:"avatars_disabled,omitempty"`
 	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
 	// off by default.
 	ShowEncryptedIcon bool `toml:"show_encrypted_icon,omitempty"`

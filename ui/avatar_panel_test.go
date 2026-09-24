@@ -306,3 +306,65 @@ func TestAvatarPanelNotOverlaidOverAccounts(t *testing.T) {
 		t.Error("panel composited over the accounts list")
 	}
 }
+
+// With avatars off the chat list gets the panel's rows back, and no row
+// carries a swatch — see DisplayOptions.AvatarsDisabled.
+func TestAvatarsDisabled(t *testing.T) {
+	ClearAvatarImages()
+	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	t.Cleanup(func() {
+		ClearAvatarImages()
+		setAvatarsEnabled(true)
+	})
+
+	on := avatarPanelModelWithChats(t, 100, 30)
+	// Captured now: these are live methods, and everything below turns
+	// avatars off underneath them.
+	onListRows, onPanelRows := on.chats.Height(), on.avatarPanelHeight()
+	if onPanelRows == 0 {
+		t.Fatal("no panel with avatars enabled")
+	}
+
+	off := avatarPanelModelWithChats(t, 100, 30)
+	setAvatarsEnabled(false) // after New, which applies DisplayOptions itself
+	off.updateSizes()
+
+	if got := off.avatarPanelHeight(); got != 0 {
+		t.Errorf("avatarPanelHeight = %d with avatars off, want 0", got)
+	}
+	if _, _, _, ok := off.avatarPanelOverlay(); ok {
+		t.Error("panel composited with avatars off")
+	}
+	if got, want := off.chats.Height(), onListRows+onPanelRows; got != want {
+		t.Errorf("chat list has %d rows with avatars off, want %d — the panel's rows should go back to it", got, want)
+	}
+	if cell := renderAvatarCell("alice", "alice@localhost"); cell != "" {
+		t.Errorf("renderAvatarCell = %q with avatars off, want empty", cell)
+	}
+	title := Chat{Name: "alice", Address: "alice@localhost", Presence: PresenceOnline}.Title()
+	if strings.HasPrefix(ansi.Strip(title), "A") {
+		t.Errorf("Title() = %q with avatars off, still leads with a swatch", ansi.Strip(title))
+	}
+	if !strings.HasSuffix(ansi.Strip(title), " alice") {
+		t.Errorf("Title() = %q, want it to still end in the name", ansi.Strip(title))
+	}
+}
+
+// The status bar drops the swatch too, and gives its columns back to the
+// label rather than leaving a gap.
+func TestChatStatusBarWithoutAvatars(t *testing.T) {
+	t.Cleanup(func() { setAvatarsEnabled(true) })
+
+	m := avatarPanelModelWithChats(t, 100, 30)
+
+	withAvatar := ansi.Strip(m.renderChatStatusBar(40))
+	setAvatarsEnabled(false)
+	without := ansi.Strip(m.renderChatStatusBar(40))
+
+	if withAvatar == without {
+		t.Fatalf("status bar unchanged by the avatar setting: %q", without)
+	}
+	if !strings.HasPrefix(without, "alice") {
+		t.Errorf("status bar = %q with avatars off, want it to start with the name", without)
+	}
+}

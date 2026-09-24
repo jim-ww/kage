@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"charm.land/lipgloss/v2"
@@ -39,6 +40,23 @@ const avatarCellWidth = 3
 // avatarColor is a swatch background. Kept as plain RGB rather than a
 // color.Color so it can be hashed, compared, and averaged.
 type avatarColor struct{ R, G, B uint8 }
+
+// avatarsOn gates every avatar rendering: the chat-list swatch and the
+// sidebar panel both go away when it's off, and the panel's rows go back to
+// the chat list. Package-level (like AttachmentsDir) because Chat.Title is
+// called by bubbles' list delegate, which hands us no place to thread an
+// option through. Defaults on, so a Model built without DisplayOptions —
+// every test — behaves like the shipped default.
+var avatarsOn atomic.Bool
+
+func init() { avatarsOn.Store(true) }
+
+// setAvatarsEnabled applies the config's avatar setting; see
+// DisplayOptions.AvatarsDisabled.
+func setAvatarsEnabled(on bool) { avatarsOn.Store(on) }
+
+// avatarsEnabled reports whether avatars are shown at all.
+func avatarsEnabled() bool { return avatarsOn.Load() }
 
 // avatarColors/avatarPictures map bare JID to that contact's swatch color
 // and to the avatar image itself. Package-level (like presenceGlyphs)
@@ -551,8 +569,12 @@ func firstAlnum(s string) (rune, bool) {
 // columns of solid background with the initial centered in it. Returns a
 // pre-styled string ending in a reset, like presenceGlyph — callers must
 // not wrap it in an outer Foreground, which the reset would cut off (see
-// renderChatStatusBar).
+// renderChatStatusBar). Empty when avatars are turned off, so callers must
+// not assume it occupies avatarCellWidth columns.
 func renderAvatarCell(name, address string) string {
+	if !avatarsEnabled() {
+		return ""
+	}
 	bg := avatarColorFor(address)
 	fg := readableOn(bg)
 	text := avatarInitial(name, address)
@@ -579,6 +601,9 @@ var encodePNG = png.Encode
 // answer doesn't change as chats are switched, which would resize the chat
 // list underneath the selection on every move.
 func anyAvatarKnown() bool {
+	if !avatarsEnabled() {
+		return false
+	}
 	avatarMu.RLock()
 	defer avatarMu.RUnlock()
 	return len(avatarPictures) > 0 || avatarFallback != nil
