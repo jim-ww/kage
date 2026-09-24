@@ -159,6 +159,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return model.(Model), cmd, true
 	}
 
+	// ── Avatar preview sits on top of the still-open picker ────────────
+	if m.avatarPreview != nil {
+		return m.updateAvatarPreviewKey(msg)
+	}
+
 	// ── File picker intercepts all input until selected or canceled ─────
 	if m.pickingFile {
 		if matchesKey(msg, m.keys.AttachFile) || matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) {
@@ -185,12 +190,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		*m.filePicker, pickerCmd = m.filePicker.Update(msg)
 		if m.pickingAvatar {
 			if selected, path := m.filePicker.DidSelectFile(msg); selected {
-				// Unlike attaching, picking an avatar is the whole action —
-				// there's nothing to stage and nothing to pick a second
-				// one of, so the picker closes.
-				m.pickingFile = false
-				m.pickingAvatar = false
-				return m, m.setOwnAvatarCmd(m.currentAccount, path), true
+				// Not published yet: the file goes to a preview first, so
+				// what reaches every contact's roster was seen before it
+				// was sent. The picker stays open behind it so rejecting
+				// the candidate lands back in the same directory.
+				return m, m.startAvatarPreview(m.currentAccount, path), true
 			}
 			return m, pickerCmd, true
 		}

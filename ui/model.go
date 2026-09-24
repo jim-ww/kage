@@ -348,6 +348,10 @@ type Model struct {
 	// pickingAvatar marks the file picker as having been opened to choose
 	// an avatar rather than to attach a file, since both share one picker.
 	pickingAvatar bool
+	// avatarPreview is non-nil while a picked avatar file is awaiting
+	// confirmation, on top of the still-open picker — see
+	// ui/avatar_preview.go.
+	avatarPreview *avatarPreviewState
 	// contactManagerState is non-nil while the "manage contacts" popup is
 	// open — see ui/contacts.go.
 	contactManagerState *contactManagerState

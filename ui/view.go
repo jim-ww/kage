@@ -289,6 +289,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderSaveAsPopup()
 	case len(m.openItems) > 0:
 		viewportArea = m.renderOpenPopup()
+	case m.avatarPreview != nil:
+		viewportArea = m.renderAvatarPreviewPopup()
 	case m.pickingFile:
 		viewportArea = m.renderFilePickerPopup()
 	default:

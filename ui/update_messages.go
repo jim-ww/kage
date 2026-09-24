@@ -1020,6 +1020,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case avatarPreviewLoadedMsg:
+		m.applyAvatarPreviewLoaded(msg)
+		return m, nil, true
 	case AvatarPublishedMsg:
 		what := "avatar published"
 		if msg.Removed {

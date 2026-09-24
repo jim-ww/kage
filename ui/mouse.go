@@ -47,6 +47,7 @@ const (
 	zoneFilePickerPopup       = "file-picker-popup"
 	zoneFilePickerBack        = "file-picker-back-button"
 	zoneFilePickerForward     = "file-picker-forward-button"
+	zoneAvatarPreviewPopup    = "avatar-preview-popup"
 )
 
 // inputWheelScrollLines is how many lines a single wheel notch moves the
@@ -306,6 +307,12 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			m.inputHeightOverride = z.EndY - msg.Mouse().Y
 			m.updateSizes()
 		}
+		return m, nil
+	}
+
+	if m.avatarPreview != nil {
+		// The picker is still open underneath, but it isn't what's on
+		// screen — hovering must not move a cursor nobody can see.
 		return m, nil
 	}
 
@@ -591,6 +598,15 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.contextMenu != nil {
 		return m.handleContextMenuClick(msg)
+	}
+
+	if m.avatarPreview != nil {
+		// Clicking off the preview rejects the candidate and leaves the
+		// picker where it was, the same as esc.
+		if msg.Mouse().Button == tea.MouseLeft && !m.zone.Get(zoneAvatarPreviewPopup).InBounds(msg) {
+			m.avatarPreview = nil
+		}
+		return m, nil
 	}
 
 	if m.pickingFile {
@@ -1199,6 +1215,10 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 
 	mouse := msg.Mouse()
+
+	if m.avatarPreview != nil {
+		return m, nil
+	}
 
 	if m.pickingFile {
 		key := tea.KeyPressMsg{Code: tea.KeyDown}
