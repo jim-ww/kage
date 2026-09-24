@@ -314,15 +314,11 @@ type Chat struct {
 	Draft string
 }
 
-// Title implements list.Item. The avatar swatch and presence dot are
-// pre-styled strings (each ending in its own ANSI reset), so the delegate's
-// title style colors only the name — see renderAvatarCell.
+// Title implements list.Item. The presence dot and the contact-tinted name
+// are both pre-styled strings ending in their own ANSI reset, so nothing
+// the delegate layers on top survives into them — see renderTintedName.
 func (c Chat) Title() string {
-	title := presenceGlyph(c.Presence) + " " + c.Name
-	if cell := renderAvatarCell(c.Name, c.Address); cell != "" {
-		title = cell + " " + title
-	}
-	return title
+	return presenceGlyph(c.Presence) + " " + renderTintedName(c.Name, c.Address)
 }
 
 // Description implements list.Item.

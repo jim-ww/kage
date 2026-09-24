@@ -31,12 +31,6 @@ import (
 // both cases render identically and a contact's swatch doesn't jump around
 // when their avatar arrives.
 //
-// avatarCellWidth is how many columns the monogram swatch occupies in a
-// chat-list row. Three so it reads as a swatch with a letter in it rather
-// than as one more colored dot beside the presence glyph; the rendering
-// pads and centers the initial, so this is the only place to change it.
-const avatarCellWidth = 3
-
 // avatarColor is a swatch background. Kept as plain RGB rather than a
 // color.Color so it can be hashed, compared, and averaged.
 type avatarColor struct{ R, G, B uint8 }
@@ -445,11 +439,42 @@ func dominantColor(img image.Image) (avatarColor, bool) {
 // dimension precisely so that no contact can hash to an unreadably pale or
 // muddy swatch.
 func hashColor(jid string) avatarColor {
+	r, g, b := hslToRGB(avatarHue(jid), 0.55, 0.45)
+	return avatarColor{R: r, G: g, B: b}
+}
+
+// avatarHue is the one hashed dimension shared by a contact's swatch and
+// their tinted name, so the two always read as the same contact.
+func avatarHue(jid string) float64 {
 	h := fnv.New32a()
 	h.Write([]byte(strings.ToLower(jid)))
-	hue := float64(h.Sum32() % 360)
-	r, g, b := hslToRGB(hue, 0.55, 0.45)
+	return float64(h.Sum32() % 360)
+}
+
+// nameTint is a contact's hue as foreground text rather than as a filled
+// swatch: lighter than hashColor, since this has to carry against the
+// terminal's own background instead of under white text of our choosing.
+func nameTint(jid string) avatarColor {
+	r, g, b := hslToRGB(avatarHue(jid), 0.55, 0.62)
 	return avatarColor{R: r, G: g, B: b}
+}
+
+// renderTintedName colors a contact's name by their hashed hue — the part
+// of an avatar that actually helps in a list (finding a row without
+// reading it), delivered without spending any columns on it.
+//
+// This replaced a monogram swatch in front of the name: the swatch's letter
+// was the name's own first letter one column over, so all it really carried
+// was the color, at a cost of three columns out of a twenty-column sidebar.
+// Like presenceGlyph, the result ends in its own reset — callers must not
+// wrap it in an outer Foreground. Returns the name unstyled when avatars
+// are off.
+func renderTintedName(name, address string) string {
+	if !avatarsEnabled() || name == "" {
+		return name
+	}
+	tint := nameTint(address)
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(tint.hex())).Render(name)
 }
 
 func hslToRGB(h, s, l float64) (uint8, uint8, uint8) {
@@ -527,30 +552,6 @@ func firstAlnum(s string) (rune, bool) {
 		}
 	}
 	return 0, false
-}
-
-// renderAvatarCell renders a contact's monogram swatch: avatarCellWidth
-// columns of solid background with the initial centered in it. Returns a
-// pre-styled string ending in a reset, like presenceGlyph — callers must
-// not wrap it in an outer Foreground, which the reset would cut off (see
-// renderChatStatusBar). Empty when avatars are turned off, so callers must
-// not assume it occupies avatarCellWidth columns.
-func renderAvatarCell(name, address string) string {
-	if !avatarsEnabled() {
-		return ""
-	}
-	bg := avatarColorFor(address)
-	fg := readableOn(bg)
-	text := avatarInitial(name, address)
-	if pad := avatarCellWidth - lipgloss.Width(text); pad > 0 {
-		left := pad / 2
-		text = strings.Repeat(" ", left) + text + strings.Repeat(" ", pad-left)
-	}
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(fg.hex())).
-		Background(lipgloss.Color(bg.hex())).
-		Bold(true).
-		Render(text)
 }
 
 // encodePNG is png.Encode, named here so the test helper that writes

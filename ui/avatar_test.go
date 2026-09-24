@@ -3,6 +3,7 @@ package ui
 import (
 	"image"
 	"image/color"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,44 +158,61 @@ func TestSetAvatarImageKeepsHashForGreyscale(t *testing.T) {
 	}
 }
 
-// The swatch is spliced into row titles and the status bar, both of which
-// budget columns by lipgloss.Width — it must occupy exactly the width it
-// claims, no matter how wide the initial's rune is.
-func TestRenderAvatarCellWidth(t *testing.T) {
-	ClearAvatarImages()
-	t.Cleanup(ClearAvatarImages)
-
-	for _, tt := range []struct{ name, address string }{
-		{"alice", "alice@localhost"},
-		{"", ""},
-		{"#kage", ""},
-		{"Ünal", "unal@localhost"},
-	} {
-		cell := renderAvatarCell(tt.name, tt.address)
-		if got := lipgloss.Width(cell); got != avatarCellWidth {
-			t.Errorf("renderAvatarCell(%q, %q) width = %d, want %d", tt.name, tt.address, got, avatarCellWidth)
-		}
-		if plain := ansi.Strip(cell); !strings.Contains(plain, avatarInitial(tt.name, tt.address)) {
-			t.Errorf("renderAvatarCell(%q, %q) = %q, missing the initial", tt.name, tt.address, plain)
-		}
-	}
-}
-
-func TestChatTitleCarriesAvatarAndName(t *testing.T) {
+func TestChatTitleTintsTheName(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
 
 	c := Chat{Name: "alice", Address: "alice@localhost", Presence: PresenceOnline}
-	plain := ansi.Strip(c.Title())
-	if got := strings.TrimSpace(plain[:avatarCellWidth]); got != "A" {
-		t.Errorf("Title() = %q, want the avatar initial in the leading %d columns", plain, avatarCellWidth)
+	title := c.Title()
+	if plain := ansi.Strip(title); plain != "● alice" {
+		t.Errorf("Title() = %q, want %q — the name must not gain columns", plain, "● alice")
 	}
-	if !strings.HasSuffix(plain, " alice") {
-		t.Errorf("Title() = %q, want the name last", plain)
+	// The whole point of the tint is that two contacts are told apart by
+	// color alone, since the text is identical.
+	other := Chat{Name: "alice", Address: "alice@example.com", Presence: PresenceOnline}
+	if title == other.Title() {
+		t.Error("two contacts with the same display name rendered identically")
 	}
-	if want := avatarCellWidth + 1 + 1 + 1 + len("alice"); lipgloss.Width(c.Title()) != want {
-		t.Errorf("Title() width = %d, want %d (swatch + space + dot + space + name)", lipgloss.Width(c.Title()), want)
+	if lipgloss.Width(title) != lipgloss.Width(ansi.Strip(title)) {
+		t.Errorf("Title() measures %d columns but prints %d", lipgloss.Width(title), lipgloss.Width(ansi.Strip(title)))
 	}
+}
+
+// The tint and the panel's monogram swatch are the same contact's color,
+// so a row and its picture slot never disagree about who is who.
+func TestNameTintSharesTheSwatchHue(t *testing.T) {
+	for _, jid := range []string{"alice@localhost", "bob@example.com", "carol@x"} {
+		tint, swatch := nameTint(jid), hashColor(jid)
+		if hueOf(tint) != hueOf(swatch) {
+			t.Errorf("%s: name tint %v and swatch %v are different hues", jid, tint, swatch)
+		}
+	}
+}
+
+// hueOf recovers an RGB color's hue in degrees, rounded — enough to check
+// two colors sit on the same hue at different lightness.
+func hueOf(c avatarColor) int {
+	r, g, b := float64(c.R)/255, float64(c.G)/255, float64(c.B)/255
+	hi := math.Max(r, math.Max(g, b))
+	lo := math.Min(r, math.Min(g, b))
+	d := hi - lo
+	if d == 0 {
+		return 0
+	}
+	var h float64
+	switch hi {
+	case r:
+		h = math.Mod((g-b)/d, 6)
+	case g:
+		h = (b-r)/d + 2
+	default:
+		h = (r-g)/d + 4
+	}
+	h *= 60
+	if h < 0 {
+		h += 360
+	}
+	return int(math.Round(h))
 }
 
 func TestLoadAvatarDir(t *testing.T) {

@@ -338,33 +338,11 @@ func TestAvatarsDisabled(t *testing.T) {
 	if got, want := off.chats.Height(), onListRows+onPanelRows; got != want {
 		t.Errorf("chat list has %d rows with avatars off, want %d — the panel's rows should go back to it", got, want)
 	}
-	if cell := renderAvatarCell("alice", "alice@localhost"); cell != "" {
-		t.Errorf("renderAvatarCell = %q with avatars off, want empty", cell)
+	if got := renderTintedName("alice", "alice@localhost"); got != "alice" {
+		t.Errorf("renderTintedName = %q with avatars off, want the name unstyled", got)
 	}
 	title := Chat{Name: "alice", Address: "alice@localhost", Presence: PresenceOnline}.Title()
-	if strings.HasPrefix(ansi.Strip(title), "A") {
-		t.Errorf("Title() = %q with avatars off, still leads with a swatch", ansi.Strip(title))
-	}
 	if !strings.HasSuffix(ansi.Strip(title), " alice") {
 		t.Errorf("Title() = %q, want it to still end in the name", ansi.Strip(title))
-	}
-}
-
-// The status bar drops the swatch too, and gives its columns back to the
-// label rather than leaving a gap.
-func TestChatStatusBarWithoutAvatars(t *testing.T) {
-	t.Cleanup(func() { setAvatarsEnabled(true) })
-
-	m := avatarPanelModelWithChats(t, 100, 30)
-
-	withAvatar := ansi.Strip(m.renderChatStatusBar(40))
-	setAvatarsEnabled(false)
-	without := ansi.Strip(m.renderChatStatusBar(40))
-
-	if withAvatar == without {
-		t.Fatalf("status bar unchanged by the avatar setting: %q", without)
-	}
-	if !strings.HasPrefix(without, "alice") {
-		t.Errorf("status bar = %q with avatars off, want it to start with the name", without)
 	}
 }
