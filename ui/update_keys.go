@@ -164,10 +164,18 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return model.(Model), cmd, true
 	}
 
+	if m.avatarMenu != nil {
+		next, cmd, handled := m.updateAvatarMenuKey(msg)
+		if handled {
+			return next, cmd, true
+		}
+	}
+
 	// ── File picker intercepts all input until selected or canceled ─────
 	if m.pickingFile {
 		if matchesKey(msg, m.keys.AttachFile) || matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) {
 			m.pickingFile = false
+			m.pickingAvatar = false
 			return m, nil, true
 		}
 		if matchesKey(msg, m.keys.SortFilePicker) {
@@ -187,6 +195,18 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 		var pickerCmd tea.Cmd
 		*m.filePicker, pickerCmd = m.filePicker.Update(msg)
+		if m.pickingAvatar {
+			if selected, path := m.filePicker.DidSelectFile(msg); selected {
+				// Unlike attaching, picking an avatar is the whole action —
+				// there's nothing to stage and nothing to pick a second
+				// one of, so the picker closes.
+				m.pickingFile = false
+				m.pickingAvatar = false
+				m.avatarMenu = &avatarMenuState{busy: true}
+				return m, m.setOwnAvatarCmd(m.currentAccount, path), true
+			}
+			return m, pickerCmd, true
+		}
 		if selected, path := m.filePicker.DidSelectFile(msg); selected {
 			// Stage the file instead of uploading it immediately — nothing
 			// touches the network until the message is actually sent (see
@@ -417,6 +437,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	case matchesKey(msg, m.keys.ChangeStoragePassword):
 		if m.selectedView == viewAccounts {
 			cmd := m.openChangePasswordPopup()
+			return m, cmd, true
+		}
+
+	case matchesKey(msg, m.keys.AvatarMenu):
+		if m.selectedView == viewAccounts {
+			cmd := m.openAvatarMenu()
 			return m, cmd, true
 		}
 

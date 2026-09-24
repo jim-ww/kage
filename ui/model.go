@@ -235,6 +235,7 @@ type Model struct {
 	chatReadTracker            ChatReadTracker
 	draftSaver                 DraftSaver
 	storagePasswordChanger     StoragePasswordChanger
+	avatarPublisher            AvatarPublisher
 	focusReporter              FocusReporter
 	callController             CallController
 
@@ -337,6 +338,12 @@ type Model struct {
 	// ui/omemo_devices.go.
 	deviceList *deviceListState
 
+	// avatarMenu is non-nil while the account's avatar menu is open — see
+	// ui/avatar_menu.go.
+	avatarMenu *avatarMenuState
+	// pickingAvatar marks the file picker as having been opened to choose
+	// an avatar rather than to attach a file, since both share one picker.
+	pickingAvatar bool
 	// contactManagerState is non-nil while the "manage contacts" popup is
 	// open — see ui/contacts.go.
 	contactManagerState *contactManagerState
@@ -452,6 +459,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	chatReadTracker, _ := sender.(ChatReadTracker)
 	draftSaver, _ := sender.(DraftSaver)
 	storagePasswordChanger, _ := sender.(StoragePasswordChanger)
+	avatarPublisher, _ := sender.(AvatarPublisher)
 	historyLoader, _ := sender.(HistoryLoader)
 	historySearcher, _ := sender.(HistorySearcher)
 	deviceManager, _ := sender.(OmemoDeviceManager)
@@ -518,6 +526,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		chatReadTracker:            chatReadTracker,
 		draftSaver:                 draftSaver,
 		storagePasswordChanger:     storagePasswordChanger,
+		avatarPublisher:            avatarPublisher,
 		focusReporter:              focusReporter,
 		callController:             callController,
 		focused:                    true,

@@ -998,6 +998,27 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case AvatarPublishedMsg:
+		if m.avatarMenu != nil {
+			m.avatarMenu.busy = false
+		}
+		what := "avatar published"
+		if msg.Removed {
+			what = "avatar removed"
+		}
+		if msg.Err != nil {
+			// Kept in the popup rather than only flashed as a notice: the
+			// user is standing in front of the thing that failed, and the
+			// common failures (unreadable file, wrong format, too large)
+			// are ones they fix by picking a different file.
+			if m.avatarMenu != nil {
+				m.avatarMenu.err = msg.Err.Error()
+				return m, nil, true
+			}
+			return m, m.showNotification(what + ": " + msg.Err.Error()), true
+		}
+		m.avatarMenu = nil
+		return m, m.showNotification(what), true
 	case AvatarUpdatedMsg:
 		// The image is already in the avatar store by the time this
 		// arrives — decoding happens off the UI goroutine, in the IPC

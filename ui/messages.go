@@ -412,6 +412,23 @@ type PresenceMsg struct {
 	Resource   string // resource part of the full JID the presence stanza came from; "" if it had none
 }
 
+// AvatarPublisher publishes and removes this account's own avatar
+// (XEP-0084). Both calls reach the network, so callers run them as
+// commands rather than inline in Update.
+type AvatarPublisher interface {
+	SetOwnAvatar(accountIdx int, path string) error
+	RemoveOwnAvatar(accountIdx int) error
+}
+
+// AvatarPublishedMsg reports the result of an AvatarPublisher call.
+// Removed distinguishes the two operations so the notice can say which one
+// failed.
+type AvatarPublishedMsg struct {
+	AccountIdx int
+	Removed    bool
+	Err        error
+}
+
 // AvatarUpdatedMsg reports that a contact's avatar image changed and has
 // been cached at Path by the daemon (see XEP-0084 fetching in the daemon's
 // avatars.go). The image itself never crosses the socket — the TUI reads
