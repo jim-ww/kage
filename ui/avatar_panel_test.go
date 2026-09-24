@@ -38,18 +38,42 @@ func TestAvatarPanelSquareAndCapped(t *testing.T) {
 	t.Cleanup(ClearAvatarImages)
 	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 
-	// Wide and tall enough that neither the width cap nor the list floor is
-	// what's binding.
 	m := avatarPanelModel(t, 200, 60)
 	cols, rows := m.avatarPanelSize()
-	if cols > avatarPanelMaxCols {
-		t.Errorf("cols = %d, want no more than %d", cols, avatarPanelMaxCols)
-	}
 	if rows != cols/2 {
 		t.Errorf("rows = %d, want cols/2 = %d — a half-block cell is two pixels tall", rows, cols/2)
 	}
 	if cols%2 != 0 {
 		t.Errorf("cols = %d, want even so it splits into whole pixel rows", cols)
+	}
+	if limit := m.height * avatarPanelMaxHeightPct / 100; rows > limit {
+		t.Errorf("rows = %d, want no more than %d%% of the sidebar's %d rows", rows, avatarPanelMaxHeightPct, m.height)
+	}
+	if cols > m.sidebarContentWidth() {
+		t.Errorf("cols = %d, wider than the sidebar's %d columns", cols, m.sidebarContentWidth())
+	}
+}
+
+// Dragging the sidebar wider must actually buy a bigger picture — a cap
+// that ignores the new width makes the drag look broken.
+func TestAvatarPanelGrowsWithSidebarWidth(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+
+	prev := 0
+	for _, sidebar := range []int{20, 26, 32, 40} {
+		m := avatarPanelModel(t, 200, 60)
+		m.sidebarWidthOverride = sidebar
+		m.updateSizes()
+		cols, _ := m.avatarPanelSize()
+		if cols < prev {
+			t.Errorf("sidebar %d: picture shrank to %d columns from %d", sidebar, cols, prev)
+		}
+		if sidebar > 20 && cols <= prev && prev != 0 {
+			t.Errorf("sidebar %d: picture stuck at %d columns despite the wider sidebar", sidebar, cols)
+		}
+		prev = cols
 	}
 }
 
