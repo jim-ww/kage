@@ -19,6 +19,7 @@ const (
 	rpcSetSidebarWidth          = "SetSidebarWidth"
 	rpcRecordReactionEmojiUsage = "RecordReactionEmojiUsage"
 	rpcSetSidebarHidden         = "SetSidebarHidden"
+	rpcSetChatHidden            = "SetChatHidden"
 	rpcSetInputHeight           = "SetInputHeight"
 	rpcSetFilePickerSort        = "SetFilePickerSort"
 	rpcSetLastChat              = "SetLastChat"
@@ -340,4 +341,10 @@ type wireAccountConnectErrorMsg struct {
 type setOwnAvatarParams struct {
 	AccountIdx int    `json:"account_idx"`
 	Path       string `json:"path"`
+}
+
+type setChatHiddenParams struct {
+	AccountJID  string `json:"account_jid"`
+	ChatAddress string `json:"chat_address"`
+	Hidden      bool   `json:"hidden"`
 }

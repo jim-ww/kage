@@ -236,8 +236,15 @@ type Model struct {
 	draftSaver                 DraftSaver
 	storagePasswordChanger     StoragePasswordChanger
 	avatarPublisher            AvatarPublisher
-	focusReporter              FocusReporter
-	callController             CallController
+	chatHiddenSetter           ChatHiddenSetter
+	// hiddenChats holds the chats kept out of each account's list, keyed
+	// by account index then lowercased bare JID — see ui/hidden_chats.go.
+	hiddenChats map[int]map[string]hiddenChat
+	// autoUnhideDisabled keeps a hidden chat hidden when a message arrives
+	// from it (config's auto_unhide_disabled).
+	autoUnhideDisabled bool
+	focusReporter      FocusReporter
+	callController     CallController
 
 	// focused tracks whether the terminal currently has OS focus, reported
 	// by tea.FocusMsg/tea.BlurMsg (requires terminal support). Starts true
@@ -389,6 +396,10 @@ type DisplayOptions struct {
 	// turns it off, unlike the positive options above, so that the zero
 	// value is the default — avatars shown.
 	AvatarsDisabled bool
+	// AutoUnhideDisabled keeps a hidden chat hidden when a message arrives
+	// from it. Named the same way and for the same reason: the zero value
+	// is the default, which is to bring the chat back.
+	AutoUnhideDisabled bool
 }
 
 // New builds the initial Model. initialCallState, if non-nil, seeds the
@@ -460,6 +471,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	draftSaver, _ := sender.(DraftSaver)
 	storagePasswordChanger, _ := sender.(StoragePasswordChanger)
 	avatarPublisher, _ := sender.(AvatarPublisher)
+	chatHiddenSetter, _ := sender.(ChatHiddenSetter)
 	historyLoader, _ := sender.(HistoryLoader)
 	historySearcher, _ := sender.(HistorySearcher)
 	deviceManager, _ := sender.(OmemoDeviceManager)
@@ -490,6 +502,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		timeLayout:                 display.TimeLayout,
 		hover:                      hv,
 		accounts:                   accounts,
+		autoUnhideDisabled:         display.AutoUnhideDisabled,
 		currentAccount:             startAccount,
 		chats:                      &l,
 		sidebarRenderCache:         &sidebarCacheEntry{},
@@ -527,6 +540,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		draftSaver:                 draftSaver,
 		storagePasswordChanger:     storagePasswordChanger,
 		avatarPublisher:            avatarPublisher,
+		chatHiddenSetter:           chatHiddenSetter,
 		focusReporter:              focusReporter,
 		callController:             callController,
 		focused:                    true,
@@ -538,6 +552,16 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		sidebarHidden:              initialSidebarHidden,
 		inputHeightOverride:        initialInputHeight,
 		filePicker:                 &picker,
+	}
+	// Hidden chats arrive flagged from the daemon; take them out of the
+	// lists before anything indexes into them — see ui/hidden_chats.go.
+	for i := range m.accounts {
+		m.stripHiddenChats(i)
+	}
+	// The list was built from the unfiltered chats above; rebuild it only
+	// if something was actually taken out, so the common case is untouched.
+	if len(m.hiddenChats[startAccount]) > 0 {
+		m.chats.SetItems(m.accounts[startAccount].Chats)
 	}
 	if initialCallState != nil {
 		m, _ = m.handleCallStateMsg(*initialCallState)

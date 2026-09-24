@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,58 @@ var notifyEnabled atomic.Bool
 // (avatars.go), so the daemon doesn't fetch what nothing will render —
 // same reasoning as notifyEnabled above.
 var avatarsEnabled atomic.Bool
+
+// hiddenChats mirrors cfg.State.HiddenChats for the chat-list build
+// (account.go), which has no other path back to the loaded state — same
+// reasoning as notifyEnabled above. Hiding is local and reversible: the
+// contact stays in the roster and messages keep arriving, the chat is just
+// flagged so the TUI can keep it out of the list.
+var (
+	hiddenChatsMu sync.RWMutex
+	hiddenChats   map[string]map[string]bool
+)
+
+// setHiddenChats replaces the hidden-chat set from the loaded state.
+func setHiddenChats(state map[string][]string) {
+	next := make(map[string]map[string]bool, len(state))
+	for accountJID, addrs := range state {
+		set := make(map[string]bool, len(addrs))
+		for _, addr := range addrs {
+			set[strings.ToLower(addr)] = true
+		}
+		next[accountJID] = set
+	}
+	hiddenChatsMu.Lock()
+	hiddenChats = next
+	hiddenChatsMu.Unlock()
+}
+
+// setChatHiddenFlag records one chat's hidden state, so a chat hidden this
+// session stays hidden for an account that reconnects without the daemon
+// restarting.
+func setChatHiddenFlag(accountJID, chatAddress string, hidden bool) {
+	key := strings.ToLower(chatAddress)
+	hiddenChatsMu.Lock()
+	defer hiddenChatsMu.Unlock()
+	if hiddenChats == nil {
+		hiddenChats = map[string]map[string]bool{}
+	}
+	if hiddenChats[accountJID] == nil {
+		hiddenChats[accountJID] = map[string]bool{}
+	}
+	if hidden {
+		hiddenChats[accountJID][key] = true
+		return
+	}
+	delete(hiddenChats[accountJID], key)
+}
+
+// chatHidden reports whether a chat is hidden from the list.
+func chatHidden(accountJID, chatAddress string) bool {
+	hiddenChatsMu.RLock()
+	defer hiddenChatsMu.RUnlock()
+	return hiddenChats[accountJID][strings.ToLower(chatAddress)]
+}
 
 // videoQuality mirrors cfg.VideoQuality for beginScreenShareCapture
 // (callsession.go), which has no other path back to the loaded config —
@@ -91,6 +144,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	startupStart := time.Now()
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
+	setHiddenChats(cfg.State.HiddenChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 
@@ -190,6 +244,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 func (b *backend) Reload(cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
+	setHiddenChats(cfg.State.HiddenChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 }

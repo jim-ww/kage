@@ -81,6 +81,11 @@ type Config struct {
 	// doc comment for the split, and ui.SetContactColors for how an
 	// invalid value is treated.
 	ContactColors map[string]string `toml:"contact_colors,omitempty"`
+	// AutoUnhideDisabled keeps a hidden chat hidden when a new message
+	// arrives from it, instead of bringing it back. Off by default: a
+	// hidden chat is decluttered, not muted, and someone writing to you is
+	// the one thing that reliably means you want to see them again.
+	AutoUnhideDisabled bool `toml:"auto_unhide_disabled,omitempty"`
 	// AvatarsDisabled hides the avatar panel under the chat list, which
 	// then gives its rows back to the list, and stops the daemon fetching
 	// avatars at all; off (avatars shown) by default. Independent of

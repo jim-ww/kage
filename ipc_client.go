@@ -136,6 +136,10 @@ func (c *ipcClient) SetSidebarHidden(hidden bool) error {
 	return c.conn.Call(rpcSetSidebarHidden, hiddenParams{Hidden: hidden}, nil)
 }
 
+func (c *ipcClient) SetChatHidden(accountJID, chatAddress string, hidden bool) error {
+	return c.conn.Call(rpcSetChatHidden, setChatHiddenParams{AccountJID: accountJID, ChatAddress: chatAddress, Hidden: hidden}, nil)
+}
+
 func (c *ipcClient) SetInputHeight(height int) error {
 	return c.conn.Call(rpcSetInputHeight, heightParams{Height: height}, nil)
 }

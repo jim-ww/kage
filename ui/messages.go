@@ -412,6 +412,12 @@ type PresenceMsg struct {
 	Resource   string // resource part of the full JID the presence stanza came from; "" if it had none
 }
 
+// ChatHiddenSetter persists whether a chat is hidden from the chat list,
+// per account. Hiding is local and reversible — see Chat.Hidden.
+type ChatHiddenSetter interface {
+	SetChatHidden(accountJID, chatAddress string, hidden bool) error
+}
+
 // AvatarPublisher publishes and removes this account's own avatar
 // (XEP-0084). Both calls reach the network, so callers run them as
 // commands rather than inline in Update.

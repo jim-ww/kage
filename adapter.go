@@ -335,6 +335,16 @@ func (a *adapter) SetSidebarHidden(hidden bool) error {
 	return config.SetSidebarHidden(a.cfgPath, hidden)
 }
 
+func (a *adapter) SetChatHidden(accountJID, chatAddress string, hidden bool) error {
+	if err := config.SetChatHidden(a.cfgPath, accountJID, chatAddress, hidden); err != nil {
+		return err
+	}
+	// Also in memory, so an account that reconnects before the daemon
+	// restarts rebuilds its chat list with the same chats hidden.
+	setChatHiddenFlag(accountJID, chatAddress, hidden)
+	return nil
+}
+
 // SetInputHeight implements ui.InputHeightSetter: persists the user-dragged
 // compose box height so it's restored on the next launch.
 func (a *adapter) SetInputHeight(height int) error {

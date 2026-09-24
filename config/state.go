@@ -43,6 +43,13 @@ type State struct {
 	// LastChatAddress is the peer JID of the last opened chat, reopened on
 	// startup unless Config.OpenLastChatDisabled.
 	LastChatAddress string `toml:"last_chat_address,omitempty"`
+	// HiddenChats lists, per account JID, the bare JIDs of chats hidden
+	// from the chat list. Hiding is local and reversible: the contact stays
+	// in the roster, presence and messages keep arriving, and nothing is
+	// removed from storage — see ui's hide action and the contact manager's
+	// unhide. Persisted here rather than in config.toml because it's the
+	// app recording a runtime choice, like the dragged sidebar width.
+	HiddenChats map[string][]string `toml:"hidden_chats,omitempty"`
 	// AccountStatuses is JID -> configured presence ("", "chat", "away",
 	// "xa", "dnd", "offline"), persisted immediately whenever changed from
 	// the UI so a restart comes back up in the same status. Keyed

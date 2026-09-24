@@ -120,7 +120,7 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 	return []contextMenuItem{
 		{label: "Rename", run: (*Model).actionRenameChat},
 		{label: "Encryption", run: (*Model).actionOpenEncryptionMenu},
-		{label: "Leave chat", run: (*Model).actionLeaveChat},
+		{label: "Hide chat", run: (*Model).actionHideChat},
 	}
 }
 
@@ -128,15 +128,33 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 // row at address (already selected by the caller — see contacts.go),
 // opened via Enter or a click on the row.
 func (m *Model) contactRowContextMenuItems(address string) []contextMenuItem {
-	return []contextMenuItem{
-		{label: "Resubscribe", run: func(m *Model) tea.Cmd { return m.actionResubscribeContact(address) }},
-		{label: "Remove", run: func(m *Model) tea.Cmd {
+	items := []contextMenuItem{}
+	// The contact manager is where a hidden chat is reachable again: it
+	// lists the whole roster, hidden or not, so a contact you never hear
+	// from isn't stranded off the chat list forever.
+	if accountIdx := m.contactManagerAccount(); m.isChatHidden(accountIdx, address) {
+		items = append(items, contextMenuItem{label: "Unhide chat", run: func(m *Model) tea.Cmd {
+			return m.unhideChat(accountIdx, address)
+		}})
+	}
+	return append(items,
+		contextMenuItem{label: "Resubscribe", run: func(m *Model) tea.Cmd { return m.actionResubscribeContact(address) }},
+		contextMenuItem{label: "Remove", run: func(m *Model) tea.Cmd {
 			if m.contactManagerState != nil {
 				m.contactManagerState.pendingRemove = address
 			}
 			return nil
 		}},
+	)
+}
+
+// contactManagerAccount is the account the contact manager is open for,
+// or the current one when it isn't open.
+func (m Model) contactManagerAccount() int {
+	if m.contactManagerState != nil {
+		return m.contactManagerState.accountIdx
 	}
+	return m.currentAccount
 }
 
 // actionResubscribeContact re-sends a subscription request for address on

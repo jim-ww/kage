@@ -347,7 +347,21 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case IncomingMessageMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
-			return m, nil, true
+			// A hidden chat has no row to append to. Someone writing to
+			// you is the one thing that reliably means you want to see
+			// them again, so bring it back — unless the user asked us not
+			// to (auto_unhide_disabled), in which case the message is
+			// still persisted daemon-side and shows up whenever they
+			// unhide it.
+			if m.autoUnhideDisabled || !m.isChatHidden(msg.AccountIdx, msg.From) {
+				return m, nil, true
+			}
+			unhideCmd := m.unhideChat(msg.AccountIdx, msg.From)
+			if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.From); chatIdx < 0 {
+				return m, unhideCmd, true
+			}
+			next, cmd, handled := m.handleEventMsg(msg)
+			return next, tea.Batch(unhideCmd, cmd), handled
 		}
 		if messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.ID) >= 0 {
 			// Our own message, broadcast back to every attached client
@@ -741,9 +755,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		m.accounts[msg.Index] = msg.Account
+		m.stripHiddenChats(msg.Index)
 		var cmd tea.Cmd
 		if msg.Index == m.currentAccount {
-			cmd = m.chats.SetItems(msg.Account.Chats)
+			cmd = m.chats.SetItems(m.accounts[msg.Index].Chats)
 			m.refreshViewport()
 			cmd = tea.Batch(cmd, m.openPendingChat())
 		}
@@ -765,6 +780,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				m.accounts[msg.Index].HistoryMore = make(map[int]bool)
 			}
 			maps.Copy(m.accounts[msg.Index].HistoryMore, msg.NewHistoryMore)
+			m.stripHiddenChats(msg.Index)
 		}
 		var cmd tea.Cmd
 		if msg.Index == m.currentAccount {
@@ -805,6 +821,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				m.accounts[msg.Index].HistoryMore = make(map[int]bool)
 			}
 			maps.Copy(m.accounts[msg.Index].HistoryMore, msg.NewHistoryMore)
+			m.stripHiddenChats(msg.Index)
 		}
 		var cmd tea.Cmd
 		if msg.Index == m.currentAccount && len(msg.NewChats) > 0 {

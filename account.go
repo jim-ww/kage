@@ -758,7 +758,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		// after everything already delivered - flushOutbox will actually
 		// attempt them again once this account reconnects.
 		hist = append(hist, pendingByPeer[r.Jid]...)
-		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid]}
+		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid], Hidden: chatHidden(acct.JID, r.Jid)}
 		if len(hist) > 0 {
 			messages[i] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
@@ -885,7 +885,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 		idx := existingChatCount + len(newChats)
 		hist, hasMore, _ := loadHistoryWindow(ctx, sess, c.JID, name, nil, historyPageSize)
-		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources}
+		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources, Hidden: chatHidden(sess.account.JID, c.JID)}
 		if len(hist) > 0 {
 			newMessages[idx] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])

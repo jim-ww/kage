@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/zalando/go-keyring"
@@ -256,4 +258,42 @@ func writeFileConfig(path string, cfg Config) error {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	return nil
+}
+
+// SetChatHidden adds or removes one chat from the hidden list for an
+// account in the state file next to path, preserving everything else —
+// called when the user hides a chat or unhides it from the contact manager
+// (see ui.ChatHiddenSetter). Hiding is local only: nothing is removed from
+// the roster or from storage.
+func SetChatHidden(path, accountJID, chatAddress string, hidden bool) error {
+	if accountJID == "" || chatAddress == "" {
+		return fmt.Errorf("hiding a chat needs both an account and a chat address")
+	}
+	st, err := loadState(path)
+	if err != nil {
+		return err
+	}
+	existing := st.HiddenChats[accountJID]
+	kept := make([]string, 0, len(existing)+1)
+	for _, addr := range existing {
+		if !strings.EqualFold(addr, chatAddress) {
+			kept = append(kept, addr)
+		}
+	}
+	if hidden {
+		kept = append(kept, chatAddress)
+		sort.Strings(kept)
+	}
+
+	if st.HiddenChats == nil {
+		st.HiddenChats = map[string][]string{}
+	}
+	if len(kept) == 0 {
+		// Left as an empty entry, the account would keep a dangling key in
+		// state.toml for a chat that is no longer hidden.
+		delete(st.HiddenChats, accountJID)
+	} else {
+		st.HiddenChats[accountJID] = kept
+	}
+	return writeState(st)
 }

@@ -55,7 +55,9 @@ func (cs *contactManagerState) contacts(m Model) []Chat {
 			out = append(out, c)
 		}
 	}
-	return out
+	// Hidden chats are not in the account's list at all (see
+	// ui/hidden_chats.go), and this is where they're reachable again.
+	return append(out, m.hiddenChatsFor(cs.accountIdx)...)
 }
 
 func newAddContactInput(m Model) textinput.Model {
@@ -121,6 +123,9 @@ func (m Model) contactManagerPrompt() string {
 		label := c.Address
 		if c.Name != "" && c.Name != c.Address {
 			label = fmt.Sprintf("%s <%s>", c.Name, c.Address)
+		}
+		if c.Hidden {
+			label += " (hidden)"
 		}
 		rows = append(rows, m.renderRow(zoneContactRow(i), i, cs.cursor, label))
 	}

@@ -642,7 +642,7 @@ func (m Model) deletePrompt(width int) string {
 	switch m.confirmTarget {
 	case confirmQuit:
 		return m.styles.deletePrompt(width, "Quit kage?", "")
-	case confirmDeleteChat:
+	case confirmHideChat:
 		detail := ""
 		if chat, ok := m.currentChat(); ok {
 			detail = chat.Name
@@ -650,7 +650,7 @@ func (m Model) deletePrompt(width int) string {
 				detail = fmt.Sprintf("%s <%s>", chat.Name, chat.Address)
 			}
 		}
-		return m.styles.deletePrompt(width, "Leave chat?", detail)
+		return m.styles.deletePrompt(width, "Hide chat?", detail+"\nNothing is deleted — unhide it from the contact manager.")
 	case confirmRemoveAccount:
 		detail := ""
 		if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {

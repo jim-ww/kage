@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
@@ -391,11 +390,11 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 
 // actionLeaveChat opens the leave-chat confirmation popup for the selected
 // chat (viewChats' DeleteMsg / a chat-item context-menu's "Leave chat").
-func (m *Model) actionLeaveChat() tea.Cmd {
+func (m *Model) actionHideChat() tea.Cmd {
 	if m.currentChatIndex() < 0 {
 		return m.showNotification("no chat selected")
 	}
-	m.confirmTarget = confirmDeleteChat
+	m.confirmTarget = confirmHideChat
 	return nil
 }
 
@@ -862,53 +861,15 @@ func (m Model) yankSelectedMsg() error {
 	return clipboard.WriteAll(msgs[m.selectedMsg].Content)
 }
 
-func (m *Model) deleteSelectedChat() tea.Cmd {
-	chatIdx := m.currentChatIndex()
-	if chatIdx < 0 {
-		return nil
-	}
-
-	items := m.chats.Items()
-	newItems := make([]list.Item, 0, len(items)-1)
-	newItems = append(newItems, items[:chatIdx]...)
-	newItems = append(newItems, items[chatIdx+1:]...)
-
-	newMessages := make(map[int][]Message, len(newItems))
-	oldMessages := m.accounts[m.currentAccount].Messages
-	for i := range items {
-		switch {
-		case i < chatIdx:
-			newMessages[i] = oldMessages[i]
-		case i > chatIdx:
-			newMessages[i-1] = oldMessages[i]
-		}
-	}
-	m.accounts[m.currentAccount].Chats = newItems
-	m.accounts[m.currentAccount].Messages = newMessages
-
-	cmd := m.chats.SetItems(newItems)
-	if len(newItems) == 0 {
-		m.setSelectedView(viewChats)
-		m.selectedMsg = 0
-		m.cancelPending()
-		m.refreshViewport()
-		return cmd
-	}
-
-	if chatIdx >= len(newItems) {
-		chatIdx = len(newItems) - 1
-	}
-	m.chats.Select(chatIdx)
-	msgs := m.currentMessages()
-	if len(msgs) > 0 {
-		m.selectedMsg = len(msgs) - 1
-	} else {
-		m.selectedMsg = 0
-	}
-	m.cancelPending()
-	m.refreshViewport()
-	m.viewport.GotoBottom()
-	return cmd
+// hideSelectedChat takes the selected chat out of the list. Nothing is
+// deleted: the contact stays in the roster, message history stays in
+// storage, and the chat comes back from the contact manager or — unless
+// auto_unhide_disabled is set — the next time they write. This replaced a
+// "leave chat" that removed the row locally and nothing else, which read
+// as destructive while being purely cosmetic, and silently dropped that
+// contact's incoming messages for the rest of the session.
+func (m *Model) hideSelectedChat() tea.Cmd {
+	return m.hideChat(m.currentAccount, m.currentChatIndex())
 }
 
 // sendReaction updates our own reaction set on the message at idx (in the

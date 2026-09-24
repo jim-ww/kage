@@ -272,7 +272,7 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.ListKeys.CursorDown, "down"},
 			{k.ChatOpen, "open"},
 			{k.RenameChat, "rename"},
-			{k.DeleteMsg, "delete"},
+			{k.DeleteMsg, "hide chat"},
 			{k.ListKeys.Filter, "filter"},
 			{k.ToggleSidebar, "hide chats"},
 		}

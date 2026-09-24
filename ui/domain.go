@@ -307,6 +307,14 @@ type Chat struct {
 	// to zero when the chat is opened.
 	Unread int
 
+	// Hidden marks a chat the user has hidden from the list. Local and
+	// reversible: the contact stays in the roster, presence and messages
+	// keep arriving, storage is untouched, and the other side sees
+	// nothing. Persisted per account in state.toml; the TUI filters these
+	// out of the list it renders and keeps them aside so unhiding restores
+	// the chat exactly (see Model.hiddenChats).
+	Hidden bool
+
 	// Draft is the compose box's unsent text last recorded for this chat —
 	// loaded from storage when the account connects, kept in sync with
 	// m.input as the compose box switches between chats, and persisted via
@@ -415,7 +423,7 @@ type confirmTarget int
 const (
 	confirmNone confirmTarget = iota
 	confirmDeleteMessage
-	confirmDeleteChat
+	confirmHideChat
 	confirmRemoveAccount
 	confirmQuit
 	confirmDisableStorageEncryption

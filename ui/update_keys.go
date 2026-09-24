@@ -75,8 +75,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 						cmds = append(cmds, m.retractSelectedMsg())
 					}
 				}
-			case confirmDeleteChat:
-				cmds = append(cmds, m.deleteSelectedChat())
+			case confirmHideChat:
+				cmds = append(cmds, m.hideSelectedChat())
 			case confirmRemoveAccount:
 				cmds = append(cmds, m.removeCurrentAccount())
 			case confirmDisableStorageEncryption:
@@ -682,7 +682,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		case viewChat:
 			return m, m.actionDeleteMessage(), true
 		case viewChats:
-			return m, m.actionLeaveChat(), true
+			return m, m.actionHideChat(), true
 		}
 
 	case matchesKey(msg, m.keys.YankMsg):
