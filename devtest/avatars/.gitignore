@@ -1,0 +1,3 @@
+# The fallback avatar is whatever local image you drop here (see
+# ui.LoadAvatarDir) — personal, not a fixture. gen.go writes a starter one.
+default.*
