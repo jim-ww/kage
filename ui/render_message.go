@@ -140,7 +140,7 @@ func callLogText(info CallLogInfo) string {
 // maxCollapsedBodyLines is how many wrapped body lines a message shows
 // before collapsing behind a "show more" button - clicking (or the row's
 // own expand zone) toggles it open via Model.expandedMsgs.
-const maxCollapsedBodyLines = 6
+const maxCollapsedBodyLines = 15
 
 // maxSenderNameDisplayWidth caps how wide a single sender name is allowed to
 // make every message's "name" column - without it, one contact with an
