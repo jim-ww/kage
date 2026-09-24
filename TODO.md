@@ -1,8 +1,9 @@
+- avatar modal: add mouse support (use same modal preset + ensure good UX for file selection/preview/reselection)
+- green account alias out of place?
+- video calls: option to stop streaming video
 - fix: rarely, cannot scroll past certain message and load older history
 - on edit msg, if other user sends message, and you hit save, it wont get saved
-- fix: replied-to msg shifts as new messages appear
 - design proper tray icon/logo
-- sometimes attached files, that have been removed from submission still get submitted? or why else there might be duplicates
 - increase message size, before it becomes collapsible
 - open chat composer (textbox) of message size (with limits)
 - pasted text to chat composer(inputbox) isnt shown in chat as it is in composer. e.g. multiline insert lines get bad padding from left
@@ -14,7 +15,6 @@
 - connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
 - non-focused state of app, with open chat doesnt send notifications
 - some modals are overflowing out of window (e.g. localstorage password change)
-- add sound noise filter?
 - add keyboard navigation to modals (and ways to open them)
 
 - select & yank text in draft with mouse
