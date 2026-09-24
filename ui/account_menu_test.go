@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -159,4 +160,44 @@ func menuLabels(menu *contextMenu) string {
 		labels = append(labels, item.label)
 	}
 	return strings.Join(labels, ", ")
+}
+
+// Hovering the account bar swaps in a wider name (it gains the
+// panel-toggle arrow), which must not move the menu button beside it —
+// a control that slides away as you reach for it is unusable. Measured
+// through View, since the bug was in how the two were laid out against
+// each other there.
+func TestAccountBarHoverDoesNotMoveTheMenuButton(t *testing.T) {
+	m := accountMenuModel(t)
+	m.width, m.height, m.termHeight = 100, 24, 24
+	m.updateSizes()
+
+	buttonColumn := func(hoverZone string) int {
+		t.Helper()
+		m.hover.id = hoverZone
+		first := strings.Split(ansi.Strip(fmt.Sprint(m.View())), "\n")[0]
+		// The button is the only "..." on the account bar (icons are off
+		// in a DisplayOptions{} model, so it renders as dots).
+		at := strings.Index(first, "...")
+		if at < 0 {
+			t.Fatalf("no account-menu button on the account bar: %q", first)
+		}
+		// Columns, not bytes: the panel-toggle arrow this is guarding
+		// against is a multi-byte, single-column rune, so a byte offset
+		// would report a shift that isn't there.
+		return ansi.StringWidth(first[:at])
+	}
+
+	plain := buttonColumn("")
+	for _, zone := range []string{zoneAccountBarName, zoneAccountMenuButton} {
+		if got := buttonColumn(zone); got != plain {
+			t.Errorf("hovering %s puts the menu button at column %d, unhovered it is at %d", zone, got, plain)
+		}
+	}
+
+	m.hover.id = ""
+	m.selectedView = viewAccounts // the bar shows the open-panel arrow too
+	if got := buttonColumn(""); got != plain {
+		t.Errorf("with the accounts panel open the menu button is at column %d, want %d", got, plain)
+	}
 }

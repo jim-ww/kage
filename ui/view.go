@@ -40,12 +40,17 @@ func (m Model) View() tea.View {
 	if accountHovered && !accountOpen {
 		accountFg = colors.accentCyan
 	}
-	accountName, accountStatus := m.renderAccountBar(scw, accountHovered, accountOpen)
 	// The account menu's button sits on the name row rather than being
 	// hidden behind a right-click on a row of a panel that has to be
 	// opened first — every account-scoped action lives in that menu.
+	// Built before the name so the name can be laid out against the
+	// columns the button leaves it, rather than against the full sidebar:
+	// padded to the wrong width, the name pushes the button sideways on
+	// hover, when it grows by the panel-toggle arrow.
 	menuBtn := m.zone.Mark(zoneAccountMenuButton, m.styles.renderAccountMenuButton(m.icons, accountBg, accountFg, m.isHovered(zoneAccountMenuButton)))
-	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(max(1, scw-lipgloss.Width(menuBtn)), accountBg, accountFg, accountName)) + menuBtn
+	nameWidth := max(1, scw-lipgloss.Width(menuBtn))
+	accountName, accountStatus := m.renderAccountBar(nameWidth, scw, accountHovered, accountOpen)
+	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(nameWidth, accountBg, accountFg, accountName)) + menuBtn
 	statusRow := ""
 	if accountOpen {
 		// Only shown while the accounts panel itself is open — it's an
@@ -969,9 +974,14 @@ func (m Model) renderSaveAsPopup() string {
 // renderAccountBar returns the account bar's name and status text
 // separately, each already truncated to fit width (see
 // uiStyles.accountBarNameRow/accountBarStatusRow, which style them).
-func (m Model) renderAccountBar(width int, hovered, open bool) (name, status string) {
+// renderAccountBar builds the account bar's two lines. nameWidth and
+// statusWidth are separate because the rows are not the same width: the
+// name row gives up columns to the account-menu button beside it (see
+// View), and padding the name to the status row's width instead would push
+// that button sideways every time the bar is hovered.
+func (m Model) renderAccountBar(nameWidth, statusWidth int, hovered, open bool) (name, status string) {
 	if len(m.accounts) == 0 {
-		return ansi.Truncate("no accounts", max(1, width-2), "…"), ""
+		return ansi.Truncate("no accounts", max(1, nameWidth-2), "…"), ""
 	}
 	name, status = "accounts", ""
 	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
@@ -979,20 +989,20 @@ func (m Model) renderAccountBar(width int, hovered, open bool) (name, status str
 		name = account.DisplayName()
 		status = account.StatusText() + " " + presenceGlyph(account.Status)
 	}
-	w := max(1, width-2)
+	w := max(1, nameWidth-2)
 	if hovered || open {
 		arrow := "[▼]"
 		if open {
 			arrow = "[▲]"
 		}
-		nameW := max(1, w-len(arrow)-1)
-		name = ansi.Truncate(name, nameW, "…")
-		pad := max(1, w-len(name)-len(arrow))
+		arrowW := lipgloss.Width(arrow)
+		name = ansi.Truncate(name, max(1, w-arrowW-1), "…")
+		pad := max(1, w-lipgloss.Width(name)-arrowW)
 		name += strings.Repeat(" ", pad) + arrow
 	} else {
 		name = ansi.Truncate(name, w, "…")
 	}
-	return name, ansi.Truncate(status, w, "…")
+	return name, ansi.Truncate(status, max(1, statusWidth-2), "…")
 }
 
 // renderAccountsList renders one row per account, current one highlighted,
