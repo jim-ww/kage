@@ -201,6 +201,19 @@ func (m Model) chatAreaWidth() int {
 	return m.width - m.sidebarWidth()
 }
 
+// popupWidth is the widest a popup dialog may render: every popup is
+// lipgloss.Place'd into the chat area, and Place neither wraps nor clips a
+// child wider than the box it's placed in — it just lets it spill past the
+// terminal edge. popupDialog wraps content down to this.
+func (m Model) popupWidth() int { return m.chatAreaWidth() }
+
+// popupTextWidth is how wide a line of popup body text may be — popupWidth
+// minus the dialog's own border and padding. Prose long enough to need
+// wrapping should be wrapped to this *before* being styled: popupDialog
+// wraps whatever it's handed as a safety net, but breaking an
+// already-rendered line drops its styling on every line after the first.
+func (m Model) popupTextWidth() int { return max(1, m.popupWidth()-popupChromeWidth) }
+
 // sidebarContentWidth is how wide content rendered *inside* the sidebar box
 // (the chat list, the account bar, the accounts list) may be — sidebarWidth
 // minus 1 for the box's own right border. lipgloss word-wraps (rather than

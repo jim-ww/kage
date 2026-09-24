@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
 	"github.com/jim-ww/kage/ui/viewport"
@@ -577,6 +578,23 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 // (see textinput.Model.placeholderView's width-based truncation math), so
 // this must be at least as wide as the longest placeholder below.
 const addAccountFieldWidth = 42
+
+// popupInputView renders a popup's text field narrowed to whatever the
+// dialog has room for: addAccountFieldWidth is a fixed maximum (see above),
+// but prompt + field + the popup's own border/padding can be wider than the
+// chat area on a small terminal, and popupDialog would then wrap the
+// field's rendered line in half. Sizing a copy keeps this render-only, so
+// the stored field's width survives the terminal growing back.
+func (m Model) popupInputView(in textinput.Model) string {
+	avail := m.popupWidth() - popupChromeWidth - lipgloss.Width(in.Prompt)
+	in.SetWidth(clamp(avail, popupInputMinWidth, addAccountFieldWidth))
+	return in.View()
+}
+
+// popupInputMinWidth is the floor popupInputView clamps to — below this a
+// field is too cramped to type into, and letting the popup overflow a
+// terminal this small is the lesser evil.
+const popupInputMinWidth = 8
 
 // DefaultNoticeDuration is how long an in-app notification toast stays
 // visible before auto-dismissing when DisplayOptions.NoticeDuration is unset.

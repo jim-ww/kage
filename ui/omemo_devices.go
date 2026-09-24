@@ -123,7 +123,7 @@ func (m Model) renderDeviceListPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.deviceListPrompt())
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.deviceListPrompt())
 	popup = m.zone.Mark(zoneDeviceListPopup, popup)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

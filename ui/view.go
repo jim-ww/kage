@@ -615,7 +615,7 @@ func (m Model) renderContextMenuPopup() string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.borderA).
 		Render(ansi.Truncate(heading, itemWidth, "…"))
 	body := title + "\n" + strings.Join(rows, sep)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
@@ -636,7 +636,7 @@ func (m Model) renderDeletePopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.deletePrompt(m.deletePromptWidth()))
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.deletePrompt(m.deletePromptWidth()))
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
@@ -679,7 +679,7 @@ func (m Model) renderInfoPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	// popup padding (4 each side) + border (1 each side).
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.infoPrompt(cw-10))
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.infoPrompt(cw-10))
 	popup = m.zone.Mark(zoneMsgInfoPopup, popup)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
@@ -816,7 +816,7 @@ func (m Model) renderOpenPopup() string {
 	}
 
 	body := m.styles.listPopup(title, rows, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
@@ -858,7 +858,7 @@ func (m Model) renderFilePickerPopup() string {
 		lines[i] = m.zone.Mark(zoneFilePickerRow(i), line)
 	}
 	body := m.styles.listPopup(title, []string{strings.Join(lines, "\n")}, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 	popup = m.zone.Mark(zoneFilePickerPopup, popup)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
@@ -897,7 +897,7 @@ func (m Model) renderAddAccountPopup() string {
 	count := m.addAccountFieldCount()
 	rows := make([]string, count)
 	for pos := 0; pos < count; pos++ {
-		rows[pos] = m.addAccountInputs[m.addAccountFieldIndex(pos)].View()
+		rows[pos] = m.popupInputView(m.addAccountInputs[m.addAccountFieldIndex(pos)])
 	}
 	if m.addAccountBusy {
 		rows = append(rows, "", verb+"...")
@@ -907,7 +907,7 @@ func (m Model) renderAddAccountPopup() string {
 
 	footer := fmt.Sprintf("[tab] next field · [ctrl+r] switch to %s · [enter] %s · [esc] cancel", altMode(m.addAccountRegister), verb)
 	body := m.styles.listPopup(title, rows, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
@@ -932,11 +932,11 @@ func (m Model) renderChangePasswordPopup() string {
 
 	s := m.changePasswordState
 	rows := []string{
-		m.styles.popupDanger.Render("Write this down. If you lose it, your local message history is unrecoverable."),
-		"Leave both fields blank to turn local storage encryption off.",
+		m.styles.popupDanger.Render(wrapToWidth("Write this down. If you lose it, your local message history is unrecoverable.", m.popupTextWidth())),
+		wrapToWidth("Leave both fields blank to turn local storage encryption off.", m.popupTextWidth()),
 		"",
-		s.inputs[0].View(),
-		s.inputs[1].View(),
+		m.popupInputView(s.inputs[0]),
+		m.popupInputView(s.inputs[1]),
 	}
 	if s.busy {
 		if s.inputs[0].Value() == "" {
@@ -950,7 +950,7 @@ func (m Model) renderChangePasswordPopup() string {
 
 	footer := "[tab] next field · [enter] change · [esc] cancel"
 	body := m.styles.listPopup("Change storage password", rows, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
@@ -961,8 +961,8 @@ func (m Model) renderRenameChatPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	footer := "[enter] save · [esc] cancel"
-	body := m.styles.listPopup("Rename chat", []string{m.renameInput.View()}, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+	body := m.styles.listPopup("Rename chat", []string{m.popupInputView(*m.renameInput)}, footer)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
@@ -973,8 +973,8 @@ func (m Model) renderSaveAsPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	footer := "[enter] save · [esc] cancel"
-	body := m.styles.listPopup("Save as", []string{m.saveAsInput.View()}, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
+	body := m.styles.listPopup("Save as", []string{m.popupInputView(*m.saveAsInput)}, footer)
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

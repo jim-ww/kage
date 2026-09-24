@@ -84,7 +84,7 @@ func (m Model) renderEmojiPickerPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.emojiPicker.View())
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.emojiPicker.View())
 	popup = m.zone.Mark(zoneEmojiPickerPopup, popup)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

@@ -259,6 +259,6 @@ func (m Model) renderAvatarPreviewPopup() string {
 		footer = "[enter/y] publish · " + footer
 	}
 	body := m.styles.listPopup("Publish as avatar?", rows, footer)
-	popup := m.zone.Mark(zoneAvatarPreviewPopup, m.styles.popupDialog(m.styles.colors.borderA, body))
+	popup := m.zone.Mark(zoneAvatarPreviewPopup, m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body))
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

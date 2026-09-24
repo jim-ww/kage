@@ -75,7 +75,7 @@ func (m Model) renderContactManagerPopup() string {
 	cw := m.chatAreaWidth()
 	vh := m.height - m.inputAreaHeight()
 
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.contactManagerPrompt())
+	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.contactManagerPrompt())
 	popup = m.zone.Mark(zoneContactManagerPopup, popup)
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
@@ -88,7 +88,7 @@ func (m Model) contactManagerPrompt() string {
 	closeKey := m.keys.ContactManager.Help().Key
 
 	if cs.adding {
-		rows := []string{cs.addInput.View()}
+		rows := []string{m.popupInputView(cs.addInput)}
 		if cs.busy {
 			rows = append(rows, "", "adding...")
 		} else if cs.err != "" {
