@@ -556,7 +556,7 @@ func (s *accountSession) setScreenShare(sharing, useCamera bool) error {
 	if sharing {
 		return c.startVideoShare(useCamera)
 	}
-	c.stopScreenShare()
+	c.withdrawVideoShare(context.Background())
 	return nil
 }
 
@@ -1793,13 +1793,13 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 		}
 		c.mu.Lock()
 		stillOurs := c.videoSource == share
-		if stillOurs {
-			c.videoSource = nil
-			c.sharing = false
-		}
 		c.mu.Unlock()
 		if stillOurs {
-			c.broadcastState(c.currentState(), "")
+			// The capture process died on its own (wf-recorder/ffmpeg exited,
+			// the user closed the screen picker, ...) - as far as the peer is
+			// concerned that's the same event as a user-initiated stop, so
+			// withdraw the content rather than just clearing our own flags.
+			c.withdrawVideoShare(context.Background())
 		}
 	})
 
@@ -1821,7 +1821,10 @@ func (c *callSession) reopenRemoteVideo() error {
 	return pc.SendPLI(track.SSRC())
 }
 
-// stopScreenShare tears down the capture process, if one is running.
+// stopScreenShare tears down the capture process, if one is running. Purely
+// local - the peer isn't told, since the callers that already sent (or
+// received) their own content-remove would otherwise send a second one. For
+// a user-initiated stop, see withdrawVideoShare.
 func (c *callSession) stopScreenShare() {
 	c.mu.Lock()
 	share := c.videoSource
@@ -1832,6 +1835,56 @@ func (c *callSession) stopScreenShare() {
 		share.Stop()
 	}
 	c.broadcastState(c.currentState(), "")
+}
+
+// withdrawVideoShare stops sending our own video and tells the peer so with
+// a XEP-0166 content-remove - the counterpart to startVideoShare's
+// content-add. Without it the peer has no way to tell "the sharer stopped"
+// from "the frames are late": its viewer just sits on the last frame it
+// decoded for the rest of the call.
+//
+// The video m-line itself stays negotiated on both ends (no local
+// renegotiation here - pion gives a removed transceiver no path back), so
+// re-sharing later re-offers the same mid through startVideoShare. That only
+// stays clean because the withdrawn content is dropped from remoteContents
+// too: applyContentAccept merges by appending, so leaving it in place would
+// give the re-share's answer two m-lines for one mid.
+func (c *callSession) withdrawVideoShare(ctx context.Context) {
+	c.mu.Lock()
+	sharing, pending, remote := c.sharing, c.pendingShare, c.remoteJID
+	videoMid := ""
+	if c.pc != nil {
+		videoMid = c.pc.VideoMid()
+	}
+	// Cleared here too so a stop pressed while the content-add is still in
+	// flight can't have a late content-accept start the capture anyway.
+	c.pendingShare = false
+	c.mu.Unlock()
+	if !sharing && !pending {
+		return
+	}
+
+	c.stopScreenShare()
+
+	if videoMid == "" || remote == "" {
+		return
+	}
+	slog.Debug("screen share: withdrawing video content", "sid", c.sid, "content", videoMid)
+	// Creator "initiator" matches what jingleContentsFromSDP stamped on the
+	// content-add that introduced this content.
+	remove := xmpp.JingleContent{Creator: "initiator", Name: videoMid}
+	if err := c.client.SendContentRemove(ctx, remote, c.sid, remove); err != nil {
+		slog.Warn("withdrawing video content", "sid", c.sid, "err", err)
+	}
+
+	c.mu.Lock()
+	for i, rc := range c.remoteContents {
+		if rc.Name == videoMid {
+			c.remoteContents = append(c.remoteContents[:i], c.remoteContents[i+1:]...)
+			break
+		}
+	}
+	c.mu.Unlock()
 }
 
 // playRemoteVideo pipes a peer's shared-screen video track into mpv,
