@@ -998,6 +998,12 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case AvatarUpdatedMsg:
+		// The image is already in the avatar store by the time this
+		// arrives — decoding happens off the UI goroutine, in the IPC
+		// dispatcher. All that's left is to let the frame redraw with it,
+		// which returning at all accomplishes.
+		return m, nil, true
 	case PresenceMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {

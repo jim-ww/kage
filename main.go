@@ -335,21 +335,31 @@ func dataFilePath() (string, error) {
 	return filepath.Join(dir, "kage.db"), nil
 }
 
-// loadLocalAvatars fills the avatar swatch colors from PNG/JPEG files named
-// after the bare JID they belong to, in $KAGE_AVATAR_DIR (default
-// devtest/avatars). Temporary: a stand-in for fetching avatars over XMPP,
-// so the monogram rendering can be judged before the wire work exists.
-// Failures are logged and ignored — a missing avatar just means the swatch
-// color comes from the JID hash instead.
+// loadLocalAvatars seeds the avatar store from disk at startup, from two
+// directories: $KAGE_AVATAR_DIR (default devtest/avatars) for local
+// overrides and the personal default.* fallback, and then the daemon's
+// avatar cache, which holds what was actually fetched over XMPP (see
+// avatars.go) and so wins where both have a file for the same contact.
+//
+// Failures are logged and ignored — no avatar just means the swatch color
+// comes from the JID hash instead.
 func loadLocalAvatars() {
 	dir := os.Getenv("KAGE_AVATAR_DIR")
 	if dir == "" {
 		dir = filepath.Join("devtest", "avatars")
 	}
-	n, err := ui.LoadAvatarDir(dir)
-	if err != nil {
-		slog.Debug("loading local avatars", "dir", dir, "err", err)
-		return
+	dirs := []string{dir}
+	if cache, err := avatarCacheDir(); err == nil {
+		dirs = append(dirs, cache)
+	} else {
+		slog.Debug("resolving avatar cache dir", "err", err)
 	}
-	slog.Debug("loaded local avatars", "dir", dir, "count", n)
+	for _, d := range dirs {
+		n, err := ui.LoadAvatarDir(d)
+		if err != nil {
+			slog.Debug("loading avatars", "dir", d, "err", err)
+			continue
+		}
+		slog.Debug("loaded avatars", "dir", d, "count", n)
+	}
 }

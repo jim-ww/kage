@@ -410,6 +410,8 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.OutboxDeletedMsg](c, ev.Data)
 	case evMessageReactions:
 		sendEvent[ui.MessageReactionsMsg](c, ev.Data)
+	case evAvatar:
+		c.dispatchAvatar(ev.Data)
 	case evPresence:
 		sendEvent[ui.PresenceMsg](c, ev.Data)
 	case evDeviceName:
@@ -458,4 +460,20 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		}
 		c.program.Send(ui.AccountConnectErrorMsg{Index: w.Index, Err: err})
 	}
+}
+
+// dispatchAvatar loads a freshly cached avatar into the ui avatar store
+// before handing the message on, so the PNG/JPEG decode happens here on the
+// dispatcher's goroutine rather than inside Update on the UI's.
+func (c *ipcClient) dispatchAvatar(data []byte) {
+	var msg ui.AvatarUpdatedMsg
+	if err := json.Unmarshal(data, &msg); err != nil {
+		slog.Warn("unmarshaling Avatar event", "err", err)
+		return
+	}
+	if err := ui.LoadAvatarFile(msg.JID, msg.Path); err != nil {
+		slog.Debug("loading cached avatar", "jid", msg.JID, "path", msg.Path, "err", err)
+		return
+	}
+	c.program.Send(msg)
 }

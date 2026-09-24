@@ -30,6 +30,7 @@ var discoFeatures = featureList{
 	"urn:xmpp:omemo:2:devices+notify",
 	"eu.siacs.conversations.axolotl.devicelist+notify",
 	"urn:xmpp:openpgp:0:public-keys+notify",
+	"urn:xmpp:avatar:metadata+notify",
 	"http://jabber.org/protocol/chatstates",
 	"urn:xmpp:jingle:1",
 	"urn:xmpp:jingle:apps:rtp:1",

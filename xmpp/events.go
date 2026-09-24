@@ -132,6 +132,16 @@ type DeviceListChangedEvent struct {
 
 func (DeviceListChangedEvent) isEvent() {}
 
+// AvatarChangedEvent is a XEP-0163 PEP push telling us From's published
+// avatar changed. Like the device-list push it carries no payload here —
+// the notification is only a "go re-fetch" trigger, and the metadata node
+// is what actually says which avatar is current (see FetchAvatarMetadata).
+type AvatarChangedEvent struct {
+	From string
+}
+
+func (AvatarChangedEvent) isEvent() {}
+
 // Events returns the channel of incoming events, populated for the lifetime
 // of the connection (from Dial until Close). The channel closes once the
 // session ends.
@@ -209,6 +219,9 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				return
 			case omemoV1DevicesNode:
 				c.enqueue(DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV1})
+				return
+			case avatarMetadataNode:
+				c.enqueue(AvatarChangedEvent{From: msg.From.String()})
 				return
 			}
 		}

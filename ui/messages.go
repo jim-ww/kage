@@ -412,6 +412,19 @@ type PresenceMsg struct {
 	Resource   string // resource part of the full JID the presence stanza came from; "" if it had none
 }
 
+// AvatarUpdatedMsg reports that a contact's avatar image changed and has
+// been cached at Path by the daemon (see XEP-0084 fetching in the daemon's
+// avatars.go). The image itself never crosses the socket — the TUI reads
+// the file, which is why this carries a path rather than bytes.
+//
+// The TUI-side handler decodes it into the avatar store before this reaches
+// Update, so Update's only job is to let the frame redraw.
+type AvatarUpdatedMsg struct {
+	AccountIdx int
+	JID        string // bare JID
+	Path       string
+}
+
 // DeviceNameMsg reports a contact resource's disco#info-resolved client
 // name (see xmpp.Client.DeviceName), arriving asynchronously sometime after
 // the PresenceMsg that first reported that resource online.

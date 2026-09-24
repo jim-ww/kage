@@ -1213,6 +1213,11 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		})
 		if presence != ui.PresenceOffline && resource != "" {
 			go s.resolveDeviceName(ctx, srv, accountIdx, from, resource)
+			// A contact coming online is the cheapest reliable moment to
+			// discover an avatar we've never fetched: no roster-wide
+			// storm on connect, and a contact we never see online is one
+			// whose picture nothing would have rendered anyway.
+			go s.syncAvatarOnce(ctx, srv, accountIdx, from)
 		}
 	case xmpp.SubscriptionRequestEvent:
 		from := bareJID(ev.From)
@@ -1245,6 +1250,12 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 			From:       from,
 			MessageID:  ev.ID,
 		})
+	case xmpp.AvatarChangedEvent:
+		from := bareJID(ev.From)
+		slog.Debug("received avatar PEP push", "from", from, "jid", s.account.JID)
+		// Not syncAvatarOnce: this push is the contact saying the avatar
+		// changed, which is exactly the case the once-guard exists to skip.
+		go s.syncAvatar(ctx, srv, accountIdx, from)
 	case xmpp.DeviceListChangedEvent:
 		from := bareJID(ev.From)
 		// An empty from (some servers omit the attribute on self-pushes)

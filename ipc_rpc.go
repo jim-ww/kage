@@ -79,6 +79,7 @@ const (
 	evIncomingCall         = "IncomingCall"
 	evCallState            = "CallState"
 	evMissedCall           = "MissedCall"
+	evAvatar               = "Avatar"
 )
 
 // --- RPC param/result structs. Kept plain and JSON-friendly on purpose:

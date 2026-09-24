@@ -647,3 +647,16 @@ func avatarGeneration() uint64 {
 	defer avatarMu.RUnlock()
 	return avatarGen
 }
+
+// LoadAvatarFile records one contact's avatar from an image file on disk.
+// The daemon fetches avatars over XMPP and caches them where this process
+// can read them, so what crosses the socket is a path, not image bytes —
+// see the daemon's avatars.go.
+func LoadAvatarFile(jid, path string) error {
+	img, err := decodeImageFile(path)
+	if err != nil {
+		return err
+	}
+	SetAvatarImage(jid, img)
+	return nil
+}

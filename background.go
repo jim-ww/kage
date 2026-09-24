@@ -20,6 +20,11 @@ import (
 // the TUI process never reads it.
 var notifyEnabled atomic.Bool
 
+// avatarsEnabled mirrors !cfg.AvatarsDisabled for the avatar sync
+// (avatars.go), so the daemon doesn't fetch what nothing will render —
+// same reasoning as notifyEnabled above.
+var avatarsEnabled atomic.Bool
+
 // videoQuality mirrors cfg.VideoQuality for beginScreenShareCapture
 // (callsession.go), which has no other path back to the loaded config —
 // same reasoning as notifyEnabled above.
@@ -85,6 +90,7 @@ func newBackend() *backend { return &backend{} }
 func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	startupStart := time.Now()
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
+	avatarsEnabled.Store(!cfg.AvatarsDisabled)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 
@@ -183,6 +189,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 // like cfg.NotificationsDisabled.
 func (b *backend) Reload(cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
+	avatarsEnabled.Store(!cfg.AvatarsDisabled)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 }
