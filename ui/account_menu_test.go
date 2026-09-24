@@ -201,3 +201,38 @@ func TestAccountBarHoverDoesNotMoveTheMenuButton(t *testing.T) {
 		t.Errorf("with the accounts panel open the menu button is at column %d, want %d", got, plain)
 	}
 }
+
+// A menu opened from a keybinding or a toolbar button — rather than by
+// right-clicking the thing itself — has to say what it is about to act on.
+func TestAccountMenuIsTitledWithTheAccount(t *testing.T) {
+	m := accountMenuModel(t)
+	m.accounts = []Account{{Name: "me@movim.eu"}}
+	m.width, m.height, m.termHeight = 120, 40, 40
+	m.updateSizes()
+	m.openAccountMenu()
+
+	want := m.accounts[0].DisplayName()
+	if m.contextMenu.title != want {
+		t.Errorf("menu title = %q, want %q", m.contextMenu.title, want)
+	}
+	rendered := ansi.Strip(m.renderContextMenuPopup())
+	if !strings.Contains(rendered, want) {
+		t.Errorf("rendered menu does not show %q:\n%s", want, rendered)
+	}
+	if strings.Contains(rendered, contextMenuDefaultTitle) {
+		t.Errorf("rendered menu still shows the generic title %q", contextMenuDefaultTitle)
+	}
+}
+
+// A menu with nothing specific to name still gets a heading rather than a
+// blank line where one used to be.
+func TestContextMenuFallsBackToGenericTitle(t *testing.T) {
+	m := accountMenuModel(t)
+	m.width, m.height, m.termHeight = 120, 40, 40
+	m.updateSizes()
+	m.openContextMenu("", []contextMenuItem{{label: "Something"}})
+
+	if !strings.Contains(ansi.Strip(m.renderContextMenuPopup()), contextMenuDefaultTitle) {
+		t.Errorf("untitled menu lost its heading")
+	}
+}

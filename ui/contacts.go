@@ -201,7 +201,7 @@ func (m Model) updateContactManagerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	case matchesKey(msg, m.keys.SelectSend):
 		if cs.cursor >= 0 && cs.cursor < rowCount {
 			addr := contacts[start+cs.cursor].Address
-			m.openContextMenu(m.contactRowContextMenuItems(addr))
+			m.openContextMenu(addr, m.contactRowContextMenuItems(addr))
 		}
 		return m, nil, true
 	case matchesLetter(msg, 'a'):
@@ -238,7 +238,7 @@ func (m Model) handleContactManagerClick(msg tea.MouseClickMsg) (tea.Model, tea.
 		cs.cursor = i
 		if msg.Mouse().Button == tea.MouseLeft {
 			addr := contacts[start+i].Address
-			m.openContextMenu(m.contactRowContextMenuItems(addr))
+			m.openContextMenu(addr, m.contactRowContextMenuItems(addr))
 		}
 	}
 	return m, nil

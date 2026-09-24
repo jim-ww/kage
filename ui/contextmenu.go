@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -23,6 +24,11 @@ type contextMenuItem struct {
 // keybinding, which stopped being true once the account menu became the
 // home for actions that have none.
 type contextMenu struct {
+	// title names what the menu's actions apply to — the account, in the
+	// account menu's case. Without it a menu opened from a keybinding or a
+	// toolbar button (rather than by right-clicking the thing itself) gives
+	// no indication of what it is about to act on.
+	title string
 	items []contextMenuItem
 	// cursor is the keyboard-selected row. Mouse hover is tracked
 	// separately (hoverState), so moving the pointer doesn't yank the
@@ -32,11 +38,11 @@ type contextMenu struct {
 
 func zoneContextMenuItem(i int) string { return fmt.Sprintf("ctxmenu-item-%d", i) }
 
-func (m *Model) openContextMenu(items []contextMenuItem) {
+func (m *Model) openContextMenu(title string, items []contextMenuItem) {
 	if len(items) == 0 {
 		return
 	}
-	m.contextMenu = &contextMenu{items: items}
+	m.contextMenu = &contextMenu{title: title, items: items}
 }
 
 func (m *Model) closeContextMenu() {
@@ -199,7 +205,7 @@ func (m *Model) openAccountMenu() tea.Cmd {
 	if len(items) == 0 {
 		return m.showNotification("no actions for this account")
 	}
-	m.openContextMenu(items)
+	m.openContextMenu(m.accounts[idx].DisplayName(), items)
 	return nil
 }
 
@@ -259,7 +265,7 @@ func (m *Model) actionOpenAccountStatusMenu(idx int) tea.Cmd {
 			run:   func(m *Model) tea.Cmd { return m.actionSetAccountStatus(idx, status) },
 		})
 	}
-	m.openContextMenu(items)
+	m.openContextMenu("Status", items)
 	return nil
 }
 
@@ -272,3 +278,19 @@ func (m *Model) actionSetAccountStatus(idx int, status Presence) tea.Cmd {
 	}
 	return func() tea.Msg { return m.accountStatusSetter.SetAccountStatus(idx, status) }
 }
+
+// chatMenuTitle names the chat a right-click menu applies to, falling back
+// to the generic title when the row isn't a Chat.
+func chatMenuTitle(items []list.Item, idx int) string {
+	if idx < 0 || idx >= len(items) {
+		return contextMenuDefaultTitle
+	}
+	if chat, ok := items[idx].(Chat); ok && chat.Name != "" {
+		return chat.Name
+	}
+	return contextMenuDefaultTitle
+}
+
+// contextMenuDefaultTitle is what a menu is headed when there's nothing
+// more specific to name.
+const contextMenuDefaultTitle = "Actions"

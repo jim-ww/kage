@@ -605,7 +605,12 @@ func (m Model) renderContextMenuPopup() string {
 	if vh >= len(rows)*2+4 {
 		sep = "\n\n"
 	}
-	title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.borderA).Render("Actions")
+	heading := m.contextMenu.title
+	if heading == "" {
+		heading = contextMenuDefaultTitle
+	}
+	title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.borderA).
+		Render(ansi.Truncate(heading, itemWidth, "…"))
 	body := title + "\n" + strings.Join(rows, sep)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, body)
 

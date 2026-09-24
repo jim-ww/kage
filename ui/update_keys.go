@@ -441,12 +441,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, cmd, true
 		}
 
-	case matchesKey(msg, m.keys.ChangeStoragePassword):
-		if m.selectedView == viewAccounts {
-			cmd := m.openChangePasswordPopup()
-			return m, cmd, true
-		}
-
 	case matchesKey(msg, m.keys.RenameChat):
 		if m.selectedView == viewChats {
 			return m, m.actionRenameChat(), true

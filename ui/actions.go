@@ -150,7 +150,7 @@ func (m *Model) actionOpenEncryptionMenu() tea.Cmd {
 			run:   func(m *Model) tea.Cmd { return m.actionSetChatEncryption(mode) },
 		})
 	}
-	m.openContextMenu(menuItems)
+	m.openContextMenu("Encryption", menuItems)
 	return nil
 }
 

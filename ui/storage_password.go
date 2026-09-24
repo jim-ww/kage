@@ -39,8 +39,10 @@ func (m Model) newChangePasswordForm() *changePasswordState {
 }
 
 // openChangePasswordPopup opens the "change local storage password" popup —
-// triggered by the account bar's key icon (mouse) or the ChangeStoragePassword
-// keybind, both gated to viewAccounts.
+// reached from the account menu (see accountRowContextMenuItems) or the
+// account bar's key icon. It had a keybinding of its own, Ctrl+Shift+P,
+// which was both redundant with the menu and gated to the accounts panel,
+// so it could only be pressed somewhere it was already visible.
 func (m *Model) openChangePasswordPopup() tea.Cmd {
 	m.changePasswordState = m.newChangePasswordForm()
 	return textinput.Blink

@@ -986,7 +986,7 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if m.zone.Get(zoneAccountRow(i)).InBounds(msg) {
 			m.setSelectedView(viewAccounts)
 			cmd := m.switchAccount(i)
-			m.openContextMenu(m.accountRowContextMenuItems(i))
+			m.openContextMenu(m.accounts[i].DisplayName(), m.accountRowContextMenuItems(i))
 			return m, cmd
 		}
 	}
@@ -994,7 +994,7 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i := range m.chats.Items() {
 		if zoneRowContains(m.zone.Get(zoneChatItem(i)), msg, m.sidebarWidth()) {
 			m.selectChatItem(i)
-			m.openContextMenu(m.chatItemContextMenuItems(i))
+			m.openContextMenu(chatMenuTitle(m.chats.Items(), i), m.chatItemContextMenuItems(i))
 			return m, nil
 		}
 	}
@@ -1006,7 +1006,7 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			m.refreshViewportScrollTo(old, i)
 			m.lastClickedMsgIdx = -1
 			m.lastClickTime = time.Time{}
-			m.openContextMenu(m.messageContextMenuItems(i))
+			m.openContextMenu("Message", m.messageContextMenuItems(i))
 			return m, nil
 		}
 	}

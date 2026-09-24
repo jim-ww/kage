@@ -12,52 +12,51 @@ import (
 
 // KeyMap holds all configurable key bindings.
 type KeyMap struct {
-	Quit                  key.Binding
-	Back                  key.Binding
-	Switch                key.Binding
-	FocusChats            key.Binding
-	ChatOpen              key.Binding
-	SelectSend            key.Binding
-	MsgUp                 key.Binding // k — navigate to previous message
-	MsgDown               key.Binding // j — navigate to next message
-	HalfPageUp            key.Binding // Ctrl+U — jump up by half the visible messages
-	HalfPageDown          key.Binding // Ctrl+D — jump down by half the visible messages
-	DeleteMsg             key.Binding // Ctrl+Shift+D — delete selected message (with popup)
-	YankMsg               key.Binding // Ctrl+Y — yank selected message
-	YankDraft             key.Binding // Ctrl+Shift+Y — copy the compose box's current draft
-	EditMsg               key.Binding // Ctrl+E — edit (only last own message)
-	ReplyMsg              key.Binding // Ctrl+R — reply to selected message
-	RetryMsg              key.Binding // Ctrl+Shift+T — retry a failed send
-	InfoMsg               key.Binding // Ctrl+I — show message info popup
-	OpenMsg               key.Binding // Ctrl+O — open links/attachments in selected message
-	SaveMsg               key.Binding // Ctrl+S — save links/attachments in selected message to disk
-	SaveMsgAs             key.Binding // Ctrl+Shift+S — save links/attachments, prompting for a destination path first
-	ReactMsg              key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
-	ConfirmYes            key.Binding // y — confirm popup
-	ConfirmNo             key.Binding // n / esc — cancel popup
-	AddAccount            key.Binding // a — open the add-account form (only while accounts panel is focused)
-	AttachFile            key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
-	SortFilePicker        key.Binding // Ctrl+S — cycle the file picker's sort order (updated/created × asc/desc)
-	PasteImage            key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
-	RenameChat            key.Binding // r — open the rename-contact prompt for the selected chat
-	ToggleSidebar         key.Binding // Ctrl+\ — show/hide the chat list sidebar
-	DeviceList            key.Binding // u (accounts panel) — view/purge the current account's published OMEMO device list
-	ContactManager        key.Binding // c — add/remove roster contacts for the current account (accounts panel)
-	RemoveAttachment      key.Binding // Backspace (on empty input) — drop the highlighted pending attachment
-	ClearDraft            key.Binding // Ctrl+Shift+E — erase the compose box
-	UndoDraft             key.Binding // Ctrl+Z — undo the last change to the compose box
-	RedoDraft             key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
-	ChangeStoragePassword key.Binding // Ctrl+Shift+P — change the local message/draft storage encryption password (accounts panel)
-	AvatarMenu            key.Binding // v (accounts panel) — set or remove this account's published avatar
-	AccountMenu           key.Binding // Ctrl+A — the account's actions (avatar, contacts, OMEMO devices, storage password, ...)
-	CallToggle            key.Binding // Ctrl+G — start a voice call to the open chat, or hang up the current call
-	VideoCallToggle       key.Binding // Ctrl+Shift+G — start a video call to the open chat (prompts camera/screen), or hang up the current call
-	ToggleComposeExpand   key.Binding // Ctrl+` — grow the compose box to ~half the chat pane, or shrink it back
-	Help                  key.Binding // Ctrl+H — open the full-keybindings help popup
-	SearchChat            key.Binding // Ctrl+/ — search messages in the open chat
-	ListKeys              list.KeyMap
-	TextInputKeys         textinput.KeyMap
-	InputAreaKeys         textarea.KeyMap
+	Quit                key.Binding
+	Back                key.Binding
+	Switch              key.Binding
+	FocusChats          key.Binding
+	ChatOpen            key.Binding
+	SelectSend          key.Binding
+	MsgUp               key.Binding // k — navigate to previous message
+	MsgDown             key.Binding // j — navigate to next message
+	HalfPageUp          key.Binding // Ctrl+U — jump up by half the visible messages
+	HalfPageDown        key.Binding // Ctrl+D — jump down by half the visible messages
+	DeleteMsg           key.Binding // Ctrl+Shift+D — delete selected message (with popup)
+	YankMsg             key.Binding // Ctrl+Y — yank selected message
+	YankDraft           key.Binding // Ctrl+Shift+Y — copy the compose box's current draft
+	EditMsg             key.Binding // Ctrl+E — edit (only last own message)
+	ReplyMsg            key.Binding // Ctrl+R — reply to selected message
+	RetryMsg            key.Binding // Ctrl+Shift+T — retry a failed send
+	InfoMsg             key.Binding // Ctrl+I — show message info popup
+	OpenMsg             key.Binding // Ctrl+O — open links/attachments in selected message
+	SaveMsg             key.Binding // Ctrl+S — save links/attachments in selected message to disk
+	SaveMsgAs           key.Binding // Ctrl+Shift+S — save links/attachments, prompting for a destination path first
+	ReactMsg            key.Binding // Ctrl+T — compose a reaction (shortcode/emoji) on the selected message
+	ConfirmYes          key.Binding // y — confirm popup
+	ConfirmNo           key.Binding // n / esc — cancel popup
+	AddAccount          key.Binding // a — open the add-account form (only while accounts panel is focused)
+	AttachFile          key.Binding // Ctrl+F — open the file picker to attach/send a file (toggles closed if pressed again)
+	SortFilePicker      key.Binding // Ctrl+S — cycle the file picker's sort order (updated/created × asc/desc)
+	PasteImage          key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
+	RenameChat          key.Binding // r — open the rename-contact prompt for the selected chat
+	ToggleSidebar       key.Binding // Ctrl+\ — show/hide the chat list sidebar
+	DeviceList          key.Binding // u (accounts panel) — view/purge the current account's published OMEMO device list
+	ContactManager      key.Binding // c — add/remove roster contacts for the current account (accounts panel)
+	RemoveAttachment    key.Binding // Backspace (on empty input) — drop the highlighted pending attachment
+	ClearDraft          key.Binding // Ctrl+Shift+E — erase the compose box
+	UndoDraft           key.Binding // Ctrl+Z — undo the last change to the compose box
+	RedoDraft           key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
+	AvatarMenu          key.Binding // v (accounts panel) — set or remove this account's published avatar
+	AccountMenu         key.Binding // Ctrl+A — the account's actions (avatar, contacts, OMEMO devices, storage password, ...)
+	CallToggle          key.Binding // Ctrl+G — start a voice call to the open chat, or hang up the current call
+	VideoCallToggle     key.Binding // Ctrl+Shift+G — start a video call to the open chat (prompts camera/screen), or hang up the current call
+	ToggleComposeExpand key.Binding // Ctrl+` — grow the compose box to ~half the chat pane, or shrink it back
+	Help                key.Binding // Ctrl+H — open the full-keybindings help popup
+	SearchChat          key.Binding // Ctrl+/ — search messages in the open chat
+	ListKeys            list.KeyMap
+	TextInputKeys       textinput.KeyMap
+	InputAreaKeys       textarea.KeyMap
 }
 
 // defaultInputAreaKeys is textarea.DefaultKeyMap with InsertNewline moved off
@@ -142,17 +141,16 @@ var DefaultKeyMap = KeyMap{
 	// matched by physical key position on essentially every terminal,
 	// unlike the Ctrl+Shift+<letter> this replaced, whose shift only
 	// survives under the Kitty keyboard protocol.
-	AccountMenu:           NewBinding([]string{"ctrl+a"}, "account menu"),
-	ContactManager:        NewBinding([]string{"c"}, "manage contacts"),
-	RemoveAttachment:      NewBinding([]string{"backspace"}, "remove attachment"),
-	ClearDraft:            NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
-	ChangeStoragePassword: NewBinding([]string{"ctrl+shift+p"}, "change storage password"),
-	CallToggle:            NewBinding([]string{"ctrl+g"}, "call"),
-	VideoCallToggle:       NewBinding([]string{"ctrl+shift+g"}, "video call"),
-	ToggleComposeExpand:   NewBinding([]string{"ctrl+`"}, "expand input"),
-	UndoDraft:             NewBinding([]string{"ctrl+z"}, "undo"),
-	RedoDraft:             NewBinding([]string{"ctrl+shift+z"}, "redo"),
-	Help:                  NewBinding([]string{"ctrl+h"}, "help"),
+	AccountMenu:         NewBinding([]string{"ctrl+a"}, "account menu"),
+	ContactManager:      NewBinding([]string{"c"}, "manage contacts"),
+	RemoveAttachment:    NewBinding([]string{"backspace"}, "remove attachment"),
+	ClearDraft:          NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
+	CallToggle:          NewBinding([]string{"ctrl+g"}, "call"),
+	VideoCallToggle:     NewBinding([]string{"ctrl+shift+g"}, "video call"),
+	ToggleComposeExpand: NewBinding([]string{"ctrl+`"}, "expand input"),
+	UndoDraft:           NewBinding([]string{"ctrl+z"}, "undo"),
+	RedoDraft:           NewBinding([]string{"ctrl+shift+z"}, "redo"),
+	Help:                NewBinding([]string{"ctrl+h"}, "help"),
 	// "ctrl+?" is the intended gesture (ctrl + the "?" that shares the "/"
 	// key on a US layout), but no terminal actually reports that literal
 	// string: legacy encoding sends the raw ctrl+/ control byte as

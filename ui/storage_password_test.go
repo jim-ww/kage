@@ -32,25 +32,34 @@ func (f *fakeChangerSender) MarkRetracted(int, string, string) error { return ni
 func (f *fakeChangerSender) DeleteQueued(int, string) error          { return nil }
 
 // TestChangeStoragePasswordOpenValidateSubmit exercises the popup end to
-// end: the keybind opens it (only from viewAccounts), empty/mismatched
-// passwords are rejected without calling the changer, and a valid
-// new+confirm pair submits exactly once.
+// end: the account menu opens it (it has no keybinding of its own —
+// Ctrl+Shift+P was redundant with the menu and gated to the accounts panel
+// anyway), empty/mismatched passwords are rejected without calling the
+// changer, and a valid new+confirm pair submits exactly once.
 func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	changer := &fakeChangerSender{}
 	m := newTestModelWithSender(changer, &fakeAccountAdder{})
-	m.selectedView = viewChats // not viewAccounts - the keybind should be a no-op here
+	m.accounts = []Account{{Name: "me"}}
+	m.currentAccount = 0
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl | tea.ModShift})
-	m = next.(Model)
-	if m.changePasswordState != nil {
-		t.Fatal("ChangeStoragePassword keybind should be a no-op outside viewAccounts")
+	if cmd := m.openAccountMenu(); cmd != nil {
+		t.Fatalf("openAccountMenu returned a notification: %v", cmd())
 	}
-
-	m.selectedView = viewAccounts
-	next, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl | tea.ModShift})
+	idx := -1
+	for i, item := range m.contextMenu.items {
+		if item.label == "Storage password" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("the account menu does not offer storage-password rotation")
+	}
+	m.contextMenu.cursor = idx
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	if m.changePasswordState == nil {
-		t.Fatal("ChangeStoragePassword keybind should open the popup in viewAccounts")
+		t.Fatal("the account menu's storage-password entry did not open the popup")
 	}
 
 	// Submitting with nothing typed opens a confirmation popup instead of
