@@ -267,10 +267,29 @@ func renderAvatarPicture(address string, cols, rows int) (string, bool) {
 		if row > 0 {
 			sb.WriteByte('\n')
 		}
+		// Each line starts after a reset, so no color carries into it.
+		var lastTop, lastBottom color.RGBA
+		var have bool
 		for col := 0; col < cols; col++ {
 			top := boxAverage(img, bounds, col, row*2, cols, pixelRows)
 			bottom := boxAverage(img, bounds, col, row*2+1, cols, pixelRows)
-			writeHalfBlockCell(&sb, top, bottom)
+			// Flat regions — backgrounds, hair, clothing — are most of a
+			// typical avatar, and repeating an identical SGR pair for each
+			// of their cells triples the string every later layout pass has
+			// to scan for grapheme widths.
+			switch {
+			case !have || (top != lastTop && bottom != lastBottom):
+				writeHalfBlockCell(&sb, top, bottom)
+			case top != lastTop:
+				writeSGRColor(&sb, 38, top)
+				sb.WriteString(upperHalfBlock)
+			case bottom != lastBottom:
+				writeSGRColor(&sb, 48, bottom)
+				sb.WriteString(upperHalfBlock)
+			default:
+				sb.WriteString(upperHalfBlock)
+			}
+			lastTop, lastBottom, have = top, bottom, true
 		}
 		sb.WriteString(ansiReset)
 	}
@@ -290,19 +309,31 @@ const ansiReset = "\x1b[m"
 // background SGR pair followed by the block itself.
 func writeHalfBlockCell(sb *strings.Builder, top, bottom color.RGBA) {
 	sb.WriteString("\x1b[38;2;")
-	writeUint8(sb, top.R)
-	sb.WriteByte(';')
-	writeUint8(sb, top.G)
-	sb.WriteByte(';')
-	writeUint8(sb, top.B)
+	writeRGB(sb, top)
 	sb.WriteString(";48;2;")
-	writeUint8(sb, bottom.R)
-	sb.WriteByte(';')
-	writeUint8(sb, bottom.G)
-	sb.WriteByte(';')
-	writeUint8(sb, bottom.B)
+	writeRGB(sb, bottom)
 	sb.WriteByte('m')
 	sb.WriteString(upperHalfBlock)
+}
+
+// writeSGRColor emits just one of the pair — 38 for foreground, 48 for
+// background — when the other is unchanged from the previous cell.
+func writeSGRColor(sb *strings.Builder, param int, c color.RGBA) {
+	if param == 38 {
+		sb.WriteString("\x1b[38;2;")
+	} else {
+		sb.WriteString("\x1b[48;2;")
+	}
+	writeRGB(sb, c)
+	sb.WriteByte('m')
+}
+
+func writeRGB(sb *strings.Builder, c color.RGBA) {
+	writeUint8(sb, c.R)
+	sb.WriteByte(';')
+	writeUint8(sb, c.G)
+	sb.WriteByte(';')
+	writeUint8(sb, c.B)
 }
 
 func writeUint8(sb *strings.Builder, v uint8) {
@@ -582,4 +613,12 @@ func renderAvatarLarge(name, address string, cols, rows int) string {
 		lines[i] = style.Render(text)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// avatarGeneration is bumped every time any stored avatar changes; render
+// caches key on it so they never have to compare images.
+func avatarGeneration() uint64 {
+	avatarMu.RLock()
+	defer avatarMu.RUnlock()
+	return avatarGen
 }

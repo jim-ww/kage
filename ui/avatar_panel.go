@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"sync"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -108,18 +109,78 @@ func (m Model) renderAvatarPanel(width int) string {
 		return strings.Repeat("\n", rows+avatarPanelTextRows-1)
 	}
 
-	center := lipgloss.NewStyle().Width(width).Align(lipgloss.Center)
-	picture := center.Render(renderAvatarLarge(chat.Name, chat.Address, cols, rows))
+	key := avatarPanelCacheKey{
+		width: width, cols: cols, rows: rows,
+		address: chat.Address, name: chat.Name, presence: chat.Presence,
+		gen: avatarGeneration(),
+	}
+	if cached, ok := avatarPanelCache.get(key); ok {
+		return cached
+	}
 
 	name := m.styles.messageNickMe.Render(ansi.Truncate(chat.Name, max(1, width), "…"))
 	presence := presenceGlyph(chat.Presence) + " " +
 		lipgloss.NewStyle().Foreground(m.styles.colors.textMuted).
 			Render(ansi.Truncate(presenceLabel(chat.Presence), max(1, width-2), "…"))
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		picture,
-		center.Render(name),
-		center.Render(presence),
-	)
+	var sb strings.Builder
+	for _, line := range strings.Split(renderAvatarLarge(chat.Name, chat.Address, cols, rows), "\n") {
+		writeCentered(&sb, line, cols, width)
+		sb.WriteByte('\n')
+	}
+	writeCentered(&sb, name, lipgloss.Width(name), width)
+	sb.WriteByte('\n')
+	writeCentered(&sb, presence, lipgloss.Width(presence), width)
+
+	out := sb.String()
+	avatarPanelCache.put(key, out)
+	return out
+}
+
+// writeCentered writes line indented so that its lineWidth columns sit in
+// the middle of width. The width is passed in rather than measured because
+// the picture's lines are tens of kilobytes of escape sequences apiece:
+// centering them with lipgloss's Width().Align() — which rescans the string
+// for grapheme widths, as does every style layered over it afterwards —
+// cost more than rendering the picture in the first place, and a window
+// resize paid it on every size message.
+func writeCentered(sb *strings.Builder, line string, lineWidth, width int) {
+	if pad := (width - lineWidth) / 2; pad > 0 {
+		sb.WriteString(strings.Repeat(" ", pad))
+	}
+	sb.WriteString(line)
+}
+
+// avatarPanelCacheKey is everything renderAvatarPanel's output depends on.
+type avatarPanelCacheKey struct {
+	width, cols, rows int
+	address, name     string
+	presence          Presence
+	gen               uint64
+}
+
+// avatarPanelCache memoizes the whole rendered panel, not just the picture
+// inside it: the caption and centering are cheap next to a cold picture
+// render but not next to nothing, and most frames change none of it.
+var avatarPanelCache avatarPanelMemo
+
+type avatarPanelMemo struct {
+	mu       sync.Mutex
+	key      avatarPanelCacheKey
+	rendered string
+}
+
+func (c *avatarPanelMemo) get(key avatarPanelCacheKey) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rendered == "" || c.key != key {
+		return "", false
+	}
+	return c.rendered, true
+}
+
+func (c *avatarPanelMemo) put(key avatarPanelCacheKey, rendered string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.key, c.rendered = key, rendered
 }
