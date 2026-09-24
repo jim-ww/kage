@@ -399,3 +399,67 @@ func TestLoadAvatarDirDefaultIsTheFallback(t *testing.T) {
 		t.Error("default.png was not installed as the fallback")
 	}
 }
+
+// The render cache is keyed by size as well as contact, or a resize would
+// keep handing back the previous size's block.
+func TestAvatarPictureCacheKeyedBySize(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{200, 40, 40, 255}, 0))
+
+	small, ok := renderAvatarPicture("alice@localhost", 4, 2)
+	if !ok {
+		t.Fatal("no picture at 4x2")
+	}
+	large, ok := renderAvatarPicture("alice@localhost", 10, 5)
+	if !ok {
+		t.Fatal("no picture at 10x5")
+	}
+	if got := len(strings.Split(small, "\n")); got != 2 {
+		t.Errorf("4x2 render has %d rows, want 2", got)
+	}
+	if got := len(strings.Split(large, "\n")); got != 5 {
+		t.Errorf("10x5 render has %d rows, want 5", got)
+	}
+	if again, _ := renderAvatarPicture("alice@localhost", 4, 2); again != small {
+		t.Error("re-rendering the original size did not reproduce it")
+	}
+}
+
+// Nor may it survive the avatar itself changing.
+func TestAvatarPictureCacheInvalidatedOnNewImage(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+
+	const jid = "alice@localhost"
+	SetAvatarImage(jid, solidImage(64, 64, color.RGBA{220, 30, 30, 255}, 0))
+	before, _ := renderAvatarPicture(jid, 6, 3)
+
+	SetAvatarImage(jid, solidImage(64, 64, color.RGBA{30, 220, 60, 255}, 0))
+	after, _ := renderAvatarPicture(jid, 6, 3)
+
+	if before == after {
+		t.Error("render cache returned the old picture after the avatar changed")
+	}
+	if !strings.Contains(after, "30;220;60") {
+		t.Errorf("block %q is not the new avatar", after)
+	}
+}
+
+// A contact falling back to the shared default must not be served another
+// contact's cached block.
+func TestAvatarPictureCacheKeyedByContact(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	SetFallbackAvatarImage(solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	SetAvatarImage("alice@localhost", solidImage(64, 64, color.RGBA{220, 30, 30, 255}, 0))
+
+	alice, _ := renderAvatarPicture("alice@localhost", 6, 3)
+	stranger, _ := renderAvatarPicture("stranger@example.com", 6, 3)
+	if alice == stranger {
+		t.Error("a contact with their own avatar and one on the fallback rendered identically")
+	}
+	if !strings.Contains(stranger, "40;120;200") {
+		t.Errorf("block %q is not the fallback avatar", stranger)
+	}
+}

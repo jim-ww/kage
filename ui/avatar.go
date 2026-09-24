@@ -56,7 +56,24 @@ var (
 	// JIDs someone happened to create files for, which is useless for
 	// looking at the rendering against a real account.
 	avatarFallback image.Image
+	// avatarGen is bumped whenever any of the above changes, so the render
+	// cache below can be invalidated without comparing images.
+	avatarGen uint64
+	// avatarBlockCache memoizes the last rendered picture. One entry is
+	// enough: exactly one panel is drawn per frame, so this turns every
+	// frame that didn't change the avatar, its size, or the selected
+	// contact — a keystroke, a mouse motion, an incoming message — into a
+	// map-free string reuse, while a resize drag still pays one render per
+	// distinct size.
+	avatarBlockCache avatarBlockKey
 )
+
+type avatarBlockKey struct {
+	address    string
+	cols, rows int
+	gen        uint64
+	rendered   string
+}
 
 // avatarFallbackName is the base name (sans extension) that marks a file in
 // the avatar directory as the stand-in for every contact without their own.
@@ -78,6 +95,7 @@ func SetAvatarImage(jid string, img image.Image) {
 	avatarMu.Lock()
 	defer avatarMu.Unlock()
 	avatarPictures[key] = scaled
+	avatarGen++
 	// A greyscale avatar yields no usable swatch color; the picture is
 	// still kept, and the JID hash supplies the monogram's color.
 	if c, ok := dominantColor(img); ok {
@@ -92,6 +110,8 @@ func ClearAvatarImages() {
 	avatarImages = map[string]avatarColor{}
 	avatarPictures = map[string]image.Image{}
 	avatarFallback = nil
+	avatarGen++
+	avatarBlockCache = avatarBlockKey{}
 }
 
 // SetFallbackAvatarImage records the image used for every contact with no
@@ -103,6 +123,7 @@ func SetFallbackAvatarImage(img image.Image) {
 	avatarMu.Lock()
 	defer avatarMu.Unlock()
 	avatarFallback = scaled
+	avatarGen++
 }
 
 // avatarPicture returns the stored image for a contact, if any.
@@ -172,10 +193,24 @@ func boxAverage(img image.Image, bounds image.Rectangle, cx, cy, cols, rows int)
 		y1 = y0 + 1
 	}
 	var r, g, b, n uint64
-	for y := y0; y < y1; y++ {
-		for x := x0; x < x1; x++ {
-			pr, pg, pb, _ := img.At(x, y).RGBA()
-			r, g, b, n = r+uint64(pr>>8), g+uint64(pg>>8), b+uint64(pb>>8), n+1
+	// Fast path for *image.RGBA — what downscale produces, so every stored
+	// avatar takes it. img.At boxes a color.Color into an interface for
+	// every pixel read, which at a few thousand pixels per rendered frame
+	// is most of the work.
+	if rgba, ok := img.(*image.RGBA); ok {
+		for y := y0; y < y1; y++ {
+			row := rgba.Pix[(y-rgba.Rect.Min.Y)*rgba.Stride:]
+			for x := x0; x < x1; x++ {
+				i := (x - rgba.Rect.Min.X) * 4
+				r, g, b, n = r+uint64(row[i]), g+uint64(row[i+1]), b+uint64(row[i+2]), n+1
+			}
+		}
+	} else {
+		for y := y0; y < y1; y++ {
+			for x := x0; x < x1; x++ {
+				pr, pg, pb, _ := img.At(x, y).RGBA()
+				r, g, b, n = r+uint64(pr>>8), g+uint64(pg>>8), b+uint64(pb>>8), n+1
+			}
 		}
 	}
 	if n == 0 {
@@ -198,31 +233,86 @@ func renderAvatarPicture(address string, cols, rows int) (string, bool) {
 	if cols <= 0 || rows <= 0 {
 		return "", false
 	}
-	img, ok := avatarPicture(address)
+	key := strings.ToLower(address)
+	avatarMu.RLock()
+	img, ok := avatarPictures[key]
 	if !ok {
+		img = avatarFallback
+	}
+	c := avatarBlockCache
+	gen := avatarGen
+	avatarMu.RUnlock()
+	if img == nil {
 		return "", false
 	}
+	if c.rendered != "" && c.address == key && c.cols == cols && c.rows == rows && c.gen == gen {
+		return c.rendered, true
+	}
+
 	bounds := img.Bounds()
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
 		return "", false
 	}
 
 	pixelRows := rows * 2
-	lines := make([]string, 0, rows)
-	var line strings.Builder
+	// Written as SGR directly rather than one lipgloss.Style.Render per
+	// cell. A picture this size is hundreds of cells, and a Render each —
+	// with its own allocation and grapheme-width scan — costs milliseconds
+	// per frame, which a window-resize drag pays on every size message.
+	// The output is byte-identical to what lipgloss would emit for a
+	// truecolor foreground+background pair.
+	var sb strings.Builder
+	sb.Grow(rows * (cols*32 + 4))
 	for row := 0; row < rows; row++ {
-		line.Reset()
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		for col := 0; col < cols; col++ {
 			top := boxAverage(img, bounds, col, row*2, cols, pixelRows)
 			bottom := boxAverage(img, bounds, col, row*2+1, cols, pixelRows)
-			line.WriteString(lipgloss.NewStyle().
-				Foreground(lipgloss.Color(rgbHex(top))).
-				Background(lipgloss.Color(rgbHex(bottom))).
-				Render(upperHalfBlock))
+			writeHalfBlockCell(&sb, top, bottom)
 		}
-		lines = append(lines, line.String())
+		sb.WriteString(ansiReset)
 	}
-	return strings.Join(lines, "\n"), true
+	out := sb.String()
+
+	avatarMu.Lock()
+	if avatarGen == gen {
+		avatarBlockCache = avatarBlockKey{address: key, cols: cols, rows: rows, gen: gen, rendered: out}
+	}
+	avatarMu.Unlock()
+	return out, true
+}
+
+const ansiReset = "\x1b[m"
+
+// writeHalfBlockCell emits one half-block cell: a truecolor foreground and
+// background SGR pair followed by the block itself.
+func writeHalfBlockCell(sb *strings.Builder, top, bottom color.RGBA) {
+	sb.WriteString("\x1b[38;2;")
+	writeUint8(sb, top.R)
+	sb.WriteByte(';')
+	writeUint8(sb, top.G)
+	sb.WriteByte(';')
+	writeUint8(sb, top.B)
+	sb.WriteString(";48;2;")
+	writeUint8(sb, bottom.R)
+	sb.WriteByte(';')
+	writeUint8(sb, bottom.G)
+	sb.WriteByte(';')
+	writeUint8(sb, bottom.B)
+	sb.WriteByte('m')
+	sb.WriteString(upperHalfBlock)
+}
+
+func writeUint8(sb *strings.Builder, v uint8) {
+	if v >= 100 {
+		sb.WriteByte('0' + v/100)
+	}
+	if v >= 10 {
+		sb.WriteByte('0' + v/10%10)
+	}
+	sb.WriteByte('0' + v%10)
 }
 
 // upperHalfBlock is U+2580. Foreground colors its upper half, background
