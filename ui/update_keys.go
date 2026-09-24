@@ -422,6 +422,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return model, cmd, true
 		}
 
+	case matchesKey(msg, m.keys.AvatarMenu):
+		if m.selectedView == viewAccounts {
+			cmd := m.openAvatarMenu()
+			return m, cmd, true
+		}
+
 	case matchesKey(msg, m.keys.CallToggle):
 		if m.selectedView == viewChat || m.callInProgress() {
 			return m, m.startCallToCurrentChat(), true
@@ -437,12 +443,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	case matchesKey(msg, m.keys.ChangeStoragePassword):
 		if m.selectedView == viewAccounts {
 			cmd := m.openChangePasswordPopup()
-			return m, cmd, true
-		}
-
-	case matchesKey(msg, m.keys.AvatarMenu):
-		if m.selectedView == viewAccounts {
-			cmd := m.openAvatarMenu()
 			return m, cmd, true
 		}
 

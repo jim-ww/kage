@@ -46,13 +46,13 @@ func TestAvatarMenuOnlyOpensOnAccountsPanel(t *testing.T) {
 	m := avatarMenuModel(t, &fakeAvatarPublisher{})
 
 	m.selectedView = viewChat
-	next := updated(t, m, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl | tea.ModShift})
+	next := updated(t, m, tea.KeyPressMsg{Code: 'v', Text: "v"})
 	if next.avatarMenu != nil {
 		t.Error("avatar menu opened from the chat view")
 	}
 
 	m.selectedView = viewAccounts
-	next = updated(t, m, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl | tea.ModShift})
+	next = updated(t, m, tea.KeyPressMsg{Code: 'v', Text: "v"})
 	if next.avatarMenu == nil {
 		t.Fatal("avatar menu did not open on the accounts panel")
 	}

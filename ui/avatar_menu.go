@@ -8,10 +8,13 @@ import (
 // The avatar menu: a two-item popup for publishing or removing this
 // account's own avatar (XEP-0084, see the daemon's avatars.go).
 //
-// It lives on the accounts panel because an avatar belongs to the account,
-// not to a chat — the same reason ChangeStoragePassword is bound only
-// there. Both operations share one popup rather than one keybinding each,
-// so "what can I do with my avatar" is a single place to look.
+// Reached from the accounts panel for now, next to its siblings (add
+// account, OMEMO devices, contacts), since an avatar belongs to the account
+// rather than to a chat. That panel is a poor home for all of them — it has
+// to be found before any of its actions can be — and they belong in an
+// account modal reachable by both click and keybind; until that exists this
+// at least sits where the others do, rather than on a keybinding of its own
+// that no terminal reports reliably.
 type avatarMenuState struct {
 	index int
 	busy  bool

@@ -48,7 +48,7 @@ type KeyMap struct {
 	UndoDraft             key.Binding // Ctrl+Z — undo the last change to the compose box
 	RedoDraft             key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
 	ChangeStoragePassword key.Binding // Ctrl+Shift+P — change the local message/draft storage encryption password (accounts panel)
-	AvatarMenu            key.Binding // Ctrl+Shift+A — set or remove this account's published avatar (accounts panel)
+	AvatarMenu            key.Binding // v (accounts panel) — set or remove this account's published avatar
 	CallToggle            key.Binding // Ctrl+G — start a voice call to the open chat, or hang up the current call
 	VideoCallToggle       key.Binding // Ctrl+Shift+G — start a video call to the open chat (prompts camera/screen), or hang up the current call
 	ToggleComposeExpand   key.Binding // Ctrl+` — grow the compose box to ~half the chat pane, or shrink it back
@@ -136,11 +136,11 @@ var DefaultKeyMap = KeyMap{
 	RenameChat:            NewBinding([]string{"r"}, "rename chat"),
 	ToggleSidebar:         NewBinding([]string{"ctrl+shift+\\"}, "toggle chat list"),
 	DeviceList:            NewBinding([]string{"u"}, "omemo devices"),
+	AvatarMenu:            NewBinding([]string{"v"}, "avatar"),
 	ContactManager:        NewBinding([]string{"c"}, "manage contacts"),
 	RemoveAttachment:      NewBinding([]string{"backspace"}, "remove attachment"),
 	ClearDraft:            NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
 	ChangeStoragePassword: NewBinding([]string{"ctrl+shift+p"}, "change storage password"),
-	AvatarMenu:            NewBinding([]string{"ctrl+shift+a"}, "avatar"),
 	CallToggle:            NewBinding([]string{"ctrl+g"}, "call"),
 	VideoCallToggle:       NewBinding([]string{"ctrl+shift+g"}, "video call"),
 	ToggleComposeExpand:   NewBinding([]string{"ctrl+`"}, "expand input"),
@@ -259,8 +259,8 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.AddAccount, "add"},
 			{k.DeviceList, "omemo devices"},
 			{k.ContactManager, "contacts"},
-			{k.ChangeStoragePassword, "change storage password"},
 			{k.AvatarMenu, "avatar"},
+			{k.ChangeStoragePassword, "change storage password"},
 		}
 	case viewChats:
 		return []helpEntry{
