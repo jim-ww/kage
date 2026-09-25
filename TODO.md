@@ -1,4 +1,5 @@
-## bugs
+## Bugs
+- add image preview for file manager? same way we have avatars
 - fix: rarely, cannot scroll past certain message and load older history
 - non-focused state of app, with open chat doesnt send notifications?
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
@@ -10,14 +11,18 @@
 - check how local/remote messages timestampt are handled?
 - contacts: resubscribe action does nothing?
 
-## optimization
+## Optimization
 - optimization speed up cursor message selection in chat and for scrolling
 - speed up moving cursor on textinput, based on how long is held, OR add ctrl+d/ctrl+u binds there?
+- lags on big window scale
 
-## refactor
+## UX
+- hard to grab left/bottom panel border for resize
+
+## Refactor
 - create generic ui components and reuse them across repo
 
-## features
+## Features
 - calls: option to choose mic + mid call
 - ux: open chat composer (textbox) of message size (with limits)
 - ui: show own full account address somewhere (in case alias is set)
@@ -29,6 +34,6 @@
 - chat view: vim motions for textinput (visual/insert mode emulation)
 - preview files text contents (in separate viewport?)
 
-## design
+## Design
 - green account alias text out of place?
 - design proper tray icon/logo
