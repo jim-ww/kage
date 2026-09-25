@@ -165,10 +165,7 @@ func (m *Model) unhideChat(accountIdx int, address string) tea.Cmd {
 		m.accounts[accountIdx].HistoryMore[idx] = true
 	}
 
-	var cmds []tea.Cmd
-	if accountIdx == m.currentAccount {
-		cmds = append(cmds, m.chats.SetItems(m.accounts[accountIdx].Chats))
-	}
+	cmds := []tea.Cmd{m.sortChatsByActivity(accountIdx)}
 	if err := m.persistChatHidden(accountIdx, h.chat.Address, false); err != nil {
 		cmds = append(cmds, m.showNotification("unhiding "+h.chat.Address+": "+err.Error()))
 	}

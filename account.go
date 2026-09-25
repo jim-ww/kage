@@ -762,6 +762,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		if len(hist) > 0 {
 			messages[i] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
+			chat.LastActivity = hist[len(hist)-1].SentAt
 		}
 		chats = append(chats, chat)
 		historyMore[i] = hasMore
@@ -889,6 +890,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		if len(hist) > 0 {
 			newMessages[idx] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
+			chat.LastActivity = hist[len(hist)-1].SentAt
 		}
 		newChatIdx[c.JID] = len(newChats)
 		newChats = append(newChats, chat)

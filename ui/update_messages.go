@@ -761,9 +761,8 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		m.accounts[msg.Index] = msg.Account
 		m.stripHiddenChats(msg.Index)
-		var cmd tea.Cmd
+		cmd := m.sortChatsByActivity(msg.Index)
 		if msg.Index == m.currentAccount {
-			cmd = m.chats.SetItems(m.accounts[msg.Index].Chats)
 			m.refreshViewport()
 			cmd = tea.Batch(cmd, m.openPendingChat())
 		}
@@ -775,6 +774,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		m.accounts[msg.Index].Connecting = false
 		m.accounts[msg.Index].ConnectError = ""
+		var cmd tea.Cmd
 		if len(msg.NewChats) > 0 {
 			m.accounts[msg.Index].Chats = append(m.accounts[msg.Index].Chats, msg.NewChats...)
 			if m.accounts[msg.Index].Messages == nil {
@@ -786,12 +786,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			}
 			maps.Copy(m.accounts[msg.Index].HistoryMore, msg.NewHistoryMore)
 			m.stripHiddenChats(msg.Index)
+			cmd = m.sortChatsByActivity(msg.Index)
 		}
-		var cmd tea.Cmd
 		if msg.Index == m.currentAccount {
-			if len(msg.NewChats) > 0 {
-				cmd = m.chats.SetItems(m.accounts[msg.Index].Chats)
-			}
 			m.refreshViewport()
 			cmd = tea.Batch(cmd, m.openPendingChat())
 		}

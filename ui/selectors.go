@@ -2,6 +2,7 @@ package ui
 
 import (
 	"slices"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -130,8 +131,9 @@ func (m *Model) maybeLoadNewerHistory() tea.Cmd {
 }
 
 // setChatLastMessage updates the chat list preview text for the chat at
-// chatIdx and, if that chat's account is currently displayed, refreshes the
-// visible list item.
+// chatIdx, bumps its activity so it sorts to the top of the list (see
+// sortChatsByActivity), and, if that chat's account is currently displayed,
+// refreshes the visible list.
 func (m *Model) setChatLastMessage(accountIdx, chatIdx int, content string) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil
@@ -141,11 +143,9 @@ func (m *Model) setChatLastMessage(accountIdx, chatIdx int, content string) tea.
 		return nil
 	}
 	chat.LastMessage = content
+	chat.LastActivity = time.Now()
 	m.accounts[accountIdx].Chats[chatIdx] = chat
-	if accountIdx == m.currentAccount {
-		return m.chats.SetItem(chatIdx, chat)
-	}
-	return nil
+	return m.sortChatsByActivity(accountIdx)
 }
 
 // setChatUnread updates the chat list's unread count for the chat at

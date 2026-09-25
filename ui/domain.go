@@ -292,7 +292,14 @@ type Chat struct {
 	Name        string
 	Address     string
 	LastMessage string
-	Presence    Presence
+
+	// LastActivity is when LastMessage was last set — a new message sent or
+	// received, essentially. The chat list is sorted by this, most recent
+	// first (see sortChatsByActivity); the zero value sorts last, which is
+	// right for a contact with no messages yet.
+	LastActivity time.Time
+
+	Presence Presence
 	Typing      bool // true while the peer has an active XEP-0085 "composing" state
 
 	// Resources lists this contact's currently online devices (full-JID
