@@ -556,12 +556,14 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	}
 	// Hidden chats arrive flagged from the daemon; take them out of the
 	// lists before anything indexes into them — see ui/hidden_chats.go.
+	// The daemon snapshot's chat order isn't activity-sorted (the daemon
+	// has no notion of that; see sortChatsByActivity), so every account
+	// needs it applied fresh on attach, not just the one being displayed.
 	for i := range m.accounts {
 		m.stripHiddenChats(i)
+		m.sortChatsByActivity(i)
 	}
-	// The list was built from the unfiltered chats above; rebuild it only
-	// if something was actually taken out, so the common case is untouched.
-	if len(m.hiddenChats[startAccount]) > 0 {
+	if len(m.accounts) > 0 {
 		m.chats.SetItems(m.accounts[startAccount].Chats)
 	}
 	if initialCallState != nil {
