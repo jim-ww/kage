@@ -140,6 +140,9 @@ type Model struct {
 	// viewportFrameCache is renderSidebar's counterpart for the message
 	// pane's border/frame — see viewportFrameCacheEntry's doc comment.
 	viewportFrameCache *viewportFrameCacheEntry
+	// msgRowCache memoizes individual rendered message rows — see
+	// msgRowCacheState's doc comment.
+	msgRowCache *msgRowCacheState
 
 	input    *textarea.Model
 	viewport viewport.Model
@@ -509,6 +512,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		chats:                      &l,
 		sidebarRenderCache:         &sidebarCacheEntry{},
 		viewportFrameCache:         &viewportFrameCacheEntry{},
+		msgRowCache:                newMsgRowCacheState(),
 		input:                      &ti,
 		draftHistory:               []string{""},
 		viewport:                   viewport.New(),

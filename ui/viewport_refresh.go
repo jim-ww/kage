@@ -14,6 +14,10 @@ func messageRowMaxWidth(cw int) int {
 
 // refreshViewport re-renders all messages and updates the viewport content.
 func (m *Model) refreshViewport() {
+	// Every message-content change routes through here (that's what lets
+	// refreshViewportSelection splice single rows into m.viewportLines), so
+	// this is the one place the per-row render cache has to be dropped.
+	clear(m.rowCache().rows)
 	if m.currentChatIndex() < 0 {
 		m.msgOffsets = nil
 		m.viewportLines = nil
@@ -69,7 +73,17 @@ func (m *Model) refreshViewportSelectionMulti(indices ...int) {
 		return
 	}
 	msgs := m.currentMessages()
-	nameWidth := maxSenderNameWidth(msgs)
+	// The shared name column is a property of the message list, not of
+	// which row is selected, so it can only have changed via something that
+	// already went through a full refresh — reuse what that computed rather
+	// than re-measuring every sender name in the chat on every mouse motion
+	// event. A width change invalidates it (and every row's wrapping with
+	// it), which is a full re-render anyway.
+	if m.rowCache().cw != cw {
+		m.refreshViewport()
+		return
+	}
+	nameWidth := m.rowCache().nameWidth
 
 	seen := make(map[int]bool, len(indices))
 	for _, idx := range indices {
@@ -86,7 +100,7 @@ func (m *Model) refreshViewportSelectionMulti(indices ...int) {
 			m.refreshViewport()
 			return
 		}
-		rendered := m.zone.Mark(zoneMessage(idx), padLinesToWidth(m.renderMessage(msgs[idx], idx, cw, msgs, nameWidth), cw))
+		rendered := m.zone.Mark(zoneMessage(idx), m.renderMessageRow(msgs, idx, cw, nameWidth))
 		newLines := strings.Split(rendered, "\n")
 		if len(newLines) != end-start {
 			// Wrapping changed unexpectedly (e.g. width changed mid-flight);

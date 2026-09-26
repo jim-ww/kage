@@ -17,6 +17,7 @@
 - lags on big window scale
 
 ## UX
+- delete message modal has no mouse support. other modals must be checked too.
 - hard to grab left/bottom panel border for resize
 
 ## Refactor

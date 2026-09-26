@@ -44,13 +44,13 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 	var sb strings.Builder
 	currentLine := 0
 
-	for i, msg := range msgs {
+	for i := range msgs {
 		if i > 0 {
 			sb.WriteByte('\n')
 			currentLine++
 		}
 		offsets[i] = currentLine
-		rendered := m.zone.Mark(zoneMessage(i), padLinesToWidth(m.renderMessage(msg, i, cw, msgs, nameWidth), cw))
+		rendered := m.zone.Mark(zoneMessage(i), m.renderMessageRow(msgs, i, cw, nameWidth))
 		sb.WriteString(rendered)
 		currentLine += strings.Count(rendered, "\n")
 	}
@@ -196,6 +196,113 @@ func maxSenderNameWidth(msgs []Message) int {
 		}
 	}
 	return width
+}
+
+// msgRowKey identifies one rendered message row: its index plus every
+// piece of Model state renderMessage's output varies on. The message's own
+// content is deliberately *not* part of the key — see msgRowCacheState.
+type msgRowKey struct {
+	idx         int
+	selected    bool
+	rowHovered  bool
+	replyKey    bool
+	reactKey    bool
+	expandBtn   bool
+	expanded    bool
+	flashed     bool
+	reactionIdx int // hovered reaction chip on this row, -1 for none
+}
+
+// msgRowCacheState memoizes individual rendered message rows (padded, but
+// before zone.Mark, which is a cheap concat and has to re-run per frame
+// anyway).
+//
+// Unlike sidebarRenderCache/viewportFrameCache this can't content-address
+// its input — a Message isn't comparable and hashing every message's body
+// per lookup would cost more than it saves. Instead it hangs off the
+// invariant the message pane already relies on: refreshViewport is the
+// single point every *content* change funnels through, which is exactly
+// why refreshViewportSelection can splice into m.viewportLines and assume
+// each row's line count is unchanged. Dropping the rows here at that same
+// point therefore adds no contract that wasn't already load-bearing — and
+// if that invariant is ever violated, refreshViewportSelection's existing
+// line-count check catches it and falls back to a full re-render.
+//
+// The win is that hovering is a *round trip*: the row the pointer leaves
+// goes back to exactly the plain rendering the last full refresh already
+// produced for it, so re-deriving it (an ansi.Wrap plus a lipgloss Render
+// per line) is pure waste on every single mouse motion event.
+type msgRowCacheState struct {
+	cw        int
+	nameWidth int
+	rows      map[msgRowKey]string
+}
+
+// msgRowCacheLimit caps how many rows are retained between full refreshes,
+// since a long hovering session without one can otherwise keep adding
+// state combinations for the same messages. Cleared wholesale rather than
+// evicted individually — the next full refresh repopulates whatever is
+// still on screen anyway.
+const msgRowCacheLimit = 2048
+
+func newMsgRowCacheState() *msgRowCacheState {
+	return &msgRowCacheState{rows: make(map[msgRowKey]string)}
+}
+
+// rowCache returns the per-row render cache, creating it if this Model was
+// built as a struct literal rather than through newModel (tests do that,
+// and the rendering paths must not depend on which). Value-receiver
+// renderers can't do this, so they treat a nil cache as "render uncached"
+// instead.
+func (m *Model) rowCache() *msgRowCacheState {
+	if m.msgRowCache == nil {
+		m.msgRowCache = newMsgRowCacheState()
+	}
+	return m.msgRowCache
+}
+
+func (m Model) msgRowCacheKey(msgs []Message, idx int) msgRowKey {
+	k := msgRowKey{
+		idx:         idx,
+		selected:    idx == m.selectedMsg,
+		rowHovered:  m.isHovered(zoneMessage(idx)),
+		replyKey:    m.isReplyKeyHovered(idx),
+		reactKey:    m.isReactKeyHovered(idx),
+		expandBtn:   m.isExpandButtonHovered(idx),
+		flashed:     m.flashMsgIdx >= 0 && idx == m.flashMsgIdx,
+		reactionIdx: -1,
+	}
+	if idx >= 0 && idx < len(msgs) {
+		k.expanded = m.expandedMsgs[msgKey(msgs[idx], idx)]
+		if m.hover != nil && m.hover.reactionMsgIdx == idx {
+			k.reactionIdx = m.hover.reactionIdx
+		}
+	}
+	return k
+}
+
+// renderMessageRow renders one message row padded to cw, reusing the
+// previous rendering of that row in that same visual state when there is
+// one. See msgRowCacheState.
+func (m Model) renderMessageRow(msgs []Message, idx, cw, nameWidth int) string {
+	render := func() string {
+		return padLinesToWidth(m.renderMessage(msgs[idx], idx, cw, msgs, nameWidth), cw)
+	}
+	c := m.msgRowCache
+	if c == nil {
+		return render()
+	}
+	if c.cw != cw || c.nameWidth != nameWidth || len(c.rows) > msgRowCacheLimit {
+		clear(c.rows)
+		c.cw, c.nameWidth = cw, nameWidth
+	}
+	key := m.msgRowCacheKey(msgs, idx)
+	if row, ok := c.rows[key]; ok {
+		return row
+	}
+	row := render()
+	c.rows[key] = row
+	return row
 }
 
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message, nameWidth int) string {
