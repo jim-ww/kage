@@ -143,6 +143,10 @@ type Model struct {
 	// msgRowCache memoizes individual rendered message rows — see
 	// msgRowCacheState's doc comment.
 	msgRowCache *msgRowCacheState
+	// chatListViewCache memoizes the chat list's rendered body so the
+	// sidebar's own cache doesn't have to render it just to find out
+	// nothing changed — see chatListBody.
+	chatListViewCache *chatListCacheEntry
 
 	input    *textarea.Model
 	viewport viewport.Model
@@ -513,6 +517,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		sidebarRenderCache:         &sidebarCacheEntry{},
 		viewportFrameCache:         &viewportFrameCacheEntry{},
 		msgRowCache:                newMsgRowCacheState(),
+		chatListViewCache:          &chatListCacheEntry{},
 		input:                      &ti,
 		draftHistory:               []string{""},
 		viewport:                   viewport.New(),

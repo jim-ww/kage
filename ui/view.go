@@ -67,7 +67,7 @@ func (m Model) View() tea.View {
 		statusRow = m.zone.Mark(zoneAccountBarStatus, m.styles.accountBarStatusRow(scw, accountStatus, statusHovered))
 	}
 	statusLine := nameRow + "\n" + statusRow
-	sidebarBody := m.chats.View()
+	sidebarBody := m.chatListBody()
 	switch {
 	case m.selectedView == viewAccounts:
 		sidebarBody = m.renderAccountsList(scw)
@@ -169,6 +169,77 @@ type sidebarCacheEntry struct {
 	boxHeight  int
 	border     color.Color
 	rendered   string
+}
+
+// chatListCacheEntry memoizes m.chats.View()'s output against a key built
+// from its inputs — see chatListBody.
+type chatListCacheEntry struct {
+	key  string
+	body string
+}
+
+// chatListBody returns the rendered chat list, reusing the previous
+// frame's when nothing it draws from has changed.
+//
+// renderSidebar already refuses to re-style a sidebar whose body is
+// byte-identical, but the body had to be rendered in full to find that
+// out — so every frame paid for the whole list (a lipgloss Render plus a
+// zone.Mark per visible row) purely to produce a cache key, and threw it
+// away. Hovering a *message* redraws nothing in the sidebar, which is most
+// of what a mouse does.
+//
+// The key is built from the raw Chat fields rather than each row's
+// rendered text because it's ~40000x cheaper to assemble, and it's
+// compared in full rather than hashed so that, like the caches either side
+// of it, a hit can never be stale. See
+// TestChatListKeyCoversEverythingRendered for what keeps the field list
+// honest as Chat grows.
+func (m Model) chatListBody() string {
+	c := m.chatListViewCache
+	if c == nil {
+		return m.chats.View()
+	}
+	key := m.chatListViewKey()
+	if c.key == key {
+		return c.body
+	}
+	body := m.chats.View()
+	c.key, c.body = key, body
+	return body
+}
+
+// chatListViewKey encodes everything the chat list's rendering varies on:
+// the list's own geometry/cursor/paging/filter state, which row the
+// pointer is over (zoneChatListDelegate.Render reads it), and the fields
+// of each visible Chat that Title/Description are derived from.
+func (m Model) chatListViewKey() string {
+	var sb strings.Builder
+	items := m.chats.VisibleItems()
+	sb.Grow(64 * (len(items) + 1))
+	// Which chat row the pointer is on, not the raw hover ID: the delegate
+	// only ever asks whether hover.id is some zoneChatItem(i), so keying on
+	// the ID itself would miss on every mouse motion over a *message* —
+	// which is exactly the case this cache exists for.
+	hoveredChat := -1
+	if i, ok := chatIndexFromZone(m.hover.id); ok {
+		hoveredChat = i
+	}
+	fmt.Fprintf(&sb, "%d|%d|%d|%d|%d|%d|%s|%d\x00",
+		m.chats.Width(), m.chats.Height(), m.chats.Index(),
+		m.chats.Paginator.Page, m.chats.Paginator.TotalPages,
+		m.chats.FilterState(), m.chats.FilterValue(), hoveredChat)
+	for _, it := range items {
+		chat, ok := it.(Chat)
+		if !ok {
+			// Not a Chat, so its rendering isn't described by the fields
+			// below — fall back to a key that never matches.
+			fmt.Fprintf(&sb, "?%s\x00", it.FilterValue())
+			continue
+		}
+		fmt.Fprintf(&sb, "%s\x01%s\x01%s\x01%d\x01%d\x00",
+			chat.Name, chat.Address, chat.LastMessage, chat.Presence, chat.Unread)
+	}
+	return sb.String()
 }
 
 // renderSidebar renders the sidebar (accounts/status bar + chat list,
