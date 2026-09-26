@@ -40,6 +40,7 @@ type KeyMap struct {
 	SortFilePicker      key.Binding // Ctrl+S — cycle the file picker's sort order (updated/created × asc/desc)
 	PasteImage          key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
 	RenameChat          key.Binding // r — open the rename-contact prompt for the selected chat
+	PinChat             key.Binding // p — pin/unpin the selected chat to the top of the chat list
 	ToggleSidebar       key.Binding // Ctrl+\ — show/hide the chat list sidebar
 	DeviceList          key.Binding // u (accounts panel) — view/purge the current account's published OMEMO device list
 	ContactManager      key.Binding // c — add/remove roster contacts for the current account (accounts panel)
@@ -134,6 +135,7 @@ var DefaultKeyMap = KeyMap{
 	SortFilePicker: NewBinding([]string{"ctrl+s"}, "cycle sort"),
 	PasteImage:     NewBinding([]string{"ctrl+p"}, "paste image"),
 	RenameChat:     NewBinding([]string{"r"}, "rename chat"),
+	PinChat:        NewBinding([]string{"p"}, "pin chat"),
 	ToggleSidebar:  NewBinding([]string{"ctrl+shift+\\"}, "toggle chat list"),
 	DeviceList:     NewBinding([]string{"u"}, "omemo devices"),
 	AvatarMenu:     NewBinding([]string{"v"}, "avatar"),
@@ -272,6 +274,7 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 			{k.ListKeys.CursorDown, "down"},
 			{k.ChatOpen, "open"},
 			{k.RenameChat, "rename"},
+			{k.PinChat, "pin"},
 			{k.DeleteMsg, "hide chat"},
 			{k.ListKeys.Filter, "filter"},
 			{k.ToggleSidebar, "hide chats"},

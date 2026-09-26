@@ -36,6 +36,10 @@ var presenceGlyphs = map[Presence]struct {
 	PresenceInvisible: {presenceInvisibleStyle, "◌"},
 }
 
+// pinnedChatGlyph prefixes a pinned chat's row in the chat list (see
+// Chat.Title).
+const pinnedChatGlyph = "📌"
+
 // presenceGlyph renders a presence as a single colored symbol.
 func presenceGlyph(p Presence) string {
 	g, ok := presenceGlyphs[p]

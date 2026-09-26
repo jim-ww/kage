@@ -9,7 +9,8 @@ import (
 
 // sortChatsByActivity reorders accountIdx's chat list by most recent
 // activity first (Chat.LastActivity descending, ties keeping their existing
-// relative order), re-keying Messages/HistoryMore to their new indices —
+// relative order), with pinned chats (Chat.Pinned) held above every
+// unpinned one, re-keying Messages/HistoryMore to their new indices —
 // same reason stripHiddenChats does: the chat list's indices and
 // Account.Messages' keys share one index space (see currentChatIndex), so
 // reordering the list without the maps would misalign every message lookup.
@@ -37,7 +38,12 @@ func (m *Model) sortChatsByActivity(accountIdx int) tea.Cmd {
 		}
 		entries = append(entries, entry{i, chat})
 	}
+	// Pinned chats come first as a block, activity-sorted among themselves;
+	// everything else follows in the same order it would have had anyway.
 	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].chat.Pinned != entries[j].chat.Pinned {
+			return entries[i].chat.Pinned
+		}
 		return entries[i].chat.LastActivity.After(entries[j].chat.LastActivity)
 	})
 

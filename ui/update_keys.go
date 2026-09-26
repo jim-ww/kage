@@ -431,6 +431,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionRenameChat(), true
 		}
 
+	case matchesKey(msg, m.keys.PinChat):
+		if m.selectedView == viewChats {
+			return m, m.actionTogglePinChat(), true
+		}
+
 	case matchesKey(msg, m.keys.AttachFile):
 		if m.selectedView == viewChat {
 			if m.currentChatIndex() < 0 {

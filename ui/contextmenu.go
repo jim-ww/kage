@@ -117,8 +117,13 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 	if idx < 0 || idx >= len(m.chats.Items()) {
 		return nil
 	}
+	pin := "Pin chat"
+	if chat, ok := m.chats.Items()[idx].(Chat); ok && chat.Pinned {
+		pin = "Unpin chat"
+	}
 	return []contextMenuItem{
 		{label: "Rename", run: (*Model).actionRenameChat},
+		{label: pin, run: (*Model).actionTogglePinChat},
 		{label: "Encryption", run: (*Model).actionOpenEncryptionMenu},
 		{label: "Hide chat", run: (*Model).actionHideChat},
 	}
