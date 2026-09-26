@@ -227,19 +227,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	if len(m.openItems) > 0 {
 		start, end := openPageBounds(len(m.openItems), m.openPage)
 		if i, ok := digitKey(msg); ok && i >= 1 && i <= end-start {
-			idx := start + i - 1
-			target := m.openItems[idx]
-			isAttachment := idx < m.openItemsAttachCount
-			m.openItems = nil
-			m.openItemsAttachCount = 0
-			m.openPage = 0
-			switch m.openMode {
-			case pickerModeSave:
-				return m, m.startSave(target), true
-			case pickerModeSaveAs:
-				return m, m.openSaveAsPrompt(target), true
-			}
-			return m, m.startOpen(target, isAttachment), true
+			m, cmd := m.selectOpenItem(start + i - 1)
+			return m, cmd, true
 		}
 		switch msg.String() {
 		case "left", "h":

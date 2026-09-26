@@ -796,7 +796,11 @@ func (m Model) renderOpenPopup() string {
 		if start+i < m.openItemsAttachCount {
 			label = attachmentDisplayName(item)
 		}
-		rows[i] = fmt.Sprintf("%d. %s", i+1, previewText(label, previewLen))
+		row := fmt.Sprintf("%d. %s", i+1, previewText(label, previewLen))
+		if m.isHovered(zoneOpenPickerRow(i)) {
+			row = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan).Render(row)
+		}
+		rows[i] = m.zone.Mark(zoneOpenPickerRow(i), row)
 	}
 
 	verb := "open"
@@ -816,7 +820,7 @@ func (m Model) renderOpenPopup() string {
 	}
 
 	body := m.styles.listPopup(title, rows, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
+	popup := m.zone.Mark(zoneOpenPickerPopup, m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body))
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

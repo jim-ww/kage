@@ -305,6 +305,24 @@ func renderAttachmentLine(target string, icons bool, jid string) string {
 	return line
 }
 
+// selectOpenItem resolves a pick of m.openItems[idx] — shared by the 1-9
+// digit-key handler (update_keys.go) and the mouse row-click handler
+// (mouse.go's handleOpenPickerClick) so the two input paths can't drift.
+func (m Model) selectOpenItem(idx int) (Model, tea.Cmd) {
+	target := m.openItems[idx]
+	isAttachment := idx < m.openItemsAttachCount
+	m.openItems = nil
+	m.openItemsAttachCount = 0
+	m.openPage = 0
+	switch m.openMode {
+	case pickerModeSave:
+		return m, m.startSave(target)
+	case pickerModeSaveAs:
+		return m, m.openSaveAsPrompt(target)
+	}
+	return m, m.startOpen(target, isAttachment)
+}
+
 type pickerMode int
 
 const (

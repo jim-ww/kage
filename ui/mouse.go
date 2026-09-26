@@ -49,6 +49,7 @@ const (
 	zoneFilePickerBack        = "file-picker-back-button"
 	zoneFilePickerForward     = "file-picker-forward-button"
 	zoneAvatarPreviewPopup    = "avatar-preview-popup"
+	zoneOpenPickerPopup       = "open-picker-popup"
 )
 
 // inputWheelScrollLines is how many lines a single wheel notch moves the
@@ -56,6 +57,7 @@ const (
 const inputWheelScrollLines = 2
 
 func zoneFilePickerRow(i int) string      { return fmt.Sprintf("file-picker-row-%d", i) }
+func zoneOpenPickerRow(i int) string      { return fmt.Sprintf("open-picker-row-%d", i) }
 func zoneAccountRow(i int) string         { return fmt.Sprintf("account-row-%d", i) }
 func zoneChatItem(i int) string           { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string            { return fmt.Sprintf("msg-%d", i) }
@@ -517,6 +519,16 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		return ""
 	}
 
+	if len(m.openItems) > 0 {
+		start, end := openPageBounds(len(m.openItems), m.openPage)
+		for i := 0; i < end-start; i++ {
+			if m.zone.Get(zoneOpenPickerRow(i)).InBounds(mouse) {
+				return zoneOpenPickerRow(i)
+			}
+		}
+		return ""
+	}
+
 	// The call bar's own buttons take priority the same way zoneSendButton
 	// etc. do — it's a fixed status-bar area, so it should win over anything
 	// happening to render underneath it.
@@ -649,6 +661,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.deviceList != nil {
 		return m.handleDeviceListClick(msg)
+	}
+
+	if len(m.openItems) > 0 {
+		return m.handleOpenPickerClick(msg)
 	}
 
 	if msg.Mouse().Button == tea.MouseLeft {
@@ -1210,6 +1226,38 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 		cmd = tea.Sequence(cmd, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} })
 	}
 	return m, cmd
+}
+
+// openPickerRowUnderMouse returns the index into m.openItems (not just the
+// current page) whose zoneOpenPickerRow the mouse is over, or -1.
+func (m Model) openPickerRowUnderMouse(msg tea.MouseMsg) int {
+	start, end := openPageBounds(len(m.openItems), m.openPage)
+	for i := range end - start {
+		if m.zone.Get(zoneOpenPickerRow(i)).InBounds(msg) {
+			return start + i
+		}
+	}
+	return -1
+}
+
+// handleOpenPickerClick lets the open/save picker (ctrl+o) be driven by
+// mouse as well as the 1-9 digit keys: clicking a row picks that item
+// (mirroring the digitKey branch in updateKeyMsg), clicking outside the
+// popup cancels it like esc does.
+func (m Model) handleOpenPickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if msg.Mouse().Button != tea.MouseLeft {
+		return m, nil
+	}
+	if !m.zone.Get(zoneOpenPickerPopup).InBounds(msg) {
+		m.openItems = nil
+		m.openItemsAttachCount = 0
+		m.openPage = 0
+		return m, nil
+	}
+	if idx := m.openPickerRowUnderMouse(msg); idx >= 0 {
+		return m.selectOpenItem(idx)
+	}
+	return m, nil
 }
 
 // handleMouseWheel scrolls whichever pane the wheel event landed over: the
