@@ -74,6 +74,44 @@ func BenchmarkMouseSweepFullPipeline(b *testing.B) {
 	}
 }
 
+// BenchmarkMouseSweepMotionOnly drives the same sweep as
+// BenchmarkMouseSweepFullPipeline but without the View() call, isolating
+// what the motion handler itself costs. That's the number that decides
+// whether the selection can keep up with the pointer: a terminal in
+// AllMotion mode emits motion events far faster than it emits frames, so
+// events queue behind Update, not behind rendering. The X offset walks
+// across each row so the sweep also crosses the action-key columns, the
+// case where several hover sub-states flip at once.
+func BenchmarkMouseSweepMotionOnly(b *testing.B) {
+	m := newMouseSweepBenchModel(30, 150)
+	_ = m.View() // populate zone bounds to hit-test against
+
+	var points []tea.Mouse
+	for i := 149 - 20; i < 150; i++ {
+		z := m.zone.Get(zoneMessage(i))
+		if z == nil {
+			continue
+		}
+		points = append(points, tea.Mouse{X: z.StartX, Y: z.StartY})
+		points = append(points, tea.Mouse{X: z.StartX + 30, Y: z.StartY})
+	}
+	if len(points) < 2 {
+		b.Fatal("not enough visible message zones to sweep over — check viewport height/window setup")
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for j := len(points) - 1; j >= 0; j-- {
+			next, _ := m.Update(tea.MouseMotionMsg(points[j]))
+			m = next.(Model)
+		}
+		for j := 0; j < len(points); j++ {
+			next, _ := m.Update(tea.MouseMotionMsg(points[j]))
+			m = next.(Model)
+		}
+	}
+}
+
 // BenchmarkMouseSweepSidebarFullPipeline mirrors
 // BenchmarkMouseSweepFullPipeline but sweeps over chat-list rows instead of
 // messages — the viewport frame cache's sweet spot: hovering the chat list
