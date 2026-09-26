@@ -37,6 +37,37 @@ func newMouseSweepBenchModel(nChats, nMsgs int) Model {
 	return m
 }
 
+// messageSweepPoints returns pointer positions walking across message rows
+// [from, to), two per row so the sweep also crosses the action-key columns
+// (where several hover sub-states flip at once). bubblezone hands zone
+// bounds to a background goroutine, so the marks from a View() aren't
+// necessarily queryable the instant it returns — hence the retry rather
+// than a single render.
+func messageSweepPoints(tb testing.TB, m *Model, from, to int) []tea.Mouse {
+	tb.Helper()
+	var points []tea.Mouse
+	for attempt := range 100 {
+		_ = m.View()
+		points = points[:0]
+		for i := from; i < to; i++ {
+			z := m.zone.Get(zoneMessage(i))
+			if z == nil {
+				continue
+			}
+			points = append(points, tea.Mouse{X: z.StartX, Y: z.StartY})
+			points = append(points, tea.Mouse{X: z.StartX + 30, Y: z.StartY})
+		}
+		if len(points) >= 2 {
+			return points
+		}
+		if attempt > 0 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	tb.Fatal("not enough visible message zones to sweep over — check viewport height/window setup")
+	return nil
+}
+
 // BenchmarkMouseSweepFullPipeline drives the full Update+View pipeline (not
 // just handleMouseMotion in isolation), simulating a mouse sweeping up and
 // down across message rows — the scenario reported as showing a visible
@@ -84,20 +115,7 @@ func BenchmarkMouseSweepFullPipeline(b *testing.B) {
 // case where several hover sub-states flip at once.
 func BenchmarkMouseSweepMotionOnly(b *testing.B) {
 	m := newMouseSweepBenchModel(30, 150)
-	_ = m.View() // populate zone bounds to hit-test against
-
-	var points []tea.Mouse
-	for i := 149 - 20; i < 150; i++ {
-		z := m.zone.Get(zoneMessage(i))
-		if z == nil {
-			continue
-		}
-		points = append(points, tea.Mouse{X: z.StartX, Y: z.StartY})
-		points = append(points, tea.Mouse{X: z.StartX + 30, Y: z.StartY})
-	}
-	if len(points) < 2 {
-		b.Fatal("not enough visible message zones to sweep over — check viewport height/window setup")
-	}
+	points := messageSweepPoints(b, &m, 149-20, 150)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
