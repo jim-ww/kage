@@ -495,6 +495,17 @@ func (s uiStyles) viewportFrame(width, height int, content string) string {
 		Render(content)
 }
 
+// viewportFramePresized is viewportFrame for content that is already
+// exactly the frame's width and height, so the only thing left for the
+// style to contribute is its foreground colour. Setting Width/Height
+// instead (as viewportFrame does) makes lipgloss wrap and align every line
+// of the whole visible chat — a full Unicode grapheme-width scan of the
+// pane — to produce output byte-identical to what it was handed. See
+// renderViewportFrame for when that precondition holds.
+func (s uiStyles) viewportFramePresized(content string) string {
+	return s.viewportArea.Render(content)
+}
+
 func (s uiStyles) rootView(content string) string {
 	return s.root.Render(content)
 }

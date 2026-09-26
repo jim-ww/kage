@@ -223,7 +223,20 @@ func (m Model) renderViewportFrame(want viewportFrameCacheEntry) string {
 	if c.width == want.width && c.height == want.height && c.content == want.content {
 		return c.rendered
 	}
-	want.rendered = m.styles.viewportFrame(want.width, want.height, m.styles.viewportContent(want.width, want.height, want.content))
+	// viewport.Model.View already pads every line to exactly its own width
+	// and the block to its own height, so whenever those match the frame
+	// being asked for, both of the sizing passes below are re-deriving
+	// their own input: lipgloss wrap-then-align is idempotent, so
+	// viewportContent's (an empty style — sizing is all it does) and
+	// viewportFrame's Width/Height each cost a full grapheme-width scan of
+	// the entire visible chat to hand back the bytes they were given. That
+	// ran twice per frame, on every mouse motion. See
+	// TestViewportFramePresizedMatchesSizedRender.
+	if m.viewport.Width() == want.width && m.viewport.Height() == want.height {
+		want.rendered = m.styles.viewportFramePresized(want.content)
+	} else {
+		want.rendered = m.styles.viewportFrame(want.width, want.height, m.styles.viewportContent(want.width, want.height, want.content))
+	}
 	*c = want
 	return want.rendered
 }
