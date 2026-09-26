@@ -418,6 +418,12 @@ type ChatHiddenSetter interface {
 	SetChatHidden(accountJID, chatAddress string, hidden bool) error
 }
 
+// ChatPinnedSetter persists whether a chat is pinned to the top of the chat
+// list, per account — see Chat.Pinned.
+type ChatPinnedSetter interface {
+	SetChatPinned(accountJID, chatAddress string, pinned bool) error
+}
+
 // AvatarPublisher publishes and removes this account's own avatar
 // (XEP-0084). Both calls reach the network, so callers run them as
 // commands rather than inline in Update.

@@ -20,6 +20,7 @@ const (
 	rpcRecordReactionEmojiUsage = "RecordReactionEmojiUsage"
 	rpcSetSidebarHidden         = "SetSidebarHidden"
 	rpcSetChatHidden            = "SetChatHidden"
+	rpcSetChatPinned            = "SetChatPinned"
 	rpcSetInputHeight           = "SetInputHeight"
 	rpcSetFilePickerSort        = "SetFilePickerSort"
 	rpcSetLastChat              = "SetLastChat"
@@ -347,4 +348,10 @@ type setChatHiddenParams struct {
 	AccountJID  string `json:"account_jid"`
 	ChatAddress string `json:"chat_address"`
 	Hidden      bool   `json:"hidden"`
+}
+
+type setChatPinnedParams struct {
+	AccountJID  string `json:"account_jid"`
+	ChatAddress string `json:"chat_address"`
+	Pinned      bool   `json:"pinned"`
 }

@@ -118,6 +118,13 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		}
 		return nil, d.a.SetChatHidden(p.AccountJID, p.ChatAddress, p.Hidden)
 
+	case rpcSetChatPinned:
+		p, err := unmarshalParams[setChatPinnedParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.SetChatPinned(p.AccountJID, p.ChatAddress, p.Pinned)
+
 	case rpcSetInputHeight:
 		p, err := unmarshalParams[heightParams](params)
 		if err != nil {

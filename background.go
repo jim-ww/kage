@@ -26,18 +26,26 @@ var notifyEnabled atomic.Bool
 // same reasoning as notifyEnabled above.
 var avatarsEnabled atomic.Bool
 
-// hiddenChats mirrors cfg.State.HiddenChats for the chat-list build
-// (account.go), which has no other path back to the loaded state — same
-// reasoning as notifyEnabled above. Hiding is local and reversible: the
-// contact stays in the roster and messages keep arriving, the chat is just
-// flagged so the TUI can keep it out of the list.
+// hiddenChats/pinnedChats mirror cfg.State.HiddenChats/PinnedChats for the
+// chat-list build (account.go), which has no other path back to the loaded
+// state — same reasoning as notifyEnabled above. Both are local, reversible
+// and invisible to the peer: the contact stays in the roster and messages
+// keep arriving, the chat is just flagged so the TUI can keep it out of the
+// list (hidden) or sort it to the top (pinned).
 var (
-	hiddenChatsMu sync.RWMutex
-	hiddenChats   map[string]map[string]bool
+	hiddenChats chatFlags
+	pinnedChats chatFlags
 )
 
-// setHiddenChats replaces the hidden-chat set from the loaded state.
-func setHiddenChats(state map[string][]string) {
+// chatFlags is a per-account set of flagged chat addresses, keyed by account
+// JID then lowercased bare JID.
+type chatFlags struct {
+	mu  sync.RWMutex
+	set map[string]map[string]bool
+}
+
+// replace swaps the whole set in from the loaded state.
+func (f *chatFlags) replace(state map[string][]string) {
 	next := make(map[string]map[string]bool, len(state))
 	for accountJID, addrs := range state {
 		set := make(map[string]bool, len(addrs))
@@ -46,36 +54,34 @@ func setHiddenChats(state map[string][]string) {
 		}
 		next[accountJID] = set
 	}
-	hiddenChatsMu.Lock()
-	hiddenChats = next
-	hiddenChatsMu.Unlock()
+	f.mu.Lock()
+	f.set = next
+	f.mu.Unlock()
 }
 
-// setChatHiddenFlag records one chat's hidden state, so a chat hidden this
-// session stays hidden for an account that reconnects without the daemon
-// restarting.
-func setChatHiddenFlag(accountJID, chatAddress string, hidden bool) {
+// flag records one chat's state, so a chat flagged this session keeps the
+// flag for an account that reconnects without the daemon restarting.
+func (f *chatFlags) flag(accountJID, chatAddress string, on bool) {
 	key := strings.ToLower(chatAddress)
-	hiddenChatsMu.Lock()
-	defer hiddenChatsMu.Unlock()
-	if hiddenChats == nil {
-		hiddenChats = map[string]map[string]bool{}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.set == nil {
+		f.set = map[string]map[string]bool{}
 	}
-	if hiddenChats[accountJID] == nil {
-		hiddenChats[accountJID] = map[string]bool{}
+	if f.set[accountJID] == nil {
+		f.set[accountJID] = map[string]bool{}
 	}
-	if hidden {
-		hiddenChats[accountJID][key] = true
+	if on {
+		f.set[accountJID][key] = true
 		return
 	}
-	delete(hiddenChats[accountJID], key)
+	delete(f.set[accountJID], key)
 }
 
-// chatHidden reports whether a chat is hidden from the list.
-func chatHidden(accountJID, chatAddress string) bool {
-	hiddenChatsMu.RLock()
-	defer hiddenChatsMu.RUnlock()
-	return hiddenChats[accountJID][strings.ToLower(chatAddress)]
+func (f *chatFlags) has(accountJID, chatAddress string) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.set[accountJID][strings.ToLower(chatAddress)]
 }
 
 // videoQuality mirrors cfg.VideoQuality for beginScreenShareCapture
@@ -144,7 +150,8 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	startupStart := time.Now()
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
-	setHiddenChats(cfg.State.HiddenChats)
+	hiddenChats.replace(cfg.State.HiddenChats)
+	pinnedChats.replace(cfg.State.PinnedChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 
@@ -244,7 +251,8 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 func (b *backend) Reload(cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
-	setHiddenChats(cfg.State.HiddenChats)
+	hiddenChats.replace(cfg.State.HiddenChats)
+	pinnedChats.replace(cfg.State.PinnedChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 }

@@ -266,34 +266,53 @@ func writeFileConfig(path string, cfg Config) error {
 // (see ui.ChatHiddenSetter). Hiding is local only: nothing is removed from
 // the roster or from storage.
 func SetChatHidden(path, accountJID, chatAddress string, hidden bool) error {
+	return setChatListFlag(path, accountJID, chatAddress, hidden, "hiding",
+		func(st *State) map[string][]string { return st.HiddenChats },
+		func(st *State, m map[string][]string) { st.HiddenChats = m })
+}
+
+// SetChatPinned adds or removes one chat from the pinned list for an
+// account in the state file next to path (see ui.ChatPinnedSetter).
+// Pinning is local and only affects the chat list's order.
+func SetChatPinned(path, accountJID, chatAddress string, pinned bool) error {
+	return setChatListFlag(path, accountJID, chatAddress, pinned, "pinning",
+		func(st *State) map[string][]string { return st.PinnedChats },
+		func(st *State, m map[string][]string) { st.PinnedChats = m })
+}
+
+// setChatListFlag is the shared per-account chat-address set edit behind
+// SetChatHidden/SetChatPinned: both keep a sorted, case-insensitively
+// deduped list of bare JIDs under an account key in state.toml.
+func setChatListFlag(path, accountJID, chatAddress string, on bool, verb string, get func(*State) map[string][]string, set func(*State, map[string][]string)) error {
 	if accountJID == "" || chatAddress == "" {
-		return fmt.Errorf("hiding a chat needs both an account and a chat address")
+		return fmt.Errorf("%s a chat needs both an account and a chat address", verb)
 	}
 	st, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	existing := st.HiddenChats[accountJID]
-	kept := make([]string, 0, len(existing)+1)
-	for _, addr := range existing {
+	existing := get(&st)
+	kept := make([]string, 0, len(existing[accountJID])+1)
+	for _, addr := range existing[accountJID] {
 		if !strings.EqualFold(addr, chatAddress) {
 			kept = append(kept, addr)
 		}
 	}
-	if hidden {
+	if on {
 		kept = append(kept, chatAddress)
 		sort.Strings(kept)
 	}
 
-	if st.HiddenChats == nil {
-		st.HiddenChats = map[string][]string{}
+	if existing == nil {
+		existing = map[string][]string{}
+		set(&st, existing)
 	}
 	if len(kept) == 0 {
 		// Left as an empty entry, the account would keep a dangling key in
-		// state.toml for a chat that is no longer hidden.
-		delete(st.HiddenChats, accountJID)
+		// state.toml for a chat that no longer carries the flag.
+		delete(existing, accountJID)
 	} else {
-		st.HiddenChats[accountJID] = kept
+		existing[accountJID] = kept
 	}
 	return writeState(st)
 }

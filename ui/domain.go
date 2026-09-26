@@ -327,6 +327,12 @@ type Chat struct {
 	// the chat exactly (see Model.hiddenChats).
 	Hidden bool
 
+	// Pinned marks a chat the user has pinned to the top of the chat list:
+	// it sorts above every unpinned chat regardless of activity (see
+	// sortChatsByActivity) and its row is marked with pinnedChatGlyph.
+	// Local-only and persisted per account in state.toml, like Hidden.
+	Pinned bool
+
 	// Draft is the compose box's unsent text last recorded for this chat —
 	// loaded from storage when the account connects, kept in sync with
 	// m.input as the compose box switches between chats, and persisted via
@@ -338,7 +344,11 @@ type Chat struct {
 // are both pre-styled strings ending in their own ANSI reset, so nothing
 // the delegate layers on top survives into them — see renderTintedName.
 func (c Chat) Title() string {
-	return presenceGlyph(c.Presence) + " " + renderTintedName(c.Name, c.Address)
+	title := presenceGlyph(c.Presence) + " " + renderTintedName(c.Name, c.Address)
+	if c.Pinned {
+		title = pinnedChatGlyph + " " + title
+	}
+	return title
 }
 
 // Description implements list.Item.

@@ -50,6 +50,12 @@ type State struct {
 	// unhide. Persisted here rather than in config.toml because it's the
 	// app recording a runtime choice, like the dragged sidebar width.
 	HiddenChats map[string][]string `toml:"hidden_chats,omitempty"`
+	// PinnedChats lists, per account JID, the bare JIDs of chats pinned to
+	// the top of the chat list. Pinning only affects ordering — a pinned
+	// chat sorts above every unpinned one regardless of activity (see
+	// ui.sortChatsByActivity). Persisted here rather than in config.toml
+	// for the same reason HiddenChats is.
+	PinnedChats map[string][]string `toml:"pinned_chats,omitempty"`
 	// AccountStatuses is JID -> configured presence ("", "chat", "away",
 	// "xa", "dnd", "offline"), persisted immediately whenever changed from
 	// the UI so a restart comes back up in the same status. Keyed

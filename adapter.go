@@ -341,7 +341,17 @@ func (a *adapter) SetChatHidden(accountJID, chatAddress string, hidden bool) err
 	}
 	// Also in memory, so an account that reconnects before the daemon
 	// restarts rebuilds its chat list with the same chats hidden.
-	setChatHiddenFlag(accountJID, chatAddress, hidden)
+	hiddenChats.flag(accountJID, chatAddress, hidden)
+	return nil
+}
+
+// SetChatPinned implements ui.ChatPinnedSetter: persists whether a chat is
+// pinned to the top of the chat list.
+func (a *adapter) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
+	if err := config.SetChatPinned(a.cfgPath, accountJID, chatAddress, pinned); err != nil {
+		return err
+	}
+	pinnedChats.flag(accountJID, chatAddress, pinned)
 	return nil
 }
 
