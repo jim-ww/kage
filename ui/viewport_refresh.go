@@ -46,6 +46,18 @@ func (m *Model) refreshViewport() {
 // motion event; a full refreshViewport() there made the highlighted message
 // visibly lag behind a fast-moving mouse in chats with many messages.
 func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
+	m.refreshViewportSelectionMulti(oldIdx, newIdx)
+}
+
+// refreshViewportSelectionMulti is refreshViewportSelection generalized to
+// any number of (possibly unrelated) changed indices, so a single mouse
+// motion event that flips several independent hover states at once
+// (selectedMsg, reply-key hover, react-key hover, expand-button hover,
+// reaction-chip hover — see handleMouseMotion) re-renders each distinct row
+// once and pays maxSenderNameWidth's/SetContentLinesWidth's cost once,
+// instead of once per hover state. Duplicate/invalid indices are silently
+// deduped/skipped.
+func (m *Model) refreshViewportSelectionMulti(indices ...int) {
 	if m.viewportLines == nil || len(m.msgOffsets) == 0 {
 		m.refreshViewport()
 		return
@@ -59,10 +71,12 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 	msgs := m.currentMessages()
 	nameWidth := maxSenderNameWidth(msgs)
 
-	for _, idx := range []int{oldIdx, newIdx} {
-		if idx < 0 || idx >= len(msgs) || idx >= len(m.msgOffsets) {
+	seen := make(map[int]bool, len(indices))
+	for _, idx := range indices {
+		if idx < 0 || idx >= len(msgs) || idx >= len(m.msgOffsets) || seen[idx] {
 			continue
 		}
+		seen[idx] = true
 		start := m.msgOffsets[idx]
 		end := len(m.viewportLines)
 		if idx+1 < len(m.msgOffsets) {
@@ -82,11 +96,14 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 		}
 		copy(m.viewportLines[start:end], newLines)
 	}
+	if len(seen) == 0 {
+		return
+	}
 
 	// SetContentLinesWidth takes the already-split lines directly, skipping
 	// the join-then-resplit that SetContent(strings.Join(...)) would do, and
-	// the longest-line width directly too, since only 2 rows out of the
-	// whole cached content changed (see messageRowMaxWidth).
+	// the longest-line width directly too, since only the changed rows out
+	// of the whole cached content changed (see messageRowMaxWidth).
 	m.viewport.SetContentLinesWidth(m.viewportLines, messageRowMaxWidth(cw))
 }
 

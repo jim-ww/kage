@@ -378,15 +378,26 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.selectedView == viewChat && m.contextMenu == nil {
+		// Every hover sub-state below is checked independently, but a
+		// single mouse move can flip several of them at once (e.g.
+		// entering a new row changes selectedMsg and, if the pointer lands
+		// right on a glyph, replyKeyIdx too). Collect all their old/new
+		// indices and patch every distinct row in one
+		// refreshViewportSelectionMulti call instead of one call per
+		// sub-state — each call re-renders every changed row plus pays
+		// maxSenderNameWidth/SetContentLinesWidth again, so doing that up
+		// to 5x per motion event was the dominant cost behind the cursor
+		// visibly lagging a fast sweep.
+		var changed []int
+
 		if idx, ok := messageIndexFromZone(m.hover.id); ok && idx != m.selectedMsg {
-			old := m.selectedMsg
+			changed = append(changed, m.selectedMsg, idx)
 			m.selectedMsg = idx
 			m.lastClickedMsgIdx = -1
 			m.lastClickTime = time.Time{}
-			m.refreshViewportSelection(old, idx)
 		}
 
-		// The row-selection refresh above only fires when selectedMsg
+		// The row-selection change above only fires when selectedMsg
 		// changes, but the "^r"/"^t" key glyphs' own hovered/reversed state
 		// can also change from a pointer move *within* an already-selected
 		// row (sliding onto or off of the glyph's column range) - that
@@ -398,9 +409,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			newReplyKeyIdx = idx
 		}
 		if newReplyKeyIdx != m.hover.replyKeyIdx {
-			old := m.hover.replyKeyIdx
+			changed = append(changed, m.hover.replyKeyIdx, newReplyKeyIdx)
 			m.hover.replyKeyIdx = newReplyKeyIdx
-			m.refreshViewportSelection(old, newReplyKeyIdx)
 		}
 
 		newReactKeyIdx := -1
@@ -408,9 +418,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			newReactKeyIdx = idx
 		}
 		if newReactKeyIdx != m.hover.reactKeyIdx {
-			old := m.hover.reactKeyIdx
+			changed = append(changed, m.hover.reactKeyIdx, newReactKeyIdx)
 			m.hover.reactKeyIdx = newReactKeyIdx
-			m.refreshViewportSelection(old, newReactKeyIdx)
 		}
 
 		newExpandBtnIdx := -1
@@ -418,9 +427,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			newExpandBtnIdx = idx
 		}
 		if newExpandBtnIdx != m.hover.expandBtnIdx {
-			old := m.hover.expandBtnIdx
+			changed = append(changed, m.hover.expandBtnIdx, newExpandBtnIdx)
 			m.hover.expandBtnIdx = newExpandBtnIdx
-			m.refreshViewportSelection(old, newExpandBtnIdx)
 		}
 
 		newReactionMsgIdx, newReactionIdx := -1, -1
@@ -436,10 +444,13 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if newReactionMsgIdx != m.hover.reactionMsgIdx || newReactionIdx != m.hover.reactionIdx {
-			old := m.hover.reactionMsgIdx
+			changed = append(changed, m.hover.reactionMsgIdx, newReactionMsgIdx)
 			m.hover.reactionMsgIdx = newReactionMsgIdx
 			m.hover.reactionIdx = newReactionIdx
-			m.refreshViewportSelection(old, newReactionMsgIdx)
+		}
+
+		if len(changed) > 0 {
+			m.refreshViewportSelectionMulti(changed...)
 		}
 	}
 
