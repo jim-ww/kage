@@ -72,6 +72,7 @@ func (m Model) formatMessageTime(t time.Time) string {
 // within the current year, "Tue 26 Aug 2025" once the year isn't obvious
 // anymore.
 func dateDividerLabel(t, now time.Time) string {
+	t, now = t.Local(), now.Local()
 	if t.Year() == now.Year() {
 		return t.Format("Mon 2 Jan")
 	}
@@ -745,7 +746,7 @@ func previewText(s string, n int) string {
 }
 
 func sameDay(a, b time.Time) bool {
-	ay, am, ad := a.Date()
-	by, bm, bd := b.Date()
+	ay, am, ad := a.Local().Date()
+	by, bm, bd := b.Local().Date()
 	return ay == by && am == bm && ad == bd
 }
