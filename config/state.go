@@ -123,17 +123,9 @@ func writeState(st State) error {
 		out.ReactionEmojiUsage = nil
 	}
 
-	if dir := filepath.Dir(st.Path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("create state dir %q: %w", dir, err)
-		}
-	}
 	data, err := toml.Marshal(out)
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	if err := os.WriteFile(st.Path, data, 0o600); err != nil {
-		return fmt.Errorf("write state %q: %w", st.Path, err)
-	}
-	return nil
+	return writeFileAtomic(st.Path, data, 0o600)
 }

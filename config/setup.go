@@ -39,122 +39,101 @@ func SetKeyringPassword(jid, password string) error {
 // path, preserving any existing keybinds/theme/accounts already there.
 // Creates the file if it doesn't exist.
 func WriteAccount(path string, acct Account) error {
-	cfg, err := loadOrEmpty(path)
-	if err != nil {
-		return err
-	}
-	cfg.Accounts = append(cfg.Accounts, acct)
-	return writeFileConfig(path, cfg)
+	return updateConfigFile(path, func(cfg *Config) error {
+		cfg.Accounts = append(cfg.Accounts, acct)
+		return nil
+	})
 }
 
 // RemoveAccount deletes the account matching jid from the [[accounts]] list
 // in the config file at path, preserving everything else. A no-op if the
 // account isn't found there.
 func RemoveAccount(path, jid string) error {
-	cfg, err := loadOrEmpty(path)
-	if err != nil {
-		return err
-	}
-	idx := -1
-	for i, acct := range cfg.Accounts {
-		if acct.JID == jid {
-			idx = i
-			break
+	return updateConfigFile(path, func(cfg *Config) error {
+		idx := -1
+		for i, acct := range cfg.Accounts {
+			if acct.JID == jid {
+				idx = i
+				break
+			}
 		}
-	}
-	if idx == -1 {
-		return fmt.Errorf("account %s not found in %s", jid, path)
-	}
-	cfg.Accounts = append(cfg.Accounts[:idx], cfg.Accounts[idx+1:]...)
-	return writeFileConfig(path, cfg)
+		if idx == -1 {
+			return fmt.Errorf("account %s not found in %s", jid, path)
+		}
+		cfg.Accounts = append(cfg.Accounts[:idx], cfg.Accounts[idx+1:]...)
+		return nil
+	})
 }
 
 // SetAccountGPGKeyID sets (or updates) the gpg_key_id field for the account
 // matching jid in the config file at path, preserving everything else. A
 // no-op if the account isn't found there.
 func SetAccountGPGKeyID(path, jid, keyID string) error {
-	cfg, err := loadOrEmpty(path)
-	if err != nil {
-		return err
-	}
-	found := false
-	for i, acct := range cfg.Accounts {
-		if acct.JID == jid {
-			cfg.Accounts[i].GPGKeyID = keyID
-			found = true
-			break
+	return updateConfigFile(path, func(cfg *Config) error {
+		for i, acct := range cfg.Accounts {
+			if acct.JID == jid {
+				cfg.Accounts[i].GPGKeyID = keyID
+				return nil
+			}
 		}
-	}
-	if !found {
 		return fmt.Errorf("account %s not found in %s", jid, path)
-	}
-	return writeFileConfig(path, cfg)
+	})
 }
 
 // SetAccountStatus sets (or updates) the status ("", "chat", "away", "xa",
 // "dnd", or "offline") for jid in the state file next to path, preserving
 // everything else - see State.AccountStatuses.
 func SetAccountStatus(path, jid, status string) error {
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	if st.AccountStatuses == nil {
-		st.AccountStatuses = make(map[string]string)
-	}
-	if status == "" {
-		delete(st.AccountStatuses, jid)
-	} else {
-		st.AccountStatuses[jid] = status
-	}
-	return writeState(st)
+	return updateStateFile(path, func(st *State) error {
+		if st.AccountStatuses == nil {
+			st.AccountStatuses = make(map[string]string)
+		}
+		if status == "" {
+			delete(st.AccountStatuses, jid)
+		} else {
+			st.AccountStatuses[jid] = status
+		}
+		return nil
+	})
 }
 
 // SetDefaultAccount sets (or updates) the default account in the state file
 // next to path, preserving everything else.
 func SetDefaultAccount(path, jid string) error {
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	st.DefaultAccount = jid
-	return writeState(st)
+	return updateStateFile(path, func(st *State) error {
+		st.DefaultAccount = jid
+		return nil
+	})
 }
 
 // SetSidebarWidth sets (or updates) the sidebar width in the state file next
 // to path, preserving everything else — called after the user finishes
 // dragging the sidebar border (see ui.SidebarWidthSetter).
 func SetSidebarWidth(path string, width int) error {
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	st.SidebarWidth = width
-	return writeState(st)
+	return updateStateFile(path, func(st *State) error {
+		st.SidebarWidth = width
+		return nil
+	})
 }
 
 // SetInputHeight sets (or updates) the input height in the state file next
 // to path, preserving everything else — called after the user finishes
 // dragging the compose box's top border (see ui.InputHeightSetter).
 func SetInputHeight(path string, height int) error {
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	st.InputHeight = height
-	return writeState(st)
+	return updateStateFile(path, func(st *State) error {
+		st.InputHeight = height
+		return nil
+	})
 }
 
 // SetSidebarHidden sets (or updates) the sidebar-hidden flag in the state
 // file next to path, preserving everything else — called whenever the user
 // toggles the chat list (see ui.SidebarHiddenSetter).
 func SetSidebarHidden(path string, hidden bool) error {
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	st.SidebarHidden = hidden
-	return writeState(st)
+	return updateStateFile(path, func(st *State) error {
+		st.SidebarHidden = hidden
+		return nil
+	})
 }
 
 // SetFilePickerSort sets (or updates) the file-picker sort field/direction
@@ -162,13 +141,11 @@ func SetSidebarHidden(path string, hidden bool) error {
 // whenever the user cycles the attach-file picker's sort order (see
 // ui.FilePickerSortSetter).
 func SetFilePickerSort(path string, field string, ascending bool) error {
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	st.FilePickerSortField = field
-	st.FilePickerSortAscending = ascending
-	return writeState(st)
+	return updateStateFile(path, func(st *State) error {
+		st.FilePickerSortField = field
+		st.FilePickerSortAscending = ascending
+		return nil
+	})
 }
 
 // SetLastChat sets (or updates) the last-opened-chat account/address in the
@@ -176,13 +153,11 @@ func SetFilePickerSort(path string, field string, ascending bool) error {
 // user opens a chat, so it can be reopened on startup when open_last_chat is
 // set (see ui.LastChatSetter).
 func SetLastChat(path, accountJID, chatAddress string) error {
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	st.LastChatAccount = accountJID
-	st.LastChatAddress = chatAddress
-	return writeState(st)
+	return updateStateFile(path, func(st *State) error {
+		st.LastChatAccount = accountJID
+		st.LastChatAddress = chatAddress
+		return nil
+	})
 }
 
 // RecordReactionEmojiUsage bumps the sent-count for each emoji in emojis by
@@ -191,17 +166,15 @@ func SetLastChat(path, accountJID, chatAddress string) error {
 // so the quick-pick default suggestions converge on what this user actually
 // reaches for.
 func RecordReactionEmojiUsage(path string, emojis []string) error {
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	if st.ReactionEmojiUsage == nil {
-		st.ReactionEmojiUsage = make(map[string]int, len(emojis))
-	}
-	for _, e := range emojis {
-		st.ReactionEmojiUsage[e]++
-	}
-	return writeState(st)
+	return updateStateFile(path, func(st *State) error {
+		if st.ReactionEmojiUsage == nil {
+			st.ReactionEmojiUsage = make(map[string]int, len(emojis))
+		}
+		for _, e := range emojis {
+			st.ReactionEmojiUsage[e]++
+		}
+		return nil
+	})
 }
 
 // SetStoragePlaintextPassword sets (or updates) the [storage] password field
@@ -212,13 +185,11 @@ func RecordReactionEmojiUsage(path string, emojis []string) error {
 // a stale password_cmd behind would silently shadow the password just set
 // (ResolveStoragePassword tries PasswordCmd before Password).
 func SetStoragePlaintextPassword(path, password string) error {
-	cfg, err := loadOrEmpty(path)
-	if err != nil {
-		return err
-	}
-	cfg.Storage.Password = password
-	cfg.Storage.PasswordCmd = ""
-	return writeFileConfig(path, cfg)
+	return updateConfigFile(path, func(cfg *Config) error {
+		cfg.Storage.Password = password
+		cfg.Storage.PasswordCmd = ""
+		return nil
+	})
 }
 
 // ClearStoragePassword removes both storage.password and
@@ -228,13 +199,11 @@ func SetStoragePlaintextPassword(path, password string) error {
 // drops the keys from config.toml entirely on the next write rather than
 // leaving a `password: ""` behind.
 func ClearStoragePassword(path string) error {
-	cfg, err := loadOrEmpty(path)
-	if err != nil {
-		return err
-	}
-	cfg.Storage.Password = ""
-	cfg.Storage.PasswordCmd = ""
-	return writeFileConfig(path, cfg)
+	return updateConfigFile(path, func(cfg *Config) error {
+		cfg.Storage.Password = ""
+		cfg.Storage.PasswordCmd = ""
+		return nil
+	})
 }
 
 func loadOrEmpty(path string) (Config, error) {
@@ -251,13 +220,7 @@ func writeFileConfig(path string, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
-	}
-	return nil
+	return writeFileAtomic(path, data, 0o600)
 }
 
 // SetChatHidden adds or removes one chat from the hidden list for an
@@ -287,32 +250,30 @@ func setChatListFlag(path, accountJID, chatAddress string, on bool, verb string,
 	if accountJID == "" || chatAddress == "" {
 		return fmt.Errorf("%s a chat needs both an account and a chat address", verb)
 	}
-	st, err := loadState(path)
-	if err != nil {
-		return err
-	}
-	existing := get(&st)
-	kept := make([]string, 0, len(existing[accountJID])+1)
-	for _, addr := range existing[accountJID] {
-		if !strings.EqualFold(addr, chatAddress) {
-			kept = append(kept, addr)
+	return updateStateFile(path, func(st *State) error {
+		existing := get(st)
+		kept := make([]string, 0, len(existing[accountJID])+1)
+		for _, addr := range existing[accountJID] {
+			if !strings.EqualFold(addr, chatAddress) {
+				kept = append(kept, addr)
+			}
 		}
-	}
-	if on {
-		kept = append(kept, chatAddress)
-		sort.Strings(kept)
-	}
+		if on {
+			kept = append(kept, chatAddress)
+			sort.Strings(kept)
+		}
 
-	if existing == nil {
-		existing = map[string][]string{}
-		set(&st, existing)
-	}
-	if len(kept) == 0 {
-		// Left as an empty entry, the account would keep a dangling key in
-		// state.toml for a chat that no longer carries the flag.
-		delete(existing, accountJID)
-	} else {
-		existing[accountJID] = kept
-	}
-	return writeState(st)
+		if existing == nil {
+			existing = map[string][]string{}
+			set(st, existing)
+		}
+		if len(kept) == 0 {
+			// Left as an empty entry, the account would keep a dangling key in
+			// state.toml for a chat that no longer carries the flag.
+			delete(existing, accountJID)
+		} else {
+			existing[accountJID] = kept
+		}
+		return nil
+	})
 }
