@@ -168,6 +168,17 @@ func (m *Model) setChatUnread(accountIdx, chatIdx, count int) tea.Cmd {
 	return nil
 }
 
+// accountIndexByJID returns the index of the account with the given JID
+// (Account.Name), or -1 if none matches.
+func (m Model) accountIndexByJID(jid string) int {
+	for i, acct := range m.accounts {
+		if acct.Name == jid {
+			return i
+		}
+	}
+	return -1
+}
+
 // peerTypingKey identifies one contact's typing state across accounts.
 func peerTypingKey(accountIdx int, from string) string {
 	return strconv.Itoa(accountIdx) + "\x00" + from

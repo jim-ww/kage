@@ -645,6 +645,18 @@ type AccountAddedMsg struct {
 	Account Account
 }
 
+// AccountAppearedMsg is sent into the Bubble Tea loop when an account was
+// added by someone else — another TUI attached to the same daemon. Index is
+// the account's position daemon-side, which every client has to mirror
+// exactly: indices address accounts on every subsequent RPC, so a client that
+// ignored this would send that account's traffic from the wrong one as soon as
+// it added an account of its own. Carries no add-account-form state, unlike
+// AccountAddedMsg — the form belongs to the client that actually did the add.
+type AccountAppearedMsg struct {
+	Index   int
+	Account Account
+}
+
 // AccountAddErrorMsg is sent into the Bubble Tea loop when AccountAdder.AddAccount
 // fails; the add-account form stays open so the user can correct and retry.
 type AccountAddErrorMsg struct {

@@ -74,6 +74,8 @@ const (
 	evTyping               = "Typing"
 	evFileTransferProgress = "FileTransferProgress"
 	evFileTransferDone     = "FileTransferDone"
+	evAccountAdded         = "AccountAdded"
+	evAccountRemoved       = "AccountRemoved"
 	evAccountConnected     = "AccountConnected"
 	evAccountLive          = "AccountLive"
 	evAccountConnectError  = "AccountConnectError"
@@ -325,6 +327,14 @@ func (w wireAccount) toAccount() ui.Account {
 }
 
 type wireAccountConnectedMsg struct {
+	Index   int
+	Account wireAccount
+}
+
+// wireAccountAddedMsg announces an account another client just added, so every
+// attached client mirrors the daemon's account order - see
+// ui.AccountAppearedMsg.
+type wireAccountAddedMsg struct {
 	Index   int
 	Account wireAccount
 }

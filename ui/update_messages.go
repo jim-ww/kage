@@ -665,8 +665,29 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case AccountAddedMsg:
 		m.addingAccount = false
 		m.addAccountBusy = false
+		if m.accountIndexByJID(msg.Account.Name) >= 0 {
+			// The AccountAppearedMsg broadcast for our own add raced ahead of
+			// this RPC result (both come from the daemon, over different
+			// paths) and already added it - appending again would duplicate
+			// the sidebar row and skew every index past it.
+			return m, nil, true
+		}
 		m.accounts = append(m.accounts, msg.Account)
 		return m, m.showNotification("account added: " + msg.Account.Name), true
+
+	case AccountAppearedMsg:
+		if m.accountIndexByJID(msg.Account.Name) >= 0 {
+			return m, nil, true // already known: our own add, or a repeat
+		}
+		if msg.Index != len(m.accounts) {
+			// Our account list no longer lines up with the daemon's, so we
+			// can't place this one at an index that stays true. Dropping it
+			// keeps the accounts we do know addressable; the next start
+			// resyncs from listAccounts.
+			return m, nil, true
+		}
+		m.accounts = append(m.accounts, msg.Account)
+		return m, m.showNotification("account added elsewhere: " + msg.Account.Name), true
 
 	case AccountAddErrorMsg:
 		m.addAccountBusy = false
@@ -836,6 +857,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 
 	case AccountRemovedMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {
+			return m, nil, true
+		}
+		if m.accounts[msg.Index].Removed {
+			// Already applied - the removing client gets both the RPC result
+			// and the broadcast that tells every other client.
 			return m, nil, true
 		}
 		name := m.accounts[msg.Index].DisplayName()

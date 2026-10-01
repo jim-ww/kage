@@ -137,6 +137,12 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) tea.
 
 	go superviseAccount(ctx, a.srv, a, accountIdx, sess)
 
+	// Every attached client has to learn about this, not just the one that
+	// asked: account indices are positional, so a client still on the old,
+	// shorter list would place its own next added account at an index the
+	// daemon has already given to this one.
+	broadcast(a.srv, evAccountAdded, wireAccountAddedMsg{Index: accountIdx, Account: toWireAccount(uiAcct)})
+
 	return ui.AccountAddedMsg{Account: uiAcct}
 }
 
@@ -609,6 +615,8 @@ func (a *adapter) RemoveAccount(accountIdx int) tea.Msg {
 	if err := config.RemoveAccount(a.cfgPath, s.account.JID); err != nil {
 		return ui.AccountRemoveErrorMsg{Index: accountIdx, Err: fmt.Errorf("removing account from config: %w", err)}
 	}
+
+	broadcast(a.srv, evAccountRemoved, accountIdxParams{AccountIdx: accountIdx})
 
 	return ui.AccountRemovedMsg{Index: accountIdx}
 }

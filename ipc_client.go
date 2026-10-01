@@ -450,6 +450,20 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.CallStateMsg](c, ev.Data)
 	case evMissedCall:
 		sendEvent[ui.MissedCallMsg](c, ev.Data)
+	case evAccountAdded:
+		var w wireAccountAddedMsg
+		if err := json.Unmarshal(ev.Data, &w); err != nil {
+			slog.Warn("unmarshaling AccountAdded event", "err", err)
+			return
+		}
+		c.program.Send(ui.AccountAppearedMsg{Index: w.Index, Account: w.Account.toAccount()})
+	case evAccountRemoved:
+		var w accountIdxParams
+		if err := json.Unmarshal(ev.Data, &w); err != nil {
+			slog.Warn("unmarshaling AccountRemoved event", "err", err)
+			return
+		}
+		c.program.Send(ui.AccountRemovedMsg{Index: w.AccountIdx})
 	case evAccountConnected:
 		var w wireAccountConnectedMsg
 		if err := json.Unmarshal(ev.Data, &w); err != nil {
