@@ -27,6 +27,10 @@ type ArchivedMessage struct {
 	Body      string
 	ID        string // stanza id of the original message, if any (for XEP-0461/0308/0424 correlation)
 
+	// ReplyToID is the id of the message this one replies to (XEP-0461),
+	// if any.
+	ReplyToID string
+
 	// Encrypted is non-nil if the archived message is a XEP-0384 OMEMO
 	// message; Body carries no meaningful content and the caller must
 	// decrypt this (crypto/omemo, via DecodeOmemoMessage) to get the text.
@@ -134,6 +138,22 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		am.Body = msg.Body
 		am.Encrypted = msg.Encrypted
 		am.EncryptedV1 = msg.EncryptedV1
+		if msg.Reply != nil {
+			am.ReplyToID = msg.Reply.ID
+			if msg.Fallback != nil && msg.Fallback.For == "urn:xmpp:reply:0" && msg.Fallback.Body != nil {
+				start := 0
+				if msg.Fallback.Body.Start != nil {
+					start = *msg.Fallback.Body.Start
+				}
+				end := len(am.Body)
+				if msg.Fallback.Body.End != nil {
+					end = *msg.Fallback.Body.End
+				}
+				if start >= 0 && start <= end && end <= len(am.Body) {
+					am.Body = am.Body[:start] + am.Body[end:]
+				}
+			}
+		}
 		for _, x := range msg.OOB {
 			if x.URL != "" {
 				am.OOBURLs = append(am.OOBURLs, x.URL)

@@ -1738,11 +1738,10 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			body = pt
 		}
 	}
-	// MAM doesn't currently surface the <reply/> element (see
-	// ArchivedMessage), so unlike handleIncomingMessage this can't
-	// gate on ReplyToID - stripReplyQuote is a no-op on a body that
-	// doesn't start with a quote block, so applying it unconditionally
-	// is safe and still fixes attachment identification for
+	// stripReplyQuote is a no-op on a body that doesn't start with a quote
+	// block (the in-band fallback quote some peers send alongside <reply/>
+	// instead of relying on it - see handleIncomingMessage), so applying it
+	// unconditionally is safe and still fixes attachment identification for
 	// backfilled replies.
 	body = stripReplyQuote(body)
 	if len(oobURLs) == 0 {
@@ -1786,20 +1785,21 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 	}
 
 	_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-		AccountJid:   s.account.JID,
-		Sent:         sent,
-		ToAttr:       nullString(am.To),
-		FromAttr:     nullString(am.From),
-		IDAttr:       nullString(am.ID),
-		Body:         sealedBody,
-		Encrypted:    encrypted,
-		E2eEncrypted: e2eEncrypted,
-		E2eeMethod:   nullString(e2eeMethod),
-		StanzaType:   "chat",
-		Delay:        am.SentAt.Unix(),
-		RosterJid:    nullString(peerJID),
-		ArchiveID:    nullString(am.ArchiveID),
-		OobUrls:      joinOOBURLs(oobURLs),
+		AccountJid:    s.account.JID,
+		Sent:          sent,
+		ToAttr:        nullString(am.To),
+		FromAttr:      nullString(am.From),
+		IDAttr:        nullString(am.ID),
+		Body:          sealedBody,
+		Encrypted:     encrypted,
+		E2eEncrypted:  e2eEncrypted,
+		E2eeMethod:    nullString(e2eeMethod),
+		StanzaType:    "chat",
+		Delay:         am.SentAt.Unix(),
+		RosterJid:     nullString(peerJID),
+		ArchiveID:     nullString(am.ArchiveID),
+		OobUrls:       joinOOBURLs(oobURLs),
+		ReplyToIDAttr: nullString(am.ReplyToID),
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "archiveID") {
@@ -1825,6 +1825,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		EncMethod:     e2eeMethod,
 		Attachments:   oobURLs,
 		DecryptFailed: decryptFailed,
+		ReplyToID:     am.ReplyToID,
 	}}
 }
 

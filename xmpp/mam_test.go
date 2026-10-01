@@ -49,6 +49,58 @@ func TestMAMResultDecode(t *testing.T) {
 	}
 }
 
+// TestDispatchArchiveResultReply pins that a XEP-0461 <reply/> on a
+// backfilled message survives into ArchivedMessage.ReplyToID (and that the
+// in-band fallback quote some peers send alongside it gets stripped from
+// Body, same as the live path) - this used to be silently dropped, which
+// made replies vanish for the recipient if the message only ever arrived via
+// MAM (offline delivery, reconnect catch-up) and reappear reply-less for the
+// sender too if their own copy was later resynced the same way.
+func TestDispatchArchiveResultReply(t *testing.T) {
+	raw := `<message xmlns="jabber:client" from="mam.example.com" to="me@example.com/res" id="aeb213">
+  <result xmlns="urn:xmpp:mam:2" queryid="q1" id="28482-98726-73623">
+    <forwarded xmlns="urn:xmpp:forward:0">
+      <delay xmlns="urn:xmpp:delay" stamp="2010-07-10T23:08:25Z"/>
+      <message xmlns="jabber:client" from="juliet@capulet.lit/balcony" to="romeo@montague.lit" id="hgn27" type="chat">
+        <body>&gt; Art thou mad?
+No, just late.</body>
+        <reply xmlns="urn:xmpp:reply:0" id="orig1" to="romeo@montague.lit"/>
+        <fallback xmlns="urn:xmpp:fallback:0" for="urn:xmpp:reply:0"><body start="0" end="16"/></fallback>
+      </message>
+    </forwarded>
+  </result>
+</message>`
+
+	d := xml.NewDecoder(strings.NewReader(raw))
+	var msg messageBody
+	tok, err := d.Token()
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := tok.(xml.StartElement)
+	if err := d.DecodeElement(&msg, &start); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	r := msg.MAMResult
+
+	c := &Client{}
+	ch := make(chan ArchivedMessage, 1)
+	c.mamWaiters = map[string]chan ArchivedMessage{"q1": ch}
+	c.dispatchArchiveResult(r)
+
+	select {
+	case am := <-ch:
+		if am.ReplyToID != "orig1" {
+			t.Errorf("ReplyToID = %q, want %q", am.ReplyToID, "orig1")
+		}
+		if am.Body != "No, just late." {
+			t.Errorf("Body = %q, want %q", am.Body, "No, just late.")
+		}
+	default:
+		t.Fatal("dispatchArchiveResult did not deliver to waiter")
+	}
+}
+
 // TestMAMFinCompleteDecode pins the shape decodeMAMFin has to cope with: the
 // whole response <iq>, since that is what Session.SendIQ returns. Reading
 // complete off that element directly (rather than the nested <fin>) silently
