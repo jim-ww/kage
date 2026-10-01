@@ -65,12 +65,12 @@ func nonIdleCmd(cmd tea.Cmd) tea.Msg {
 // calls so persistence can be asserted alongside in-memory state.
 type fakeReadTrackerSender struct {
 	fakeSuccessSender
-	incremented []int // deltas passed to IncrementChatUnread, in order
+	persisted []int // counts passed to SetChatUnread, in order
 	resets      int
 }
 
-func (f *fakeReadTrackerSender) IncrementChatUnread(accountJID, chatAddress string, delta int) error {
-	f.incremented = append(f.incremented, delta)
+func (f *fakeReadTrackerSender) SetChatUnread(accountJID, chatAddress string, count int) error {
+	f.persisted = append(f.persisted, count)
 	return nil
 }
 
@@ -101,8 +101,8 @@ func TestUnreadIncrementsOnUnfocusedIncoming(t *testing.T) {
 	if got := m.chats.Items()[0].(Chat).Unread; got != 1 {
 		t.Fatalf("Unread after first incoming = %d, want 1", got)
 	}
-	if len(sender.incremented) != 1 || sender.incremented[0] != 1 {
-		t.Fatalf("IncrementChatUnread calls = %v, want [1]", sender.incremented)
+	if len(sender.persisted) != 1 || sender.persisted[0] != 1 {
+		t.Fatalf("SetChatUnread calls = %v, want [1]", sender.persisted)
 	}
 
 	next, cmd = m.Update(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.test", Message: Message{ID: "m2", Content: "again"}})
@@ -147,8 +147,8 @@ func TestUnreadSkipsFocusedChatAndDecryptFailures(t *testing.T) {
 	if got := m.chats.Items()[0].(Chat).Unread; got != 0 {
 		t.Fatalf("Unread after decrypt-failed message = %d, want 0", got)
 	}
-	if len(sender.incremented) != 0 {
-		t.Fatalf("IncrementChatUnread calls = %v, want none", sender.incremented)
+	if len(sender.persisted) != 0 {
+		t.Fatalf("SetChatUnread calls = %v, want none", sender.persisted)
 	}
 }
 
@@ -205,8 +205,8 @@ func TestUnreadCountsHistorySyncBatch(t *testing.T) {
 	if got := m.chats.Items()[0].(Chat).Unread; got != 2 {
 		t.Fatalf("Unread after history sync batch = %d, want 2", got)
 	}
-	if len(sender.incremented) != 1 || sender.incremented[0] != 2 {
-		t.Fatalf("IncrementChatUnread calls = %v, want [2]", sender.incremented)
+	if len(sender.persisted) != 1 || sender.persisted[0] != 2 {
+		t.Fatalf("SetChatUnread calls = %v, want [2]", sender.persisted)
 	}
 }
 

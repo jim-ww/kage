@@ -388,13 +388,13 @@ func (a *adapter) SetFocusState(tuiClient ipc.ClientID, accountJID, chatAddress 
 	return nil
 }
 
-// IncrementChatUnread implements ui.ChatReadTracker: bumps the persisted
-// local-only unread counter for a chat by delta.
-func (a *adapter) IncrementChatUnread(accountJID, chatAddress string, delta int) error {
-	return a.queries.IncrementChatUnread(context.Background(), storage.IncrementChatUnreadParams{
+// SetChatUnread implements ui.ChatReadTracker: stores the local-only unread
+// count for a chat. Absolute rather than a delta — see ui.ChatReadTracker.
+func (a *adapter) SetChatUnread(accountJID, chatAddress string, count int) error {
+	return a.queries.SetChatUnread(context.Background(), storage.SetChatUnreadParams{
 		AccountJid: accountJID,
 		RosterJid:  chatAddress,
-		Delta:      int64(delta),
+		Count:      int64(count),
 	})
 }
 

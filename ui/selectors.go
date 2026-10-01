@@ -222,14 +222,15 @@ func (m *Model) incrementChatUnread(accountIdx, chatIdx, delta int) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	cmd := m.setChatUnread(accountIdx, chatIdx, chat.Unread+delta)
+	count := chat.Unread + delta
+	cmd := m.setChatUnread(accountIdx, chatIdx, count)
 	if m.chatReadTracker == nil {
 		return cmd
 	}
 	accountJID, address := m.accounts[accountIdx].Name, chat.Address
 	tracker := m.chatReadTracker
 	return tea.Batch(cmd, func() tea.Msg {
-		_ = tracker.IncrementChatUnread(accountJID, address, delta)
+		_ = tracker.SetChatUnread(accountJID, address, count)
 		return nil
 	})
 }

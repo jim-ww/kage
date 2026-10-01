@@ -24,7 +24,7 @@ const (
 	rpcSetInputHeight           = "SetInputHeight"
 	rpcSetFilePickerSort        = "SetFilePickerSort"
 	rpcSetLastChat              = "SetLastChat"
-	rpcIncrementChatUnread      = "IncrementChatUnread"
+	rpcSetChatUnread            = "SetChatUnread"
 	rpcResetChatUnread          = "ResetChatUnread"
 	rpcChatUnreadCounts         = "ChatUnreadCounts"
 	rpcSaveDraft                = "SaveDraft"
@@ -139,9 +139,9 @@ type filePickerSortParams struct {
 	Ascending bool
 }
 type setLastChatParams struct{ AccountJID, ChatAddress string }
-type chatUnreadDeltaParams struct {
+type chatUnreadCountParams struct {
 	AccountJID, ChatAddress string
-	Delta                   int
+	Count                   int
 }
 type accountJIDParams struct{ AccountJID string }
 type chatUnreadCountsResult struct{ Counts map[string]int }

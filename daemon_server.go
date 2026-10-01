@@ -148,12 +148,12 @@ func (d *daemonServer) handle(client ipc.ClientID, method string, params json.Ra
 		}
 		return nil, d.a.SetLastChat(p.AccountJID, p.ChatAddress)
 
-	case rpcIncrementChatUnread:
-		p, err := unmarshalParams[chatUnreadDeltaParams](params)
+	case rpcSetChatUnread:
+		p, err := unmarshalParams[chatUnreadCountParams](params)
 		if err != nil {
 			return nil, err
 		}
-		return nil, d.a.IncrementChatUnread(p.AccountJID, p.ChatAddress, p.Delta)
+		return nil, d.a.SetChatUnread(p.AccountJID, p.ChatAddress, p.Count)
 
 	case rpcResetChatUnread:
 		p, err := unmarshalParams[setLastChatParams](params)

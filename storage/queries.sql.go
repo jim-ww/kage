@@ -773,24 +773,6 @@ func (q *Queries) HasGPGChat(ctx context.Context, accountJid string) (bool, erro
 	return exists, err
 }
 
-const incrementChatUnread = `-- name: IncrementChatUnread :exec
-INSERT INTO chatUnread (accountJID, rosterJID, count)
-VALUES (?1, ?2, ?3)
-ON CONFLICT (accountJID, rosterJID) DO UPDATE
-SET count = count + excluded.count
-`
-
-type IncrementChatUnreadParams struct {
-	AccountJid string `db:"account_jid"`
-	RosterJid  string `db:"roster_jid"`
-	Delta      int64  `db:"delta"`
-}
-
-func (q *Queries) IncrementChatUnread(ctx context.Context, arg IncrementChatUnreadParams) error {
-	_, err := q.db.ExecContext(ctx, incrementChatUnread, arg.AccountJid, arg.RosterJid, arg.Delta)
-	return err
-}
-
 const insertAppliedCorrection = `-- name: InsertAppliedCorrection :exec
 INSERT INTO appliedCorrections (accountJID, rosterJID, idAttr, archiveID)
 VALUES (?1, ?2, ?3, ?4)
@@ -2505,6 +2487,24 @@ type SetChatEncryptionModeParams struct {
 
 func (q *Queries) SetChatEncryptionMode(ctx context.Context, arg SetChatEncryptionModeParams) error {
 	_, err := q.db.ExecContext(ctx, setChatEncryptionMode, arg.AccountJid, arg.RosterJid, arg.Mode)
+	return err
+}
+
+const setChatUnread = `-- name: SetChatUnread :exec
+INSERT INTO chatUnread (accountJID, rosterJID, count)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET count = excluded.count
+`
+
+type SetChatUnreadParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+	Count      int64  `db:"count"`
+}
+
+func (q *Queries) SetChatUnread(ctx context.Context, arg SetChatUnreadParams) error {
+	_, err := q.db.ExecContext(ctx, setChatUnread, arg.AccountJid, arg.RosterJid, arg.Count)
 	return err
 }
 

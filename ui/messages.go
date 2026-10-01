@@ -837,7 +837,11 @@ type FocusReporter interface {
 // rather than through a tea.Cmd; a failure just means the in-memory count
 // (still updated regardless) won't survive a restart.
 type ChatReadTracker interface {
-	IncrementChatUnread(accountJID, chatAddress string, delta int) error
+	// SetChatUnread persists an absolute count rather than a delta: several
+	// TUIs can be attached to one daemon and each one bumps its own count
+	// from the same broadcast event, so deltas would stack up into a stored
+	// count higher than any client ever showed.
+	SetChatUnread(accountJID, chatAddress string, count int) error
 	ResetChatUnread(accountJID, chatAddress string) error
 	ChatUnreadCounts(accountJID string) (map[string]int, error)
 }

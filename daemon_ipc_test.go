@@ -69,8 +69,13 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 		t.Errorf("SidebarWidth = %d, want 42", cfg.State.SidebarWidth)
 	}
 
-	if err := client.IncrementChatUnread("me@example.com", "you@example.com", 3); err != nil {
-		t.Fatalf("IncrementChatUnread: %v", err)
+	if err := client.SetChatUnread("me@example.com", "you@example.com", 3); err != nil {
+		t.Fatalf("SetChatUnread: %v", err)
+	}
+	// Repeating the same count (what a second attached TUI sends for the same
+	// message) must not stack up - the stored count is absolute.
+	if err := client.SetChatUnread("me@example.com", "you@example.com", 3); err != nil {
+		t.Fatalf("SetChatUnread (repeat): %v", err)
 	}
 	counts, err := client.ChatUnreadCounts("me@example.com")
 	if err != nil {

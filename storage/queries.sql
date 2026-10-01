@@ -566,11 +566,11 @@ SELECT EXISTS(
 	WHERE accountJID = sqlc.arg(account_jid) AND mode = 'gpg'
 );
 
--- name: IncrementChatUnread :exec
+-- name: SetChatUnread :exec
 INSERT INTO chatUnread (accountJID, rosterJID, count)
-VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(delta))
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(count))
 ON CONFLICT (accountJID, rosterJID) DO UPDATE
-SET count = count + excluded.count;
+SET count = excluded.count;
 
 -- name: ResetChatUnread :exec
 INSERT INTO chatUnread (accountJID, rosterJID, count)

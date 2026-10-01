@@ -156,8 +156,8 @@ func (c *ipcClient) SetLastChat(accountJID, chatAddress string) error {
 	return c.conn.Call(rpcSetLastChat, setLastChatParams{AccountJID: accountJID, ChatAddress: chatAddress}, nil)
 }
 
-func (c *ipcClient) IncrementChatUnread(accountJID, chatAddress string, delta int) error {
-	return c.conn.Call(rpcIncrementChatUnread, chatUnreadDeltaParams{AccountJID: accountJID, ChatAddress: chatAddress, Delta: delta}, nil)
+func (c *ipcClient) SetChatUnread(accountJID, chatAddress string, count int) error {
+	return c.conn.Call(rpcSetChatUnread, chatUnreadCountParams{AccountJID: accountJID, ChatAddress: chatAddress, Count: count}, nil)
 }
 
 func (c *ipcClient) ResetChatUnread(accountJID, chatAddress string) error {
