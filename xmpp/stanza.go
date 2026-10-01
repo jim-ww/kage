@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"mellium.im/xmpp/stanza"
 )
@@ -305,6 +306,54 @@ func BuildFallbackQuote(author, body string) string {
 		lines[i] = "> " + l
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// stripReplyFallback removes the quoted-text range fb marks as XEP-0461
+// fallback from body, leaving just the reply's own text. Offsets count
+// Unicode code points, not bytes: XEP-0428's start/end defer to XEP-0426
+// ("they shall be counted by their number of Unicode code points"), so
+// slicing body by them directly strips the wrong range for any non-ASCII
+// quote and can cut a multi-byte character in half. Returns body unchanged
+// if fb marks no reply range, or if its offsets don't address body.
+func stripReplyFallback(body string, fb *fallbackElem) string {
+	if fb == nil || fb.For != "urn:xmpp:reply:0" || fb.Body == nil {
+		return body
+	}
+	start := 0
+	if fb.Body.Start != nil {
+		start = *fb.Body.Start
+	}
+	end := utf8.RuneCountInString(body)
+	if fb.Body.End != nil {
+		end = *fb.Body.End
+	}
+	if end < start {
+		return body
+	}
+	startByte, endByte := runeOffsetToByte(body, start), runeOffsetToByte(body, end)
+	if startByte < 0 || endByte < 0 {
+		return body
+	}
+	return body[:startByte] + body[endByte:]
+}
+
+// runeOffsetToByte converts a Unicode code point offset into the byte index
+// it refers to in s, or -1 if off is negative or points past s's end.
+func runeOffsetToByte(s string, off int) int {
+	if off < 0 {
+		return -1
+	}
+	n := 0
+	for i := range s {
+		if n == off {
+			return i
+		}
+		n++
+	}
+	if n == off {
+		return len(s)
+	}
+	return -1
 }
 
 // randomID generates a random stanza ID (128 bits, hex-encoded).

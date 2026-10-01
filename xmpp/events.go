@@ -326,19 +326,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		var replyToID string
 		if msg.Reply != nil {
 			replyToID = msg.Reply.ID
-			if msg.Fallback != nil && msg.Fallback.For == "urn:xmpp:reply:0" && msg.Fallback.Body != nil {
-				start := 0
-				if msg.Fallback.Body.Start != nil {
-					start = *msg.Fallback.Body.Start
-				}
-				end := len(body)
-				if msg.Fallback.Body.End != nil {
-					end = *msg.Fallback.Body.End
-				}
-				if start >= 0 && start <= end && end <= len(body) {
-					body = body[:start] + body[end:]
-				}
-			}
+			body = stripReplyFallback(body, msg.Fallback)
 		}
 		var replaceID string
 		if msg.Replace != nil {

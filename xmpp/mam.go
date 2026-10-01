@@ -140,19 +140,7 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		am.EncryptedV1 = msg.EncryptedV1
 		if msg.Reply != nil {
 			am.ReplyToID = msg.Reply.ID
-			if msg.Fallback != nil && msg.Fallback.For == "urn:xmpp:reply:0" && msg.Fallback.Body != nil {
-				start := 0
-				if msg.Fallback.Body.Start != nil {
-					start = *msg.Fallback.Body.Start
-				}
-				end := len(am.Body)
-				if msg.Fallback.Body.End != nil {
-					end = *msg.Fallback.Body.End
-				}
-				if start >= 0 && start <= end && end <= len(am.Body) {
-					am.Body = am.Body[:start] + am.Body[end:]
-				}
-			}
+			am.Body = stripReplyFallback(am.Body, msg.Fallback)
 		}
 		for _, x := range msg.OOB {
 			if x.URL != "" {

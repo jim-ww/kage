@@ -3,6 +3,7 @@ package xmpp
 import (
 	"context"
 	"fmt"
+	"unicode/utf8"
 
 	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/stanza"
@@ -62,7 +63,7 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 		msg.Replace = &replaceElem{ID: opts.ReplaceID}
 	case opts.ReplyToID != "":
 		quote := BuildFallbackQuote(opts.QuotedAuthor, opts.QuotedBody)
-		end := len(quote)
+		end := utf8.RuneCountInString(quote) // code points, not bytes - see stripReplyFallback
 		msg.Body = quote + body
 		msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
 		msg.Fallback = &fallbackElem{
