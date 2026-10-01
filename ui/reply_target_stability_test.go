@@ -51,6 +51,67 @@ func TestReplyTargetSurvivesHistoryWindowReload(t *testing.T) {
 	}
 }
 
+// TestReplyHeaderFallsBackToSnapshotOutsideWindow covers a reply whose target
+// isn't in the loaded window at all - the normal case in a long chat, where
+// only the most recent historyPageSize messages are ever resident and a reply
+// to anything older can't resolve its target by ID. Before the
+// QuotedAuthor/QuotedPreview snapshot existed, messageIndexByID simply missed
+// and the message rendered with no reply indication whatsoever, making a real
+// XEP-0461 reply indistinguishable from an ordinary message.
+func TestReplyHeaderFallsBackToSnapshotOutsideWindow(t *testing.T) {
+	m := newLimitTestModel(t, 1, 0)
+	msgs := []Message{{
+		ID:            "reply",
+		Author:        "bob",
+		Content:       "agreed",
+		SentAt:        time.Now(),
+		ReplyToID:     "long-since-paged-out",
+		QuotedAuthor:  "me",
+		QuotedPreview: "the quoted one",
+	}}
+
+	if idx := messageIndexByID(msgs, msgs[0].ReplyToID); idx >= 0 {
+		t.Fatalf("target should not be resolvable in this window, got idx %d", idx)
+	}
+
+	out := m.renderMessage(msgs[0], 0, 80, msgs, 8)
+	if !strings.Contains(out, "the quoted one") {
+		t.Fatalf("rendered reply = %q, want it to quote the snapshot preview", out)
+	}
+	// The body must not get folded onto the header line when a reply quote
+	// occupies that space - the quote and the body would run together.
+	if !strings.Contains(out, "agreed") {
+		t.Fatalf("rendered reply = %q, want it to still show the body", out)
+	}
+}
+
+// TestReplyHeaderPrefersLoadedTargetOverSnapshot pins the precedence: with the
+// real target present, the live message is what gets quoted (and stays
+// clickable), not the snapshot frozen at persist time - which can be stale if
+// the target was since edited or retracted.
+func TestReplyHeaderPrefersLoadedTargetOverSnapshot(t *testing.T) {
+	m := newLimitTestModel(t, 1, 0)
+	target := Message{ID: "target", Author: "bob", Content: "live content", SentAt: time.Now()}
+	reply := Message{
+		ID:            "reply",
+		Author:        "bob",
+		Content:       "agreed",
+		SentAt:        time.Now().Add(time.Second),
+		ReplyToID:     "target",
+		QuotedAuthor:  "bob",
+		QuotedPreview: "stale snapshot",
+	}
+	msgs := []Message{target, reply}
+
+	out := m.renderMessage(reply, 1, 80, msgs, 8)
+	if !strings.Contains(out, "live content") {
+		t.Fatalf("rendered reply = %q, want the loaded target's content", out)
+	}
+	if strings.Contains(out, "stale snapshot") {
+		t.Fatalf("rendered reply = %q, want the snapshot ignored when the target is loaded", out)
+	}
+}
+
 // TestReplyHeaderQuotesTargetAfterTrim covers the same staleness at the other
 // end: trimming the front of a chat past maxMessagesPerChat renumbers every
 // message, and the rendered header must still quote the message actually

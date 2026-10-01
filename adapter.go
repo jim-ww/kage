@@ -1211,20 +1211,33 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}
 	}
 
+	// Snapshot the replied-to message's author+preview (already known from
+	// the UI's own loaded state - see SendOptions.QuotedAuthor/QuotedBody's
+	// doc comment) so the reply indicator survives even once that message
+	// falls outside whatever window of history gets loaded later (see
+	// ui.Message.QuotedAuthor/QuotedPreview).
+	var quotedAuthor, quotedPreview string
+	if opts.ReplyToID != "" {
+		quotedAuthor = opts.QuotedAuthor
+		quotedPreview = opts.QuotedBody
+	}
+
 	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-		AccountJid:    s.account.JID,
-		Sent:          true,
-		ToAttr:        nullString(to),
-		IDAttr:        nullString(id),
-		Body:          sealedBody,
-		Encrypted:     encrypted,
-		E2eEncrypted:  e2eEncrypted,
-		E2eeMethod:    nullString(e2eeMethod),
-		StanzaType:    "chat",
-		RosterJid:     nullString(to),
-		ReplyToIDAttr: nullString(opts.ReplyToID),
-		OobUrls:       joinOOBURLs(opts.OOBURLs),
+		AccountJid:        s.account.JID,
+		Sent:              true,
+		ToAttr:            nullString(to),
+		IDAttr:            nullString(id),
+		Body:              sealedBody,
+		Encrypted:         encrypted,
+		E2eEncrypted:      e2eEncrypted,
+		E2eeMethod:        nullString(e2eeMethod),
+		StanzaType:        "chat",
+		RosterJid:         nullString(to),
+		ReplyToIDAttr:     nullString(opts.ReplyToID),
+		ReplyQuoteAuthor:  nullString(quotedAuthor),
+		ReplyQuotePreview: nullString(quotedPreview),
+		OobUrls:           joinOOBURLs(opts.OOBURLs),
 	}); err != nil {
 		slog.Warn("persisting sent message", "err", err)
 	}
@@ -1247,15 +1260,17 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		From:       to,
 		ReplyToID:  opts.ReplyToID,
 		Message: ui.Message{
-			ID:          id,
-			LocalID:     opts.LocalID,
-			Author:      "me",
-			Content:     body,
-			SentAt:      time.Now(),
-			IsMe:        true,
-			Encrypted:   e2eEncrypted,
-			EncMethod:   e2eeMethod,
-			Attachments: opts.OOBURLs,
+			ID:            id,
+			LocalID:       opts.LocalID,
+			Author:        "me",
+			Content:       body,
+			SentAt:        time.Now(),
+			IsMe:          true,
+			Encrypted:     e2eEncrypted,
+			EncMethod:     e2eeMethod,
+			Attachments:   opts.OOBURLs,
+			QuotedAuthor:  quotedAuthor,
+			QuotedPreview: quotedPreview,
 		},
 	})
 	return id, nil

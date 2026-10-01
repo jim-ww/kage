@@ -63,6 +63,8 @@ INSERT INTO messages (
 	rosterJID,
 	archiveID,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	oobURLs
 )
 VALUES (
@@ -84,6 +86,8 @@ VALUES (
 	sqlc.arg(roster_jid),
 	sqlc.arg(archive_id),
 	sqlc.arg(reply_to_id_attr),
+	sqlc.arg(reply_quote_author),
+	sqlc.arg(reply_quote_preview),
 	sqlc.arg(oob_urls)
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
@@ -210,6 +214,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	retracted,
 	edited,
 	delivered,
@@ -252,6 +258,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	retracted,
 	edited,
 	delivered,
@@ -297,6 +305,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	retracted,
 	edited,
 	delivered,
@@ -342,6 +352,8 @@ SELECT
 	rosterJID,
 	archiveID,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	retracted,
 	edited,
 	delivered,
@@ -834,6 +846,22 @@ WHERE id = sqlc.arg(id);
 SELECT accountJID, rosterJID, body
 FROM chatDraft
 WHERE encrypted = TRUE;
+
+
+-- name: GetMessageSnippetByIDAttr :one
+-- Looks up the message a live/MAM reply's <reply/> element points at, so its
+-- author+preview can be snapshotted onto the new row (see
+-- resolveReplyQuote in history.go) - unlike the sender, who already has the
+-- target in its own currently-open UI state, the recipient only has
+-- storage to check. Best-effort: a miss just means no fallback snapshot,
+-- not a failed send.
+SELECT id, sent, idAttr, body, encrypted
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND idAttr = sqlc.arg(id_attr)
+ORDER BY id DESC
+LIMIT 1;
 
 
 -- name: MessageExistsByIDAttr :one

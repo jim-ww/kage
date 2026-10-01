@@ -24,25 +24,27 @@ const meReactorJID = "me"
 // ListMessagesByRosterAtOrAfter's (differently-shaped, sqlc-generated) row
 // types so the decrypt/build logic below isn't duplicated per query.
 type historyRow struct {
-	ID               int64
-	Sent             bool
-	Idattr           sql.NullString
-	Body             sql.NullString
-	Encrypted        bool
-	E2eencrypted     bool
-	E2eemethod       sql.NullString
-	Delay            int64
-	Replytoidattr    sql.NullString
-	Retracted        bool
-	Edited           bool
-	Delivered        bool
-	Serveracked      bool
-	Sendfailed       bool
-	Ooburls          sql.NullString
-	Stanzatype       string
-	Calldirection    sql.NullString
-	Calloutcome      sql.NullString
-	Calldurationsecs sql.NullInt64
+	ID                int64
+	Sent              bool
+	Idattr            sql.NullString
+	Body              sql.NullString
+	Encrypted         bool
+	E2eencrypted      bool
+	E2eemethod        sql.NullString
+	Delay             int64
+	Replytoidattr     sql.NullString
+	Replyquoteauthor  sql.NullString
+	Replyquotepreview sql.NullString
+	Retracted         bool
+	Edited            bool
+	Delivered         bool
+	Serveracked       bool
+	Sendfailed        bool
+	Ooburls           sql.NullString
+	Stanzatype        string
+	Calldirection     sql.NullString
+	Calloutcome       sql.NullString
+	Calldurationsecs  sql.NullInt64
 }
 
 // readStoredBody returns row's plaintext body, decrypting it if row.Encrypted
@@ -128,27 +130,47 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 			attachments = aesgcmURLsInBody(pt)
 		}
 		msgs = append(msgs, ui.Message{
-			ID:          row.Idattr.String,
-			StoreID:     row.ID,
-			Author:      author,
-			Content:     pt,
-			SentAt:      time.Unix(row.Delay, 0),
-			IsMe:        row.Sent,
-			Retracted:   row.Retracted,
-			Edited:      row.Edited,
-			Delivered:   row.Delivered,
-			ServerAcked: row.Serveracked,
-			Failed:      row.Sendfailed,
-			Encrypted:   row.E2eencrypted,
-			EncMethod:   row.E2eemethod.String,
-			Reactions:   loadReactionsForMessage(ctx, s, chatAddr, row.Idattr.String),
-			Attachments: attachments,
+			ID:            row.Idattr.String,
+			StoreID:       row.ID,
+			Author:        author,
+			Content:       pt,
+			SentAt:        time.Unix(row.Delay, 0),
+			IsMe:          row.Sent,
+			Retracted:     row.Retracted,
+			Edited:        row.Edited,
+			Delivered:     row.Delivered,
+			ServerAcked:   row.Serveracked,
+			Failed:        row.Sendfailed,
+			Encrypted:     row.E2eencrypted,
+			EncMethod:     row.E2eemethod.String,
+			Reactions:     loadReactionsForMessage(ctx, s, chatAddr, row.Idattr.String),
+			Attachments:   attachments,
+			QuotedAuthor:  row.Replyquoteauthor.String,
+			QuotedPreview: row.Replyquotepreview.String,
 		})
 		replyTo = append(replyTo, row.Replytoidattr.String)
 	}
 
 	for i, id := range replyTo {
 		msgs[i].ReplyToID = id
+	}
+
+	// Resolve the quote snapshot for replies that don't carry one: every row
+	// persisted before replyQuoteAuthor/replyQuotePreview existed, plus any
+	// whose target couldn't be resolved back when it was written. Skipped
+	// when the target is in this window anyway - the index lookup in
+	// ui/render_message.go already has everything it needs then. Bounded by
+	// the number of unresolved replies in the window and done once per load
+	// rather than per render, so a chat whose history is far larger than one
+	// window still only pays for what it actually shows.
+	for i := range msgs {
+		if msgs[i].ReplyToID == "" || msgs[i].QuotedPreview != "" {
+			continue
+		}
+		if messageIndexByIDs(msgs, msgs[i].ReplyToID) >= 0 {
+			continue
+		}
+		msgs[i].QuotedAuthor, msgs[i].QuotedPreview = resolveReplyQuote(ctx, s, chatAddr, chatName, msgs[i].ReplyToID)
 	}
 	return msgs
 }
@@ -173,7 +195,7 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 	for i, r := range rows {
 		hrows[i] = historyRow{
 			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
-			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Replyquoteauthor: r.Replyquoteauthor, Replyquotepreview: r.Replyquotepreview, Retracted: r.Retracted,
 			Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
 			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 		}
@@ -192,7 +214,7 @@ var historyPageSize = 200
 func beforeRowToHistoryRow(r storage.ListMessagesByRosterBeforeRow) historyRow {
 	return historyRow{
 		ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
-		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Replyquoteauthor: r.Replyquoteauthor, Replyquotepreview: r.Replyquotepreview, Retracted: r.Retracted,
 		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
 		Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 	}
@@ -201,7 +223,7 @@ func beforeRowToHistoryRow(r storage.ListMessagesByRosterBeforeRow) historyRow {
 func afterRowToHistoryRow(r storage.ListMessagesByRosterAtOrAfterRow) historyRow {
 	return historyRow{
 		ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
-		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted,
+		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Replyquoteauthor: r.Replyquoteauthor, Replyquotepreview: r.Replyquotepreview, Retracted: r.Retracted,
 		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
 		Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
 	}
@@ -266,6 +288,43 @@ func loadHistoryWindow(ctx context.Context, s *accountSession, chatAddr, chatNam
 		hrows = append(hrows, afterRowToHistoryRow(r))
 	}
 	return buildMessages(ctx, s, chatAddr, chatName, hrows), len(olderRows) == olderHalf && olderHalf > 0, len(newerRows) == newerHalf
+}
+
+// resolveReplyQuote looks up the message replyToID refers to in chatAddr's
+// local history and returns a snapshot of its author ("me", matching
+// Message.Author's own convention, or chatName) and preview text, to persist
+// alongside a new reply so its indicator still has something to show even if
+// the target later falls outside whatever window of history the UI has
+// currently loaded (see QuotedAuthor/QuotedPreview's doc comment). Only
+// needed on the receiving side (live or MAM) — the sender already has the
+// target in its own open UI state and passes its own snapshot through
+// SendOptions.QuotedAuthor/QuotedBody instead. Best-effort: any miss
+// (message not in our storage, decrypt failure) returns ("", ""), same as a
+// reply to a message we never learned about at all.
+func resolveReplyQuote(ctx context.Context, s *accountSession, chatAddr, chatName, replyToID string) (author, preview string) {
+	if replyToID == "" {
+		return "", ""
+	}
+	row, err := s.db.GetMessageSnippetByIDAttr(ctx, storage.GetMessageSnippetByIDAttrParams{
+		AccountJid: s.account.JID,
+		RosterJid:  nullString(chatAddr),
+		IDAttr:     nullString(replyToID),
+	})
+	if err != nil {
+		return "", ""
+	}
+	pt, err := readStoredBody(ctx, s, chatAddr, historyRow{
+		ID: row.ID, Sent: row.Sent, Idattr: row.Idattr, Body: row.Body, Encrypted: row.Encrypted,
+	})
+	if err != nil {
+		return "", ""
+	}
+	pt = stripReplyQuote(pt)
+	author = chatName
+	if row.Sent {
+		author = "me"
+	}
+	return author, ui.MessagePreviewContent(ui.Message{Content: pt, IsMe: row.Sent, Author: author})
 }
 
 // replaceReactions fully replaces reactorJID's reaction set on msgID (scoped

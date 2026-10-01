@@ -343,9 +343,19 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 	hasTextQuoteReply := false
 	replyIdx := messageIndexByID(allMsgs, msg.ReplyToID)
-	if replyIdx >= 0 {
+	hasReply := replyIdx >= 0
+	switch {
+	case replyIdx >= 0:
 		reply := m.replyHeaderFragment(replyIdx, allMsgs, totalWidth-prefixWidth)
 		headerLine += m.zone.Mark(zoneMessageReply(msgIdx), reply)
+	case msg.ReplyToID != "" && msg.QuotedPreview != "":
+		// The real target isn't in the currently loaded window (scrolled
+		// out, or a fresh TUI reconnect reseeded a narrower tail - see
+		// QuotedAuthor/QuotedPreview's doc comment) - fall back to the
+		// snapshot taken when this message was persisted. Not wrapped in
+		// m.zone.Mark: there's no loaded message to jump to.
+		hasReply = true
+		headerLine += m.replyHeaderFragmentFallback(msg.QuotedAuthor, msg.QuotedPreview, totalWidth-prefixWidth)
 	}
 
 	var bodyContent string
@@ -378,7 +388,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		content := msg.Content
 		// A real XEP-0461 reply (Message.ReplyToID) always wins over the
 		// text convention below - a message can't be both.
-		if replyIdx < 0 {
+		if !hasReply {
 			if preview, rest, ok := parseQuoteReply(content); ok {
 				hasTextQuoteReply = true
 				content = rest
@@ -393,7 +403,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	// parsed ">"-quote convention both push the body down to its own line
 	// instead, since the quote already occupies the space right after the
 	// name.
-	bodyOnHeaderLine := replyIdx < 0 && !hasTextQuoteReply
+	bodyOnHeaderLine := !hasReply && !hasTextQuoteReply
 	wrapWidth := max(totalWidth-prefixWidth, 8)
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
 	fullBodyLineCount := len(bodyLines)
@@ -653,6 +663,26 @@ func (m Model) replyHeaderFragment(idx int, allMsgs []Message, budget int) strin
 	fixed := 2 + lipgloss.Width(displayName) + 3
 	preview := m.styles.messageTime.Render(previewText(MessagePreviewContent(orig), min(previewLen, budget-fixed)))
 	return "↑ " + name + " " + sep + " " + preview
+}
+
+// replyHeaderFragmentFallback is replyHeaderFragment's counterpart for when
+// the replied-to message isn't in allMsgs (see its caller in
+// renderMessageLine) - author/preview are the snapshot stored on the message
+// itself (Message.QuotedAuthor/QuotedPreview) rather than looked up by
+// index, so there's no IsMe to color the name by; it always renders in the
+// "them" color, same as the name convention used elsewhere falls back to
+// when the actual sender can't be determined.
+func (m Model) replyHeaderFragmentFallback(author, preview string, budget int) string {
+	nameStyle := m.styles.messageNickThem
+	if author == "me" {
+		nameStyle = m.styles.messageNickMe
+	}
+	displayName := senderDisplayName(author)
+	name := nameStyle.Render(displayName)
+	sep := m.styles.messageTime.Render("│")
+	fixed := 2 + lipgloss.Width(displayName) + 3
+	previewRendered := m.styles.messageTime.Render(previewText(preview, min(previewLen, budget-fixed)))
+	return "↑ " + name + " " + sep + " " + previewRendered
 }
 
 // quoteLinePrefix matches a line that's part of an email/IRC-style quoted

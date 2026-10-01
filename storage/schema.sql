@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS messages (
 	rosterJID     TEXT,
 	archiveID     TEXT, -- XEP-0313 (MAM) server-assigned archive id, used as the RSM "after" cursor to resume backfill
 	replyToIdAttr TEXT, -- XEP-0461: idAttr of the message this one replies to
+	replyQuoteAuthor TEXT, -- snapshot of the replied-to message's Author ("me" or the peer's display name) at persist time, so the reply indicator still has something to show if that message later falls outside whatever window of history is currently loaded (see ui/render_message.go)
+	replyQuotePreview TEXT, -- snapshot of the replied-to message's preview text, same reasoning as replyQuoteAuthor
 	retracted     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0424: sender attempted to retract this; content is kept, just flagged
 	edited        BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0308: this row's body was overwritten by a later correction
 	delivered     BOOLEAN  NOT NULL DEFAULT FALSE, -- XEP-0184: peer acknowledged receipt of a message we sent

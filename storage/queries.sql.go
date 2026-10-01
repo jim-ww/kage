@@ -455,6 +455,49 @@ func (q *Queries) GetMessageDelayByArchiveID(ctx context.Context, arg GetMessage
 	return delay, err
 }
 
+const getMessageSnippetByIDAttr = `-- name: GetMessageSnippetByIDAttr :one
+SELECT id, sent, idAttr, body, encrypted
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND idAttr = ?3
+ORDER BY id DESC
+LIMIT 1
+`
+
+type GetMessageSnippetByIDAttrParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+}
+
+type GetMessageSnippetByIDAttrRow struct {
+	ID        int64          `db:"id"`
+	Sent      bool           `db:"sent"`
+	Idattr    sql.NullString `db:"idattr"`
+	Body      sql.NullString `db:"body"`
+	Encrypted bool           `db:"encrypted"`
+}
+
+// Looks up the message a live/MAM reply's <reply/> element points at, so its
+// author+preview can be snapshotted onto the new row (see
+// resolveReplyQuote in history.go) - unlike the sender, who already has the
+// target in its own currently-open UI state, the recipient only has
+// storage to check. Best-effort: a miss just means no fallback snapshot,
+// not a failed send.
+func (q *Queries) GetMessageSnippetByIDAttr(ctx context.Context, arg GetMessageSnippetByIDAttrParams) (GetMessageSnippetByIDAttrRow, error) {
+	row := q.db.QueryRowContext(ctx, getMessageSnippetByIDAttr, arg.AccountJid, arg.RosterJid, arg.IDAttr)
+	var i GetMessageSnippetByIDAttrRow
+	err := row.Scan(
+		&i.ID,
+		&i.Sent,
+		&i.Idattr,
+		&i.Body,
+		&i.Encrypted,
+	)
+	return i, err
+}
+
 const getOmemoCurrentSignedPreKey = `-- name: GetOmemoCurrentSignedPreKey :one
 SELECT id, public, private, signature
 FROM omemoSignedPreKey
@@ -891,6 +934,8 @@ INSERT INTO messages (
 	rosterJID,
 	archiveID,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	oobURLs
 )
 VALUES (
@@ -912,7 +957,9 @@ VALUES (
 	?13,
 	?14,
 	?15,
-	?16
+	?16,
+	?17,
+	?18
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -920,22 +967,24 @@ RETURNING id
 `
 
 type InsertMessageParams struct {
-	AccountJid    string         `db:"account_jid"`
-	Sent          bool           `db:"sent"`
-	ToAttr        sql.NullString `db:"to_attr"`
-	FromAttr      sql.NullString `db:"from_attr"`
-	IDAttr        sql.NullString `db:"id_attr"`
-	Body          sql.NullString `db:"body"`
-	Encrypted     bool           `db:"encrypted"`
-	E2eEncrypted  bool           `db:"e2e_encrypted"`
-	E2eeMethod    sql.NullString `db:"e2ee_method"`
-	StanzaType    string         `db:"stanza_type"`
-	OriginID      sql.NullString `db:"origin_id"`
-	Delay         interface{}    `db:"delay"`
-	RosterJid     sql.NullString `db:"roster_jid"`
-	ArchiveID     sql.NullString `db:"archive_id"`
-	ReplyToIDAttr sql.NullString `db:"reply_to_id_attr"`
-	OobUrls       sql.NullString `db:"oob_urls"`
+	AccountJid        string         `db:"account_jid"`
+	Sent              bool           `db:"sent"`
+	ToAttr            sql.NullString `db:"to_attr"`
+	FromAttr          sql.NullString `db:"from_attr"`
+	IDAttr            sql.NullString `db:"id_attr"`
+	Body              sql.NullString `db:"body"`
+	Encrypted         bool           `db:"encrypted"`
+	E2eEncrypted      bool           `db:"e2e_encrypted"`
+	E2eeMethod        sql.NullString `db:"e2ee_method"`
+	StanzaType        string         `db:"stanza_type"`
+	OriginID          sql.NullString `db:"origin_id"`
+	Delay             interface{}    `db:"delay"`
+	RosterJid         sql.NullString `db:"roster_jid"`
+	ArchiveID         sql.NullString `db:"archive_id"`
+	ReplyToIDAttr     sql.NullString `db:"reply_to_id_attr"`
+	ReplyQuoteAuthor  sql.NullString `db:"reply_quote_author"`
+	ReplyQuotePreview sql.NullString `db:"reply_quote_preview"`
+	OobUrls           sql.NullString `db:"oob_urls"`
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -955,6 +1004,8 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.RosterJid,
 		arg.ArchiveID,
 		arg.ReplyToIDAttr,
+		arg.ReplyQuoteAuthor,
+		arg.ReplyQuotePreview,
 		arg.OobUrls,
 	)
 	var id int64
@@ -1178,6 +1229,8 @@ SELECT
 	rosterJID,
 	archiveID,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	retracted,
 	edited,
 	delivered,
@@ -1192,31 +1245,33 @@ ORDER BY delay ASC, id ASC
 `
 
 type ListAllMessagesRow struct {
-	Accountjid       string         `db:"accountjid"`
-	Sent             bool           `db:"sent"`
-	Toattr           sql.NullString `db:"toattr"`
-	Fromattr         sql.NullString `db:"fromattr"`
-	Idattr           sql.NullString `db:"idattr"`
-	Body             sql.NullString `db:"body"`
-	Encrypted        bool           `db:"encrypted"`
-	E2eencrypted     bool           `db:"e2eencrypted"`
-	E2eemethod       sql.NullString `db:"e2eemethod"`
-	Originid         sql.NullString `db:"originid"`
-	Stanzatype       string         `db:"stanzatype"`
-	Received         bool           `db:"received"`
-	Delay            int64          `db:"delay"`
-	Rosterjid        sql.NullString `db:"rosterjid"`
-	Archiveid        sql.NullString `db:"archiveid"`
-	Replytoidattr    sql.NullString `db:"replytoidattr"`
-	Retracted        bool           `db:"retracted"`
-	Edited           bool           `db:"edited"`
-	Delivered        bool           `db:"delivered"`
-	Serveracked      bool           `db:"serveracked"`
-	Sendfailed       bool           `db:"sendfailed"`
-	Ooburls          sql.NullString `db:"ooburls"`
-	Calldirection    sql.NullString `db:"calldirection"`
-	Calloutcome      sql.NullString `db:"calloutcome"`
-	Calldurationsecs sql.NullInt64  `db:"calldurationsecs"`
+	Accountjid        string         `db:"accountjid"`
+	Sent              bool           `db:"sent"`
+	Toattr            sql.NullString `db:"toattr"`
+	Fromattr          sql.NullString `db:"fromattr"`
+	Idattr            sql.NullString `db:"idattr"`
+	Body              sql.NullString `db:"body"`
+	Encrypted         bool           `db:"encrypted"`
+	E2eencrypted      bool           `db:"e2eencrypted"`
+	E2eemethod        sql.NullString `db:"e2eemethod"`
+	Originid          sql.NullString `db:"originid"`
+	Stanzatype        string         `db:"stanzatype"`
+	Received          bool           `db:"received"`
+	Delay             int64          `db:"delay"`
+	Rosterjid         sql.NullString `db:"rosterjid"`
+	Archiveid         sql.NullString `db:"archiveid"`
+	Replytoidattr     sql.NullString `db:"replytoidattr"`
+	Replyquoteauthor  sql.NullString `db:"replyquoteauthor"`
+	Replyquotepreview sql.NullString `db:"replyquotepreview"`
+	Retracted         bool           `db:"retracted"`
+	Edited            bool           `db:"edited"`
+	Delivered         bool           `db:"delivered"`
+	Serveracked       bool           `db:"serveracked"`
+	Sendfailed        bool           `db:"sendfailed"`
+	Ooburls           sql.NullString `db:"ooburls"`
+	Calldirection     sql.NullString `db:"calldirection"`
+	Calloutcome       sql.NullString `db:"calloutcome"`
+	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
 }
 
 // Every message row across every account, oldest first, used by the
@@ -1248,6 +1303,8 @@ func (q *Queries) ListAllMessages(ctx context.Context) ([]ListAllMessagesRow, er
 			&i.Rosterjid,
 			&i.Archiveid,
 			&i.Replytoidattr,
+			&i.Replyquoteauthor,
+			&i.Replyquotepreview,
 			&i.Retracted,
 			&i.Edited,
 			&i.Delivered,
@@ -1509,6 +1566,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	retracted,
 	edited,
 	delivered,
@@ -1535,27 +1594,29 @@ type ListMessagesByRosterParams struct {
 }
 
 type ListMessagesByRosterRow struct {
-	ID               int64          `db:"id"`
-	Sent             bool           `db:"sent"`
-	Toattr           sql.NullString `db:"toattr"`
-	Fromattr         sql.NullString `db:"fromattr"`
-	Idattr           sql.NullString `db:"idattr"`
-	Body             sql.NullString `db:"body"`
-	Encrypted        bool           `db:"encrypted"`
-	E2eencrypted     bool           `db:"e2eencrypted"`
-	E2eemethod       sql.NullString `db:"e2eemethod"`
-	Stanzatype       string         `db:"stanzatype"`
-	Delay            int64          `db:"delay"`
-	Replytoidattr    sql.NullString `db:"replytoidattr"`
-	Retracted        bool           `db:"retracted"`
-	Edited           bool           `db:"edited"`
-	Delivered        bool           `db:"delivered"`
-	Serveracked      bool           `db:"serveracked"`
-	Sendfailed       bool           `db:"sendfailed"`
-	Ooburls          sql.NullString `db:"ooburls"`
-	Calldirection    sql.NullString `db:"calldirection"`
-	Calloutcome      sql.NullString `db:"calloutcome"`
-	Calldurationsecs sql.NullInt64  `db:"calldurationsecs"`
+	ID                int64          `db:"id"`
+	Sent              bool           `db:"sent"`
+	Toattr            sql.NullString `db:"toattr"`
+	Fromattr          sql.NullString `db:"fromattr"`
+	Idattr            sql.NullString `db:"idattr"`
+	Body              sql.NullString `db:"body"`
+	Encrypted         bool           `db:"encrypted"`
+	E2eencrypted      bool           `db:"e2eencrypted"`
+	E2eemethod        sql.NullString `db:"e2eemethod"`
+	Stanzatype        string         `db:"stanzatype"`
+	Delay             int64          `db:"delay"`
+	Replytoidattr     sql.NullString `db:"replytoidattr"`
+	Replyquoteauthor  sql.NullString `db:"replyquoteauthor"`
+	Replyquotepreview sql.NullString `db:"replyquotepreview"`
+	Retracted         bool           `db:"retracted"`
+	Edited            bool           `db:"edited"`
+	Delivered         bool           `db:"delivered"`
+	Serveracked       bool           `db:"serveracked"`
+	Sendfailed        bool           `db:"sendfailed"`
+	Ooburls           sql.NullString `db:"ooburls"`
+	Calldirection     sql.NullString `db:"calldirection"`
+	Calloutcome       sql.NullString `db:"calloutcome"`
+	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
 }
 
 func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]ListMessagesByRosterRow, error) {
@@ -1580,6 +1641,8 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Stanzatype,
 			&i.Delay,
 			&i.Replytoidattr,
+			&i.Replyquoteauthor,
+			&i.Replyquotepreview,
 			&i.Retracted,
 			&i.Edited,
 			&i.Delivered,
@@ -1617,6 +1680,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	retracted,
 	edited,
 	delivered,
@@ -1651,27 +1716,29 @@ type ListMessagesByRosterAtOrAfterParams struct {
 }
 
 type ListMessagesByRosterAtOrAfterRow struct {
-	ID               int64          `db:"id"`
-	Sent             bool           `db:"sent"`
-	Toattr           sql.NullString `db:"toattr"`
-	Fromattr         sql.NullString `db:"fromattr"`
-	Idattr           sql.NullString `db:"idattr"`
-	Body             sql.NullString `db:"body"`
-	Encrypted        bool           `db:"encrypted"`
-	E2eencrypted     bool           `db:"e2eencrypted"`
-	E2eemethod       sql.NullString `db:"e2eemethod"`
-	Stanzatype       string         `db:"stanzatype"`
-	Delay            int64          `db:"delay"`
-	Replytoidattr    sql.NullString `db:"replytoidattr"`
-	Retracted        bool           `db:"retracted"`
-	Edited           bool           `db:"edited"`
-	Delivered        bool           `db:"delivered"`
-	Serveracked      bool           `db:"serveracked"`
-	Sendfailed       bool           `db:"sendfailed"`
-	Ooburls          sql.NullString `db:"ooburls"`
-	Calldirection    sql.NullString `db:"calldirection"`
-	Calloutcome      sql.NullString `db:"calloutcome"`
-	Calldurationsecs sql.NullInt64  `db:"calldurationsecs"`
+	ID                int64          `db:"id"`
+	Sent              bool           `db:"sent"`
+	Toattr            sql.NullString `db:"toattr"`
+	Fromattr          sql.NullString `db:"fromattr"`
+	Idattr            sql.NullString `db:"idattr"`
+	Body              sql.NullString `db:"body"`
+	Encrypted         bool           `db:"encrypted"`
+	E2eencrypted      bool           `db:"e2eencrypted"`
+	E2eemethod        sql.NullString `db:"e2eemethod"`
+	Stanzatype        string         `db:"stanzatype"`
+	Delay             int64          `db:"delay"`
+	Replytoidattr     sql.NullString `db:"replytoidattr"`
+	Replyquoteauthor  sql.NullString `db:"replyquoteauthor"`
+	Replyquotepreview sql.NullString `db:"replyquotepreview"`
+	Retracted         bool           `db:"retracted"`
+	Edited            bool           `db:"edited"`
+	Delivered         bool           `db:"delivered"`
+	Serveracked       bool           `db:"serveracked"`
+	Sendfailed        bool           `db:"sendfailed"`
+	Ooburls           sql.NullString `db:"ooburls"`
+	Calldirection     sql.NullString `db:"calldirection"`
+	Calloutcome       sql.NullString `db:"calloutcome"`
+	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
 }
 
 // ListMessagesByRosterAtOrAfter is ListMessagesByRosterBefore's mirror: one
@@ -1710,6 +1777,8 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 			&i.Stanzatype,
 			&i.Delay,
 			&i.Replytoidattr,
+			&i.Replyquoteauthor,
+			&i.Replyquotepreview,
 			&i.Retracted,
 			&i.Edited,
 			&i.Delivered,
@@ -1747,6 +1816,8 @@ SELECT
 	stanzaType,
 	delay,
 	replyToIdAttr,
+	replyQuoteAuthor,
+	replyQuotePreview,
 	retracted,
 	edited,
 	delivered,
@@ -1781,27 +1852,29 @@ type ListMessagesByRosterBeforeParams struct {
 }
 
 type ListMessagesByRosterBeforeRow struct {
-	ID               int64          `db:"id"`
-	Sent             bool           `db:"sent"`
-	Toattr           sql.NullString `db:"toattr"`
-	Fromattr         sql.NullString `db:"fromattr"`
-	Idattr           sql.NullString `db:"idattr"`
-	Body             sql.NullString `db:"body"`
-	Encrypted        bool           `db:"encrypted"`
-	E2eencrypted     bool           `db:"e2eencrypted"`
-	E2eemethod       sql.NullString `db:"e2eemethod"`
-	Stanzatype       string         `db:"stanzatype"`
-	Delay            int64          `db:"delay"`
-	Replytoidattr    sql.NullString `db:"replytoidattr"`
-	Retracted        bool           `db:"retracted"`
-	Edited           bool           `db:"edited"`
-	Delivered        bool           `db:"delivered"`
-	Serveracked      bool           `db:"serveracked"`
-	Sendfailed       bool           `db:"sendfailed"`
-	Ooburls          sql.NullString `db:"ooburls"`
-	Calldirection    sql.NullString `db:"calldirection"`
-	Calloutcome      sql.NullString `db:"calloutcome"`
-	Calldurationsecs sql.NullInt64  `db:"calldurationsecs"`
+	ID                int64          `db:"id"`
+	Sent              bool           `db:"sent"`
+	Toattr            sql.NullString `db:"toattr"`
+	Fromattr          sql.NullString `db:"fromattr"`
+	Idattr            sql.NullString `db:"idattr"`
+	Body              sql.NullString `db:"body"`
+	Encrypted         bool           `db:"encrypted"`
+	E2eencrypted      bool           `db:"e2eencrypted"`
+	E2eemethod        sql.NullString `db:"e2eemethod"`
+	Stanzatype        string         `db:"stanzatype"`
+	Delay             int64          `db:"delay"`
+	Replytoidattr     sql.NullString `db:"replytoidattr"`
+	Replyquoteauthor  sql.NullString `db:"replyquoteauthor"`
+	Replyquotepreview sql.NullString `db:"replyquotepreview"`
+	Retracted         bool           `db:"retracted"`
+	Edited            bool           `db:"edited"`
+	Delivered         bool           `db:"delivered"`
+	Serveracked       bool           `db:"serveracked"`
+	Sendfailed        bool           `db:"sendfailed"`
+	Ooburls           sql.NullString `db:"ooburls"`
+	Calldirection     sql.NullString `db:"calldirection"`
+	Calloutcome       sql.NullString `db:"calloutcome"`
+	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
 }
 
 // ListMessagesByRosterBefore returns one page of a chat's history older
@@ -1843,6 +1916,8 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Stanzatype,
 			&i.Delay,
 			&i.Replytoidattr,
+			&i.Replyquoteauthor,
+			&i.Replyquotepreview,
 			&i.Retracted,
 			&i.Edited,
 			&i.Delivered,

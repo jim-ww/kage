@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/jim-ww/kage/crypto/gpg"
-	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/daemon"
+	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
@@ -250,20 +250,25 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		}
 	}
 
+	chatName := s.rosterName(from)
+	quotedAuthor, quotedPreview := resolveReplyQuote(ctx, s, from, chatName, msgEv.ReplyToID)
+
 	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-		AccountJid:    s.account.JID,
-		Sent:          msgEv.Outgoing,
-		FromAttr:      nullString(msgEv.From),
-		IDAttr:        nullString(msgEv.ID),
-		Body:          sealedBody,
-		Encrypted:     encrypted,
-		E2eEncrypted:  e2eEncrypted,
-		E2eeMethod:    nullString(e2eeMethod),
-		StanzaType:    "chat",
-		RosterJid:     nullString(from),
-		ReplyToIDAttr: nullString(msgEv.ReplyToID),
-		OobUrls:       joinOOBURLs(oobURLs),
+		AccountJid:        s.account.JID,
+		Sent:              msgEv.Outgoing,
+		FromAttr:          nullString(msgEv.From),
+		IDAttr:            nullString(msgEv.ID),
+		Body:              sealedBody,
+		Encrypted:         encrypted,
+		E2eEncrypted:      e2eEncrypted,
+		E2eeMethod:        nullString(e2eeMethod),
+		StanzaType:        "chat",
+		RosterJid:         nullString(from),
+		ReplyToIDAttr:     nullString(msgEv.ReplyToID),
+		ReplyQuoteAuthor:  nullString(quotedAuthor),
+		ReplyQuotePreview: nullString(quotedPreview),
+		OobUrls:           joinOOBURLs(oobURLs),
 	}); err != nil {
 		// Insertion failed (most likely the unique index rejecting a
 		// duplicate idAttr that slipped past the check above in a race) -
@@ -279,7 +284,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		ReplyToID:  msgEv.ReplyToID,
 		Message: ui.Message{
 			ID:            msgEv.ID,
-			Author:        s.rosterName(from),
+			Author:        chatName,
 			Content:       body,
 			SentAt:        msgEv.SentAt,
 			IsMe:          msgEv.Outgoing,
@@ -287,6 +292,8 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			EncMethod:     e2eeMethod,
 			Attachments:   oobURLs,
 			DecryptFailed: decryptFailed,
+			QuotedAuthor:  quotedAuthor,
+			QuotedPreview: quotedPreview,
 		},
 	})
 
@@ -429,4 +436,3 @@ func aesgcmURLsInBody(body string) []string {
 	slices.Reverse(urls)
 	return urls
 }
-

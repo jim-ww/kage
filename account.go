@@ -1748,6 +1748,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		oobURLs = aesgcmURLsInBody(body)
 	}
 	sent := bareJID(am.From) == ownBare
+	quotedAuthor, quotedPreview := resolveReplyQuote(ctx, s, peerJID, name, am.ReplyToID)
 	sealedBody, encrypted := encryptForStorage(s, body)
 
 	if am.ReplaceID != "" {
@@ -1785,21 +1786,23 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 	}
 
 	_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
-		AccountJid:    s.account.JID,
-		Sent:          sent,
-		ToAttr:        nullString(am.To),
-		FromAttr:      nullString(am.From),
-		IDAttr:        nullString(am.ID),
-		Body:          sealedBody,
-		Encrypted:     encrypted,
-		E2eEncrypted:  e2eEncrypted,
-		E2eeMethod:    nullString(e2eeMethod),
-		StanzaType:    "chat",
-		Delay:         am.SentAt.Unix(),
-		RosterJid:     nullString(peerJID),
-		ArchiveID:     nullString(am.ArchiveID),
-		OobUrls:       joinOOBURLs(oobURLs),
-		ReplyToIDAttr: nullString(am.ReplyToID),
+		AccountJid:        s.account.JID,
+		Sent:              sent,
+		ToAttr:            nullString(am.To),
+		FromAttr:          nullString(am.From),
+		IDAttr:            nullString(am.ID),
+		Body:              sealedBody,
+		Encrypted:         encrypted,
+		E2eEncrypted:      e2eEncrypted,
+		E2eeMethod:        nullString(e2eeMethod),
+		StanzaType:        "chat",
+		Delay:             am.SentAt.Unix(),
+		RosterJid:         nullString(peerJID),
+		ArchiveID:         nullString(am.ArchiveID),
+		OobUrls:           joinOOBURLs(oobURLs),
+		ReplyToIDAttr:     nullString(am.ReplyToID),
+		ReplyQuoteAuthor:  nullString(quotedAuthor),
+		ReplyQuotePreview: nullString(quotedPreview),
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "archiveID") {
@@ -1826,6 +1829,8 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		Attachments:   oobURLs,
 		DecryptFailed: decryptFailed,
 		ReplyToID:     am.ReplyToID,
+		QuotedAuthor:  quotedAuthor,
+		QuotedPreview: quotedPreview,
 	}}
 }
 

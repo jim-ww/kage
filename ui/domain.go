@@ -31,6 +31,18 @@ type Message struct {
 	ReplyToID   string
 	Attachments []string // file paths or URLs attached to the message
 
+	// QuotedAuthor/QuotedPreview are a snapshot of the replied-to message's
+	// Author/preview text, captured when this message was persisted (see
+	// resolveReplyQuote in history.go). ReplyToID alone only lets the reply
+	// quote render when the target happens to still be in the chat's
+	// currently loaded in-memory window (messageIndexByID in
+	// ui/render_message.go) — these are the fallback used when it isn't,
+	// e.g. the target scrolled out of the live window or a TUI reconnect
+	// reseeded a narrower tail than before. Both empty means either this
+	// isn't a reply, or the target couldn't be resolved at persist time.
+	QuotedAuthor  string
+	QuotedPreview string
+
 	// LocalID is a client-generated correlation key set on a message the
 	// moment it's composed (sendCurrentInput), before the network even knows
 	// about it - ID stays empty until (if ever) a real send actually
@@ -300,7 +312,7 @@ type Chat struct {
 	LastActivity time.Time
 
 	Presence Presence
-	Typing      bool // true while the peer has an active XEP-0085 "composing" state
+	Typing   bool // true while the peer has an active XEP-0085 "composing" state
 
 	// Resources lists this contact's currently online devices (full-JID
 	// resources), sorted by resource name. Populated from live

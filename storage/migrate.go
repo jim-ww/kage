@@ -54,6 +54,8 @@ func Open(path string) (*sql.DB, *Queries, error) {
 // version number.
 var addedColumns = []struct{ table, column, decl string }{
 	{"mamSyncCursor", "lastSentAt", "INTEGER NOT NULL DEFAULT 0"},
+	{"messages", "replyQuoteAuthor", "TEXT"},
+	{"messages", "replyQuotePreview", "TEXT"},
 }
 
 func addColumns(ctx context.Context, db *sql.DB) error {
