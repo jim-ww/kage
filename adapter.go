@@ -46,6 +46,9 @@ type adapter struct {
 
 	uploadCancelsMu sync.Mutex
 	uploadCancels   map[string]context.CancelFunc // keyed by local file path, see SendFile/UploadFile/CancelUpload
+
+	typingMu sync.Mutex
+	typingTo map[int]string // accountIdx -> peer we've sent "composing" to and not yet cleared, see SetTyping/clearTyping
 }
 
 // errUploadCanceled is returned (and translated to a distinct "upload
@@ -651,6 +654,8 @@ func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
 
 // SetTyping implements ui.MessageSender: sends a XEP-0085 chat state
 // notification to "to" — no persistence, no encryption, it's ephemeral.
+// A sent "composing" is remembered per account so clearTyping can take it
+// back if the TUI goes away before clearing it itself.
 func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
 	s, ok := a.session(accountIdx)
 	if !ok {
@@ -664,7 +669,61 @@ func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
 	if composing {
 		state = xmpp.ChatStateComposing
 	}
-	return client.SendChatState(context.Background(), to, state)
+	if err := client.SendChatState(context.Background(), to, state); err != nil {
+		return err
+	}
+	a.markTyping(accountIdx, to, composing)
+	return nil
+}
+
+// markTyping records (composing=true) or forgets (composing=false) the
+// "composing" state SetTyping just put on the wire for accountIdx.
+func (a *adapter) markTyping(accountIdx int, to string, composing bool) {
+	a.typingMu.Lock()
+	defer a.typingMu.Unlock()
+	if composing {
+		if a.typingTo == nil {
+			a.typingTo = make(map[int]string)
+		}
+		a.typingTo[accountIdx] = to
+		return
+	}
+	// Only the peer we're actually marked as composing to: an "active" for
+	// some other chat says nothing about this one.
+	if a.typingTo[accountIdx] == to {
+		delete(a.typingTo, accountIdx)
+	}
+}
+
+// drainTyping returns and forgets every account's outstanding "composing"
+// peer.
+func (a *adapter) drainTyping() map[int]string {
+	a.typingMu.Lock()
+	defer a.typingMu.Unlock()
+	pending := a.typingTo
+	a.typingTo = nil
+	return pending
+}
+
+// clearTyping sends "active" to every peer still left in a "composing" state
+// by SetTyping. The daemon outlives the TUI, so without this a client that
+// quits (or dies) mid-keystroke — before its own pause timeout or quit path
+// clears the state — leaves the peer's client showing a typing indicator
+// indefinitely: nothing else on the wire ever contradicts it.
+func (a *adapter) clearTyping() {
+	for accountIdx, to := range a.drainTyping() {
+		s, ok := a.session(accountIdx)
+		if !ok {
+			continue
+		}
+		client, err := s.liveClient()
+		if err != nil {
+			continue
+		}
+		if err := client.SendChatState(context.Background(), to, xmpp.ChatStateActive); err != nil {
+			slog.Warn("adapter: clearing typing state", "account", accountIdx, "to", to, "err", err)
+		}
+	}
 }
 
 // RenameContact implements ui.ContactRenamer: pushes name as a roster set

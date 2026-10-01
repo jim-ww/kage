@@ -190,12 +190,6 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	slog.Debug("background: local key derived", "elapsed", time.Since(start))
 
 	srv := ipc.NewServer()
-	srv.OnLastDisconnect = func() {
-		// No TUI attached anymore — don't leave notifications suppressed for
-		// whatever chat happened to be open/focused when it quit.
-		tuiFocused.Store(true)
-		tuiActiveChat.Store("")
-	}
 	a := &adapter{
 		sessions:    make([]*accountSession, len(cfg.Accounts)),
 		cfgAccounts: append([]config.Account(nil), cfg.Accounts...),
@@ -206,6 +200,15 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 		useGPG:      !cfg.GPGDisabled,
 		useKeyring:  !cfg.KeyringDisabled,
 		srv:         srv,
+	}
+	srv.OnLastDisconnect = func() {
+		// No TUI attached anymore — don't leave notifications suppressed for
+		// whatever chat happened to be open/focused when it quit.
+		tuiFocused.Store(true)
+		tuiActiveChat.Store("")
+		// ...and don't leave peers seeing a typing indicator the quit client
+		// never got around to clearing.
+		a.clearTyping()
 	}
 	ds := &daemonServer{a: a, srv: srv}
 
