@@ -402,6 +402,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
+		// Whatever they were composing, they've now sent it - not every
+		// client bothers to pair the message with an "active" chat state.
+		typingCmd := m.setPeerTyping(msg.AccountIdx, msg.From, false)
 		newMsg := msg.Message
 		newMsg.ReplyToID = msg.ReplyToID
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
@@ -418,7 +421,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if !m.isChatFocused(msg.AccountIdx, chatIdx) && !newMsg.IsMe && !newMsg.DecryptFailed {
 			cmd = tea.Batch(cmd, m.incrementChatUnread(msg.AccountIdx, chatIdx, 1))
 		}
-		return m, cmd, true
+		return m, tea.Batch(typingCmd, cmd), true
 
 	case HistoryWindowMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
@@ -954,21 +957,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 
 	case TypingMsg:
-		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
-		if chatIdx < 0 {
+		return m, m.setPeerTyping(msg.AccountIdx, msg.From, msg.Typing), true
+
+	case peerTypingExpiredMsg:
+		if m.peerTypingGen[peerTypingKey(msg.accountIdx, msg.from)] != msg.gen {
+			// A newer "composing" rearmed the timer, or something already
+			// cleared the indicator - this one is stale.
 			return m, nil, true
 		}
-		chat, ok := m.accounts[msg.AccountIdx].Chats[chatIdx].(Chat)
-		if !ok {
-			return m, nil, true
-		}
-		chat.Typing = msg.Typing
-		m.accounts[msg.AccountIdx].Chats[chatIdx] = chat
-		if msg.AccountIdx == m.currentAccount {
-			cmd := m.chats.SetItem(chatIdx, chat)
-			return m, cmd, true
-		}
-		return m, nil, true
+		return m, m.setPeerTyping(msg.accountIdx, msg.from, false), true
 
 	case IncomingCallMsg:
 		model, cmd := m.handleIncomingCallMsg(msg)
@@ -1053,11 +1050,16 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			chat.Presence = aggregatePresence(chat.Resources)
 		}
 		m.accounts[msg.AccountIdx].Chats[chatIdx] = chat
+		var cmd tea.Cmd
 		if msg.AccountIdx == m.currentAccount {
-			cmd := m.chats.SetItem(chatIdx, chat)
-			return m, cmd, true
+			cmd = m.chats.SetItem(chatIdx, chat)
 		}
-		return m, nil, true
+		if chat.Presence == PresenceOffline {
+			// They can't still be typing from a resource that just went
+			// away, and the "active" that would have said so never comes.
+			cmd = tea.Batch(cmd, m.setPeerTyping(msg.AccountIdx, msg.From, false))
+		}
+		return m, cmd, true
 	}
 
 	return m, nil, false

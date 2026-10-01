@@ -66,7 +66,7 @@ func nonIdleCmd(cmd tea.Cmd) tea.Msg {
 type fakeReadTrackerSender struct {
 	fakeSuccessSender
 	persisted []int // counts passed to SetChatUnread, in order
-	resets      int
+	resets    int
 }
 
 func (f *fakeReadTrackerSender) SetChatUnread(accountJID, chatAddress string, count int) error {

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"slices"
+	"strconv"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -165,6 +166,46 @@ func (m *Model) setChatUnread(accountIdx, chatIdx, count int) tea.Cmd {
 		return m.chats.SetItem(chatIdx, chat)
 	}
 	return nil
+}
+
+// peerTypingKey identifies one contact's typing state across accounts.
+func peerTypingKey(accountIdx int, from string) string {
+	return strconv.Itoa(accountIdx) + "\x00" + from
+}
+
+// setPeerTyping records a contact's XEP-0085 state on their chat row. A
+// "composing" also (re)arms the expiry timer that clears the indicator if no
+// contradicting state ever arrives — see peerTypingTimeout.
+func (m *Model) setPeerTyping(accountIdx int, from string, typing bool) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return nil
+	}
+	chatIdx := m.chatIndexByAddress(accountIdx, from)
+	if chatIdx < 0 {
+		return nil
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok || (!typing && !chat.Typing) {
+		return nil
+	}
+	chat.Typing = typing
+	m.accounts[accountIdx].Chats[chatIdx] = chat
+
+	if m.peerTypingGen == nil {
+		m.peerTypingGen = map[string]int{}
+	}
+	key := peerTypingKey(accountIdx, from)
+	m.peerTypingGen[key]++
+	gen := m.peerTypingGen[key]
+
+	var cmd tea.Cmd
+	if accountIdx == m.currentAccount {
+		cmd = m.chats.SetItem(chatIdx, chat)
+	}
+	if !typing {
+		return cmd
+	}
+	return tea.Batch(cmd, peerTypingTimer(accountIdx, from, gen))
 }
 
 // activeChatKey returns the account JID and chat address of the chat

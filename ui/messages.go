@@ -493,6 +493,32 @@ func typingPauseTimer(addr string, gen int) tea.Cmd {
 	})
 }
 
+// peerTypingTimeout is how long a contact's "composing" is believed before
+// the indicator clears itself. XEP-0085's own advice, and the only defense
+// against an indicator that never goes away: the contradicting "active" is
+// just another stanza, so a peer that quits mid-keystroke, crashes, or drops
+// off the network never sends it and the row would otherwise claim they're
+// still typing for the rest of the session. Generous compared to our own
+// typingPauseTimeout — other clients pick their own pause interval, and a
+// peer that really is still typing re-sends "composing".
+const peerTypingTimeout = 30 * time.Second
+
+// peerTypingExpiredMsg fires peerTypingTimeout after a contact's "composing"
+// arrived. Gen must still match the chat's peerTypingGen when it lands —
+// otherwise a newer "composing" rearmed the timer (or something already
+// cleared the indicator) and this one is stale.
+type peerTypingExpiredMsg struct {
+	accountIdx int
+	from       string
+	gen        int
+}
+
+func peerTypingTimer(accountIdx int, from string, gen int) tea.Cmd {
+	return tea.Tick(peerTypingTimeout, func(time.Time) tea.Msg {
+		return peerTypingExpiredMsg{accountIdx: accountIdx, from: from, gen: gen}
+	})
+}
+
 // flashDuration is how long a message stays highlighted after jumping to it
 // (e.g. clicking a reply quote) before the highlight clears itself.
 const flashDuration = 600 * time.Millisecond

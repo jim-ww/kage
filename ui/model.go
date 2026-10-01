@@ -332,6 +332,12 @@ type Model struct {
 	typingActiveTo string
 	typingGen      int
 
+	// peerTypingGen counts each contact's incoming "composing" states,
+	// keyed by peerTypingKey, so a pending peerTypingExpiredMsg can tell
+	// whether it's the latest one (clear the indicator) or was rearmed by a
+	// newer "composing" since. Mirrors typingGen, on the receiving side.
+	peerTypingGen map[string]int
+
 	// chatSwitchGen increments every time the chat-list selection moves;
 	// see chatSwitchTimer/chatSwitchSettledMsg — debounces the message
 	// panel's full re-render so holding the cursor key doesn't re-render
