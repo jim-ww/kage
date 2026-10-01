@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -221,5 +222,27 @@ func TestSearchResultsFuzzyFilter(t *testing.T) {
 	m = next.(Model)
 	if m.searchResults != nil {
 		t.Fatal("second esc (not filtering) should close the whole popup")
+	}
+}
+
+func TestSearchResultDate(t *testing.T) {
+	now := time.Date(2026, time.October, 1, 12, 0, 0, 0, time.Local)
+	tests := []struct {
+		name string
+		sent time.Time
+		want string
+	}{
+		{"today", now.Add(-2 * time.Hour), "10:00"},
+		{"yesterday", now.AddDate(0, 0, -1), "30 Sep 12:00"},
+		{"earlier this year", time.Date(2026, time.February, 3, 9, 15, 0, 0, time.Local), "3 Feb 09:15"},
+		{"previous year", time.Date(2025, time.December, 31, 23, 45, 0, 0, time.Local), "31 Dec 2025 23:45"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := searchResultDate(tc.sent, now, tc.sent.Format("15:04"))
+			if got != tc.want {
+				t.Fatalf("searchResultDate() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -255,7 +256,25 @@ func (m Model) searchResultLabel(msg Message) (text, date string) {
 		glyph = "»"
 	}
 	content := MessagePreviewContent(msg)
-	return style.Render(glyph) + " " + previewText(content, previewLen), style.Render(m.formatMessageTime(msg.SentAt))
+	stamp := searchResultDate(msg.SentAt, time.Now(), m.formatMessageTime(msg.SentAt))
+	return style.Render(glyph) + " " + previewText(content, previewLen), style.Render(stamp)
+}
+
+// searchResultDate stamps a result row: timePart alone (the chat view's own
+// time-of-day format) for a match sent today, prefixed with the calendar day
+// for anything older, and with the year too once it isn't obvious anymore.
+// Unlike the chat view, results are drawn without day dividers around them,
+// so a bare "15:04" would leave a match from months ago unplaceable in time.
+func searchResultDate(t, now time.Time, timePart string) string {
+	t, now = t.Local(), now.Local()
+	switch {
+	case sameDay(t, now):
+		return timePart
+	case t.Year() == now.Year():
+		return t.Format("2 Jan") + " " + timePart
+	default:
+		return t.Format("2 Jan 2006") + " " + timePart
+	}
 }
 
 // updateSearchResultsKey handles all input while the search-results popup
