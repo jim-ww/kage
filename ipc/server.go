@@ -18,27 +18,38 @@ import (
 // indefinitely.
 const writeTimeout = 5 * time.Second
 
-// Handler answers one RPC call: method identifies which one, params is its
-// raw JSON args. Returning a non-nil error sends it back as Response.Err
-// (stringified); result is marshaled into Response.Result.
-type Handler func(method string, params json.RawMessage) (result any, err error)
+// ClientID identifies one attached client connection, unique for the life of
+// the Server. It's passed to every Handler call and to OnDisconnect so the
+// daemon can keep state per attached TUI (which chat it has open, whether
+// it's left a chat state on the wire) and drop exactly that client's share of
+// it when it goes away — several TUIs can be attached at once, so "the
+// attached client" is never a safe assumption.
+type ClientID uint64
+
+// Handler answers one RPC call from client: method identifies which one,
+// params is its raw JSON args. Returning a non-nil error sends it back as
+// Response.Err (stringified); result is marshaled into Response.Result.
+type Handler func(client ClientID, method string, params json.RawMessage) (result any, err error)
 
 // Server accepts client connections on a Unix socket, dispatches incoming
 // Requests to a Handler, and lets the daemon Broadcast Events to every
 // currently-connected client.
 type Server struct {
-	mu    sync.Mutex
-	conns map[*serverConn]struct{}
+	mu     sync.Mutex
+	conns  map[*serverConn]struct{}
+	nextID ClientID
 
-	// OnLastDisconnect, if set, is called whenever the connected-client count
-	// drops to zero — e.g. so the daemon can reset state that only makes
-	// sense while a TUI is attached (see background.go's tuiFocused).
-	OnLastDisconnect func()
+	// OnDisconnect, if set, is called with the ClientID of every client
+	// connection as it drops — so the daemon can undo state that only makes
+	// sense while that particular TUI was attached (see background.go's
+	// clientFocus and adapter.clearTyping).
+	OnDisconnect func(client ClientID)
 }
 
 // serverConn is one accepted client connection; writeMu serializes
 // Responses and Broadcast Events, since both share the same net.Conn.
 type serverConn struct {
+	id      ClientID
 	nc      net.Conn
 	writeMu sync.Mutex
 }
@@ -58,8 +69,9 @@ func (s *Server) Accept(ln net.Listener, handler Handler) error {
 		if err != nil {
 			return err
 		}
-		sc := &serverConn{nc: nc}
 		s.mu.Lock()
+		s.nextID++
+		sc := &serverConn{id: s.nextID, nc: nc}
 		s.conns[sc] = struct{}{}
 		s.mu.Unlock()
 		go s.serve(sc, handler)
@@ -70,12 +82,11 @@ func (s *Server) serve(sc *serverConn, handler Handler) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.conns, sc)
-		empty := len(s.conns) == 0
-		cb := s.OnLastDisconnect
+		cb := s.OnDisconnect
 		s.mu.Unlock()
 		sc.nc.Close()
-		if empty && cb != nil {
-			cb()
+		if cb != nil {
+			cb(sc.id)
 		}
 	}()
 
@@ -96,7 +107,7 @@ func (s *Server) serve(sc *serverConn, handler Handler) {
 }
 
 func (s *Server) handle(sc *serverConn, req Request, handler Handler) {
-	result, err := s.callHandler(req, handler)
+	result, err := s.callHandler(sc.id, req, handler)
 	resp := Response{ID: req.ID}
 	if err != nil {
 		resp.Err = err.Error()
@@ -121,14 +132,14 @@ func (s *Server) handle(sc *serverConn, req Request, handler Handler) {
 // and fails that one request instead of taking down the whole daemon - each
 // request already runs on its own goroutine (see serve), and an unrecovered
 // panic in any goroutine kills the entire process, not just that goroutine.
-func (s *Server) callHandler(req Request, handler Handler) (result any, err error) {
+func (s *Server) callHandler(client ClientID, req Request, handler Handler) (result any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("ipc: panic handling request", "method", req.Method, "panic", r, "stack", string(debug.Stack()))
 			err = fmt.Errorf("internal error handling %s: %v", req.Method, r)
 		}
 	}()
-	return handler(req.Method, req.Params)
+	return handler(client, req.Method, req.Params)
 }
 
 // Broadcast sends ev to every currently-connected client. Each connection is

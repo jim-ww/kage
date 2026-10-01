@@ -29,8 +29,10 @@ func unmarshalParams[T any](params json.RawMessage) (T, error) {
 	return v, err
 }
 
-// handle is the ipc.Handler passed to ipc.Server.Accept.
-func (d *daemonServer) handle(method string, params json.RawMessage) (any, error) {
+// handle is the ipc.Handler passed to ipc.Server.Accept. client identifies
+// the attached TUI the call came from, for the handful of RPCs whose state is
+// per-client rather than per-daemon (chat states, window focus).
+func (d *daemonServer) handle(client ipc.ClientID, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case rpcSend:
 		p, err := unmarshalParams[sendParams](params)
@@ -67,7 +69,7 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		if err != nil {
 			return nil, err
 		}
-		return nil, d.a.SetTyping(p.AccountIdx, p.To, p.Composing)
+		return nil, d.a.SetTyping(client, p.AccountIdx, p.To, p.Composing)
 
 	case rpcRenameContact:
 		p, err := unmarshalParams[renameContactParams](params)
@@ -355,7 +357,7 @@ func (d *daemonServer) handle(method string, params json.RawMessage) (any, error
 		if err != nil {
 			return nil, err
 		}
-		return nil, d.a.SetFocusState(p.AccountJID, p.ChatAddress, p.Focused)
+		return nil, d.a.SetFocusState(client, p.AccountJID, p.ChatAddress, p.Focused)
 
 	case rpcStartCall:
 		p, err := unmarshalParams[startCallParams](params)

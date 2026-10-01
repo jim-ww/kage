@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -107,23 +109,78 @@ func currentDefaultEncryptionMode() string {
 	return mode
 }
 
-// tuiFocused and tuiActiveChat mirror the attached TUI client's window
-// focus and currently-open chat (see ui.FocusReporter / adapter.SetFocusState),
-// read by handleIncomingMessage (events.go) to suppress a desktop
-// notification for a message that's already visible on screen. Default to
-// "focused, no chat open" so a client that never reports (or hasn't
-// attached yet) doesn't suppress notifications it never actually saw.
-var (
-	tuiFocused    atomic.Bool
-	tuiActiveChat atomic.Value // string: "accountJID\x00chatAddress", or "" if none
-)
+// clientFocus mirrors each attached TUI client's window focus and
+// currently-open chat (see ui.FocusReporter / adapter.SetFocusState), read by
+// handleIncomingMessage (events.go) to suppress a desktop notification for a
+// message that's already visible on screen. Per client, not one global pair:
+// with several TUIs attached, whichever reported last would otherwise speak
+// for all of them, and a client quitting would leave its chat looking open
+// (silently swallowing that chat's notifications) until the last one detached.
+var clientFocus = newFocusRegistry()
 
-func init() {
-	tuiFocused.Store(true)
-	tuiActiveChat.Store("")
+// focusState is one client's last reported focus: whether its terminal has OS
+// focus, and the focusedChatKey of the chat it has open ("" if none).
+type focusState struct {
+	focused bool
+	chatKey string
 }
 
-// focusedChatKey packs an account JID and chat address into tuiActiveChat's
+type focusRegistry struct {
+	mu     sync.Mutex
+	states map[ipc.ClientID]focusState
+}
+
+func newFocusRegistry() *focusRegistry {
+	return &focusRegistry{states: make(map[ipc.ClientID]focusState)}
+}
+
+func (r *focusRegistry) set(client ipc.ClientID, st focusState) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.states[client] = st
+}
+
+// forget drops a client's reported state, called as its connection goes away.
+func (r *focusRegistry) forget(client ipc.ClientID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.states, client)
+}
+
+// chatVisible reports whether some attached, focused client has the chat
+// identified by key on screen right now. An unreported or detached client
+// counts for nothing: with nobody watching that chat, a notification is
+// exactly what's wanted.
+func (r *focusRegistry) chatVisible(key string) bool {
+	if key == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, st := range r.states {
+		if st.focused && st.chatKey == key {
+			return true
+		}
+	}
+	return false
+}
+
+// describe renders the registry for logging.
+func (r *focusRegistry) describe() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.states) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(r.states))
+	for client, st := range r.states {
+		parts = append(parts, fmt.Sprintf("%d:focused=%t,chat=%q", client, st.focused, st.chatKey))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, " ")
+}
+
+// focusedChatKey packs an account JID and chat address into focusState's
 // comparison key.
 func focusedChatKey(accountJID, chatAddress string) string {
 	if chatAddress == "" {
@@ -201,14 +258,12 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 		useKeyring:  !cfg.KeyringDisabled,
 		srv:         srv,
 	}
-	srv.OnLastDisconnect = func() {
-		// No TUI attached anymore — don't leave notifications suppressed for
-		// whatever chat happened to be open/focused when it quit.
-		tuiFocused.Store(true)
-		tuiActiveChat.Store("")
-		// ...and don't leave peers seeing a typing indicator the quit client
-		// never got around to clearing.
-		a.clearTyping()
+	srv.OnDisconnect = func(client ipc.ClientID) {
+		// This TUI is gone: don't leave notifications suppressed for whatever
+		// chat it had open/focused, and don't leave peers seeing a typing
+		// indicator it never got around to clearing.
+		clientFocus.forget(client)
+		a.clearTyping(client)
 	}
 	ds := &daemonServer{a: a, srv: srv}
 

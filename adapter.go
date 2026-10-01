@@ -48,7 +48,7 @@ type adapter struct {
 	uploadCancels   map[string]context.CancelFunc // keyed by local file path, see SendFile/UploadFile/CancelUpload
 
 	typingMu sync.Mutex
-	typingTo map[int]string // accountIdx -> peer we've sent "composing" to and not yet cleared, see SetTyping/clearTyping
+	typingTo map[ipc.ClientID]map[int]string // client -> accountIdx -> peer it has sent "composing" to and not yet cleared, see SetTyping/clearTyping
 }
 
 // errUploadCanceled is returned (and translated to a distinct "upload
@@ -377,15 +377,14 @@ func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
 }
 
-// SetFocusState implements ui.FocusReporter: records whether the attached
+// SetFocusState implements ui.FocusReporter: records whether the calling
 // TUI's terminal has OS focus and which chat (if any) it currently has
 // open, so handleIncomingMessage (events.go) can skip a desktop
 // notification for a message that's already visible on screen.
-func (a *adapter) SetFocusState(accountJID, chatAddress string, focused bool) error {
-	tuiFocused.Store(focused)
+func (a *adapter) SetFocusState(tuiClient ipc.ClientID, accountJID, chatAddress string, focused bool) error {
 	key := focusedChatKey(accountJID, chatAddress)
-	tuiActiveChat.Store(key)
-	slog.Debug("focus state updated", "accountJID", accountJID, "chatAddress", chatAddress, "focused", focused, "key", key)
+	clientFocus.set(tuiClient, focusState{focused: focused, chatKey: key})
+	slog.Debug("focus state updated", "client", tuiClient, "accountJID", accountJID, "chatAddress", chatAddress, "focused", focused, "key", key)
 	return nil
 }
 
@@ -654,9 +653,9 @@ func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
 
 // SetTyping implements ui.MessageSender: sends a XEP-0085 chat state
 // notification to "to" — no persistence, no encryption, it's ephemeral.
-// A sent "composing" is remembered per account so clearTyping can take it
-// back if the TUI goes away before clearing it itself.
-func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
+// A sent "composing" is remembered per calling client so clearTyping can take
+// it back if that TUI goes away before clearing it itself.
+func (a *adapter) SetTyping(tuiClient ipc.ClientID, accountIdx int, to string, composing bool) error {
 	s, ok := a.session(accountIdx)
 	if !ok {
 		return fmt.Errorf("unknown account %d", accountIdx)
@@ -672,46 +671,52 @@ func (a *adapter) SetTyping(accountIdx int, to string, composing bool) error {
 	if err := client.SendChatState(context.Background(), to, state); err != nil {
 		return err
 	}
-	a.markTyping(accountIdx, to, composing)
+	a.markTyping(tuiClient, accountIdx, to, composing)
 	return nil
 }
 
 // markTyping records (composing=true) or forgets (composing=false) the
-// "composing" state SetTyping just put on the wire for accountIdx.
-func (a *adapter) markTyping(accountIdx int, to string, composing bool) {
+// "composing" state SetTyping just put on the wire for tuiClient's accountIdx.
+func (a *adapter) markTyping(tuiClient ipc.ClientID, accountIdx int, to string, composing bool) {
 	a.typingMu.Lock()
 	defer a.typingMu.Unlock()
 	if composing {
 		if a.typingTo == nil {
-			a.typingTo = make(map[int]string)
+			a.typingTo = make(map[ipc.ClientID]map[int]string)
 		}
-		a.typingTo[accountIdx] = to
+		if a.typingTo[tuiClient] == nil {
+			a.typingTo[tuiClient] = make(map[int]string)
+		}
+		a.typingTo[tuiClient][accountIdx] = to
 		return
 	}
 	// Only the peer we're actually marked as composing to: an "active" for
 	// some other chat says nothing about this one.
-	if a.typingTo[accountIdx] == to {
-		delete(a.typingTo, accountIdx)
+	if a.typingTo[tuiClient][accountIdx] == to {
+		delete(a.typingTo[tuiClient], accountIdx)
+		if len(a.typingTo[tuiClient]) == 0 {
+			delete(a.typingTo, tuiClient)
+		}
 	}
 }
 
-// drainTyping returns and forgets every account's outstanding "composing"
-// peer.
-func (a *adapter) drainTyping() map[int]string {
+// drainTyping returns and forgets tuiClient's outstanding "composing" peer
+// for every account.
+func (a *adapter) drainTyping(tuiClient ipc.ClientID) map[int]string {
 	a.typingMu.Lock()
 	defer a.typingMu.Unlock()
-	pending := a.typingTo
-	a.typingTo = nil
+	pending := a.typingTo[tuiClient]
+	delete(a.typingTo, tuiClient)
 	return pending
 }
 
-// clearTyping sends "active" to every peer still left in a "composing" state
-// by SetTyping. The daemon outlives the TUI, so without this a client that
-// quits (or dies) mid-keystroke — before its own pause timeout or quit path
-// clears the state — leaves the peer's client showing a typing indicator
+// clearTyping sends "active" to every peer tuiClient left in a "composing"
+// state via SetTyping. The daemon outlives the TUI, so without this a client
+// that quits (or dies) mid-keystroke — before its own pause timeout or quit
+// path clears the state — leaves the peer's client showing a typing indicator
 // indefinitely: nothing else on the wire ever contradicts it.
-func (a *adapter) clearTyping() {
-	for accountIdx, to := range a.drainTyping() {
+func (a *adapter) clearTyping(tuiClient ipc.ClientID) {
+	for accountIdx, to := range a.drainTyping(tuiClient) {
 		s, ok := a.session(accountIdx)
 		if !ok {
 			continue

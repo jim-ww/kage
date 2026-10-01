@@ -17,7 +17,7 @@ func testSocket(t *testing.T) string {
 type echoParams struct{ Text string }
 type echoResult struct{ Text string }
 
-func echoHandler(method string, params json.RawMessage) (any, error) {
+func echoHandler(_ ClientID, method string, params json.RawMessage) (any, error) {
 	var p echoParams
 	json.Unmarshal(params, &p)
 	return echoResult{Text: p.Text}, nil
@@ -140,7 +140,7 @@ func TestCallAfterDisconnectDoesNotHang(t *testing.T) {
 	}
 
 	srv := NewServer()
-	go srv.Accept(ln, func(method string, params json.RawMessage) (any, error) {
+	go srv.Accept(ln, func(_ ClientID, method string, params json.RawMessage) (any, error) {
 		time.Sleep(200 * time.Millisecond)
 		return echoResult{}, nil
 	})
