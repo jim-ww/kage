@@ -19,9 +19,12 @@
 ## UX
 - delete message modal has no mouse support. other modals must be checked too.
 - hard to grab left/bottom panel border for resize
+- add scrollbar for messages list, and perhaps, for chat list too
+- search window doesnt have vim bindings.
 
 ## Refactor
-- create generic ui components and reuse them across repo
+- create generic ui components and reuse them across repo:
+  many ui places of app have its own one-off modals, instead of sharing single, well defined and dynamic modal component. and beside modal rendering itself, we also need proper 'list' component. not using random bullshit in every place.
 
 ## Features
 - calls: option to choose mic + mid call
