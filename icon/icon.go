@@ -217,6 +217,37 @@ func PlatePNG(cell int) *image.NRGBA {
 	return img
 }
 
+// StripPNG renders all four tray variants in a row on the plate
+// background, for the README: the mono variants are white on transparent,
+// so shown bare they vanish against a light page.
+func StripPNG() *image.NRGBA {
+	const pad, gap = 24, 24
+	w := 2*pad + 4*TraySize + 3*gap
+	h := 2*pad + TraySize
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			img.SetNRGBA(x, y, plateBg)
+		}
+	}
+	i := 0
+	for _, mono := range []bool{false, true} {
+		for _, unread := range []bool{false, true} {
+			v := TrayImage(mono, unread)
+			ox := pad + i*(TraySize+gap)
+			for y := range TraySize {
+				for x := range TraySize {
+					if c := v.NRGBAAt(x, y); c.A != 0 {
+						img.SetNRGBA(ox+x, pad+y, over(plateBg, c))
+					}
+				}
+			}
+			i++
+		}
+	}
+	return img
+}
+
 func cellsSVG(g grid, p palette, ox, oy int) string {
 	var sb strings.Builder
 	for _, k := range []int{shadow, bubble, dot} {
@@ -278,6 +309,7 @@ func Assets() map[string][]byte {
 		"svg/icon-plate.svg":       []byte(PlateSVG()),
 		"plate/icon-plate-480.png": encodePNG(PlatePNG(20)),
 		"plate/icon-plate-240.png": encodePNG(PlatePNG(10)),
+		"plate/tray-variants.png":  encodePNG(StripPNG()),
 	}
 	for _, v := range []struct {
 		name         string

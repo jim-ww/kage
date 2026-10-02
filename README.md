@@ -1,6 +1,10 @@
-# kage
+<p align="center">
+  <img src="assets/icon/plate/icon-plate-240.png" width="128" alt="kage">
+</p>
 
-A terminal (TUI) XMPP client written in Go, built on [Bubble Tea](https://charm.land/bubbletea/).
+<h1 align="center">kage</h1>
+
+<p align="center">A terminal (TUI) XMPP client written in Go, built on <a href="https://charm.land/bubbletea/">Bubble Tea</a>.</p>
 
 ## Features
 
@@ -12,6 +16,10 @@ A terminal (TUI) XMPP client written in Go, built on [Bubble Tea](https://charm.
 - Message Archive Management (MAM) history sync, carbons, chat states
 - Mouse support, themeable UI (Tokyo Night by default), configurable keybinds
 - System tray icon and desktop notifications
+
+<img src="assets/icon/plate/tray-variants.png" width="420" alt="tray icon: idle, unread, mono, mono unread">
+
+The tray badges unread messages; set `tray_mono = true` for the monochrome variant on panels that tint their own icons.
 
 ## Install
 
