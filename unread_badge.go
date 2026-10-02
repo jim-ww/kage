@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/jim-ww/kage/daemon"
+	"github.com/jim-ww/kage/ipc"
+	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/ui"
 )
 
 // unreadBadge mirrors the persisted per-chat unread counts (chatUnread, which
@@ -67,6 +72,42 @@ func (t *unreadTracker) forgetAccount(accountJID string) {
 	defer t.mu.Unlock()
 	delete(t.counts, accountJID)
 	t.applyLocked()
+}
+
+// countUnreadWhileDetached counts msgs toward chatAddress's persisted unread
+// total when no TUI is attached. The attached TUIs normally own that total
+// (they're the ones that know which chat is actually being looked at, and
+// they write it back absolute — see adapter.SetChatUnread), so this does
+// nothing while any of them is connected; with none, everything that arrives
+// would otherwise be silently read-on-arrival, leaving nothing for the tray
+// dot to show and nothing for the next TUI to open to.
+//
+// Applies the same rule the UI does for messages it receives while a chat
+// isn't focused (ui/update_messages.go): our own messages and ones that
+// failed to decrypt don't count.
+func countUnreadWhileDetached(ctx context.Context, srv *ipc.Server, s *accountSession, chatAddress string, msgs []ui.Message) {
+	if srv == nil || srv.ClientCount() > 0 {
+		return
+	}
+	delta := 0
+	for _, m := range msgs {
+		if !m.IsMe && !m.DecryptFailed {
+			delta++
+		}
+	}
+	if delta == 0 {
+		return
+	}
+	count, err := s.db.BumpChatUnread(ctx, storage.BumpChatUnreadParams{
+		AccountJid: s.account.JID,
+		RosterJid:  chatAddress,
+		Delta:      int64(delta),
+	})
+	if err != nil {
+		slog.Warn("counting unread messages received while detached", "jid", s.account.JID, "peer", chatAddress, "err", err)
+		return
+	}
+	unreadBadge.set(s.account.JID, chatAddress, int(count))
 }
 
 func (t *unreadTracker) applyLocked() {

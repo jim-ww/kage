@@ -12,22 +12,23 @@ import (
 
 const bumpChatUnread = `-- name: BumpChatUnread :one
 INSERT INTO chatUnread (accountJID, rosterJID, count)
-VALUES (?1, ?2, 1)
+VALUES (?1, ?2, ?3)
 ON CONFLICT (accountJID, rosterJID) DO UPDATE
-SET count = count + 1
+SET count = count + excluded.count
 RETURNING count
 `
 
 type BumpChatUnreadParams struct {
 	AccountJid string `db:"account_jid"`
 	RosterJid  string `db:"roster_jid"`
+	Delta      int64  `db:"delta"`
 }
 
 // Used only by the daemon when no TUI is attached: with nobody to compute an
-// absolute count (see SetChatUnread), the daemon counts the message itself so
-// it isn't silently read-on-arrival. Returns the new count for the tray badge.
+// absolute count (see SetChatUnread), the daemon counts the messages itself so
+// they aren't silently read-on-arrival. Returns the new count for the tray badge.
 func (q *Queries) BumpChatUnread(ctx context.Context, arg BumpChatUnreadParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, bumpChatUnread, arg.AccountJid, arg.RosterJid)
+	row := q.db.QueryRowContext(ctx, bumpChatUnread, arg.AccountJid, arg.RosterJid, arg.Delta)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

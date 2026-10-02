@@ -278,41 +278,26 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		return
 	}
 
+	newMsg := ui.Message{
+		ID:            msgEv.ID,
+		Author:        chatName,
+		Content:       body,
+		SentAt:        msgEv.SentAt,
+		IsMe:          msgEv.Outgoing,
+		Encrypted:     e2eEncrypted,
+		EncMethod:     e2eeMethod,
+		Attachments:   oobURLs,
+		DecryptFailed: decryptFailed,
+		QuotedAuthor:  quotedAuthor,
+		QuotedPreview: quotedPreview,
+	}
 	broadcast(srv, evIncomingMessage, ui.IncomingMessageMsg{
 		AccountIdx: accountIdx,
 		From:       from,
 		ReplyToID:  msgEv.ReplyToID,
-		Message: ui.Message{
-			ID:            msgEv.ID,
-			Author:        chatName,
-			Content:       body,
-			SentAt:        msgEv.SentAt,
-			IsMe:          msgEv.Outgoing,
-			Encrypted:     e2eEncrypted,
-			EncMethod:     e2eeMethod,
-			Attachments:   oobURLs,
-			DecryptFailed: decryptFailed,
-			QuotedAuthor:  quotedAuthor,
-			QuotedPreview: quotedPreview,
-		},
+		Message:    newMsg,
 	})
-
-	// With no TUI attached there's nobody to count this message as unread (the
-	// TUIs own chatUnread - see adapter.SetChatUnread), so the daemon does it
-	// itself: otherwise everything that arrives while the TUI is closed is
-	// silently read-on-arrival, and the tray has nothing to show a dot for.
-	attached := srv != nil && srv.ClientCount() > 0
-	if !msgEv.Outgoing && !decryptFailed && !attached {
-		count, err := s.db.BumpChatUnread(ctx, storage.BumpChatUnreadParams{
-			AccountJid: s.account.JID,
-			RosterJid:  from,
-		})
-		if err != nil {
-			slog.Warn("bumping unread count", "from", from, "err", err)
-		} else {
-			unreadBadge.set(s.account.JID, from, int(count))
-		}
-	}
+	countUnreadWhileDetached(ctx, srv, s, from, []ui.Message{newMsg})
 
 	incomingKey := focusedChatKey(s.account.JID, from)
 	chatIsFocused := clientFocus.chatVisible(incomingKey)
