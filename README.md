@@ -15,11 +15,7 @@
 - File transfer/attachments, message editing, replies, reactions, read receipts
 - Message Archive Management (MAM) history sync, carbons, chat states
 - Mouse support, themeable UI (Tokyo Night by default), configurable keybinds
-- System tray icon and desktop notifications
-
-<img src="assets/icon/plate/tray-variants.png" width="420" alt="tray icon: idle, unread, mono, mono unread">
-
-The tray badges unread messages; set `tray_mono = true` for the monochrome variant on panels that tint their own icons.
+- System tray icon (badges unread messages, `tray_mono = true` for the monochrome variant) and desktop notifications
 
 ## Install
 
