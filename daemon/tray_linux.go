@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 
 	"fyne.io/systray"
@@ -91,9 +92,10 @@ func Run(cfg config.Config, backend Backend) error {
 	}()
 
 	onReady := func() {
-		systray.SetIcon(iconPNG)
 		systray.SetTitle("")
-		systray.SetTooltip("Kage")
+		// Applies whatever SetUnread recorded before the tray existed, and
+		// the plain icon otherwise.
+		tray.markReady()
 		quit := systray.AddMenuItem("Quit Kage", "Stop the kage background service")
 		go func() {
 			<-quit.ClickedCh
@@ -112,11 +114,70 @@ func Run(cfg config.Config, backend Backend) error {
 		backend.Start(ctx, cfg)
 	}
 	onExit := func() {
+		tray.markGone()
 		log.Println("kage background service: exiting")
 	}
 
 	systray.Run(onReady, onExit)
 	return nil
+}
+
+// tray holds the tray icon's current state so SetUnread can be called from
+// anywhere in the daemon (and from the TUI process, where there is no tray at
+// all) without caring whether systray is up yet.
+var tray trayState
+
+type trayState struct {
+	mu     sync.Mutex
+	up     bool // systray's onReady has run and onExit hasn't
+	unread bool
+}
+
+func (t *trayState) markReady() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.up = true
+	t.applyLocked()
+}
+
+func (t *trayState) markGone() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.up = false
+}
+
+// SetUnread overlays a bright dot on the tray icon while any account has
+// unread messages, and takes it back off when none do. Idempotent and safe to
+// call before (or without) a tray: the state is recorded and applied once the
+// tray comes up.
+func SetUnread(unread bool) {
+	tray.mu.Lock()
+	defer tray.mu.Unlock()
+	if tray.unread == unread {
+		return
+	}
+	tray.unread = unread
+	tray.applyLocked()
+}
+
+// Unread reports the dot's current state, whether or not a tray is up.
+func Unread() bool {
+	tray.mu.Lock()
+	defer tray.mu.Unlock()
+	return tray.unread
+}
+
+func (t *trayState) applyLocked() {
+	if !t.up {
+		return
+	}
+	if t.unread {
+		systray.SetIcon(iconUnreadPNG)
+		systray.SetTooltip("Kage — unread messages")
+		return
+	}
+	systray.SetIcon(iconPNG)
+	systray.SetTooltip("Kage")
 }
 
 // Notify shows a desktop notification via notify-send (org.freedesktop.

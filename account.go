@@ -721,6 +721,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	for _, r := range unreadRows {
 		unread[r.Rosterjid] = int(r.Count)
 	}
+	unreadBadge.seedAccount(acct.JID, unread)
 
 	draftRows, err := queries.ListChatDrafts(ctx, acct.JID)
 	if err != nil {

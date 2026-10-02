@@ -397,20 +397,28 @@ func (a *adapter) SetFocusState(tuiClient ipc.ClientID, accountJID, chatAddress 
 // SetChatUnread implements ui.ChatReadTracker: stores the local-only unread
 // count for a chat. Absolute rather than a delta — see ui.ChatReadTracker.
 func (a *adapter) SetChatUnread(accountJID, chatAddress string, count int) error {
-	return a.queries.SetChatUnread(context.Background(), storage.SetChatUnreadParams{
+	if err := a.queries.SetChatUnread(context.Background(), storage.SetChatUnreadParams{
 		AccountJid: accountJID,
 		RosterJid:  chatAddress,
 		Count:      int64(count),
-	})
+	}); err != nil {
+		return err
+	}
+	unreadBadge.set(accountJID, chatAddress, count)
+	return nil
 }
 
 // ResetChatUnread implements ui.ChatReadTracker: zeroes the persisted
 // unread counter for a chat, called when it's opened in the UI.
 func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
-	return a.queries.ResetChatUnread(context.Background(), storage.ResetChatUnreadParams{
+	if err := a.queries.ResetChatUnread(context.Background(), storage.ResetChatUnreadParams{
 		AccountJid: accountJID,
 		RosterJid:  chatAddress,
-	})
+	}); err != nil {
+		return err
+	}
+	unreadBadge.set(accountJID, chatAddress, 0)
+	return nil
 }
 
 // ChatUnreadCounts implements ui.ChatReadTracker: loads every chat with a
@@ -616,6 +624,7 @@ func (a *adapter) RemoveAccount(accountIdx int) tea.Msg {
 		return ui.AccountRemoveErrorMsg{Index: accountIdx, Err: fmt.Errorf("removing account from config: %w", err)}
 	}
 
+	unreadBadge.forgetAccount(s.account.JID)
 	broadcast(a.srv, evAccountRemoved, accountIdxParams{AccountIdx: accountIdx})
 
 	return ui.AccountRemovedMsg{Index: accountIdx}
