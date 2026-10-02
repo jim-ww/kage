@@ -78,6 +78,15 @@ func (s *Server) Accept(ln net.Listener, handler Handler) error {
 	}
 }
 
+// ClientCount reports how many clients are currently attached. Lets the
+// daemon tell "nobody is looking at this" apart from "a TUI is attached but
+// has another chat open" — see handleIncomingMessage's unread bookkeeping.
+func (s *Server) ClientCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.conns)
+}
+
 func (s *Server) serve(sc *serverConn, handler Handler) {
 	defer func() {
 		s.mu.Lock()

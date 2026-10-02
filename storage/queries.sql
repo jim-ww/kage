@@ -572,6 +572,16 @@ VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(count))
 ON CONFLICT (accountJID, rosterJID) DO UPDATE
 SET count = excluded.count;
 
+-- name: BumpChatUnread :one
+-- Used only by the daemon when no TUI is attached: with nobody to compute an
+-- absolute count (see SetChatUnread), the daemon counts the message itself so
+-- it isn't silently read-on-arrival. Returns the new count for the tray badge.
+INSERT INTO chatUnread (accountJID, rosterJID, count)
+VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), 1)
+ON CONFLICT (accountJID, rosterJID) DO UPDATE
+SET count = count + 1
+RETURNING count;
+
 -- name: ResetChatUnread :exec
 INSERT INTO chatUnread (accountJID, rosterJID, count)
 VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), 0)
