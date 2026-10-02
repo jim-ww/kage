@@ -18,6 +18,7 @@
 # last_chat_address = "" # peer JID of the last opened chat; persisted automatically, reopened on startup unless open_last_chat_disabled
 # notifications_disabled = false # disables desktop notifications for decrypted incoming messages
 # terminal_cmd = "" # terminal emulator to launch from the tray icon; empty falls back to $TERMINAL, then xdg-terminal-exec, then a hardcoded list
+# tray_mono = false # uses the white monochrome tray icon instead of the color one, for panels that tint icons themselves
 # attachments_dir = "" # directory decrypted/downloaded attachments are cached in for viewing; empty means $XDG_CACHE_HOME/kage/attachments
 # gpg_disabled = false # disables gpg encryption entirely (never shells out to gpg; "gpg" hidden from the per-chat encryption picker)
 # keyring_disabled = false # disables ever consulting the OS keyring

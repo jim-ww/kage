@@ -13,6 +13,7 @@ import (
 
 	"fyne.io/systray"
 	"github.com/jim-ww/kage/config"
+	"github.com/jim-ww/kage/icon"
 	"github.com/jim-ww/kage/version"
 )
 
@@ -77,6 +78,7 @@ func Run(cfg config.Config, backend Backend) error {
 					log.Printf("kage background service: reload: loading config: %v", err)
 				} else {
 					log.Printf("kage background service: reload: re-read config (%d accounts)", len(c.Accounts))
+					tray.setMono(c.TrayMono)
 					backend.Reload(c)
 				}
 			case <-sigterm:
@@ -90,6 +92,8 @@ func Run(cfg config.Config, backend Backend) error {
 			}
 		}
 	}()
+
+	tray.setMono(cfg.TrayMono)
 
 	onReady := func() {
 		systray.SetTitle("")
@@ -131,6 +135,19 @@ type trayState struct {
 	mu     sync.Mutex
 	up     bool // systray's onReady has run and onExit hasn't
 	unread bool
+	mono   bool // use the monochrome icon variant (config.TrayMono)
+}
+
+// setMono switches icon palettes, so a config edit plus SIGHUP changes the
+// icon on a running daemon rather than needing a restart.
+func (t *trayState) setMono(mono bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.mono == mono {
+		return
+	}
+	t.mono = mono
+	t.applyLocked()
 }
 
 func (t *trayState) markReady() {
@@ -171,12 +188,11 @@ func (t *trayState) applyLocked() {
 	if !t.up {
 		return
 	}
+	systray.SetIcon(icon.Tray(t.mono, t.unread))
 	if t.unread {
-		systray.SetIcon(iconUnreadPNG)
 		systray.SetTooltip("Kage — unread messages")
 		return
 	}
-	systray.SetIcon(iconPNG)
 	systray.SetTooltip("Kage")
 }
 

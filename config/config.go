@@ -61,6 +61,11 @@ type Config struct {
 	// unset means fall back to $TERMINAL, then xdg-terminal-exec, then a
 	// hardcoded list.
 	TerminalCmd string `toml:"terminal_cmd,omitempty"`
+	// TrayMono uses the white monochrome tray icon instead of the color
+	// one, for panels that expect a single-color icon they can tint
+	// themselves; off by default. StatusNotifierItem has no symbolic-icon
+	// concept, so this can't be detected from the desktop.
+	TrayMono bool `toml:"tray_mono,omitempty"`
 	// AttachmentsDir is the directory decrypted/downloaded attachments
 	// are cached in for viewing; unset means
 	// $XDG_CACHE_HOME/kage/attachments (see os.UserCacheDir).
