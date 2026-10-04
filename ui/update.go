@@ -225,6 +225,26 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	// above (that only matches tea.KeyMsg), so without this they'd fall
 	// through to the "Account focus is handled by global keys only" case
 	// and silently vanish — e.g. paste never reaching the focused field.
+	if m.contactManagerState != nil {
+		// The popup is modal, so nothing underneath it (the compose box in
+		// particular) may see these messages; only the add-contact field,
+		// when it's the thing on screen, gets them.
+		if !m.contactManagerState.adding || m.contactManagerState.busy {
+			return m, tea.Batch(cmds...)
+		}
+		var cmd tea.Cmd
+		m.contactManagerState.addInput, cmd = m.contactManagerState.addInput.Update(msg)
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
+	if m.changePasswordState != nil {
+		s := m.changePasswordState
+		if s.busy {
+			return m, tea.Batch(cmds...)
+		}
+		var cmd tea.Cmd
+		s.inputs[s.focus], cmd = s.inputs[s.focus].Update(msg)
+		return m, tea.Batch(append(cmds, cmd)...)
+	}
 	if m.addingAccount {
 		var cmd tea.Cmd
 		m.addAccountInputs[m.addAccountFocus], cmd = m.addAccountInputs[m.addAccountFocus].Update(msg)
