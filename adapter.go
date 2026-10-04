@@ -647,6 +647,42 @@ func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 	return err
 }
 
+// PurgeMessage implements ui.MessageSender: erases a message outright from
+// local storage, reactions included, and broadcasts evMessagePurged so every
+// attached client drops it too. The second half of the two-step delete - only
+// reached for a message already flagged retracted (see MarkRetracted and
+// Send's RetractID branch), since the first delete is the one that preserves
+// a record of what was said. Nothing goes on the wire: XMPP has no "erase it
+// from the archive" stanza, so this only ever affects our own copy.
+func (a *adapter) PurgeMessage(accountIdx int, to, id string) error {
+	s, ok := a.session(accountIdx)
+	if !ok {
+		return fmt.Errorf("unknown account %d", accountIdx)
+	}
+	ctx := context.Background()
+	if err := s.db.DeleteReactionsByMessage(ctx, storage.DeleteReactionsByMessageParams{
+		AccountJid: s.account.JID,
+		RosterJid:  to,
+		IDAttr:     id,
+	}); err != nil {
+		return err
+	}
+	rows, err := s.db.DeleteMessageByID(ctx, storage.DeleteMessageByIDParams{
+		AccountJid: s.account.JID,
+		IDAttr:     nullString(id),
+		RosterJid:  nullString(to),
+	})
+	if err != nil {
+		return err
+	}
+	// Same reasoning as DeleteQueued: broadcast only when a row really went
+	// away, so a repeated purge doesn't make every client re-run the removal.
+	if rows > 0 {
+		broadcast(a.srv, evMessagePurged, ui.MessagePurgedMsg{AccountIdx: accountIdx, Peer: to, MessageID: id})
+	}
+	return nil
+}
+
 // DeleteQueued implements ui.MessageSender: permanently discards a
 // still-Pending message from the outbox table without ever sending it. Not
 // an error if localID no longer matches anything queued - broadcasting

@@ -744,6 +744,16 @@ func (m Model) deletePrompt(width int) string {
 			detail = m.accounts[m.currentAccount].DisplayName()
 		}
 		return m.styles.deletePrompt(width, "Remove account?", detail+" — disconnects and drops it from config; local history is kept")
+	case confirmPurgeMessage:
+		detail := ""
+		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
+			msg := msgs[m.selectedMsg]
+			// The hidden original, not MessagePreviewContent's "message
+			// deleted" - truncated to previewLen like every other preview.
+			detail = fmt.Sprintf("%s: %s\n", msg.Author, previewText(messagePreviewBody(msg), previewLen))
+		}
+		return m.styles.deletePrompt(width, "Erase this message for good?",
+			detail+"Wipes the original from local storage. Can't be undone; the peer's copy stays.")
 	case confirmDisableStorageEncryption:
 		return m.styles.deletePrompt(width, "Disable local storage encryption?",
 			"Every stored message and draft will be rewritten to disk in plain text.")

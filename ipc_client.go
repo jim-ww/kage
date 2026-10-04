@@ -104,6 +104,10 @@ func (c *ipcClient) MarkRetracted(accountIdx int, to, id string) error {
 	return c.conn.Call(rpcMarkRetracted, markRetractedParams{AccountIdx: accountIdx, To: to, ID: id}, nil)
 }
 
+func (c *ipcClient) PurgeMessage(accountIdx int, to, id string) error {
+	return c.conn.Call(rpcPurgeMessage, purgeMessageParams{AccountIdx: accountIdx, To: to, ID: id}, nil)
+}
+
 func (c *ipcClient) DeleteQueued(accountIdx int, localID string) error {
 	return c.conn.Call(rpcDeleteQueued, deleteQueuedParams{AccountIdx: accountIdx, LocalID: localID}, nil)
 }
@@ -424,6 +428,8 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.MessageSendResolvedMsg](c, ev.Data)
 	case evOutboxDeleted:
 		sendEvent[ui.OutboxDeletedMsg](c, ev.Data)
+	case evMessagePurged:
+		sendEvent[ui.MessagePurgedMsg](c, ev.Data)
 	case evMessageReactions:
 		sendEvent[ui.MessageReactionsMsg](c, ev.Data)
 	case evAvatar:

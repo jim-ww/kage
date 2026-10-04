@@ -64,6 +64,13 @@ func (d *daemonServer) handle(client ipc.ClientID, method string, params json.Ra
 		}
 		return nil, d.a.DeleteQueued(p.AccountIdx, p.LocalID)
 
+	case rpcPurgeMessage:
+		p, err := unmarshalParams[purgeMessageParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.PurgeMessage(p.AccountIdx, p.To, p.ID)
+
 	case rpcSetTyping:
 		p, err := unmarshalParams[setTypingParams](params)
 		if err != nil {

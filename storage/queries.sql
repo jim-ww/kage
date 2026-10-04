@@ -193,7 +193,9 @@ WHERE accountJID = sqlc.arg(account_jid)
 -- flagged sendFailed succeeds and gets its own fresh row: the old row (kept
 -- around by idAttr, never a localID - see InsertMessage's doc comment) would
 -- otherwise survive forever and keep reappearing as a Failed duplicate
--- alongside the newly-sent message on every reload.
+-- alongside the newly-sent message on every reload. Also the second half of
+-- the two-step delete (adapter.PurgeMessage): a message already flagged
+-- retracted is erased outright on a second delete.
 DELETE FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
@@ -378,6 +380,16 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
 	AND idAttr = sqlc.arg(id_attr)
 	AND fromJID = sqlc.arg(from_jid);
+
+
+-- name: DeleteReactionsByMessage :exec
+-- Every reactor's rows for one message, as opposed to
+-- DeleteReactionsByReactor's single-reactor replace. Used when a message is
+-- purged outright (adapter.PurgeMessage) so its reactions don't outlive it.
+DELETE FROM messageReactions
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND idAttr = sqlc.arg(id_attr);
 
 
 -- name: InsertReaction :exec

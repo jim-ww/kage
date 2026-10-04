@@ -740,6 +740,15 @@ func MessagePreviewContent(msg Message) string {
 	if msg.Retracted {
 		return retractedPreview
 	}
+	return messagePreviewBody(msg)
+}
+
+// messagePreviewBody is MessagePreviewContent without the retracted guard -
+// the preview msg's own content would get if it weren't flagged deleted. Only
+// for the purge confirmation (ui/view.go), which has to say which message is
+// about to be erased for good; "message deleted" would name no message at
+// all, and the original is already on show in the info popup anyway.
+func messagePreviewBody(msg Message) string {
 	if msg.CallLog != nil {
 		return callLogText(*msg.CallLog)
 	}

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/list"
@@ -18,6 +19,7 @@ func (f *fakeSuccessSender) Send(int, string, string, SendOptions) (string, erro
 func (f *fakeSuccessSender) SetTyping(int, string, bool) error       { return nil }
 func (f *fakeSuccessSender) MarkRetracted(int, string, string) error { return nil }
 func (f *fakeSuccessSender) DeleteQueued(int, string) error          { return nil }
+func (f *fakeSuccessSender) PurgeMessage(int, string, string) error  { return nil }
 
 // fakeErrSender always fails/queues Send with a fixed err, for exercising
 // sendCurrentInput's non-success paths.
@@ -27,6 +29,7 @@ func (f *fakeErrSender) Send(int, string, string, SendOptions) (string, error) {
 func (f *fakeErrSender) SetTyping(int, string, bool) error                     { return nil }
 func (f *fakeErrSender) MarkRetracted(int, string, string) error               { return nil }
 func (f *fakeErrSender) DeleteQueued(int, string) error                        { return nil }
+func (f *fakeErrSender) PurgeMessage(int, string, string) error                { return nil }
 
 // fakeDeleteQueuedSender records every DeleteQueued call, for verifying
 // Ctrl+Shift+D on a Pending message goes through the sender rather than
@@ -43,6 +46,7 @@ func (f *fakeDeleteQueuedSender) Send(int, string, string, SendOptions) (string,
 }
 func (f *fakeDeleteQueuedSender) SetTyping(int, string, bool) error       { return nil }
 func (f *fakeDeleteQueuedSender) MarkRetracted(int, string, string) error { return nil }
+func (f *fakeDeleteQueuedSender) PurgeMessage(int, string, string) error  { return nil }
 func (f *fakeDeleteQueuedSender) DeleteQueued(accountIdx int, localID string) error {
 	f.calls++
 	f.lastAccountIdx, f.lastLocalID = accountIdx, localID
@@ -437,5 +441,186 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 	}
 	if got := m.accounts[0].Messages[0]; len(got) != len(fullHistory) {
 		t.Fatalf("chat's loaded window has %d messages, want %d (the full history)", len(got), len(fullHistory))
+	}
+}
+
+// fakePurgeSender records every PurgeMessage call, for verifying the second
+// delete on an already-retracted message really goes through the daemon
+// instead of only vanishing from the local view.
+type fakePurgeSender struct {
+	lastAccountIdx int
+	lastTo, lastID string
+	calls          int
+	err            error
+}
+
+func (f *fakePurgeSender) Send(int, string, string, SendOptions) (string, error) {
+	return "msg-id", nil
+}
+func (f *fakePurgeSender) SetTyping(int, string, bool) error       { return nil }
+func (f *fakePurgeSender) MarkRetracted(int, string, string) error { return nil }
+func (f *fakePurgeSender) DeleteQueued(int, string) error          { return nil }
+func (f *fakePurgeSender) PurgeMessage(accountIdx int, to, id string) error {
+	f.calls++
+	f.lastAccountIdx, f.lastTo, f.lastID = accountIdx, to, id
+	return f.err
+}
+
+// TestDeleteRetractedMessagePurgesIt checks the second step of the two-step
+// delete: a message already flagged Retracted (the first delete only hides
+// it, keeping the original) asks for the irreversible purge instead, and
+// confirming it erases the message locally - sender.PurgeMessage plus removal
+// from the chat, with the chat-list preview falling back to the message
+// before it.
+func TestDeleteRetractedMessagePurgesIt(t *testing.T) {
+	sender := &fakePurgeSender{}
+	m := newTestModelWithSender(sender, nil)
+	m.selectedView = viewChat
+	chat := Chat{Address: "bob@example.test", LastMessage: retractedPreview}
+	msgs := []Message{
+		{Author: "Bob", Content: "hi", ID: "m1"},
+		{Author: "me", Content: "oops", IsMe: true, ID: "m2", Retracted: true},
+	}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 1
+
+	// Deleting an already-deleted message must ask about the purge, not
+	// silently repeat the retraction.
+	if cmd := m.actionDeleteMessage(); cmd != nil {
+		_ = cmd()
+	}
+	if m.confirmTarget != confirmPurgeMessage {
+		t.Fatalf("confirmTarget = %v, want confirmPurgeMessage", m.confirmTarget)
+	}
+
+	next, cmd, handled := m.updateKeyMsg(keyCode('y'))
+	if !handled {
+		t.Fatal("confirm-yes key was not handled")
+	}
+	m = next
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	if sender.calls != 1 {
+		t.Fatalf("PurgeMessage calls = %d, want 1", sender.calls)
+	}
+	if sender.lastTo != "bob@example.test" || sender.lastID != "m2" {
+		t.Errorf("PurgeMessage(to=%q, id=%q), want (bob@example.test, m2)", sender.lastTo, sender.lastID)
+	}
+
+	got := m.currentMessages()
+	if len(got) != 1 || got[0].ID != "m1" {
+		t.Fatalf("currentMessages() = %+v, want only m1 left", got)
+	}
+	if m.selectedMsg != 0 {
+		t.Errorf("selectedMsg = %d, want 0 (clamped to the new last message)", m.selectedMsg)
+	}
+	if m.confirmTarget != confirmNone {
+		t.Errorf("confirmTarget = %v, want confirmNone", m.confirmTarget)
+	}
+	if last, ok := m.accounts[0].Chats[0].(Chat); !ok || last.LastMessage != "hi" {
+		t.Errorf("chat LastMessage = %q, want %q (the purged message is gone, not shown as deleted)", last.LastMessage, "hi")
+	}
+}
+
+// TestDeleteNotRetractedMessageAsksForRetraction is the counterpart: a
+// message that hasn't been deleted yet must still get the retract-only
+// confirmation, so a first delete can never erase anything.
+func TestDeleteNotRetractedMessageAsksForRetraction(t *testing.T) {
+	sender := &fakePurgeSender{}
+	m := newTestModelWithSender(sender, nil)
+	m.selectedView = viewChat
+	chat := Chat{Address: "bob@example.test"}
+	msgs := []Message{{Author: "me", Content: "hello", IsMe: true, ID: "m1"}}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 0
+
+	if cmd := m.actionDeleteMessage(); cmd != nil {
+		_ = cmd()
+	}
+	if m.confirmTarget != confirmDeleteMessage {
+		t.Fatalf("confirmTarget = %v, want confirmDeleteMessage", m.confirmTarget)
+	}
+
+	next, _, _ := m.updateKeyMsg(keyCode('y'))
+	m = next
+
+	if sender.calls != 0 {
+		t.Errorf("PurgeMessage calls = %d, want 0 - a first delete never erases content", sender.calls)
+	}
+	got := m.currentMessages()
+	if len(got) != 1 || !got[0].Retracted {
+		t.Fatalf("currentMessages() = %+v, want the message kept and flagged retracted", got)
+	}
+}
+
+// TestMessagePurgedMsgRemovesMessage covers the push side: another TUI
+// attached to the same daemon purged a message, so this one must drop it too
+// rather than keep showing a row whose storage is gone.
+func TestMessagePurgedMsgRemovesMessage(t *testing.T) {
+	m := newTestModelWithSender(&fakeSuccessSender{}, nil)
+	m.selectedView = viewChat
+	chat := Chat{Address: "bob@example.test"}
+	msgs := []Message{
+		{Author: "Bob", Content: "hi", ID: "m1"},
+		{Author: "Bob", Content: "gone", ID: "m2", Retracted: true},
+	}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 1
+
+	updated, _ := m.Update(MessagePurgedMsg{AccountIdx: 0, Peer: "bob@example.test", MessageID: "m2"})
+	m = updated.(Model)
+
+	got := m.currentMessages()
+	if len(got) != 1 || got[0].ID != "m1" {
+		t.Fatalf("currentMessages() = %+v, want only m1 left", got)
+	}
+	if m.selectedMsg != 0 {
+		t.Errorf("selectedMsg = %d, want 0", m.selectedMsg)
+	}
+}
+
+// TestPurgePromptShowsOriginalPreview checks the purge confirmation names the
+// message by its hidden original content (MessagePreviewContent would say
+// "message deleted", which identifies nothing), truncated like every other
+// preview rather than spilling a long body into the popup.
+func TestPurgePromptShowsOriginalPreview(t *testing.T) {
+	m := newTestModelWithSender(&fakeSuccessSender{}, nil)
+	m.selectedView = viewChat
+	long := strings.Repeat("secret ", 30)
+	chat := Chat{Address: "bob@example.test"}
+	msgs := []Message{{Author: "Bob", Content: long, ID: "m1", Retracted: true}}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedMsg = 0
+	m.confirmTarget = confirmPurgeMessage
+
+	got := m.deletePrompt(60)
+
+	if strings.Contains(got, retractedPreview) {
+		t.Errorf("purge prompt says %q instead of naming the message:\n%s", retractedPreview, got)
+	}
+	if !strings.Contains(got, "Bob: secret") {
+		t.Errorf("purge prompt doesn't preview the original content:\n%s", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if len(line) > 200 { // styled, so not a strict width check - just no untruncated body
+			t.Errorf("prompt line is %d chars, want the preview truncated: %q", len(line), line)
+		}
+	}
+	if !strings.Contains(got, "…") {
+		t.Errorf("long content wasn't truncated with an ellipsis:\n%s", got)
 	}
 }

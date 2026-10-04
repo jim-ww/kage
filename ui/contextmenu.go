@@ -101,10 +101,16 @@ func (m *Model) messageContextMenuItems(idx int) []contextMenuItem {
 	if msgs[idx].Failed {
 		items = append(items, contextMenuItem{label: "Retry", run: (*Model).actionRetryMessage})
 	}
+	// Same entry either way - actionDeleteMessage picks retract vs. purge -
+	// but the label says which of the two this press will ask about.
+	deleteLabel := "Delete"
+	if msgs[idx].Retracted {
+		deleteLabel = "Erase for good"
+	}
 	items = append(items,
 		contextMenuItem{label: "React", run: (*Model).actionReactMessage},
 		contextMenuItem{label: "Info", run: (*Model).actionInfoMessage},
-		contextMenuItem{label: "Delete", run: (*Model).actionDeleteMessage},
+		contextMenuItem{label: deleteLabel, run: (*Model).actionDeleteMessage},
 	)
 	return items
 }

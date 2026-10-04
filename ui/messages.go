@@ -45,6 +45,14 @@ type MessageSender interface {
 	// or already deleted, in the meantime) - the caller only needs to know
 	// the message is gone from the outbox one way or another.
 	DeleteQueued(accountIdx int, localID string) error
+
+	// PurgeMessage erases an already-retracted message (and its reactions)
+	// from local storage outright - the second step of the two-step delete,
+	// reached only when the user deletes a message that MarkRetracted/a
+	// XEP-0424 retraction already flagged. Local-only: there is no stanza
+	// for erasing a message from the peer's or server's copy. Not an error
+	// if nothing matches id any more.
+	PurgeMessage(accountIdx int, to, id string) error
 }
 
 // FileSender uploads a local file and sends its download URL to a chat. It is
@@ -360,6 +368,17 @@ type OutboxDeletedMsg struct {
 	AccountIdx int
 	To         string // bare/full JID this was addressed to (chat key)
 	LocalID    string
+}
+
+// MessagePurgedMsg is sent into the Bubble Tea loop when an already-retracted
+// message is erased from storage outright (MessageSender.PurgeMessage) - by
+// this client or another TUI attached to the same daemon. Unlike
+// MessageRetractedMsg, the message is removed from the chat entirely; there
+// is nothing left to show.
+type MessagePurgedMsg struct {
+	AccountIdx int
+	Peer       string // bare JID (chat)
+	MessageID  string // ID of the message that was erased
 }
 
 // MessageDeliveredMsg is sent into the Bubble Tea loop when a XEP-0184

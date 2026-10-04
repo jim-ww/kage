@@ -12,6 +12,7 @@ const (
 	rpcSend                     = "Send"
 	rpcMarkRetracted            = "MarkRetracted"
 	rpcDeleteQueued             = "DeleteQueued"
+	rpcPurgeMessage             = "PurgeMessage"
 	rpcSetTyping                = "SetTyping"
 	rpcRenameContact            = "RenameContact"
 	rpcSetDefaultAccount        = "SetDefaultAccount"
@@ -68,6 +69,7 @@ const (
 	evMessageSendFailed    = "MessageSendFailed"
 	evMessageSendResolved  = "MessageSendResolved"
 	evOutboxDeleted        = "OutboxDeleted"
+	evMessagePurged        = "MessagePurged"
 	evMessageReactions     = "MessageReactions"
 	evPresence             = "Presence"
 	evDeviceName           = "DeviceName"
@@ -110,6 +112,11 @@ type sendResult struct {
 }
 
 type markRetractedParams struct {
+	AccountIdx int
+	To, ID     string
+}
+
+type purgeMessageParams struct {
 	AccountIdx int
 	To, ID     string
 }

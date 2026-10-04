@@ -457,6 +457,7 @@ type confirmTarget int
 const (
 	confirmNone confirmTarget = iota
 	confirmDeleteMessage
+	confirmPurgeMessage
 	confirmHideChat
 	confirmRemoveAccount
 	confirmQuit

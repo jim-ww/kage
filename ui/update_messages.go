@@ -638,6 +638,38 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case MessagePurgedMsg:
+		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.Peer)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		msgs := m.accounts[msg.AccountIdx].Messages[chatIdx]
+		idx := messageIndexByID(msgs, msg.MessageID)
+		if idx < 0 {
+			return m, nil, true
+		}
+		isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
+		selectedMsg := m.selectedMsg
+		if !isOpenChat {
+			selectedMsg = idx // same as OutboxDeletedMsg: no live selection to adjust, just keep it in range
+		}
+		wasLast := idx == len(msgs)-1
+		msgs, selectedMsg = removeMessageAt(msgs, idx, selectedMsg)
+		m.accounts[msg.AccountIdx].Messages[chatIdx] = msgs
+		var cmd tea.Cmd
+		if wasLast {
+			preview := ""
+			if len(msgs) > 0 {
+				preview = MessagePreviewContent(msgs[len(msgs)-1])
+			}
+			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, preview)
+		}
+		if isOpenChat {
+			m.selectedMsg = selectedMsg
+			m.refreshViewport()
+		}
+		return m, cmd, true
+
 	case MessageReactionsMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {

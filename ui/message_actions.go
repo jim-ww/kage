@@ -300,14 +300,21 @@ func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOption
 
 // actionDeleteMessage opens the delete-confirmation popup for the selected
 // message (viewChat's DeleteMsg / a message context-menu's "Delete").
+// Deleting a message that's already flagged retracted - i.e. a second delete
+// on content the chat view is already hiding - asks for the irreversible
+// local purge instead (see purgeSelectedMsg).
 func (m *Model) actionDeleteMessage() tea.Cmd {
 	if m.currentChatIndex() < 0 {
 		return nil
 	}
-	if len(m.currentMessages()) == 0 {
+	msgs := m.currentMessages()
+	if len(msgs) == 0 {
 		return m.showNotification("no messages to delete")
 	}
 	m.confirmTarget = confirmDeleteMessage
+	if m.selectedMsg >= 0 && m.selectedMsg < len(msgs) && msgs[m.selectedMsg].Retracted {
+		m.confirmTarget = confirmPurgeMessage
+	}
 	return nil
 }
 
@@ -850,6 +857,49 @@ func (m *Model) retractSelectedMsg() tea.Cmd {
 		cmd = m.setChatLastMessage(m.currentAccount, chatIdx, retractedPreview)
 	}
 	return cmd
+}
+
+// purgeSelectedMsg erases the current message locally for good - the second
+// step of the two-step delete, only reachable for a message already flagged
+// Retracted. Unlike retractSelectedMsg nothing is kept: the storage row and
+// its reactions go (adapter.PurgeMessage, which also tells every other
+// attached client via MessagePurgedMsg) and the message leaves the chat.
+// Local-only - there's no stanza that erases a message from the peer's copy.
+func (m *Model) purgeSelectedMsg() tea.Cmd {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return nil
+	}
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return nil
+	}
+	idx := m.selectedMsg
+	wasLast := idx == len(msgs)-1
+	target := msgs[idx]
+
+	var cmds []tea.Cmd
+	// A message with no stanza ID was never persisted under one (so there's
+	// nothing for the daemon to look up) - it only has to leave this view.
+	if target.ID != "" && m.sender != nil {
+		if chat, ok := m.currentChat(); ok && chat.Address != "" {
+			if err := m.sender.PurgeMessage(m.currentAccount, chat.Address, target.ID); err != nil {
+				cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
+			}
+		}
+	}
+
+	newMsgs, selectedMsg := removeMessageAt(msgs, idx, idx)
+	m.setCurrentMessages(newMsgs)
+	m.selectedMsg = selectedMsg
+	if wasLast {
+		preview := ""
+		if len(newMsgs) > 0 {
+			preview = MessagePreviewContent(newMsgs[len(newMsgs)-1])
+		}
+		cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, preview))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) yankSelectedMsg() error {

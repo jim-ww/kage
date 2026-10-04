@@ -151,7 +151,9 @@ type DeleteMessageByIDParams struct {
 // flagged sendFailed succeeds and gets its own fresh row: the old row (kept
 // around by idAttr, never a localID - see InsertMessage's doc comment) would
 // otherwise survive forever and keep reappearing as a Failed duplicate
-// alongside the newly-sent message on every reload.
+// alongside the newly-sent message on every reload. Also the second half of
+// the two-step delete (adapter.PurgeMessage): a message already flagged
+// retracted is erased outright on a second delete.
 func (q *Queries) DeleteMessageByID(ctx context.Context, arg DeleteMessageByIDParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteMessageByID, arg.AccountJid, arg.IDAttr, arg.RosterJid)
 	if err != nil {
@@ -243,6 +245,27 @@ func (q *Queries) DeleteOutboxEntryByLocalID(ctx context.Context, arg DeleteOutb
 	var toattr string
 	err := row.Scan(&toattr)
 	return toattr, err
+}
+
+const deleteReactionsByMessage = `-- name: DeleteReactionsByMessage :exec
+DELETE FROM messageReactions
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND idAttr = ?3
+`
+
+type DeleteReactionsByMessageParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+	IDAttr     string `db:"id_attr"`
+}
+
+// Every reactor's rows for one message, as opposed to
+// DeleteReactionsByReactor's single-reactor replace. Used when a message is
+// purged outright (adapter.PurgeMessage) so its reactions don't outlive it.
+func (q *Queries) DeleteReactionsByMessage(ctx context.Context, arg DeleteReactionsByMessageParams) error {
+	_, err := q.db.ExecContext(ctx, deleteReactionsByMessage, arg.AccountJid, arg.RosterJid, arg.IDAttr)
+	return err
 }
 
 const deleteReactionsByReactor = `-- name: DeleteReactionsByReactor :exec

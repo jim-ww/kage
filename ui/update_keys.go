@@ -75,6 +75,10 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 						cmds = append(cmds, m.retractSelectedMsg())
 					}
 				}
+			case confirmPurgeMessage:
+				// Second delete on an already-retracted message: this one
+				// really erases it, here and in storage.
+				cmds = append(cmds, m.purgeSelectedMsg())
 			case confirmHideChat:
 				cmds = append(cmds, m.hideSelectedChat())
 			case confirmRemoveAccount:

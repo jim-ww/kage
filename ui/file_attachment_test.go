@@ -54,6 +54,7 @@ func (f *fakeFileSender) Send(_ int, _ string, body string, opts SendOptions) (s
 }
 func (f *fakeFileSender) SetTyping(int, string, bool) error       { return nil }
 func (f *fakeFileSender) MarkRetracted(int, string, string) error { return nil }
+func (f *fakeFileSender) PurgeMessage(int, string, string) error  { return nil }
 func (f *fakeFileSender) DeleteQueued(int, string) error          { return nil }
 func (f *fakeFileSender) SendFile(_ int, to, path string, opts SendOptions) tea.Msg {
 	f.path = path
