@@ -781,15 +781,24 @@ func (m *Model) openPendingChat() tea.Cmd {
 		return nil
 	}
 	addr := m.pendingOpenChatAddress
-	m.pendingOpenChatAddress = ""
 	for i, item := range m.chats.Items() {
 		if chat, ok := item.(Chat); ok && chat.Address == addr {
+			m.pendingOpenChatAddress = ""
 			m.chats.Select(i)
 			model, cmd := m.openCurrentChat()
 			*m = model.(Model)
 			return cmd
 		}
 	}
+	// Kept for the next attempt rather than consumed here: Init fires this
+	// before any account exists (the model is deliberately built with no
+	// accounts so the first frame doesn't wait on the daemon - see runTUI),
+	// so the chat list is empty on that first pass and the address has to
+	// survive it for AccountsSnapshotMsg/AccountLiveMsg to honour. Clearing
+	// it here dropped the last-opened chat on the floor, which also meant
+	// the TUI came up sitting in a chat that nothing had actually *opened*:
+	// no openCurrentChat, so its stored unread count was never reset and the
+	// chat-list badge and tray dot stayed on a chat being read.
 	return nil
 }
 
