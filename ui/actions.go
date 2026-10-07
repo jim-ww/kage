@@ -76,8 +76,10 @@ func (m *Model) jumpToLatestMessage() tea.Cmd {
 	}
 	if m.accounts[m.currentAccount].HistoryNewer[chatIdx] && m.historyLoader != nil && !m.loadingHistoryWindow[chatIdx] {
 		if chat, ok := m.currentChat(); ok {
-			m.loadingHistoryWindow[chatIdx] = true
-			return m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, nil)
+			if cmd := m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, nil); cmd != nil {
+				m.markHistoryWindowLoading(chatIdx, "")
+				return cmd
+			}
 		}
 	}
 

@@ -223,7 +223,10 @@ func (c *ipcClient) LoadHistoryWindow(accountIdx int, to string, anchor *ui.Hist
 		var msg ui.HistoryWindowMsg
 		if err := c.conn.Call(rpcLoadHistoryWindow, loadHistoryWindowParams{AccountIdx: accountIdx, To: to, Anchor: anchor}, &msg); err != nil {
 			slog.Warn("loading history window", "err", err)
-			return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to}
+			// Err, not a zero-valued window: the latter reads as "this chat
+			// has no messages and no more history in either direction",
+			// which blanks the chat and permanently stops its paging.
+			return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to, Err: err}
 		}
 		return msg
 	}

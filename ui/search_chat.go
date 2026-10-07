@@ -374,13 +374,13 @@ func (m *Model) loadSearchResult(msgIdx int) tea.Cmd {
 		return nil
 	}
 	target := sr.messages[msgIdx]
-	if m.pendingWindowAnchor == nil {
-		m.pendingWindowAnchor = make(map[int]string)
-	}
-	m.pendingWindowAnchor[chatIdx] = target.ID
-	m.loadingHistoryWindow[chatIdx] = true
 	anchor := &HistoryAnchor{Delay: target.SentAt.Unix(), StoreID: target.StoreID}
-	return m.historyLoader.LoadHistoryWindow(sr.accountIdx, sr.chatAddress, anchor)
+	cmd := m.historyLoader.LoadHistoryWindow(sr.accountIdx, sr.chatAddress, anchor)
+	if cmd == nil {
+		return nil // see markHistoryWindowLoading
+	}
+	m.markHistoryWindowLoading(chatIdx, target.ID)
+	return cmd
 }
 
 // handleSearchResultsClick handles mouse clicks while the search-results

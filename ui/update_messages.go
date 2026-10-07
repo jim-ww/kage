@@ -430,6 +430,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		delete(m.loadingHistoryWindow, chatIdx)
 		anchorID := m.pendingWindowAnchor[chatIdx]
 		delete(m.pendingWindowAnchor, chatIdx)
+		if msg.Err != nil {
+			// Clear the in-flight marker (so paging can be retried) but
+			// change nothing else: this response knows nothing about the
+			// chat, and treating it as an authoritative empty window would
+			// blank the loaded history and mark storage exhausted in both
+			// directions, which no amount of further scrolling recovers from.
+			return m, m.showNotification("loading history: " + msg.Err.Error()), true
+		}
 		if m.accounts[msg.AccountIdx].HistoryMore == nil {
 			m.accounts[msg.AccountIdx].HistoryMore = make(map[int]bool)
 		}

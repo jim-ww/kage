@@ -126,6 +126,15 @@ type HistoryWindowMsg struct {
 	Messages   []Message
 	HasOlder   bool
 	HasNewer   bool
+
+	// Err is set when the fetch failed, in which case every other field
+	// carries no information. It must be distinguishable from a successful
+	// empty window: a failure used to be reported as Messages=nil with
+	// HasOlder/HasNewer false, which replaced the chat's loaded history with
+	// nothing AND declared storage exhausted in both directions - so the
+	// chat went blank and could never be paged again for the rest of the
+	// session.
+	Err error `json:"-"`
 }
 
 // HistorySearcher searches a chat's entire persisted history for messages

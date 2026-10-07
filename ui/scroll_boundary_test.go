@@ -20,9 +20,13 @@ type spyHistoryLoader struct {
 	calls int
 }
 
+// A non-nil command that produces no message: a real loader always returns
+// one (see ipcClient.LoadHistoryWindow), and returning nil would instead
+// model "the fetch never started", which callers deliberately treat
+// differently - see markHistoryWindowLoading.
 func (s *spyHistoryLoader) LoadHistoryWindow(accountIdx int, to string, anchor *HistoryAnchor) tea.Cmd {
 	s.calls++
-	return nil
+	return func() tea.Msg { return nil }
 }
 
 // newScrollBoundaryTestModel builds a Model with n loaded messages in a

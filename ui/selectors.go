@@ -97,13 +97,16 @@ func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	m.loadingHistoryWindow[chatIdx] = true
-	if m.pendingWindowAnchor == nil {
-		m.pendingWindowAnchor = make(map[int]string)
-	}
-	m.pendingWindowAnchor[chatIdx] = edgeMsg.ID
 	anchor := &HistoryAnchor{Delay: edgeMsg.SentAt.Unix(), StoreID: edgeMsg.StoreID}
-	return m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, anchor)
+	cmd := m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, anchor)
+	if cmd == nil {
+		// No command means no HistoryWindowMsg will ever come back, so
+		// marking the fetch in flight would block this chat's paging for the
+		// rest of the session. See markHistoryWindowLoading.
+		return nil
+	}
+	m.markHistoryWindowLoading(chatIdx, edgeMsg.ID)
+	return cmd
 }
 
 // maybeLoadOlderHistory fires a HistoryLoader request for the current chat's
@@ -491,4 +494,25 @@ func removeMessageAt(msgs []Message, idx, selectedMsg int) ([]Message, int) {
 		selectedMsg = len(msgs) - 1
 	}
 	return msgs, selectedMsg
+}
+
+// markHistoryWindowLoading records that a history-window fetch for chatIdx
+// is in flight, anchored on anchorID.
+//
+// Only ever called once the fetch has actually been handed off: the flag is
+// what stops a second concurrent fetch for the same chat, and it is cleared
+// by the HistoryWindowMsg that comes back - so setting it for a fetch that
+// was never started (a nil tea.Cmd) leaves it stuck true and that chat can
+// never load older history again. That is a permanent, per-chat failure
+// from a momentary condition, which is exactly how it was reported: "rarely,
+// cannot scroll past certain message and load older history".
+func (m *Model) markHistoryWindowLoading(chatIdx int, anchorID string) {
+	if m.loadingHistoryWindow == nil {
+		m.loadingHistoryWindow = make(map[int]bool)
+	}
+	if m.pendingWindowAnchor == nil {
+		m.pendingWindowAnchor = make(map[int]string)
+	}
+	m.loadingHistoryWindow[chatIdx] = true
+	m.pendingWindowAnchor[chatIdx] = anchorID
 }
