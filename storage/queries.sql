@@ -600,6 +600,13 @@ VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), 0)
 ON CONFLICT (accountJID, rosterJID) DO UPDATE
 SET count = 0;
 
+-- name: DeleteChatUnread :exec
+-- Dropped alongside the chat's roster entry: a count left behind for a
+-- contact that no longer has a row anywhere keeps the tray's unread dot lit
+-- with nothing the user can open to clear it.
+DELETE FROM chatUnread
+WHERE accountJID = sqlc.arg(account_jid) AND rosterJID = sqlc.arg(roster_jid);
+
 -- name: ListChatUnread :many
 SELECT rosterJID, count
 FROM chatUnread

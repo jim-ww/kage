@@ -351,6 +351,19 @@ func (a *adapter) SetChatHidden(accountJID, chatAddress string, hidden bool) err
 	// Also in memory, so an account that reconnects before the daemon
 	// restarts rebuilds its chat list with the same chats hidden.
 	hiddenChats.flag(accountJID, chatAddress, hidden)
+	// Re-evaluate the tray dot: a chat being hidden stops feeding it (see
+	// badgeable), and one being unhidden starts again with whatever count
+	// storage held all along.
+	count := 0
+	if !hidden {
+		if n, err := a.queries.GetChatUnread(context.Background(), storage.GetChatUnreadParams{
+			AccountJid: accountJID,
+			RosterJid:  chatAddress,
+		}); err == nil {
+			count = int(n)
+		}
+	}
+	unreadBadge.set(accountJID, chatAddress, count)
 	return nil
 }
 
@@ -895,6 +908,7 @@ func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
 	}); err != nil {
 		slog.Warn("deleting roster entry", "address", address, "err", err)
 	}
+	forgetChat(ctx, s.db, s.account.JID, address)
 	s.mutateRoster(func(entries map[string]rosterEntry) { delete(entries, address) })
 
 	return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address}

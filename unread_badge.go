@@ -37,7 +37,7 @@ func (t *unreadTracker) set(accountJID, chatAddress string, count int) {
 	if t.counts[accountJID] == nil {
 		t.counts[accountJID] = map[string]int{}
 	}
-	if count > 0 {
+	if count > 0 && badgeable(accountJID, chatAddress) {
 		t.counts[accountJID][chatAddress] = count
 	} else {
 		delete(t.counts[accountJID], chatAddress)
@@ -52,7 +52,7 @@ func (t *unreadTracker) set(accountJID, chatAddress string, count int) {
 func (t *unreadTracker) seedAccount(accountJID string, counts map[string]int) {
 	next := make(map[string]int, len(counts))
 	for addr, n := range counts {
-		if n > 0 {
+		if n > 0 && badgeable(accountJID, addr) {
 			next[addr] = n
 		}
 	}
@@ -63,6 +63,31 @@ func (t *unreadTracker) seedAccount(accountJID string, counts map[string]int) {
 	}
 	t.counts[accountJID] = next
 	t.applyLocked()
+}
+
+// badgeable reports whether a chat's unread count has any business lighting
+// the tray dot. A hidden chat doesn't: the TUI keeps it out of the chat list
+// entirely (ui/hidden_chats.go), so there is no row to open and nothing that
+// would ever call ResetChatUnread for it - a dot it lit would stay lit
+// forever. The stored count itself is kept, so unhiding the chat brings it
+// back.
+func badgeable(accountJID, chatAddress string) bool {
+	return !hiddenChats.has(accountJID, chatAddress)
+}
+
+// forgetChat drops one chat's unread count for good - both the stored row
+// and the badge entry - for a chat that's ceasing to exist (its roster entry
+// is being deleted). Without it the row outlives every chat row built from
+// the roster, and seedAccount keeps re-lighting the dot from it on every
+// daemon start and TUI attach.
+func forgetChat(ctx context.Context, db *storage.Queries, accountJID, chatAddress string) {
+	if err := db.DeleteChatUnread(ctx, storage.DeleteChatUnreadParams{
+		AccountJid: accountJID,
+		RosterJid:  chatAddress,
+	}); err != nil {
+		slog.Warn("deleting unread count for removed chat", "jid", accountJID, "peer", chatAddress, "err", err)
+	}
+	unreadBadge.set(accountJID, chatAddress, 0)
 }
 
 // forgetAccount drops a removed account's counts, which would otherwise keep

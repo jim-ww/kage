@@ -770,7 +770,18 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	for _, r := range unreadRows {
 		unread[r.Rosterjid] = int(r.Count)
 	}
-	unreadBadge.seedAccount(acct.JID, unread)
+	// The badge only gets the counts belonging to chats the list below
+	// actually builds: a stored count for a JID the roster no longer holds
+	// (a contact removed from another client, say) has no chat row to open
+	// and so nothing that would ever clear it, leaving the tray dot lit for
+	// good.
+	badge := make(map[string]int, len(unread))
+	for _, r := range rows {
+		if n := unread[r.Jid]; n > 0 {
+			badge[r.Jid] = n
+		}
+	}
+	unreadBadge.seedAccount(acct.JID, badge)
 
 	draftRows, err := queries.ListChatDrafts(ctx, acct.JID)
 	if err != nil {
@@ -2023,6 +2034,7 @@ func (s *accountSession) handleRosterPush(ctx context.Context, srv *ipc.Server, 
 		}); err != nil {
 			slog.Warn("deleting roster entry after roster push", "contact", peer, "err", err)
 		}
+		forgetChat(ctx, s.db, s.account.JID, peer)
 		broadcast(srv, evChatRemoved, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: peer})
 		return
 	}
@@ -2213,6 +2225,7 @@ func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		}); err != nil {
 			slog.Warn("deleting roster entry after roster refresh", "contact", jid, "err", err)
 		}
+		forgetChat(ctx, s.db, s.account.JID, jid)
 		broadcast(srv, evChatRemoved, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: jid})
 	}
 }

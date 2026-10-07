@@ -149,6 +149,24 @@ func (q *Queries) DeleteChatDraft(ctx context.Context, arg DeleteChatDraftParams
 	return err
 }
 
+const deleteChatUnread = `-- name: DeleteChatUnread :exec
+DELETE FROM chatUnread
+WHERE accountJID = ?1 AND rosterJID = ?2
+`
+
+type DeleteChatUnreadParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+}
+
+// Dropped alongside the chat's roster entry: a count left behind for a
+// contact that no longer has a row anywhere keeps the tray's unread dot lit
+// with nothing the user can open to clear it.
+func (q *Queries) DeleteChatUnread(ctx context.Context, arg DeleteChatUnreadParams) error {
+	_, err := q.db.ExecContext(ctx, deleteChatUnread, arg.AccountJid, arg.RosterJid)
+	return err
+}
+
 const deleteMessageByID = `-- name: DeleteMessageByID :execrows
 DELETE FROM messages
 WHERE accountJID = ?1
