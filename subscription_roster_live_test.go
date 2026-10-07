@@ -4,7 +4,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"path/filepath"
 	"testing"
 	"time"
@@ -74,32 +76,30 @@ func waitForSubs(t *testing.T, sess *accountSession, peer string, d time.Duratio
 	return last
 }
 
-// resetSubscription removes the roster item for peer on both sides and waits
-// until the server itself agrees it is gone.
+// newThrowawayAccount registers a fresh account via XEP-0077 in-band
+// registration (devtest's Prosody has allow_registration and mod_register)
+// and returns its bare JID and password.
 //
-// The devtest accounts are long-lived, so each run inherits whatever
-// subscription state the last one left behind - and a run that starts with
-// the two already subscribed never produces a subscription request at all,
-// so the test would pass without exercising anything. Confirming the removal
-// against the server (by re-fetching the roster, not by polling the local
-// cache, which a removal push hasn't necessarily reached yet) is what makes
-// the starting state deterministic: a teardown still in flight when the next
-// request goes out leaves the server reconciling two overlapping changes.
-func resetSubscription(ctx context.Context, t *testing.T, sess *accountSession, peer string) {
+// The shared alice/bob devtest accounts are deliberately avoided. They make
+// this test both non-deterministic and hostile to its neighbours: it
+// inherits whatever subscription state the previous run left (a run starting
+// with the two already subscribed produces no subscription request at all
+// and asserts nothing), and tearing their roster down mid-run disrupts every
+// other live test using the same pair - `go test ./...` runs packages in
+// parallel, so xmpp's own alice/bob tests are running at the same time. A
+// pair of accounts nothing else knows about removes both problems.
+func newThrowawayAccount(ctx context.Context, t *testing.T, tlsConfig *tls.Config) (jid, password string) {
 	t.Helper()
-	a := &adapter{sessions: []*accountSession{sess}}
-	if msg := a.RemoveContact(0, peer); msg.(ui.ContactRemovedMsg).Err != nil {
-		t.Fatalf("%s RemoveContact(%s): %v", sess.account.JID, peer, msg.(ui.ContactRemovedMsg).Err)
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		t.Fatalf("generating throwaway account name: %v", err)
 	}
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		refreshRoster(ctx, nil, 0, sess, sess.client.Load())
-		if _, ok := derefRoster(sess.roster.Load())[peer]; !ok {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
+	name := hex.EncodeToString(b[:])
+	jid, password = "kagetest-"+name+"@localhost", "pw-"+name
+	if err := xmpp.Register(ctx, jid, password, tlsConfig); err != nil {
+		t.Skipf("devtest prosody would not register %s (run setup.sh after a template change): %v", jid, err)
 	}
-	t.Fatalf("%s is still in %s's roster on the server; the test cannot start from a known state", peer, sess.account.JID)
+	return jid, password
 }
 
 // TestSubscriptionIsReciprocatedAndRosterPushApplied is the end-to-end
@@ -120,12 +120,11 @@ func TestSubscriptionIsReciprocatedAndRosterPushApplied(t *testing.T) {
 	tlsConfig := devtestTLSConfig(t)
 	ctx := context.Background()
 
-	const aliceJID, bobJID = "alice@localhost", "bob@localhost"
-	alice := newLiveSession(ctx, t, aliceJID, "alicepw", tlsConfig)
-	bob := newLiveSession(ctx, t, bobJID, "bobpw", tlsConfig)
+	aliceJID, alicePW := newThrowawayAccount(ctx, t, tlsConfig)
+	bobJID, bobPW := newThrowawayAccount(ctx, t, tlsConfig)
 
-	resetSubscription(ctx, t, alice, bobJID)
-	resetSubscription(ctx, t, bob, aliceJID)
+	alice := newLiveSession(ctx, t, aliceJID, alicePW, tlsConfig)
+	bob := newLiveSession(ctx, t, bobJID, bobPW, tlsConfig)
 
 	// bob adds alice: roster set plus <presence type="subscribe">. From here
 	// on everything is the production event path on both sides.
