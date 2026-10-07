@@ -15,7 +15,7 @@ require (
 	github.com/ebitengine/oto/v3 v3.4.0
 	github.com/enescakir/emoji v1.0.0
 	github.com/gen2brain/malgo v0.11.25
-	github.com/jim-ww/omemo-go v0.1.3
+	github.com/jim-ww/omemo-go v0.1.4
 	github.com/lrstanley/bubblezone/v2 v2.0.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pion/opus v0.1.1-0.20260806214105-56fe97fcac80
@@ -84,5 +84,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/jim-ww/omemo-go => ./omemo-go
