@@ -384,6 +384,24 @@ func (q *Queries) GetChatEncryptionMode(ctx context.Context, arg GetChatEncrypti
 	return mode, err
 }
 
+const getChatUnread = `-- name: GetChatUnread :one
+SELECT count
+FROM chatUnread
+WHERE accountJID = ?1 AND rosterJID = ?2
+`
+
+type GetChatUnreadParams struct {
+	AccountJid string `db:"account_jid"`
+	RosterJid  string `db:"roster_jid"`
+}
+
+func (q *Queries) GetChatUnread(ctx context.Context, arg GetChatUnreadParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getChatUnread, arg.AccountJid, arg.RosterJid)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getDiscoFeaturesByJID = `-- name: GetDiscoFeaturesByJID :many
 SELECT
 	var

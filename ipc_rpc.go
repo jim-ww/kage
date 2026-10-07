@@ -76,6 +76,8 @@ const (
 	evTyping               = "Typing"
 	evFileTransferProgress = "FileTransferProgress"
 	evFileTransferDone     = "FileTransferDone"
+	evChatAdded            = "ChatAdded"
+	evChatRemoved          = "ChatRemoved"
 	evAccountAdded         = "AccountAdded"
 	evAccountRemoved       = "AccountRemoved"
 	evAccountConnected     = "AccountConnected"

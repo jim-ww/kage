@@ -253,6 +253,13 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	chatName := s.rosterName(from)
 	quotedAuthor, quotedPreview := resolveReplyQuote(ctx, s, from, chatName, msgEv.ReplyToID)
 
+	// Before the insert, not after: ensureChat's ChatAddedMsg carries the
+	// chat's history as storage currently has it, and the message being
+	// inserted below reaches clients as the IncomingMessageMsg at the end of
+	// this function. Doing it the other way round would send the message
+	// twice.
+	ensureChat(ctx, srv, accountIdx, s, from)
+
 	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:        s.account.JID,
@@ -437,4 +444,47 @@ func aesgcmURLsInBody(body string) []string {
 	}
 	slices.Reverse(urls)
 	return urls
+}
+
+// ensureChat makes sure a chat with peer exists before a message for it is
+// stored, creating the local roster row and telling attached clients about
+// it if it doesn't. No-op for a peer we already know.
+//
+// The chat list is built from the roster (connectAccountLocal's ListRoster),
+// so a message from someone not in it had nowhere to go: the daemon stored
+// it and fired a desktop notification, but no chat row existed for any
+// attached TUI to append it to, and IncomingMessageMsg dropped it. The
+// message only surfaced after a restart, once a full roster fetch happened
+// to pick the contact up - which is why restarting the daemon appeared to
+// fix it.
+//
+// The roster row is local only: no roster set, no subscription request. A
+// stranger writing to us is a conversation, not a contact, and silently
+// adding them server-side would leak back to them as a subscription
+// request. It survives restarts (connectAccountLive merges the server
+// roster onto local rows rather than replacing them) and goes away if a
+// roster push ever removes the contact.
+func ensureChat(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, peer string) {
+	if peer == "" || peer == s.account.JID {
+		return
+	}
+	var known bool
+	s.mutateRoster(func(entries map[string]rosterEntry) {
+		if _, ok := entries[peer]; ok {
+			known = true
+			return
+		}
+		entries[peer] = rosterEntry{}
+	})
+	if known {
+		return
+	}
+
+	slog.Debug("first message from a contact not in the roster; creating a local chat", "jid", s.account.JID, "contact", peer)
+	if err := s.db.UpsertRoster(ctx, storage.UpsertRosterParams{
+		AccountJid: s.account.JID, Jid: peer,
+	}); err != nil {
+		slog.Warn("persisting local roster entry for new chat", "contact", peer, "err", err)
+	}
+	s.broadcastChat(ctx, srv, accountIdx, peer, "")
 }

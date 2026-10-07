@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -753,6 +752,67 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.deviceList.selected = map[OmemoDevice]bool{}
 		return m, m.showNotification("omemo device list updated"), true
 
+	case ChatAddedMsg:
+		if msg.AccountIdx < 0 || msg.AccountIdx >= len(m.accounts) {
+			return m, nil, true
+		}
+		// An upsert, so a push that merely renames a contact (another of our
+		// clients editing the roster) updates the row in place instead of
+		// appending a second one for the same address.
+		if idx := m.chatIndexByAddress(msg.AccountIdx, msg.Chat.Address); idx >= 0 {
+			chat, ok := m.accounts[msg.AccountIdx].Chats[idx].(Chat)
+			if !ok || msg.Chat.Name == "" || chat.Name == msg.Chat.Name {
+				return m, nil, true
+			}
+			chat.Name = msg.Chat.Name
+			m.accounts[msg.AccountIdx].Chats[idx] = chat
+			var cmd tea.Cmd
+			if msg.AccountIdx == m.currentAccount {
+				cmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
+			}
+			return m, cmd, true
+		}
+		// A chat the user hid stays hidden: it goes to the stash, where
+		// unhiding (or the auto-unhide an incoming message triggers) picks
+		// it up, rather than reappearing in the list on its own.
+		if m.isChatHidden(msg.AccountIdx, msg.Chat.Address) {
+			return m, nil, true
+		}
+		chat := msg.Chat
+		chat.Hidden = false
+		if len(msg.Messages) > 0 {
+			last := msg.Messages[len(msg.Messages)-1]
+			chat.LastMessage = MessagePreviewContent(last)
+			chat.LastActivity = last.SentAt
+		}
+		chatIdx := len(m.accounts[msg.AccountIdx].Chats)
+		m.accounts[msg.AccountIdx].Chats = append(m.accounts[msg.AccountIdx].Chats, chat)
+		if len(msg.Messages) > 0 {
+			if m.accounts[msg.AccountIdx].Messages == nil {
+				m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
+			}
+			m.accounts[msg.AccountIdx].Messages[chatIdx] = msg.Messages
+		}
+		var cmd tea.Cmd
+		if msg.AccountIdx == m.currentAccount {
+			cmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
+		}
+		return m, cmd, true
+
+	case ChatRemovedMsg:
+		if msg.AccountIdx < 0 || msg.AccountIdx >= len(m.accounts) {
+			return m, nil, true
+		}
+		idx := m.chatIndexByAddress(msg.AccountIdx, msg.Address)
+		if !m.removeChatAt(msg.AccountIdx, idx) {
+			return m, nil, true
+		}
+		var removeCmd tea.Cmd
+		if msg.AccountIdx == m.currentAccount {
+			removeCmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
+		}
+		return m, removeCmd, true
+
 	case ContactAddedMsg:
 		cs := m.contactManagerState
 		if cs == nil || cs.accountIdx != msg.AccountIdx {
@@ -785,15 +845,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			cs.err = msg.Err.Error()
 			return m, nil, true
 		}
-		if idx := m.chatIndexByAddress(msg.AccountIdx, msg.Address); idx >= 0 {
-			items := m.accounts[msg.AccountIdx].Chats
-			newItems := make([]list.Item, 0, len(items)-1)
-			newItems = append(newItems, items[:idx]...)
-			newItems = append(newItems, items[idx+1:]...)
-			m.accounts[msg.AccountIdx].Chats = newItems
+		if idx := m.chatIndexByAddress(msg.AccountIdx, msg.Address); m.removeChatAt(msg.AccountIdx, idx) {
 			var cmd tea.Cmd
 			if msg.AccountIdx == m.currentAccount {
-				cmd = m.chats.SetItems(newItems)
+				cmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
 			}
 			return m, tea.Batch(cmd, m.showNotification("contact removed: "+msg.Address)), true
 		}

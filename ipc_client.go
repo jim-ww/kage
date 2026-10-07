@@ -432,6 +432,10 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.MessagePurgedMsg](c, ev.Data)
 	case evMessageReactions:
 		sendEvent[ui.MessageReactionsMsg](c, ev.Data)
+	case evChatAdded:
+		sendEvent[ui.ChatAddedMsg](c, ev.Data)
+	case evChatRemoved:
+		sendEvent[ui.ChatRemovedMsg](c, ev.Data)
 	case evAvatar:
 		c.dispatchAvatar(ev.Data)
 	case evPresence:

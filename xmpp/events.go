@@ -90,14 +90,51 @@ type PresenceEvent struct {
 
 func (PresenceEvent) isEvent() {}
 
-// SubscriptionRequestEvent is an inbound XEP-0084/RFC 6121 request from From
+// SubscriptionRequestEvent is an inbound RFC 6121 §3.1 request from From
 // asking to subscribe to our presence. The caller is expected to respond,
-// typically by auto-approving via Client.ApproveSubscription.
+// typically by auto-approving via Client.ApproveSubscription - and, if it
+// wants the contact's presence in return, by also sending its own request
+// via Client.ResubscribeContact: approving only grants them our presence,
+// it never establishes the reverse direction.
 type SubscriptionRequestEvent struct {
 	From string
 }
 
 func (SubscriptionRequestEvent) isEvent() {}
+
+// RosterPushEvent is an RFC 6121 §2.1.6 roster push: the server telling us
+// one roster item changed, which happens whenever anything anywhere alters
+// the roster - another of our clients adding a contact, a contact accepting
+// (or revoking) a subscription, or our own server auto-creating an item
+// because we approved an inbound request. Without handling these, the
+// roster we hold is only ever as fresh as the last full fetch at connect
+// time, so a contact that appears mid-session stays invisible (and a
+// subscription that completes mid-session stays stuck looking pending)
+// until the next reconnect.
+type RosterPushEvent struct {
+	JID string
+
+	// Name is the roster item's display nickname, empty if it has none.
+	Name string
+
+	// Subscription is RFC 6121's subscription state: "none", "to", "from",
+	// "both", or "remove" (the item was deleted - Removed reports that more
+	// directly).
+	Subscription string
+
+	// Ask is true when a subscription request we sent is still pending the
+	// contact's approval (the item's ask="subscribe" attribute).
+	Ask bool
+
+	// Removed is true when this push deletes the item
+	// (subscription="remove"), rather than changing it.
+	Removed bool
+
+	// Groups are the roster groups the item belongs to, if any.
+	Groups []string
+}
+
+func (RosterPushEvent) isEvent() {}
 
 // ChatStateEvent is an incoming XEP-0085 chat state notification, standalone
 // or attached to a regular message.

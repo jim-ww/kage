@@ -605,6 +605,11 @@ SELECT rosterJID, count
 FROM chatUnread
 WHERE accountJID = sqlc.arg(account_jid) AND count > 0;
 
+-- name: GetChatUnread :one
+SELECT count
+FROM chatUnread
+WHERE accountJID = sqlc.arg(account_jid) AND rosterJID = sqlc.arg(roster_jid);
+
 
 -- name: SetChatDraft :exec
 INSERT INTO chatDraft (accountJID, rosterJID, body, encrypted)

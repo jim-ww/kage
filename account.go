@@ -1240,10 +1240,9 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 			go s.syncAvatarOnce(ctx, srv, accountIdx, from)
 		}
 	case xmpp.SubscriptionRequestEvent:
-		from := bareJID(ev.From)
-		if err := s.client.Load().ApproveSubscription(ctx, from); err != nil {
-			slog.Warn("approving subscription request", "from", from, "jid", s.account.JID, "err", err)
-		}
+		s.approveAndReciprocate(ctx, bareJID(ev.From))
+	case xmpp.RosterPushEvent:
+		s.handleRosterPush(ctx, srv, accountIdx, ev)
 	case xmpp.MessageEvent:
 		handleIncomingMessage(ctx, srv, accountIdx, s, ev)
 	case xmpp.JingleMessageEvent:
@@ -1896,4 +1895,140 @@ func (s *accountSession) mutateRoster(fn func(entries map[string]rosterEntry)) m
 	fn(updated)
 	s.roster.Store(&updated)
 	return updated
+}
+
+// approveAndReciprocate answers an inbound subscription request from peer by
+// approving it and, unless we already have their presence, asking for theirs
+// in return.
+//
+// Approving alone only sends <presence type="subscribed">, which grants peer
+// our presence and establishes nothing in the other direction - the result
+// is a lopsided subscription="from" where we never see whether the contact
+// is online. Every mainstream client (Conversations, Dino, Gajim) sends its
+// own <presence type="subscribe"> back at this point, and until this did
+// too, a contact who added us first showed as permanently offline with no
+// way to tell from the UI that anything was missing.
+//
+// Skipped when we already have "to" or "both": the request would be
+// harmless (the server just re-confirms) but it makes peer's client show a
+// pointless approval prompt.
+func (s *accountSession) approveAndReciprocate(ctx context.Context, peer string) {
+	client := s.client.Load()
+	if client == nil {
+		return
+	}
+	if err := client.ApproveSubscription(ctx, peer); err != nil {
+		slog.Warn("approving subscription request", "from", peer, "jid", s.account.JID, "err", err)
+		return
+	}
+
+	subs := derefRoster(s.roster.Load())[peer].Subs
+	if subs == "to" || subs == "both" {
+		slog.Debug("approved subscription request; already subscribed to peer", "from", peer, "jid", s.account.JID, "subs", subs)
+		return
+	}
+	if err := client.ResubscribeContact(ctx, peer); err != nil {
+		slog.Warn("requesting peer's presence after approving their request", "from", peer, "jid", s.account.JID, "err", err)
+		return
+	}
+	slog.Debug("approved subscription request and requested peer's presence in return", "from", peer, "jid", s.account.JID, "subs", subs)
+}
+
+// handleRosterPush applies an RFC 6121 §2.1.6 roster push to the cached
+// roster, local storage and any attached UI.
+//
+// This is the only way a client learns about a roster change it didn't make
+// itself: a contact accepting our subscription request, another of our own
+// clients adding or renaming someone, or our own server auto-creating an
+// item because we just approved an inbound request. Without it the roster
+// is only ever as fresh as the full fetch at connect time, so a contact who
+// appears mid-session isn't in the chat list (their messages arrive and
+// notify, but land in a chat with no row) and a subscription that completes
+// mid-session leaves them looking offline - both until the next reconnect,
+// which is why restarting the daemon "fixed" it.
+func (s *accountSession) handleRosterPush(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.RosterPushEvent) {
+	peer := bareJID(ev.JID)
+	if peer == s.account.JID {
+		return // our own bare JID is not a contact
+	}
+	slog.Debug("roster push received", "jid", s.account.JID, "contact", peer,
+		"subscription", ev.Subscription, "ask", ev.Ask, "removed", ev.Removed)
+
+	if ev.Removed {
+		s.mutateRoster(func(entries map[string]rosterEntry) { delete(entries, peer) })
+		if err := s.db.DeleteRosterByJID(ctx, storage.DeleteRosterByJIDParams{
+			AccountJid: s.account.JID, Jid: peer,
+		}); err != nil {
+			slog.Warn("deleting roster entry after roster push", "contact", peer, "err", err)
+		}
+		broadcast(srv, evChatRemoved, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: peer})
+		return
+	}
+
+	var known bool
+	s.mutateRoster(func(entries map[string]rosterEntry) {
+		e, ok := entries[peer]
+		known = ok
+		e.Name, e.Subs = ev.Name, ev.Subscription
+		entries[peer] = e
+	})
+	if err := s.db.UpsertRoster(ctx, storage.UpsertRosterParams{
+		AccountJid: s.account.JID, Jid: peer, Name: ev.Name, Subs: ev.Subscription,
+	}); err != nil {
+		slog.Warn("persisting roster entry after roster push", "contact", peer, "err", err)
+	}
+
+	// Broadcast even for an already-known contact: ChatAddedMsg is an
+	// upsert, so this is also how a rename made on another client reaches
+	// the chat list.
+	s.broadcastChat(ctx, srv, accountIdx, peer, ev.Name)
+
+	// A contact whose subscription just reached "to"/"both" has presence we
+	// can finally see, but the server only pushes it unprompted at our own
+	// next connect - a probe is what makes them show up online now rather
+	// than after a restart.
+	if !known || ev.Subscription == "to" || ev.Subscription == "both" {
+		if client := s.client.Load(); client != nil {
+			if err := client.ProbePresence(ctx, peer); err != nil {
+				slog.Debug("probing presence after roster push", "contact", peer, "err", err)
+			}
+		}
+	}
+}
+
+// broadcastChat tells attached clients about a chat that exists daemon-side,
+// with whatever history storage holds for it. Safe to call for a chat a
+// client already shows: ui.ChatAddedMsg is an upsert.
+func (s *accountSession) broadcastChat(ctx context.Context, srv *ipc.Server, accountIdx int, peer, name string) {
+	display := name
+	if display == "" {
+		display = peer
+	}
+	mode, err := s.db.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{
+		AccountJid: s.account.JID, RosterJid: peer,
+	})
+	if err != nil {
+		mode = currentDefaultEncryptionMode()
+	}
+	entry := derefRoster(s.roster.Load())[peer]
+	unread, err := s.db.GetChatUnread(ctx, storage.GetChatUnreadParams{
+		AccountJid: s.account.JID, RosterJid: peer,
+	})
+	if err != nil {
+		unread = 0 // no row yet simply means nothing unread
+	}
+	hist, _, _ := loadHistoryWindow(ctx, s, peer, display, nil, historyPageSize)
+	broadcast(srv, evChatAdded, ui.ChatAddedMsg{
+		AccountIdx: accountIdx,
+		Chat: ui.Chat{
+			Name:           display,
+			Address:        peer,
+			EncryptionMode: mode,
+			Presence:       entry.Presence,
+			Resources:      entry.Resources,
+			Unread:         int(unread),
+			Pinned:         pinnedChats.has(s.account.JID, peer),
+		},
+		Messages: hist,
+	})
 }

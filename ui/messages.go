@@ -189,6 +189,35 @@ type ContactRemovedMsg struct {
 	Err        error
 }
 
+// ChatAddedMsg is broadcast by the daemon when a chat comes into existence
+// (or changes its roster nickname) while clients are already attached:
+// someone not in the roster writes to us for the first time, another of our
+// own clients adds a contact, or our server auto-creates a roster item
+// because we approved an inbound subscription request. It is an upsert - a
+// chat already in the list has its Name refreshed rather than being
+// duplicated.
+//
+// Without this, such a chat is only ever discovered by the initial
+// listAccounts snapshot, so it stays invisible until the app is restarted
+// even though the daemon has already stored its messages.
+type ChatAddedMsg struct {
+	AccountIdx int
+	Chat       Chat
+
+	// Messages is the chat's history as the daemon has it, so a chat
+	// created by an incoming message arrives with that message already in
+	// it rather than empty.
+	Messages []Message
+}
+
+// ChatRemovedMsg is broadcast by the daemon when a roster item is deleted
+// somewhere else (another client, or the server) - the counterpart to
+// ChatAddedMsg. Local history is untouched; only the list row goes away.
+type ChatRemovedMsg struct {
+	AccountIdx int
+	Address    string
+}
+
 // ContactResubscribedMsg reports the result of ContactManager.ResubscribeContact.
 type ContactResubscribedMsg struct {
 	AccountIdx int
