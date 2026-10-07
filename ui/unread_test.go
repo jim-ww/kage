@@ -176,6 +176,29 @@ func TestUnreadResetsOnOpenChat(t *testing.T) {
 	}
 }
 
+// TestUnreadResetPersistsWhenAlreadyZeroLocally guards the self-heal: this
+// client showing a chat as read says nothing about the stored count, which
+// another attached TUI (or the daemon, while none was attached) may have
+// written. Skipping the reset left a count nothing could clear, keeping the
+// tray's unread dot lit on a read chat.
+func TestUnreadResetPersistsWhenAlreadyZeroLocally(t *testing.T) {
+	sender := &fakeReadTrackerSender{}
+	m := newTestModelWithSender(sender, nil)
+	chat := Chat{Address: "bob@example.test"} // Unread already 0 here
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	m.currentAccount = 0
+	m.chats.SetItems(m.accounts[0].Chats)
+	m.chats.Select(0)
+	m.selectedView = viewChats
+
+	next, cmd := m.openCurrentChat()
+	m = next.(Model)
+	runCmd(cmd)
+	if sender.resets != 1 {
+		t.Fatalf("ResetChatUnread calls = %d, want 1", sender.resets)
+	}
+}
+
 // TestUnreadCountsHistorySyncBatch guards the MAM catch-up path
 // (HistorySyncedMsg): messages delivered this way while the chat isn't
 // focused count toward unread too (they can be genuinely new messages that

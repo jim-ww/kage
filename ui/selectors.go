@@ -159,6 +159,9 @@ func (m *Model) setChatUnread(accountIdx, chatIdx, count int) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil
 	}
+	if chatIdx < 0 || chatIdx >= len(m.accounts[accountIdx].Chats) {
+		return nil
+	}
 	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
 	if !ok {
 		return nil
@@ -273,6 +276,9 @@ func (m *Model) incrementChatUnread(accountIdx, chatIdx, delta int) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) || delta == 0 {
 		return nil
 	}
+	if chatIdx < 0 || chatIdx >= len(m.accounts[accountIdx].Chats) {
+		return nil
+	}
 	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
 	if !ok {
 		return nil
@@ -292,12 +298,22 @@ func (m *Model) incrementChatUnread(accountIdx, chatIdx, delta int) tea.Cmd {
 
 // resetChatUnread zeroes chatIdx's unread count, in memory and (if wired)
 // persisted, called when the chat becomes the actively-focused one.
+//
+// The persisted reset is sent even when this client already shows the chat
+// as read: the stored count is written by whichever client saw the message
+// (several TUIs can be attached, and the daemon counts for itself while none
+// is — see countUnreadWhileDetached), so a zero here is no evidence that
+// storage agrees. Gating on it left a stored count that nothing could ever
+// clear, keeping the tray's unread dot lit for a chat the user had read.
 func (m *Model) resetChatUnread(accountIdx, chatIdx int) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil
 	}
+	if chatIdx < 0 || chatIdx >= len(m.accounts[accountIdx].Chats) {
+		return nil
+	}
 	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
-	if !ok || chat.Unread == 0 {
+	if !ok {
 		return nil
 	}
 	cmd := m.setChatUnread(accountIdx, chatIdx, 0)
