@@ -1199,6 +1199,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			// Real interop matters more than attachment icons on encrypted
 			// files, so those just render as plain text/links instead - same
 			// as GPG.
+			refreshPeerDevicesIfStale(ctx, s, protocol, to, mgr.SyncDevices)
 			enc, deviceErrs, err := mgr.EncryptMessage(ctx, to, []byte(plaintext))
 			if err != nil {
 				// The manager only auto-fetches a peer's device list when its
@@ -1216,6 +1217,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 				}
 			}
 			slog.Debug("send: omemo encrypt succeeded", "protocol", protocol, "jid", s.account.JID, "to", to, "keys", len(enc.Keys))
+			checkRecipientCoverage(ctx, s, mgr, protocol, to, enc)
 			for _, de := range deviceErrs {
 				// EncryptMessage is best-effort and only returns a non-nil
 				// err when EVERY device failed - a partial failure (some
@@ -1655,4 +1657,108 @@ func (a *adapter) ReopenVideo(accountIdx int) error {
 		return fmt.Errorf("unknown account %d", accountIdx)
 	}
 	return sess.reopenVideo()
+}
+
+// peerDeviceSyncInterval is how long a peer's cached OMEMO device list is
+// trusted before a send re-fetches it. Long enough that a busy conversation
+// doesn't put a PEP IQ in front of every message, short enough that a
+// missed device-list push doesn't go unnoticed for the life of the daemon.
+const peerDeviceSyncInterval = 30 * time.Minute
+
+// refreshPeerDevicesIfStale re-fetches to's OMEMO device list if it hasn't
+// been synced recently.
+//
+// omemo-go only auto-fetches a peer's list when its cache is completely
+// empty, and send only forces a resync after an encrypt fails outright. A
+// cache that is stale but non-empty therefore encrypts happily to the wrong
+// set of devices and reports success - the peer's newest device simply never
+// gets a key and the message never appears there, with nothing in the log
+// beyond a lower-than-expected key count. Device-list PEP pushes normally
+// keep the cache honest, but a push missed while either side was
+// reconnecting is never resent.
+//
+// Best-effort: a failed fetch leaves the cache as it was and lets the send
+// proceed, which is no worse than not having tried.
+// syncDevices is mgr.SyncDevices, taken as a parameter so the throttle can
+// be tested without a live Manager.
+func refreshPeerDevicesIfStale(
+	ctx context.Context, s *accountSession, protocol omemolib.Protocol, to string,
+	syncDevices func(context.Context, string) error,
+) {
+	key := protocol.String() + "\x00" + to
+	s.peerDeviceSyncMu.Lock()
+	last, ok := s.peerDeviceSyncedAt[key]
+	fresh := ok && time.Since(last) < peerDeviceSyncInterval
+	if !fresh {
+		if s.peerDeviceSyncedAt == nil {
+			s.peerDeviceSyncedAt = make(map[string]time.Time)
+		}
+		// Recorded before the fetch, not after: a server that is slow or
+		// refusing shouldn't turn every message into another doomed IQ.
+		s.peerDeviceSyncedAt[key] = time.Now()
+	}
+	s.peerDeviceSyncMu.Unlock()
+	if fresh {
+		return
+	}
+
+	if err := syncDevices(ctx, to); err != nil {
+		slog.Debug("send: refreshing stale peer device list failed", "protocol", protocol, "jid", s.account.JID, "to", to, "err", err)
+		return
+	}
+	slog.Debug("send: refreshed stale peer device list", "protocol", protocol, "jid", s.account.JID, "to", to)
+}
+
+// checkRecipientCoverage logs the two ways an OMEMO encrypt can succeed and
+// still be undeliverable. Neither is recoverable here - both are about the
+// peer's published devices - but both are invisible without this, which is
+// what made them take a packet capture and a peer's logcat to find.
+func checkRecipientCoverage(
+	ctx context.Context, s *accountSession, mgr *omemolib.Manager,
+	protocol omemolib.Protocol, to string, enc *omemolib.EncryptedMessage,
+) {
+	peerDevices, err := mgr.KnownDevices(ctx, to)
+	if err != nil {
+		slog.Debug("send: reading peer device list for coverage check failed", "protocol", protocol, "to", to, "err", err)
+		return
+	}
+
+	keyed := make(map[omemolib.DeviceID]bool, len(enc.Keys))
+	for _, k := range enc.Keys {
+		keyed[k.Device] = true
+	}
+
+	// 1. No key for any device the peer publishes. The stanza goes out, the
+	// server accepts it, and it can only ever reach our own other clients -
+	// the exact shape of "he never got it but it showed up on my phone".
+	covered := 0
+	for _, id := range peerDevices {
+		if keyed[id] {
+			covered++
+		}
+	}
+	if covered == 0 {
+		slog.Warn("send: message carries no key for any of the peer's devices; they will not be able to read it",
+			"protocol", protocol, "jid", s.account.JID, "to", to,
+			"peer_devices", peerDevices, "keyed_devices", len(enc.Keys))
+	}
+
+	// 2. A recipient device ID outside OMEMO's addressable range. Every
+	// libsignal-derived client parses sid/rid as a signed 32-bit int and
+	// drops the WHOLE stanza on overflow, keys for its own devices
+	// included - so one such device in the list makes the message
+	// undeliverable to every Conversations/Dino/Gajim device in the chat,
+	// not just to that one. Nothing can be done from this side; it resolves
+	// when that device's client re-numbers itself (see
+	// rotateOutOfRangeDeviceID).
+	for _, id := range peerDevices {
+		if !id.Valid() {
+			slog.Warn("send: peer publishes an unaddressable omemo device id; libsignal-based clients will drop this message entirely",
+				"protocol", protocol, "jid", s.account.JID, "to", to, "device", id)
+		}
+	}
+	if !enc.Sender.ID.Valid() {
+		slog.Warn("send: our own omemo device id is unaddressable; libsignal-based clients will drop this message entirely",
+			"protocol", protocol, "jid", s.account.JID, "device", enc.Sender.ID)
+	}
 }

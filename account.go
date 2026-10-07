@@ -63,6 +63,14 @@ type accountSession struct {
 	omemoReady     chan struct{}
 	omemoReadyOnce sync.Once
 
+	// peerDeviceSyncedAt records, per protocol+peer, when that peer's OMEMO
+	// device list was last re-fetched on a send, so a busy conversation
+	// doesn't put a PEP IQ in front of every message. In memory only:
+	// losing it on restart just means one extra fetch per peer, and
+	// connectAccountLive resyncs the whole roster anyway.
+	peerDeviceSyncedAt map[string]time.Time
+	peerDeviceSyncMu   sync.Mutex
+
 	// localKey is the AES-256 key message bodies are sealed under at rest
 	// (crypto/localstore), derived once in main from the local storage
 	// password and shared by every account.
