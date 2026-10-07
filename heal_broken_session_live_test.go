@@ -57,12 +57,12 @@ func TestHealBrokenSessionResyncsStaleDeviceCache(t *testing.T) {
 	}
 	aliceSess.client.Store(aliceClient)
 	setupOmemo(ctx, aliceSess)
-	if aliceSess.omemoMgrV1 == nil {
+	if aliceSess.omemoV1() == nil {
 		t.Fatal("setupOmemo(alice): omemoMgrV1 is nil")
 	}
 
 	bob := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	bobDevice := bob.omemoMgrV1.LocalDevice()
+	bobDevice := bob.omemoV1().LocalDevice()
 
 	// Seed a stale, non-empty cache for bob that's missing his real device.
 	store := kageomemo.NewStore(aliceDB, "alice@localhost", omemolib.ProtocolV1)
@@ -70,7 +70,7 @@ func TestHealBrokenSessionResyncsStaleDeviceCache(t *testing.T) {
 		t.Fatalf("seeding stale device cache: %v", err)
 	}
 
-	healBrokenSession(ctx, aliceSess, aliceSess.omemoMgrV1, bobDevice, "bob@localhost")
+	healBrokenSession(ctx, aliceSess, aliceSess.omemoV1(), omemolib.ProtocolV1, bobDevice, "bob@localhost")
 
 	devices, err := store.Devices(ctx, "bob@localhost")
 	if err != nil {

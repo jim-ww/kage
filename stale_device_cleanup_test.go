@@ -27,12 +27,12 @@ func TestStaleDeviceDroppedAfterRemovalFromPeerDeviceList(t *testing.T) {
 
 	alice := newOmemoTestSession(ctx, t, "alice@localhost", "alicepw", tlsConfig)
 	bobGen1 := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	oldDevice := bobGen1.omemoMgrV1.LocalDevice()
+	oldDevice := bobGen1.omemoV1().LocalDevice()
 
-	if err := alice.omemoMgrV1.SyncDevices(ctx, "bob@localhost"); err != nil {
+	if err := alice.omemoV1().SyncDevices(ctx, "bob@localhost"); err != nil {
 		t.Fatalf("alice initial SyncDevices(bob): %v", err)
 	}
-	msg1, _, err := alice.omemoMgrV1.EncryptMessage(ctx, "bob@localhost", []byte("before removal"))
+	msg1, _, err := alice.omemoV1().EncryptMessage(ctx, "bob@localhost", []byte("before removal"))
 	if err != nil {
 		t.Fatalf("alice encrypt (before removal): %v", err)
 	}
@@ -49,7 +49,7 @@ func TestStaleDeviceDroppedAfterRemovalFromPeerDeviceList(t *testing.T) {
 	// plain rotation, this simulates the old ID actually disappearing from
 	// the published list entirely, not just a second one being added.
 	bobGen2 := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	newDevice := bobGen2.omemoMgrV1.LocalDevice()
+	newDevice := bobGen2.omemoV1().LocalDevice()
 	client := bobGen2.client.Load()
 	if err := client.PublishOmemoDeviceListV1(ctx, omemolib.DeviceList{
 		JID:     "bob@localhost",
@@ -58,11 +58,11 @@ func TestStaleDeviceDroppedAfterRemovalFromPeerDeviceList(t *testing.T) {
 		t.Fatalf("publishing bob's replacement device list: %v", err)
 	}
 
-	if err := alice.omemoMgrV1.SyncDevices(ctx, "bob@localhost"); err != nil {
+	if err := alice.omemoV1().SyncDevices(ctx, "bob@localhost"); err != nil {
 		t.Fatalf("alice post-removal SyncDevices(bob): %v", err)
 	}
 
-	msg2, _, err := alice.omemoMgrV1.EncryptMessage(ctx, "bob@localhost", []byte("after removal"))
+	msg2, _, err := alice.omemoV1().EncryptMessage(ctx, "bob@localhost", []byte("after removal"))
 	if err != nil {
 		t.Fatalf("alice encrypt (after removal): %v", err)
 	}

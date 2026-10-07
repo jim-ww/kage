@@ -480,7 +480,7 @@ func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 	if !ok {
 		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("account is still connecting")}
 	}
-	if s.omemoMgrV2 == nil && s.omemoMgrV1 == nil {
+	if s.omemoV2() == nil && s.omemoV1() == nil {
 		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
 	}
 
@@ -488,8 +488,8 @@ func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 	client := s.client.Load()
 	var local, devices []ui.OmemoDevice
 
-	if s.omemoMgrV2 != nil {
-		local = append(local, ui.OmemoDevice{Protocol: "v2", ID: uint32(s.omemoMgrV2.LocalDevice().ID)})
+	if v2 := s.omemoV2(); v2 != nil {
+		local = append(local, ui.OmemoDevice{Protocol: "v2", ID: uint32(v2.LocalDevice().ID)})
 		list, err := client.FetchOmemoDeviceList(ctx, s.account.JID)
 		if err != nil {
 			return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("fetching omemo-v2 device list: %w", err)}
@@ -498,8 +498,8 @@ func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 			devices = append(devices, ui.OmemoDevice{Protocol: "v2", ID: uint32(d)})
 		}
 	}
-	if s.omemoMgrV1 != nil {
-		local = append(local, ui.OmemoDevice{Protocol: "v1", ID: uint32(s.omemoMgrV1.LocalDevice().ID)})
+	if v1 := s.omemoV1(); v1 != nil {
+		local = append(local, ui.OmemoDevice{Protocol: "v1", ID: uint32(v1.LocalDevice().ID)})
 		list, err := client.FetchOmemoDeviceListV1(ctx, s.account.JID)
 		if err != nil {
 			return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("fetching omemo-v1 device list: %w", err)}
@@ -523,7 +523,7 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.
 	if !ok {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("account is still connecting")}
 	}
-	if s.omemoMgrV2 == nil && s.omemoMgrV1 == nil {
+	if s.omemoV2() == nil && s.omemoV1() == nil {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
 	}
 
@@ -563,10 +563,10 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.
 		return nil
 	}
 
-	if err := purge(omemolib.ProtocolV2, s.omemoMgrV2, client.PublishOmemoDeviceList); err != nil {
+	if err := purge(omemolib.ProtocolV2, s.omemoV2(), client.PublishOmemoDeviceList); err != nil {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: err}
 	}
-	if err := purge(omemolib.ProtocolV1, s.omemoMgrV1, client.PublishOmemoDeviceListV1); err != nil {
+	if err := purge(omemolib.ProtocolV1, s.omemoV1(), client.PublishOmemoDeviceListV1); err != nil {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: err}
 	}
 
@@ -610,10 +610,10 @@ func (a *adapter) RemoveAccount(accountIdx int) tea.Msg {
 		}
 		return publish(ctx, omemolib.DeviceList{JID: s.account.JID, Devices: ids})
 	}
-	if err := purgeSelf(s.omemoMgrV2, client.FetchOmemoDeviceList, client.PublishOmemoDeviceList); err != nil {
+	if err := purgeSelf(s.omemoV2(), client.FetchOmemoDeviceList, client.PublishOmemoDeviceList); err != nil {
 		slog.Warn("purging own device from omemo-v2 device list before removal", "jid", s.account.JID, "err", err)
 	}
-	if err := purgeSelf(s.omemoMgrV1, client.FetchOmemoDeviceListV1, client.PublishOmemoDeviceListV1); err != nil {
+	if err := purgeSelf(s.omemoV1(), client.FetchOmemoDeviceListV1, client.PublishOmemoDeviceListV1); err != nil {
 		slog.Warn("purging own device from omemo-v1 device list before removal", "jid", s.account.JID, "err", err)
 	}
 

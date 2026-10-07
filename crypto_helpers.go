@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jim-ww/kage/crypto/localstore"
@@ -160,16 +161,52 @@ func setupOmemo(ctx context.Context, s *accountSession) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		s.omemoMgrV2 = setupOmemoProtocol(ctx, s, client, omemolib.ProtocolV2, client.OmemoTransport(),
-			client.FetchOmemoDeviceList, client.PublishOmemoDeviceList)
+		storeOmemoManager(s, &s.omemoMgrV2, omemolib.ProtocolV2, setupOmemoProtocol(
+			ctx, s, client, omemolib.ProtocolV2, client.OmemoTransport(),
+			client.FetchOmemoDeviceList, client.PublishOmemoDeviceList))
 	}()
 	go func() {
 		defer wg.Done()
-		s.omemoMgrV1 = setupOmemoProtocol(ctx, s, client, omemolib.ProtocolV1, client.OmemoTransportV1(),
-			client.FetchOmemoDeviceListV1, client.PublishOmemoDeviceListV1)
+		storeOmemoManager(s, &s.omemoMgrV1, omemolib.ProtocolV1, setupOmemoProtocol(
+			ctx, s, client, omemolib.ProtocolV1, client.OmemoTransportV1(),
+			client.FetchOmemoDeviceListV1, client.PublishOmemoDeviceListV1))
 	}()
 	wg.Wait()
 }
+
+// storeOmemoManager publishes a freshly built Manager, keeping the previous
+// one when setup failed.
+//
+// setupOmemo runs on every reconnect, and setupOmemoProtocol returns nil
+// when it couldn't build a Manager (a transient PEP/network failure during
+// reconnect is enough). Assigning that nil destroyed a working manager, and
+// nothing rebuilds it until the next reconnect - so until then every
+// incoming OMEMO message is dropped as "omemo isn't ready", every MAM item
+// is stored as a permanent "[could not be decrypted]" row, and every send
+// to an omemo chat is refused outright. A stale Manager still bound to the
+// dead client is strictly better: its own operations fail individually and
+// recover on the next successful setup.
+func storeOmemoManager(
+	s *accountSession, slot *atomic.Pointer[omemolib.Manager],
+	protocol omemolib.Protocol, mgr *omemolib.Manager,
+) {
+	if mgr != nil {
+		slot.Store(mgr)
+		return
+	}
+	if slot.Load() != nil {
+		slog.Warn("omemo setup failed; keeping the previously working manager",
+			"protocol", protocol, "jid", s.account.JID)
+	}
+}
+
+// omemoV1 returns this account's legacy-protocol OMEMO Manager, or nil if
+// setup hasn't completed (or has never succeeded) for it.
+func (s *accountSession) omemoV1() *omemolib.Manager { return s.omemoMgrV1.Load() }
+
+// omemoV2 returns this account's XEP-0384 OMEMO Manager, or nil if setup
+// hasn't completed (or has never succeeded) for it.
+func (s *accountSession) omemoV2() *omemolib.Manager { return s.omemoMgrV2.Load() }
 
 // setupOmemoProtocol is setupOmemo's per-protocol worker, shared by
 // ProtocolV2 (XEP-0384) and ProtocolV1 (legacy) since the setup steps are
@@ -297,9 +334,9 @@ func setupOmemoProtocol(
 // protocol's setup hasn't completed (or failed) for this account.
 func (s *accountSession) omemoManagerFor(protocol omemolib.Protocol) *omemolib.Manager {
 	if protocol == omemolib.ProtocolV1 {
-		return s.omemoMgrV1
+		return s.omemoV1()
 	}
-	return s.omemoMgrV2
+	return s.omemoV2()
 }
 
 // resolveEncryptionMode returns the outgoing message encryption mode for

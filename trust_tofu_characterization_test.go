@@ -36,16 +36,16 @@ func TestTrustIsSilentlyAcceptedOnIdentityKeyChange(t *testing.T) {
 
 	alice := newOmemoTestSession(ctx, t, "alice@localhost", "alicepw", tlsConfig)
 	bobReal := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	bobDevice := bobReal.omemoMgrV1.LocalDevice()
+	bobDevice := bobReal.omemoV1().LocalDevice()
 
-	if err := alice.omemoMgrV1.SyncDevices(ctx, "bob@localhost"); err != nil {
+	if err := alice.omemoV1().SyncDevices(ctx, "bob@localhost"); err != nil {
 		t.Fatalf("alice initial SyncDevices(bob): %v", err)
 	}
-	msg1, _, err := alice.omemoMgrV1.EncryptMessage(ctx, "bob@localhost", []byte("before key swap"))
+	msg1, _, err := alice.omemoV1().EncryptMessage(ctx, "bob@localhost", []byte("before key swap"))
 	if err != nil {
 		t.Fatalf("alice encrypt (before key swap): %v", err)
 	}
-	if _, err := bobReal.omemoMgrV1.DecryptMessage(ctx, msg1); err != nil {
+	if _, err := bobReal.omemoV1().DecryptMessage(ctx, msg1); err != nil {
 		t.Fatalf("bob (real key) decrypt (before key swap): %v", err)
 	}
 
@@ -80,11 +80,11 @@ func TestTrustIsSilentlyAcceptedOnIdentityKeyChange(t *testing.T) {
 	// same as any legitimate session-repair path (healBrokenSession) would -
 	// this is what makes her fetch the (now forged) bundle again instead of
 	// reusing the still-valid old session.
-	if err := alice.omemoMgrV1.ResetSession(ctx, bobDevice); err != nil {
+	if err := alice.omemoV1().ResetSession(ctx, bobDevice); err != nil {
 		t.Fatalf("alice ResetSession(bob): %v", err)
 	}
 
-	msg2, _, err := alice.omemoMgrV1.EncryptMessage(ctx, "bob@localhost", []byte("after key swap"))
+	msg2, _, err := alice.omemoV1().EncryptMessage(ctx, "bob@localhost", []byte("after key swap"))
 	if err != nil {
 		// This is the behavior actually under test: today, this must NOT
 		// error - there is no trust check capable of rejecting an unknown
@@ -95,7 +95,7 @@ func TestTrustIsSilentlyAcceptedOnIdentityKeyChange(t *testing.T) {
 	if _, err := attackerMgr.DecryptMessage(ctx, msg2); err != nil {
 		t.Fatalf("attacker (forged key) failed to decrypt alice's message - expected the swap to have succeeded: %v", err)
 	}
-	if _, err := bobReal.omemoMgrV1.DecryptMessage(ctx, msg2); err == nil {
+	if _, err := bobReal.omemoV1().DecryptMessage(ctx, msg2); err == nil {
 		t.Fatal("bob (real, original key) unexpectedly decrypted alice's post-swap message - it should now be going to the attacker's key instead")
 	}
 }

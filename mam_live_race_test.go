@@ -59,7 +59,7 @@ func TestMAMBackfillVsLiveMessageRaceDoesNotCorruptDecrypt(t *testing.T) {
 	}
 	bobSess.client.Store(bobClient1)
 	setupOmemo(ctx, bobSess)
-	if bobSess.omemoMgrV1 == nil {
+	if bobSess.omemoV1() == nil {
 		t.Fatal("setupOmemo(bob): omemoMgrV1 is nil")
 	}
 	bobClient1.Close()

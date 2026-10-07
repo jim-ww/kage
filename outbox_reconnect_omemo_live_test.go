@@ -48,13 +48,13 @@ func TestOutboxFlushAfterReconnectEncryptsForDeviceAddedDuringOutage(t *testing.
 	aliceSess.client.Store(aliceClient)
 	aliceSess.roster.Store(&map[string]rosterEntry{"bob@localhost": {Subs: "both"}})
 	setupOmemo(ctx, aliceSess)
-	if aliceSess.omemoMgrV1 == nil {
+	if aliceSess.omemoV1() == nil {
 		t.Fatal("setupOmemo(alice): omemoMgrV1 is nil")
 	}
 	a := &adapter{sessions: []*accountSession{aliceSess}}
 
 	newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	if err := aliceSess.omemoMgrV1.SyncDevices(ctx, "bob@localhost"); err != nil {
+	if err := aliceSess.omemoV1().SyncDevices(ctx, "bob@localhost"); err != nil {
 		t.Fatalf("alice initial SyncDevices(bob): %v", err)
 	}
 

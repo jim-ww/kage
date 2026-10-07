@@ -251,7 +251,7 @@ func TestPendingOutboxMessagesByPeer(t *testing.T) {
 
 // TestRealSendFailureSurvivesTUIRestart reproduces the reported bug: a send
 // that fails for a real (non-offline) reason - here, "omemo not ready"
-// because s.omemoMgrV1 was never set up, the same failure mode a live
+// because s.omemoV1() was never set up, the same failure mode a live
 // account whose OMEMO setup hasn't finished yet would hit - used to only
 // ever be reflected in whichever TUI process's in-memory Model rendered the
 // ✗ marker. Restarting just that process (not the daemon) rebuilds its view
@@ -270,7 +270,7 @@ func TestRealSendFailureSurvivesTUIRestart(t *testing.T) {
 	sess := &accountSession{account: acct, db: queries}
 	// A live (Closed() == false), zero-value client is enough to get past
 	// adapter.send's liveClient() check into the OMEMO branch below without
-	// any real network I/O - s.omemoMgrV1/V2 are deliberately left nil, the
+	// any real network I/O - s.omemoV1()/V2 are deliberately left nil, the
 	// same as a real account whose setupOmemo hasn't completed yet.
 	sess.client.Store(&xmpp.Client{})
 	a := &adapter{sessions: []*accountSession{sess}}

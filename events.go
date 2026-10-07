@@ -120,13 +120,14 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		slog.Debug("received omemo message", "from", msgEv.From, "jid", s.account.JID)
 
 		var mgr *omemolib.Manager
+		var protocol omemolib.Protocol
 		var enc *omemolib.EncryptedMessage
 		var err error
 		if msgEv.Encrypted != nil {
-			mgr = s.omemoMgrV2
+			mgr, protocol = s.omemoV2(), omemolib.ProtocolV2
 			enc, err = xmpp.DecodeOmemoMessage(msgEv.Encrypted, bareJID(msgEv.From))
 		} else {
-			mgr = s.omemoMgrV1
+			mgr, protocol = s.omemoV1(), omemolib.ProtocolV1
 			enc, err = xmpp.DecodeOmemoMessageV1(msgEv.EncryptedV1, bareJID(msgEv.From))
 		}
 		if err != nil {
@@ -164,7 +165,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 				// AxolotlService "healing" (buildSessionFromPEP + a
 				// key-transport reply) - so this is the last message lost to
 				// it, not every one from here on.
-				healBrokenSession(ctx, s, mgr, enc.Sender, bareJID(msgEv.From))
+				healBrokenSession(ctx, s, mgr, protocol, enc.Sender, bareJID(msgEv.From))
 			}
 		} else if pt == nil {
 			slog.Debug("omemo message was key-transport only (no content)", "from", msgEv.From)
@@ -324,7 +325,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 // rebuild ourselves and telling them about it. Best-effort: a failure here
 // just means the peer stays broken until something else notices (a restart,
 // a device-list push) — no worse than before this existed.
-func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Manager, sender omemolib.Device, peerBareJID string) {
+func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Manager, protocol omemolib.Protocol, sender omemolib.Device, peerBareJID string) {
 	if err := mgr.ResetSession(ctx, sender); err != nil {
 		slog.Warn("healing broken omemo session: clearing stale session", "peer", peerBareJID, "device", sender.ID, "err", err)
 		return
@@ -368,7 +369,11 @@ func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Man
 
 	client := s.client.Load()
 	var sendErr error
-	if mgr == s.omemoMgrV1 {
+	// Keyed off the protocol the caller decrypted with, not off comparing
+	// mgr against the live manager: a reconnect can swap that pointer
+	// mid-heal, and the comparison would then silently pick the other
+	// protocol's wire format.
+	if protocol == omemolib.ProtocolV1 {
 		_, sendErr = client.Send(ctx, peerBareJID, "", xmpp.SendOptions{EncryptedV1: xmpp.EncodeOmemoMessageV1(enc)})
 	} else {
 		_, sendErr = client.Send(ctx, peerBareJID, "", xmpp.SendOptions{Encrypted: xmpp.EncodeOmemoMessage(enc)})

@@ -38,13 +38,21 @@ type accountSession struct {
 	gpg        gpg.Encrypter
 	useGPG     bool // mirrors config.UseGPG; gates gpg encrypt/decrypt on incoming/outgoing messages
 	useKeyring bool // mirrors config.UseKeyring; gates whether ResolvePassword tries the OS keyring
-	// omemoMgrV2/omemoMgrV1 are nil until connectAccountLive sets them up
+	// omemoMgrV2/omemoMgrV1 hold nil until connectAccountLive sets them up
 	// (needs a dialed client for its Transport). Both run concurrently: this
 	// account maintains a separate identity/device pool per OMEMO protocol
 	// version, since a chat can be pinned to either "omemo-v1" (the default,
 	// ui.encryptionModes) or "omemo-v2".
-	omemoMgrV2 *omemolib.Manager
-	omemoMgrV1 *omemolib.Manager
+	//
+	// Atomic for the same reason client is: reconnectWithBackoff rebuilds
+	// both from its own goroutine (their Transport is bound to the client
+	// that just died) while the account's event loop, the MAM backfill
+	// goroutines and every Send RPC read them. Always read through
+	// omemoV1/omemoV2, and read once per operation - a manager that was
+	// non-nil when checked and got swapped a moment later is fine, one
+	// re-read halfway through an encrypt is not.
+	omemoMgrV2 atomic.Pointer[omemolib.Manager]
+	omemoMgrV1 atomic.Pointer[omemolib.Manager]
 
 	// localKey is the AES-256 key message bodies are sealed under at rest
 	// (crypto/localstore), derived once in main from the local storage
@@ -972,14 +980,18 @@ func probeRosterPresence(ctx context.Context, client *xmpp.Client, roster map[st
 // Best-effort and run once per connect, same cost class as setupOmemo's own
 // startup fetch; failures are logged, not fatal.
 func resyncPeerDeviceLists(ctx context.Context, s *accountSession, roster map[string]rosterEntry) {
+	// Read once, outside the loop: both are atomics a concurrent reconnect
+	// can swap, and resyncing half the roster against one manager and half
+	// against another would leave an arbitrary subset unsynced.
+	v2, v1 := s.omemoV2(), s.omemoV1()
 	for peerJID := range roster {
-		if s.omemoMgrV2 != nil {
-			if err := s.omemoMgrV2.SyncDevices(ctx, peerJID); err != nil {
+		if v2 != nil {
+			if err := v2.SyncDevices(ctx, peerJID); err != nil {
 				slog.Debug("resyncing omemo-v2 device list on connect", "peer", peerJID, "jid", s.account.JID, "err", err)
 			}
 		}
-		if s.omemoMgrV1 != nil {
-			if err := s.omemoMgrV1.SyncDevices(ctx, peerJID); err != nil {
+		if v1 != nil {
+			if err := v1.SyncDevices(ctx, peerJID); err != nil {
 				slog.Debug("resyncing omemo-v1 device list on connect failed", "peer", peerJID, "jid", s.account.JID, "err", err)
 			} else {
 				slog.Debug("resynced omemo-v1 device list on connect", "peer", peerJID, "jid", s.account.JID)
@@ -1162,7 +1174,7 @@ func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 					}
 				}
 				s.client.Store(client)
-				// setupOmemo builds s.omemoMgrV1/V2 with a Transport closure bound
+				// setupOmemo builds s.omemoV1()/V2 with a Transport closure bound
 				// to whatever *xmpp.Client was live at the time - and that client
 				// is now dead (this is a reconnect after the previous one broke).
 				// Without rebuilding them here, every OMEMO device-list/bundle
@@ -1291,9 +1303,9 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		if from == "" {
 			return
 		}
-		mgr := s.omemoMgrV2
+		mgr := s.omemoV2()
 		if ev.Protocol == omemolib.ProtocolV1 {
-			mgr = s.omemoMgrV1
+			mgr = s.omemoV1()
 		}
 		if mgr == nil {
 			return
@@ -1703,13 +1715,14 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 	decryptFailed := false
 	if am.Encrypted != nil || am.EncryptedV1 != nil {
 		var mgr *omemolib.Manager
+		var protocol omemolib.Protocol
 		var enc *omemolib.EncryptedMessage
 		var decodeErr error
 		if am.Encrypted != nil {
-			mgr = s.omemoMgrV2
+			mgr, protocol = s.omemoV2(), omemolib.ProtocolV2
 			enc, decodeErr = xmpp.DecodeOmemoMessage(am.Encrypted, bareJID(am.From))
 		} else {
-			mgr = s.omemoMgrV1
+			mgr, protocol = s.omemoV1(), omemolib.ProtocolV1
 			enc, decodeErr = xmpp.DecodeOmemoMessageV1(am.EncryptedV1, bareJID(am.From))
 		}
 		if mgr == nil {
@@ -1749,7 +1762,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 				// caps it at one reset+key-transport round trip per device
 				// per sync instead of one per failed message.
 				healed[enc.Sender] = true
-				healBrokenSession(ctx, s, mgr, enc.Sender, bareJID(am.From))
+				healBrokenSession(ctx, s, mgr, protocol, enc.Sender, bareJID(am.From))
 			}
 		} else if pt == nil {
 			return mamItemOutcome{} // key-transport only: session established/refreshed, no content to show

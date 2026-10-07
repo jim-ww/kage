@@ -36,7 +36,7 @@ func newOmemoTestSession(ctx context.Context, t *testing.T, jid, pass string, tl
 	sess := &accountSession{account: config.Account{JID: jid}, db: q}
 	sess.client.Store(client)
 	setupOmemo(ctx, sess)
-	if sess.omemoMgrV1 == nil {
+	if sess.omemoV1() == nil {
 		t.Fatalf("setupOmemo(%s): omemoMgrV1 is nil", jid)
 	}
 	return sess
@@ -64,17 +64,17 @@ func TestOmemoV1DeviceRotationWhilePeerOffline(t *testing.T) {
 	alice := newOmemoTestSession(ctx, t, "alice@localhost", "alicepw", tlsConfig)
 
 	bobGen1 := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	origBobDevice := bobGen1.omemoMgrV1.LocalDevice()
+	origBobDevice := bobGen1.omemoV1().LocalDevice()
 
-	if err := alice.omemoMgrV1.SyncDevices(ctx, "bob@localhost"); err != nil {
+	if err := alice.omemoV1().SyncDevices(ctx, "bob@localhost"); err != nil {
 		t.Fatalf("alice initial SyncDevices(bob): %v", err)
 	}
 
-	msg1, _, err := alice.omemoMgrV1.EncryptMessage(ctx, "bob@localhost", []byte("hello before rotation"))
+	msg1, _, err := alice.omemoV1().EncryptMessage(ctx, "bob@localhost", []byte("hello before rotation"))
 	if err != nil {
 		t.Fatalf("alice encrypt (pre-rotation): %v", err)
 	}
-	pt1, err := bobGen1.omemoMgrV1.DecryptMessage(ctx, msg1)
+	pt1, err := bobGen1.omemoV1().DecryptMessage(ctx, msg1)
 	if err != nil {
 		t.Fatalf("bob (gen1) decrypt (pre-rotation): %v", err)
 	}
@@ -87,7 +87,7 @@ func TestOmemoV1DeviceRotationWhilePeerOffline(t *testing.T) {
 	// NOT reconnect or receive any live push here - this is the "changed
 	// while we were offline" scenario.
 	bobGen2 := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	newBobDevice := bobGen2.omemoMgrV1.LocalDevice()
+	newBobDevice := bobGen2.omemoV1().LocalDevice()
 
 	if newBobDevice.ID == origBobDevice.ID {
 		t.Fatalf("expected bob's regenerated device ID to differ from %d, got the same", origBobDevice.ID)
@@ -96,11 +96,11 @@ func TestOmemoV1DeviceRotationWhilePeerOffline(t *testing.T) {
 	// This is the exact call resyncPeerDeviceLists makes for every roster
 	// contact on every connect - the only mechanism that can recover from a
 	// rotation that happened while we were offline.
-	if err := alice.omemoMgrV1.SyncDevices(ctx, "bob@localhost"); err != nil {
+	if err := alice.omemoV1().SyncDevices(ctx, "bob@localhost"); err != nil {
 		t.Fatalf("alice post-rotation SyncDevices(bob): %v", err)
 	}
 
-	msg2, _, err := alice.omemoMgrV1.EncryptMessage(ctx, "bob@localhost", []byte("hello after rotation"))
+	msg2, _, err := alice.omemoV1().EncryptMessage(ctx, "bob@localhost", []byte("hello after rotation"))
 	if err != nil {
 		t.Fatalf("alice encrypt (post-rotation): %v", err)
 	}
@@ -116,7 +116,7 @@ func TestOmemoV1DeviceRotationWhilePeerOffline(t *testing.T) {
 			newBobDevice.ID, keyDeviceIDs(msg2.Keys))
 	}
 
-	pt2, err := bobGen2.omemoMgrV1.DecryptMessage(ctx, msg2)
+	pt2, err := bobGen2.omemoV1().DecryptMessage(ctx, msg2)
 	if err != nil {
 		t.Fatalf("bob (gen2, the new device) failed to decrypt alice's post-resync message: %v", err)
 	}

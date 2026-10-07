@@ -16,7 +16,7 @@ import (
 
 // TestReconnectResyncsOmemoDeviceListsForNewPeerDevice is a full end-to-end
 // regression test, against a real Prosody instance, for the bug fixed in
-// reconnectWithBackoff (account.go): s.omemoMgrV1/V2 kept a Transport bound
+// reconnectWithBackoff (account.go): s.omemoV1()/V2 kept a Transport bound
 // to whatever *xmpp.Client was live at setupOmemo time, and reconnectWithBackoff
 // swapped in a brand-new *xmpp.Client on every reconnect without ever
 // rebuilding them - so any OMEMO device-list resync after a reconnect
@@ -64,14 +64,14 @@ func TestReconnectResyncsOmemoDeviceListsForNewPeerDevice(t *testing.T) {
 	aliceSess.client.Store(aliceClient)
 	aliceSess.roster.Store(&map[string]rosterEntry{"bob@localhost": {Subs: "both"}})
 	setupOmemo(ctx, aliceSess)
-	if aliceSess.omemoMgrV1 == nil {
+	if aliceSess.omemoV1() == nil {
 		t.Fatal("setupOmemo(alice): omemoMgrV1 is nil")
 	}
 	a := &adapter{sessions: []*accountSession{aliceSess}}
 
 	// --- bob, gen1: a normal live client/session, same as any real contact.
 	bobGen1 := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	bobGen1Device := bobGen1.omemoMgrV1.LocalDevice()
+	bobGen1Device := bobGen1.omemoV1().LocalDevice()
 
 	// 1. alice -> bob, pre-reconnect: cache is empty, so EncryptMessage's own
 	// devicesFor auto-sync picks up bob's gen1 device with no help needed.
@@ -90,7 +90,7 @@ func TestReconnectResyncsOmemoDeviceListsForNewPeerDevice(t *testing.T) {
 	// device ID - alice never disconnects or gets a chance to react to any
 	// live push about it before her own reconnect below.
 	bobGen2 := newOmemoTestSession(ctx, t, "bob@localhost", "bobpw", tlsConfig)
-	bobGen2Device := bobGen2.omemoMgrV1.LocalDevice()
+	bobGen2Device := bobGen2.omemoV1().LocalDevice()
 	if bobGen2Device.ID == bobGen1Device.ID {
 		t.Fatalf("expected bob's regenerated device ID to differ from %d, got the same", bobGen1Device.ID)
 	}
