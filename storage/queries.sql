@@ -761,6 +761,10 @@ SET data = excluded.data;
 DELETE FROM omemoSession
 WHERE accountJID = sqlc.arg(account_jid) AND protocol = sqlc.arg(protocol) AND peerJID = sqlc.arg(peer_jid) AND deviceID = sqlc.arg(device_id);
 
+-- name: DeleteAllOmemoSessions :exec
+DELETE FROM omemoSession
+WHERE accountJID = sqlc.arg(account_jid) AND protocol = sqlc.arg(protocol);
+
 
 -- name: GetOmemoTrust :one
 SELECT state

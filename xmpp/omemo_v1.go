@@ -393,3 +393,9 @@ func (t omemoTransportV1) FetchBundle(ctx context.Context, dev omemolib.Device) 
 func (t omemoTransportV1) PublishBundle(ctx context.Context, bundle omemolib.Bundle) error {
 	return t.c.PublishOmemoBundleV1(ctx, bundle)
 }
+
+// DeleteOmemoBundleV1 is DeleteOmemoBundle for the legacy protocol's bundle
+// node layout.
+func (c *Client) DeleteOmemoBundleV1(ctx context.Context, deviceID omemolib.DeviceID) error {
+	return c.deleteNode(ctx, omemoV1BundleNodePrefix+strconv.FormatUint(uint64(deviceID), 10))
+}

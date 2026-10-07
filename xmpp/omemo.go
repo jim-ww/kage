@@ -338,3 +338,10 @@ func (t omemoTransport) PublishBundle(ctx context.Context, bundle omemolib.Bundl
 }
 
 var _ = xmpp.Session{} // keep mellium.im/xmpp import used if the above ever trims down
+
+// DeleteOmemoBundle deletes our own bundle node for deviceID — used when
+// an OMEMO device ID is rotated away from, so the abandoned ID stops
+// advertising a bundle peers could still build a session against.
+func (c *Client) DeleteOmemoBundle(ctx context.Context, deviceID omemolib.DeviceID) error {
+	return c.deleteNode(ctx, omemoBundleNodePrefix+strconv.FormatUint(uint64(deviceID), 10))
+}

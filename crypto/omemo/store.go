@@ -257,6 +257,16 @@ func (s *Store) DeleteSession(ctx context.Context, dev omemolib.Device) error {
 	})
 }
 
+// DeleteAllSessions removes every session this account holds for this
+// protocol. Only Manager.RotateDeviceID uses it - see omemo-go's
+// SessionStore for why re-numbering our own device invalidates all of them.
+func (s *Store) DeleteAllSessions(ctx context.Context) error {
+	return s.db.DeleteAllOmemoSessions(ctx, storage.DeleteAllOmemoSessionsParams{
+		AccountJid: s.accountJID,
+		Protocol:   s.protocol,
+	})
+}
+
 // Trust returns the trust state for identityKey.
 func (s *Store) Trust(ctx context.Context, identityKey []byte) (omemolib.TrustState, error) {
 	state, err := s.db.GetOmemoTrust(ctx, storage.GetOmemoTrustParams{

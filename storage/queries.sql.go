@@ -119,6 +119,21 @@ func (q *Queries) CountOmemoPreKeys(ctx context.Context, arg CountOmemoPreKeysPa
 	return count, err
 }
 
+const deleteAllOmemoSessions = `-- name: DeleteAllOmemoSessions :exec
+DELETE FROM omemoSession
+WHERE accountJID = ?1 AND protocol = ?2
+`
+
+type DeleteAllOmemoSessionsParams struct {
+	AccountJid string `db:"account_jid"`
+	Protocol   string `db:"protocol"`
+}
+
+func (q *Queries) DeleteAllOmemoSessions(ctx context.Context, arg DeleteAllOmemoSessionsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAllOmemoSessions, arg.AccountJid, arg.Protocol)
+	return err
+}
+
 const deleteChatDraft = `-- name: DeleteChatDraft :exec
 DELETE FROM chatDraft
 WHERE accountJID = ?1 AND rosterJID = ?2

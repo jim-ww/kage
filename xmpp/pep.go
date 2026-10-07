@@ -150,3 +150,27 @@ func (c *Client) FetchOpenPGPKey(ctx context.Context, peerJID, fingerprint strin
 	}
 	return data, nil
 }
+
+// pubsubOwnerNS is the XEP-0060 owner-use-case namespace, which mellium's
+// pubsub package doesn't cover (it exposes item retract, not node delete).
+const pubsubOwnerNS = "http://jabber.org/protocol/pubsub#owner"
+
+// deleteNode deletes one of our own PEP nodes outright (XEP-0060 §8.4),
+// rather than just retracting its current item: a node left behind empty
+// still answers disco and still shows up as a published-but-contentless
+// bundle to peers that enumerate it. Best-effort, like makeNodeOpen - the
+// only caller is OMEMO device-ID rotation cleaning up the bundle node of
+// the ID it just stopped using, and a leftover node there is untidy rather
+// than harmful.
+func (c *Client) deleteNode(ctx context.Context, node string) error {
+	return c.session.UnmarshalIQElement(ctx, xmlstream.Wrap(
+		xmlstream.Wrap(
+			nil,
+			xml.StartElement{
+				Name: xml.Name{Local: "delete"},
+				Attr: []xml.Attr{{Name: xml.Name{Local: "node"}, Value: node}},
+			},
+		),
+		xml.StartElement{Name: xml.Name{Space: pubsubOwnerNS, Local: "pubsub"}},
+	), stanza.IQ{Type: stanza.SetIQ}, nil)
+}

@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -197,12 +195,11 @@ func setupOmemoProtocol(
 			log.Fatalf("fatal: loading omemo(%s) identity for %s: %v", protocol, s.account.JID, err)
 		}
 
-		var deviceID [4]byte
-		if _, err := rand.Read(deviceID[:]); err != nil {
+		id, err := omemolib.GenerateDeviceID()
+		if err != nil {
 			slog.Warn("generating omemo device id", "protocol", protocol, "jid", s.account.JID, "err", err)
 			return nil
 		}
-		id := omemolib.DeviceID(binary.BigEndian.Uint32(deviceID[:]))
 		if err := omemolib.InitIdentity(ctx, store, s.account.JID, id, protocol); err != nil {
 			// Same reasoning as above: the row we just proved absent should
 			// always insert cleanly against a correct schema, so a failure
@@ -218,6 +215,10 @@ func setupOmemoProtocol(
 		slog.Warn("setting up omemo manager", "protocol", protocol, "jid", s.account.JID, "err", err)
 		return nil
 	}
+
+	// Must happen before the bundle publish below, so the publish lands on
+	// the new device's node rather than one we're about to abandon.
+	rotatedFrom := rotateOutOfRangeDeviceID(ctx, s, protocol, mgr)
 
 	if err := mgr.PublishBundle(ctx); err != nil {
 		slog.Warn("publishing omemo bundle", "protocol", protocol, "jid", s.account.JID, "err", err)
@@ -251,13 +252,8 @@ func setupOmemoProtocol(
 	}
 	local := mgr.LocalDevice().ID
 	slog.Debug("omemo setup: local device ID and current device list", "protocol", protocol, "jid", s.account.JID, "local_device", local, "devices", devices.Devices)
-	alreadyListed := false
-	for _, id := range devices.Devices {
-		if id == local {
-			alreadyListed = true
-			break
-		}
-	}
+	kept, alreadyListed := pruneOwnDeviceList(devices.Devices, local, rotatedFrom, protocol, s.account.JID)
+	devices.Devices = kept
 	// Republish even when already listed, not just on first-ever creation:
 	// this is the only place that reconfigures the device-list PEP node's
 	// access model to "open" (via publishDeviceList -> makeNodeOpen). If that
@@ -272,6 +268,11 @@ func setupOmemoProtocol(
 	slog.Debug("omemo setup: publishing device list", "protocol", protocol, "jid", s.account.JID, "devices", devices.Devices)
 	if err := publishDeviceList(ctx, devices); err != nil {
 		slog.Warn("publishing omemo device list", "protocol", protocol, "jid", s.account.JID, "err", err)
+	} else if rotatedFrom != 0 {
+		// Only once peers have been told to stop using it: the old bundle
+		// going away before the new device list is published would leave a
+		// window where a peer resolves the abandoned ID and finds nothing.
+		deleteOmemoBundle(ctx, client, protocol, rotatedFrom)
 	}
 
 	// The fetch above went straight through the raw transport (only to
@@ -438,4 +439,108 @@ func discoverPeerKey(ctx context.Context, s *accountSession, peerJID string) (st
 		return "", err
 	}
 	return fpr, nil
+}
+
+// rotateOutOfRangeDeviceID re-numbers this account's OMEMO device when its
+// stored device ID is outside OMEMO's permitted 1..2^31-1 range, returning
+// the abandoned ID (or 0 if nothing was rotated) so the caller can prune it
+// from our published device list and delete its bundle node.
+//
+// kage used to draw device IDs from the full uint32 range, so roughly half
+// of all identities it ever created are unaddressable: every
+// libsignal-derived client (Conversations, Dino, Gajim) parses the OMEMO
+// sid/rid attributes into a signed 32-bit integer and throws on anything
+// larger, discarding the entire stanza rather than just that one key. The
+// symptoms are badly misleading - messages we send vanish for the peer's
+// phone but not their desktop, and carbons of their own sent messages
+// vanish on their phone too - so this repairs itself on connect rather
+// than waiting to be noticed.
+//
+// The identity key is deliberately kept (see omemolib.RotateDeviceID): the
+// fingerprint peers may have verified stays valid, and only the number
+// changes. Sessions are dropped as part of the rotation, so the next
+// message to each peer carries a fresh key exchange binding them to the new
+// ID.
+func rotateOutOfRangeDeviceID(
+	ctx context.Context, s *accountSession, protocol omemolib.Protocol, mgr *omemolib.Manager,
+) omemolib.DeviceID {
+	old := mgr.LocalDevice().ID
+	if old.Valid() {
+		return 0
+	}
+	next, err := omemolib.GenerateDeviceID()
+	if err != nil {
+		slog.Warn("generating replacement omemo device id", "protocol", protocol, "jid", s.account.JID, "err", err)
+		return 0
+	}
+	if err := mgr.RotateDeviceID(ctx, next); err != nil {
+		slog.Warn("rotating out-of-range omemo device id", "protocol", protocol, "jid", s.account.JID,
+			"old_device", old, "new_device", next, "err", err)
+		return 0
+	}
+	slog.Warn("rotated omemo device id out of the unaddressable uint32 range; peers will rebuild sessions",
+		"protocol", protocol, "jid", s.account.JID, "old_device", old, "new_device", next)
+	return old
+}
+
+// deleteOmemoBundle removes the bundle node of a device ID we've stopped
+// using. Best-effort: a leftover node only means peers can still fetch a
+// bundle for a device that no device list advertises any more, which
+// nothing will act on.
+func deleteOmemoBundle(ctx context.Context, client *xmpp.Client, protocol omemolib.Protocol, id omemolib.DeviceID) {
+	var err error
+	if protocol == omemolib.ProtocolV1 {
+		err = client.DeleteOmemoBundleV1(ctx, id)
+	} else {
+		err = client.DeleteOmemoBundle(ctx, id)
+	}
+	if err != nil {
+		slog.Warn("deleting abandoned omemo bundle node", "protocol", protocol, "device", id, "err", err)
+		return
+	}
+	slog.Debug("deleted abandoned omemo bundle node", "protocol", protocol, "device", id)
+}
+
+// pruneOwnDeviceList filters our own published OMEMO device list down to the
+// devices that can actually be addressed, reporting whether local was among
+// them. Two kinds of entry are dropped:
+//
+//   - rotatedFrom, the ID this device just moved away from (0 when nothing
+//     was rotated), which nothing is listening on any more;
+//   - any out-of-range ID (see omemolib.MaxDeviceID), left over from when
+//     kage generated device IDs across the full uint32 range. Those belong
+//     to our own other clients, and a single one of them in this list is
+//     enough to make every message we send undecryptable for every
+//     libsignal-based peer in the chat: they can't parse the stanza header
+//     at all and drop the whole message, keys for their own devices
+//     included. Pruning is safe and self-healing - such a device is already
+//     unreachable for those peers, and the next time it connects
+//     rotateOutOfRangeDeviceID re-numbers it and re-adds a valid ID.
+//
+// local itself is kept unconditionally: a caller that somehow still has an
+// out-of-range local ID (rotation failed) is better off advertising it than
+// publishing a list with no entry for the device that is about to send
+// messages.
+func pruneOwnDeviceList(
+	devices []omemolib.DeviceID, local, rotatedFrom omemolib.DeviceID,
+	protocol omemolib.Protocol, accountJID string,
+) (kept []omemolib.DeviceID, hasLocal bool) {
+	kept = make([]omemolib.DeviceID, 0, len(devices)+1)
+	for _, id := range devices {
+		if id == local {
+			hasLocal = true
+			kept = append(kept, id)
+			continue
+		}
+		if rotatedFrom != 0 && id == rotatedFrom {
+			continue
+		}
+		if !id.Valid() {
+			slog.Warn("omemo setup: dropping unaddressable device from our own published device list",
+				"protocol", protocol, "jid", accountJID, "device", id)
+			continue
+		}
+		kept = append(kept, id)
+	}
+	return kept, hasLocal
 }

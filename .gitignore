@@ -14,3 +14,6 @@ CLAUDE.md
 dist/
 debug.log
 *-debug.log
+*.log
+logcat*.txt
+IOXKeHAcSj20eKNnnQX_9w.txt
