@@ -44,10 +44,11 @@ func Register(ctx context.Context, address, password string, tlsConfig *tls.Conf
 	}
 
 	var regErr error
+	var offered bool
 	session, err := xmpp.DialClientSession(
 		ctx, j,
 		xmpp.StartTLS(tlsConfig),
-		registerFeature(username, password, &regErr),
+		registerFeature(username, password, &regErr, &offered),
 	)
 	if err != nil {
 		return fmt.Errorf("dialing %s: %w", j, err)
@@ -55,6 +56,14 @@ func Register(ctx context.Context, address, password string, tlsConfig *tls.Conf
 	closeErr := session.Close()
 	if regErr != nil {
 		return regErr
+	}
+	// A server that doesn't offer in-band registration simply never
+	// advertises the stream feature, so Negotiate never runs and regErr stays
+	// nil - which used to be reported as success. The account doesn't exist,
+	// so the caller's very next Dial fails with "not-authorized" and nothing
+	// points at registration as the cause.
+	if !offered {
+		return fmt.Errorf("%s does not offer in-band registration (XEP-0077); the account was not created", j.Domain())
 	}
 	if closeErr != nil {
 		return fmt.Errorf("closing registration session: %w", closeErr)
@@ -103,8 +112,10 @@ func (riq *registerIQ) WriteXML(w xmlstream.TokenWriter) (int, error) {
 // registration finishes (or fails); *outErr receives the registration
 // result, since a StreamFeature can't itself abort DialClientSession short
 // of returning a fatal error (which Register turns into a hard error anyway
-// via regErr).
-func registerFeature(username, password string, outErr *error) xmpp.StreamFeature {
+// via regErr). *offered records whether the server advertised the feature
+// at all, so Register can tell "registration refused" apart from "this
+// server never offered registration".
+func registerFeature(username, password string, outErr *error, offered *bool) xmpp.StreamFeature {
 	return xmpp.StreamFeature{
 		Name:       xml.Name{Space: registerFeatureNS, Local: "register"},
 		Prohibited: xmpp.Authn,
@@ -115,6 +126,7 @@ func registerFeature(username, password string, outErr *error) xmpp.StreamFeatur
 			return false, nil, d.DecodeElement(&parsed, start)
 		},
 		Negotiate: func(ctx context.Context, session *xmpp.Session, data interface{}) (xmpp.SessionState, io.ReadWriter, error) {
+			*offered = true
 			var mask xmpp.SessionState
 			r := session.TokenReader()
 			defer r.Close()
