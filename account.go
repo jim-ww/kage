@@ -63,6 +63,14 @@ type accountSession struct {
 	omemoReady     chan struct{}
 	omemoReadyOnce sync.Once
 
+	// omemoWaitGaveUp latches once waitOmemoReady has timed out, so an
+	// account whose OMEMO setup never succeeds stalls the event loop for the
+	// grace period once rather than on every incoming message - the loop is
+	// sequential, so that delay would otherwise also hold up presence and
+	// call signalling for the account. A later successful setup still
+	// closes omemoReady, which waitOmemoReady checks first.
+	omemoWaitGaveUp atomic.Bool
+
 	// peerDeviceSyncedAt records, per protocol+peer, when that peer's OMEMO
 	// device list was last re-fetched on a send, so a busy conversation
 	// doesn't put a PEP IQ in front of every message. In memory only:
@@ -2094,6 +2102,9 @@ func (s *accountSession) waitOmemoReady(ctx context.Context, d time.Duration) {
 		return
 	default:
 	}
+	if s.omemoWaitGaveUp.Load() {
+		return
+	}
 	slog.Debug("waiting for omemo setup to finish", "jid", s.account.JID, "timeout", d)
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -2101,6 +2112,7 @@ func (s *accountSession) waitOmemoReady(ctx context.Context, d time.Duration) {
 	case <-s.omemoReady:
 	case <-ctx.Done():
 	case <-timer.C:
-		slog.Warn("gave up waiting for omemo setup", "jid", s.account.JID, "timeout", d)
+		s.omemoWaitGaveUp.Store(true)
+		slog.Warn("gave up waiting for omemo setup; will not wait again until it succeeds", "jid", s.account.JID, "timeout", d)
 	}
 }

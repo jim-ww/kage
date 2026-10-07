@@ -135,3 +135,25 @@ func TestWaitOmemoReadyHonoursContext(t *testing.T) {
 		t.Fatalf("waited %v after ctx was cancelled, want an immediate return", elapsed)
 	}
 }
+
+// TestWaitOmemoReadyGivesUpOnlyOnce guards the event loop: dispatchEvent is
+// sequential, so an account whose OMEMO setup never succeeds must not stall
+// it for the full grace period on every single incoming message - that would
+// hold up presence and call signalling for the account too.
+func TestWaitOmemoReadyGivesUpOnlyOnce(t *testing.T) {
+	s := &accountSession{account: config.Account{JID: "alice@example.com"}, omemoReady: make(chan struct{})}
+
+	start := time.Now()
+	s.waitOmemoReady(context.Background(), 50*time.Millisecond)
+	if elapsed := time.Since(start); elapsed < 50*time.Millisecond {
+		t.Fatalf("first wait returned after %v, want it to have waited out the grace period", elapsed)
+	}
+
+	start = time.Now()
+	for range 5 {
+		s.waitOmemoReady(context.Background(), 10*time.Second)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("subsequent waits took %v; the give-up latch is not holding", elapsed)
+	}
+}
