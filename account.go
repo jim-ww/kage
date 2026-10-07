@@ -53,6 +53,17 @@ type accountSession struct {
 
 	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
 
+	// rosterMu serializes the read-copy-modify-write cycles that update
+	// roster. The atomic pointer alone makes each individual Load/Store
+	// safe, but not the cycle between them: presence stanzas (one per
+	// contact resource, arriving in bursts), disco#info device-name
+	// resolution and avatar sync all run on their own goroutines and all
+	// rewrite the whole map, so two overlapping cycles silently drop one of
+	// the two updates. The symptom is a contact stuck at a stale presence -
+	// most visibly stuck offline while they're online - with nothing in the
+	// log to show it, since each cycle individually succeeded.
+	rosterMu sync.Mutex
+
 	// omemoMu serializes OMEMO decrypt+persist across the live path
 	// (events.go's handleIncomingMessage) and MAM backfill
 	// (syncArchiveForContact's processMAMItem): both run as separate
@@ -408,29 +419,33 @@ type rosterEntry struct {
 // "" if it had none) is folded into Resources the same way ui.Chat's own
 // copy is - see Chat.withResource.
 func (s *accountSession) setRosterPresence(bareJID, resource string, presence ui.Presence) {
-	entries := s.roster.Load()
-	updated := make(map[string]rosterEntry, len(derefRoster(entries))+1)
-	for k, v := range derefRoster(entries) {
-		updated[k] = v
-	}
-	e := updated[bareJID]
-	// The aggregate state is what the chat list actually shows, so log the
-	// transition rather than every presence stanza: a contact wrongly stuck
-	// offline is a question about what this resolved to and when, and a
-	// per-stanza log buries that under the ones that changed nothing.
-	if e.Presence != presence {
-		slog.Debug("contact presence changed", "jid", s.account.JID, "contact", bareJID, "resource", resource, "from", e.Presence, "to", presence)
-	}
-	e.Resources = withResource(e.Resources, resource, presence)
-	if resource == "" {
-		// No resource part to track individually - this stanza is the whole
-		// story, same as before resource-aware aggregation existed.
-		e.Presence = presence
-	} else {
-		e.Presence = aggregatePresence(e.Resources)
-	}
-	updated[bareJID] = e
-	s.roster.Store(&updated)
+	s.mutateRoster(func(entries map[string]rosterEntry) {
+		e := entries[bareJID]
+		was := e.Presence
+		e.Resources = withResource(e.Resources, resource, presence)
+		if resource == "" {
+			// No resource part to track individually - this stanza is the
+			// whole story, same as before resource-aware aggregation
+			// existed.
+			e.Presence = presence
+		} else {
+			e.Presence = aggregatePresence(e.Resources)
+		}
+		// The aggregate state is what the chat list actually shows, so log
+		// the transition rather than every presence stanza: a contact
+		// wrongly stuck offline is a question about what this resolved to
+		// and when, and a per-stanza log buries that under the ones that
+		// changed nothing. Compared *after* aggregation, not against the
+		// incoming stanza's own presence - one resource going offline while
+		// another stays online changes nothing, and logging it as
+		// "from=online to=offline" sent an earlier investigation chasing a
+		// presence bug that wasn't there.
+		if was != e.Presence {
+			slog.Debug("contact presence changed", "jid", s.account.JID, "contact", bareJID,
+				"resource", resource, "resource_presence", presence, "from", was, "to", e.Presence)
+		}
+		entries[bareJID] = e
+	})
 }
 
 // resolveDeviceName looks up (via XEP-0030 disco#info) and caches the
@@ -457,19 +472,19 @@ func (s *accountSession) resolveDeviceName(ctx context.Context, srv *ipc.Server,
 		return
 	}
 
-	entries := s.roster.Load()
-	updated := make(map[string]rosterEntry, len(derefRoster(entries)))
-	for k, v := range derefRoster(entries) {
-		updated[k] = v
-	}
-	e := updated[bareJID]
-	for i := range e.Resources {
-		if e.Resources[i].Resource == resource {
-			e.Resources[i].Name = name
+	s.mutateRoster(func(entries map[string]rosterEntry) {
+		e := entries[bareJID]
+		// Copied before mutating: Resources is shared with whatever snapshot
+		// a concurrent reader already Loaded, so writing through the slice
+		// would mutate it out from under them.
+		e.Resources = slices.Clone(e.Resources)
+		for i := range e.Resources {
+			if e.Resources[i].Resource == resource {
+				e.Resources[i].Name = name
+			}
 		}
-	}
-	updated[bareJID] = e
-	s.roster.Store(&updated)
+		entries[bareJID] = e
+	})
 
 	broadcast(srv, evDeviceName, ui.DeviceNameMsg{
 		AccountIdx: accountIdx,
@@ -768,6 +783,9 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		chats = append(chats, chat)
 		historyMore[i] = hasMore
 	}
+	// The one direct Store (everything else goes through mutateRoster):
+	// this is the initial seed, running before sess is handed to anything
+	// that could be updating it concurrently.
 	sess.roster.Store(&entries)
 
 	return sess, ui.Account{Name: acct.JID, Alias: acct.Alias, Chats: chats, Messages: messages, HistoryMore: historyMore, Connecting: true, Status: accountStatus(acct.Status)}, nil
@@ -846,13 +864,10 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	slog.Debug("live roster fetched", "jid", sess.account.JID, "elapsed", time.Since(start), "contacts", len(contacts))
 	wg.Wait()
 
-	existing := sess.roster.Load()
-	merged := make(map[string]rosterEntry, len(contacts))
-	if existing != nil {
-		for k, v := range *existing {
-			merged[k] = v
-		}
-	}
+	// A pre-fetch snapshot, used only to decide which contacts are new to
+	// us (and so need a chat row built below). The authoritative merge
+	// happens in one shot further down, under rosterMu.
+	snapshot := derefRoster(sess.roster.Load())
 
 	// Loaded once up front rather than per-contact: a chatDraft row can exist
 	// for a JID even when it's not yet "known" to the roster cache below
@@ -875,8 +890,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		if name == "" {
 			name = c.JID
 		}
-		prior, known := merged[c.JID]
-		merged[c.JID] = rosterEntry{Name: c.Name, Subs: c.Subscription, Presence: prior.Presence, Resources: prior.Resources}
+		prior, known := snapshot[c.JID]
 		if err := sess.db.UpsertRoster(ctx, storage.UpsertRosterParams{
 			AccountJid: sess.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
 		}); err != nil {
@@ -899,30 +913,33 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 	// The roster IQ fetch above (and loadHistoryWindow's DB round-trips) can
 	// take long enough for this account's own event-loop goroutine to
-	// process a live PresenceEvent for one of these contacts concurrently,
-	// via setRosterPresence - which updates sess.roster in place. Blindly
-	// storing merged (built from a Load() taken before the fetch started)
-	// would silently discard that update, leaving the contact stuck at
-	// whatever stale/zero Presence merged captured until its presence
-	// happens to change again. Reconcile with the latest snapshot first.
-	if latest := sess.roster.Load(); latest != nil {
-		for jid, entry := range *latest {
-			m, ok := merged[jid]
-			if !ok || (m.Presence == entry.Presence && slices.Equal(m.Resources, entry.Resources)) {
-				continue
-			}
-			m.Presence = entry.Presence
-			m.Resources = entry.Resources
-			merged[jid] = m
-			if idx, ok := newChatIdx[jid]; ok {
-				chat := newChats[idx].(ui.Chat)
-				chat.Presence = entry.Presence
-				chat.Resources = entry.Resources
-				newChats[idx] = chat
-			}
+	// process live PresenceEvents for these contacts concurrently. So only
+	// the fields the roster IQ is actually authoritative for (name and
+	// subscription) are written here, onto whatever presence state those
+	// stanzas have meanwhile established - rather than storing a map built
+	// from a snapshot taken before the fetch, which would silently roll
+	// that presence back to stale/zero until it happened to change again.
+	merged := sess.mutateRoster(func(entries map[string]rosterEntry) {
+		for _, c := range contacts {
+			e := entries[c.JID]
+			e.Name, e.Subs = c.Name, c.Subscription
+			entries[c.JID] = e
 		}
+	})
+	// Chats built above captured presence from the pre-fetch snapshot; give
+	// them whatever the merge settled on.
+	for jid, idx := range newChatIdx {
+		entry, ok := merged[jid]
+		if !ok {
+			continue
+		}
+		chat := newChats[idx].(ui.Chat)
+		if chat.Presence == entry.Presence && slices.Equal(chat.Resources, entry.Resources) {
+			continue
+		}
+		chat.Presence, chat.Resources = entry.Presence, entry.Resources
+		newChats[idx] = chat
 	}
-	sess.roster.Store(&merged)
 
 	resyncPeerDeviceLists(ctx, sess, merged)
 	probeRosterPresence(ctx, client, merged)
@@ -1857,4 +1874,26 @@ func resourcePart(addr string) string {
 		return addr[i+1:]
 	}
 	return ""
+}
+
+// mutateRoster applies fn to the cached roster under rosterMu, publishing
+// the result atomically. fn receives a fresh copy it may modify freely, and
+// must not block on anything slow (least of all network or disk) - every
+// presence stanza for this account funnels through here.
+//
+// Every update to s.roster goes through this. Doing the copy-modify-store
+// cycle by hand at each call site is what made concurrent presence updates
+// lose each other; see rosterMu.
+func (s *accountSession) mutateRoster(fn func(entries map[string]rosterEntry)) map[string]rosterEntry {
+	s.rosterMu.Lock()
+	defer s.rosterMu.Unlock()
+
+	current := derefRoster(s.roster.Load())
+	updated := make(map[string]rosterEntry, len(current)+1)
+	for k, v := range current {
+		updated[k] = v
+	}
+	fn(updated)
+	s.roster.Store(&updated)
+	return updated
 }

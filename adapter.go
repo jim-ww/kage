@@ -803,24 +803,20 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 		return err
 	}
 
-	subs := ""
-	if entries := s.roster.Load(); entries != nil {
-		subs = (*entries)[address].Subs
-	}
+	var subs string
+	s.mutateRoster(func(entries map[string]rosterEntry) {
+		e := entries[address]
+		// Only the name changes: a rename must not reset the contact's
+		// subscription, presence or online resources.
+		e.Name = name
+		entries[address] = e
+		subs = e.Subs
+	})
 	if err := s.db.UpsertRoster(context.Background(), storage.UpsertRosterParams{
 		AccountJid: s.account.JID, Jid: address, Name: name, Subs: subs,
 	}); err != nil {
 		slog.Warn("persisting renamed roster entry", "address", address, "err", err)
 	}
-
-	updated := make(map[string]rosterEntry)
-	if entries := s.roster.Load(); entries != nil {
-		for k, v := range *entries {
-			updated[k] = v
-		}
-	}
-	updated[address] = rosterEntry{Name: name, Subs: subs, Presence: updated[address].Presence}
-	s.roster.Store(&updated)
 
 	return nil
 }
@@ -848,14 +844,11 @@ func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
 	}); err != nil {
 		slog.Warn("persisting added roster entry", "address", address, "err", err)
 	}
-	updated := make(map[string]rosterEntry)
-	if entries := s.roster.Load(); entries != nil {
-		for k, v := range *entries {
-			updated[k] = v
+	s.mutateRoster(func(entries map[string]rosterEntry) {
+		if _, known := entries[address]; !known {
+			entries[address] = rosterEntry{}
 		}
-	}
-	updated[address] = rosterEntry{}
-	s.roster.Store(&updated)
+	})
 
 	return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address}
 }
@@ -902,15 +895,7 @@ func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
 	}); err != nil {
 		slog.Warn("deleting roster entry", "address", address, "err", err)
 	}
-	if entries := s.roster.Load(); entries != nil {
-		updated := make(map[string]rosterEntry, len(*entries))
-		for k, v := range *entries {
-			if k != address {
-				updated[k] = v
-			}
-		}
-		s.roster.Store(&updated)
-	}
+	s.mutateRoster(func(entries map[string]rosterEntry) { delete(entries, address) })
 
 	return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address}
 }
