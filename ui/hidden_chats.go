@@ -50,8 +50,7 @@ func (m *Model) stripHiddenChats(accountIdx int) {
 	}
 
 	kept := make([]list.Item, 0, len(acct.Chats)-hidden)
-	messages := make(map[int][]Message, len(acct.Chats)-hidden)
-	historyMore := make(map[int]bool, len(acct.Chats)-hidden)
+	newIdxByOld := make(map[int]int, len(acct.Chats)-hidden)
 	for i, item := range acct.Chats {
 		chat, ok := item.(Chat)
 		if ok && chat.Hidden {
@@ -62,19 +61,12 @@ func (m *Model) stripHiddenChats(accountIdx int) {
 			})
 			continue
 		}
-		next := len(kept)
+		newIdxByOld[i] = len(kept)
 		kept = append(kept, item)
-		if msgs, has := acct.Messages[i]; has {
-			messages[next] = msgs
-		}
-		if more, has := acct.HistoryMore[i]; has {
-			historyMore[next] = more
-		}
 	}
 
 	m.accounts[accountIdx].Chats = kept
-	m.accounts[accountIdx].Messages = messages
-	m.accounts[accountIdx].HistoryMore = historyMore
+	m.remapChatIndices(accountIdx, newIdxByOld)
 }
 
 func (m *Model) stashHidden(accountIdx int, h hiddenChat) {

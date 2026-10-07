@@ -53,24 +53,17 @@ func (m *Model) sortChatsByActivity(accountIdx int) tea.Cmd {
 	}
 
 	chats := make([]list.Item, len(entries))
-	messages := make(map[int][]Message, len(acct.Messages))
-	historyMore := make(map[int]bool, len(acct.HistoryMore))
+	newIdxByOld := make(map[int]int, len(entries))
 	newSelected := -1
 	for newIdx, e := range entries {
 		chats[newIdx] = e.chat
-		if msgs, has := acct.Messages[e.oldIdx]; has {
-			messages[newIdx] = msgs
-		}
-		if more, has := acct.HistoryMore[e.oldIdx]; has {
-			historyMore[newIdx] = more
-		}
+		newIdxByOld[e.oldIdx] = newIdx
 		if e.oldIdx == oldSelected {
 			newSelected = newIdx
 		}
 	}
 	m.accounts[accountIdx].Chats = chats
-	m.accounts[accountIdx].Messages = messages
-	m.accounts[accountIdx].HistoryMore = historyMore
+	m.remapChatIndices(accountIdx, newIdxByOld)
 
 	if accountIdx != m.currentAccount {
 		return nil
