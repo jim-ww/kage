@@ -1,144 +1,113 @@
 package ui
 
 import (
-	"strings"
 	"testing"
-	"time"
+
+	"charm.land/bubbles/v2/list"
 )
 
-// TestReplyTargetSurvivesHistoryWindowReload guards the reply header against
-// the message slice being rebuilt underneath it. A HistoryWindowMsg replaces
-// Messages[chatIdx] wholesale and mergeLiveTail carries any just-arrived live
-// message forward into it, so a reply's position - and its target's - shift
-// by however much the new window differs from the old one. Back when a reply
-// remembered its target as an index into that slice, the quote silently
-// re-pointed at whatever message happened to land on the old index.
-func TestReplyTargetSurvivesHistoryWindowReload(t *testing.T) {
-	m := newLimitTestModel(t, 3, 0) // a, b, c
-	base := m.accounts[0].Messages[0][2].SentAt
-
-	updated, _, handled := m.handleEventMsg(IncomingMessageMsg{
-		AccountIdx: 0, From: "bob@example.com",
-		ReplyToID: "c",
-		Message:   Message{ID: "reply", Author: "bob", Content: "agreed", SentAt: base.Add(time.Second)},
-	})
-	if !handled {
-		t.Fatal("IncomingMessageMsg was not handled")
+// newReplyTestModel builds a model with one open chat holding n messages and
+// a tight message cap, so a few arrivals trim the front of the window.
+func newReplyTestModel(t *testing.T, n, cap int) (Model, *recordingReplySender) {
+	t.Helper()
+	sender := &recordingReplySender{}
+	m := newTestModelWithSender(sender, nil)
+	m.maxMessagesPerChat = cap
+	m.width, m.termHeight = 80, 24
+	m.updateSizes()
+	msgs := make([]Message, n)
+	for i := range msgs {
+		msgs[i] = Message{ID: msgID(i), Author: "bob", Content: "body " + msgID(i)}
 	}
-	m = &updated
+	chat := Chat{Name: "bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Name: "me@example.test", Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
+	m.currentAccount = 0
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.chats.Select(0)
+	m.selectedView = viewChat
+	return m, sender
+}
 
-	if got := m.accounts[0].Messages[0]; messageIndexByID(got, got[3].ReplyToID) != 2 {
-		t.Fatalf("reply target should be %q before the reload, got %q", "c", got[3].ReplyToID)
+func msgID(i int) string { return string(rune('a'+i%26)) + string(rune('0'+i/26)) }
+
+// recordingReplySender captures the SendOptions a send actually goes out
+// with, which is where a drifted reply target shows up.
+type recordingReplySender struct {
+	fakeSuccessSender
+	replyToID  string
+	quotedBody string
+}
+
+func (s *recordingReplySender) Send(accountIdx int, to, body string, opts SendOptions) (string, error) {
+	s.replyToID, s.quotedBody = opts.ReplyToID, opts.QuotedBody
+	return "sent-id", nil
+}
+
+// TestReplyTargetSurvivesArrivingMessages is the regression for a reply
+// quoting the wrong message: the target used to be remembered as an index
+// into the chat's message slice, and messages arriving while the reply was
+// being typed trim the front of that slice (maxMessagesPerChat), sliding
+// every index - so the reply went out threaded to, and quoting, whichever
+// message had taken that slot.
+func TestReplyTargetSurvivesArrivingMessages(t *testing.T) {
+	m, sender := newReplyTestModel(t, 5, 5)
+
+	// Reply to a message in the middle of the loaded window, so the
+	// arrivals below shift its index without trimming it away.
+	m.selectedMsg = 2
+	want := m.accounts[0].Messages[0][2]
+	if cmd := m.actionReplyMessage(); cmd != nil {
+		_ = cmd()
 	}
 
-	// A narrower window of the same tail: every message shifts down by one.
-	older := m.accounts[0].Messages[0][1:3] // b, c
-	updated2, _, handled := m.handleEventMsg(HistoryWindowMsg{
-		AccountIdx: 0, From: "bob@example.com",
-		Messages: older,
-		HasNewer: false,
-	})
-	if !handled {
-		t.Fatal("HistoryWindowMsg was not handled")
+	// Two messages arrive, trimming two off the front of the window - the
+	// target slides from index 2 to index 0.
+	for i := range 2 {
+		next, cmd := m.Update(IncomingMessageMsg{
+			AccountIdx: 0,
+			From:       "bob@example.test",
+			Message:    Message{ID: "new" + msgID(i), Author: "bob", Content: "later"},
+		})
+		m = next.(Model)
+		runCmd(cmd)
+	}
+	if got := m.accounts[0].Messages[0][0].ID; got != want.ID {
+		t.Fatalf("test setup: target is at index %d, want it slid to 0 by the trim (window starts at %q)", m.replyTo.index(m.accounts[0].Messages[0]), got)
 	}
 
-	got := updated2.accounts[0].Messages[0]
-	if len(got) != 3 || got[2].ID != "reply" {
-		t.Fatalf("unexpected messages after reload: %+v", got)
+	m.input.SetValue("my reply")
+	runCmd(m.sendCurrentInput())
+
+	if sender.replyToID != want.ID {
+		t.Errorf("replied to %q, want the message the reply was started on (%q)", sender.replyToID, want.ID)
 	}
-	if idx := messageIndexByID(got, got[2].ReplyToID); idx != 1 {
-		t.Fatalf("reply target resolved to %d, want 1 (%q)", idx, "c")
+	if sender.quotedBody != MessagePreviewContent(want) {
+		t.Errorf("quoted %q, want %q", sender.quotedBody, MessagePreviewContent(want))
 	}
 }
 
-// TestReplyHeaderFallsBackToSnapshotOutsideWindow covers a reply whose target
-// isn't in the loaded window at all - the normal case in a long chat, where
-// only the most recent historyPageSize messages are ever resident and a reply
-// to anything older can't resolve its target by ID. Before the
-// QuotedAuthor/QuotedPreview snapshot existed, messageIndexByID simply missed
-// and the message rendered with no reply indication whatsoever, making a real
-// XEP-0461 reply indistinguishable from an ordinary message.
-func TestReplyHeaderFallsBackToSnapshotOutsideWindow(t *testing.T) {
-	m := newLimitTestModel(t, 1, 0)
-	msgs := []Message{{
-		ID:            "reply",
-		Author:        "bob",
-		Content:       "agreed",
-		SentAt:        time.Now(),
-		ReplyToID:     "long-since-paged-out",
-		QuotedAuthor:  "me",
-		QuotedPreview: "the quoted one",
-	}}
+// A reply target that has left the loaded window still threads by its
+// stanza ID - what the user asked for survives even though the quote
+// preview can no longer be built - and never onto whatever has taken its
+// old index.
+func TestReplyTargetGoneStillThreadsByID(t *testing.T) {
+	m, sender := newReplyTestModel(t, 3, 3)
+	m.selectedMsg = 0
+	if cmd := m.actionReplyMessage(); cmd != nil {
+		_ = cmd()
+	}
+	// The whole window is replaced by one that doesn't contain the target.
+	m.accounts[0].Messages[0] = []Message{{ID: "zz", Author: "bob", Content: "unrelated"}}
 
-	if idx := messageIndexByID(msgs, msgs[0].ReplyToID); idx >= 0 {
-		t.Fatalf("target should not be resolvable in this window, got idx %d", idx)
-	}
+	m.input.SetValue("my reply")
+	runCmd(m.sendCurrentInput())
 
-	out := m.renderMessage(msgs[0], 0, 80, msgs, 8)
-	if !strings.Contains(out, "the quoted one") {
-		t.Fatalf("rendered reply = %q, want it to quote the snapshot preview", out)
+	if sender.replyToID != "a0" {
+		t.Errorf("replied to %q, want the original target a0 by ID", sender.replyToID)
 	}
-	// The body must not get folded onto the header line when a reply quote
-	// occupies that space - the quote and the body would run together.
-	if !strings.Contains(out, "agreed") {
-		t.Fatalf("rendered reply = %q, want it to still show the body", out)
-	}
-}
-
-// TestReplyHeaderPrefersLoadedTargetOverSnapshot pins the precedence: with the
-// real target present, the live message is what gets quoted (and stays
-// clickable), not the snapshot frozen at persist time - which can be stale if
-// the target was since edited or retracted.
-func TestReplyHeaderPrefersLoadedTargetOverSnapshot(t *testing.T) {
-	m := newLimitTestModel(t, 1, 0)
-	target := Message{ID: "target", Author: "bob", Content: "live content", SentAt: time.Now()}
-	reply := Message{
-		ID:            "reply",
-		Author:        "bob",
-		Content:       "agreed",
-		SentAt:        time.Now().Add(time.Second),
-		ReplyToID:     "target",
-		QuotedAuthor:  "bob",
-		QuotedPreview: "stale snapshot",
-	}
-	msgs := []Message{target, reply}
-
-	out := m.renderMessage(reply, 1, 80, msgs, 8)
-	if !strings.Contains(out, "live content") {
-		t.Fatalf("rendered reply = %q, want the loaded target's content", out)
-	}
-	if strings.Contains(out, "stale snapshot") {
-		t.Fatalf("rendered reply = %q, want the snapshot ignored when the target is loaded", out)
-	}
-}
-
-// TestReplyHeaderQuotesTargetAfterTrim covers the same staleness at the other
-// end: trimming the front of a chat past maxMessagesPerChat renumbers every
-// message, and the rendered header must still quote the message actually
-// replied to.
-func TestReplyHeaderQuotesTargetAfterTrim(t *testing.T) {
-	m := newLimitTestModel(t, 3, 3) // a, b, c - already at the limit
-	m.accounts[0].Messages[0][1].Content = "the quoted one"
-	base := m.accounts[0].Messages[0][2].SentAt
-
-	updated, _, handled := m.handleEventMsg(IncomingMessageMsg{
-		AccountIdx: 0, From: "bob@example.com",
-		ReplyToID: "b",
-		Message:   Message{ID: "reply", Author: "bob", Content: "agreed", SentAt: base.Add(time.Second)},
-	})
-	if !handled {
-		t.Fatal("IncomingMessageMsg was not handled")
-	}
-
-	msgs := updated.accounts[0].Messages[0]
-	if len(msgs) != 3 || msgs[0].ID != "b" { // "a" trimmed off the front
-		t.Fatalf("unexpected messages after trim: %+v", msgs)
-	}
-	idx := messageIndexByID(msgs, msgs[2].ReplyToID)
-	if idx != 0 {
-		t.Fatalf("reply target resolved to %d, want 0 (%q)", idx, "b")
-	}
-	if header := updated.replyHeaderFragment(idx, msgs, 80); !strings.Contains(header, "the quoted one") {
-		t.Fatalf("reply header = %q, want it to quote the target message", header)
+	if sender.quotedBody != "" {
+		t.Errorf("quoted %q, want no quote once the original has left the window", sender.quotedBody)
 	}
 }

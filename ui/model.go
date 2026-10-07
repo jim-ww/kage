@@ -180,9 +180,16 @@ type Model struct {
 	stashedDraft *string
 
 	// message interaction state
-	selectedMsg            int                // index of highlighted message (meaningful in viewViewport)
-	editingMsg             msgRef             // names the message being edited; zero value while not editing
-	replyToIdx             int                // >= 0 while composing a reply; -1 otherwise
+	selectedMsg int    // index of highlighted message (meaningful in viewViewport)
+	editingMsg  msgRef // names the message being edited; zero value while not editing
+	// replyTo names the message being replied to while one is being
+	// composed; the zero value means no reply is pending. By identity, not
+	// index: messages arriving while the reply is being typed can trim the
+	// front of the chat (maxMessagesPerChat) or replace the whole window (a
+	// history load), either of which slides a remembered index onto a
+	// different message - so the reply went out quoting, and threaded to,
+	// whatever had taken that slot. Same reasoning as editingMsg.
+	replyTo                msgRef
 	reactingMsgIdx         int                // >= 0 while the emoji picker is open reacting to a message; -1 otherwise
 	flashMsgIdx            int                // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
 	expandedMsgs           map[string]bool    // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
@@ -535,7 +542,6 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		input:                      &ti,
 		draftHistory:               []string{""},
 		viewport:                   viewport.New(),
-		replyToIdx:                 -1,
 		selectedAttachment:         -1,
 		reactingMsgIdx:             -1,
 		flashMsgIdx:                -1,

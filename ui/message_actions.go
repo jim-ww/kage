@@ -53,15 +53,9 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			return m.showNotification("no chat selected")
 		}
 		var sendOpts SendOptions
-		if m.replyToIdx >= 0 {
-			if msgs := m.currentMessages(); m.replyToIdx < len(msgs) && msgs[m.replyToIdx].ID != "" {
-				sendOpts = SendOptions{
-					ReplyToID:    msgs[m.replyToIdx].ID,
-					QuotedAuthor: msgs[m.replyToIdx].Author,
-					QuotedBody:   MessagePreviewContent(msgs[m.replyToIdx]),
-				}
-			}
-			m.replyToIdx = -1
+		if !m.replyTo.empty() {
+			sendOpts = m.pendingReplyOptions()
+			m.replyTo = msgRef{}
 		}
 		for _, a := range m.pendingAttachments {
 			delete(m.finishedTransfers, a.path)
@@ -138,17 +132,10 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		}
 
 		var sendOpts SendOptions
-		if m.replyToIdx >= 0 {
-			if msgs := m.currentMessages(); m.replyToIdx < len(msgs) && msgs[m.replyToIdx].ID != "" {
-				rt := msgs[m.replyToIdx]
-				newMsg.ReplyToID = rt.ID
-				sendOpts = SendOptions{
-					ReplyToID:    rt.ID,
-					QuotedAuthor: rt.Author,
-					QuotedBody:   MessagePreviewContent(rt),
-				}
-			}
-			m.replyToIdx = -1
+		if !m.replyTo.empty() {
+			sendOpts = m.pendingReplyOptions()
+			newMsg.ReplyToID = sendOpts.ReplyToID
+			m.replyTo = msgRef{}
 		}
 
 		chat, ok := m.currentChat()
@@ -230,6 +217,36 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// pendingReplyOptions turns the pending reply target (m.replyTo) into the reply
+// half of a SendOptions. The target is located by identity, never by the
+// index the reply was started at - see Model.replyTo.
+//
+// A target that has left the loaded window (trimmed off the front, or a
+// history window loaded around something else) still threads the reply by
+// its stanza ID: that is all XEP-0461 needs, and dropping the reply because
+// the quote preview can no longer be built would silently ignore what the
+// user asked for. Only the in-band quote fallback goes missing. A target
+// with no stanza ID yet (a message still being sent) can't be replied to at
+// all, and sends as a plain message.
+func (m Model) pendingReplyOptions() SendOptions {
+	msgs := m.currentMessages()
+	if idx := m.replyTo.index(msgs); idx >= 0 {
+		rt := msgs[idx]
+		if rt.ID == "" {
+			return SendOptions{}
+		}
+		return SendOptions{
+			ReplyToID:    rt.ID,
+			QuotedAuthor: rt.Author,
+			QuotedBody:   MessagePreviewContent(rt),
+		}
+	}
+	if m.replyTo.id == "" {
+		return SendOptions{}
+	}
+	return SendOptions{ReplyToID: m.replyTo.id}
+}
+
 // replySendOptions builds the reply half of a SendOptions for a message
 // whose reply target is replyToID, filling the quoted author/body fallback
 // from the target if it's still in the loaded window (it may not be - a
@@ -254,7 +271,7 @@ func replySendOptions(msgs []Message, replyToID string) SendOptions {
 // send path: unlike attachments there's no upload to wait on, so the local
 // echo can be built and appended immediately rather than via an async Cmd.
 // sendOpts carries the reply target (if any), captured by the caller before
-// m.replyToIdx is cleared.
+// m.replyTo is cleared.
 func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOptions) tea.Cmd {
 	if m.sender == nil {
 		return m.showNotification("not connected; caption not sent")
@@ -593,10 +610,14 @@ func (m *Model) actionReplyMessage() tea.Cmd {
 	if len(m.currentMessages()) == 0 {
 		return m.showNotification("no message to reply to")
 	}
-	if m.replyToIdx == m.selectedMsg {
-		m.replyToIdx = -1 // pressed/clicked again on the same message: clear reply
+	msgs := m.currentMessages()
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return nil
+	}
+	if target := refMessage(msgs[m.selectedMsg]); m.replyTo == target {
+		m.replyTo = msgRef{} // pressed/clicked again on the same message: clear reply
 	} else {
-		m.replyToIdx = m.selectedMsg
+		m.replyTo = target
 	}
 	m.updateSizes()
 	m.refreshViewport()
@@ -837,6 +858,20 @@ func (m *Model) landedInChat() tea.Cmd {
 	}
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+	return m.resetChatUnread(m.currentAccount, m.currentChatIndex())
+}
+
+// readOpenChat marks the chat on screen as read, if there is one, because
+// the user is looking at it again: the terminal just regained focus, or the
+// session came back from idle. Those are exactly the states in which an
+// arriving message counts as unread even though its chat never stopped being
+// open (see isChatFocused), so without this the chat-list badge and the tray
+// dot would stay lit on a chat being read until the user navigated away and
+// back.
+func (m *Model) readOpenChat() tea.Cmd {
+	if m.selectedView != viewChat {
+		return nil
+	}
 	return m.resetChatUnread(m.currentAccount, m.currentChatIndex())
 }
 

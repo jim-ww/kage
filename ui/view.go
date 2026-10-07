@@ -1137,10 +1137,10 @@ func (m Model) renderAccountsList(width int) string {
 // Empty if not currently replying. Reacting no longer has a compose-area
 // hint of its own — it's a popup now (see renderEmojiPickerPopup).
 func (m Model) inputHint() string {
-	if m.replyToIdx >= 0 {
+	if !m.replyTo.empty() {
 		msgs := m.currentMessages()
-		if m.replyToIdx < len(msgs) {
-			orig := msgs[m.replyToIdx]
+		if idx := m.replyTo.index(msgs); idx >= 0 {
+			orig := msgs[idx]
 			hint := m.styles.renderReplyHint(orig.Author, previewText(MessagePreviewContent(orig), previewLen))
 			// Clickable to cancel the pending reply (see zoneReplyHintCancel in
 			// mouse.go).

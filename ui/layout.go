@@ -337,7 +337,7 @@ func (m *Model) fixStuckComposeCursorDown() {
 // line here — it's a popup now (see renderEmojiPickerPopup).
 func (m Model) inputAreaHeight() int {
 	h := 1 + m.input.Height() // top border + input rows
-	if m.replyToIdx >= 0 {
+	if !m.replyTo.empty() {
 		h++ // hint line
 	}
 	if len(m.pendingAttachments) > 0 {

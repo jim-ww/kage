@@ -344,7 +344,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	case matchesKey(msg, m.keys.Back):
-		if !m.editingMsg.empty() || m.replyToIdx >= 0 || m.reactingMsgIdx >= 0 || m.emojiPicker != nil {
+		if !m.editingMsg.empty() || !m.replyTo.empty() || m.reactingMsgIdx >= 0 || m.emojiPicker != nil {
 			m.cancelPending()
 			return m, nil, true
 		}

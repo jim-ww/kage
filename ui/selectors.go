@@ -248,8 +248,18 @@ func (m Model) activeChatKey() (accountJID, chatAddress string) {
 // This is deliberately narrower than isChatOnScreen: it is about whether the
 // user is *reading* the chat, not whether the chat is *visible*. Don't reach
 // for it to decide whether a re-render is needed — see isChatOnScreen.
+//
+// Terminal focus and idleness are part of it because they are part of the
+// daemon's answer to the same question (what activeChatKey reports, gated on
+// focused && !idle - see FocusReporter): the daemon fires a desktop
+// notification exactly when it believes nobody is watching the chat, so a
+// narrower rule here meant a message could notify and still be counted as
+// read - a notification with no unread badge anywhere, for a chat left open
+// in a terminal the user had switched away from. Coming back marks it read
+// again (see readOpenChat).
 func (m Model) isChatFocused(accountIdx, chatIdx int) bool {
-	return m.isChatOnScreen(accountIdx, chatIdx) && m.selectedView == viewChat
+	return m.isChatOnScreen(accountIdx, chatIdx) && m.selectedView == viewChat &&
+		m.focused && !m.idle
 }
 
 // isChatOnScreen reports whether chatIdx within accountIdx is the chat the

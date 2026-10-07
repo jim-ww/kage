@@ -295,3 +295,80 @@ func TestChatDescriptionShowsUnreadCount(t *testing.T) {
 		t.Fatalf("Description() with zero Unread = %q, want %q", got, want)
 	}
 }
+
+// TestUnreadWhileTerminalUnfocusedAndClearedOnReturn pins the UI's "read"
+// rule against the daemon's: the daemon notifies for a message whenever no
+// client reports itself focused on that chat (FocusReporter, gated on
+// focused && !idle), so a chat left open in a terminal the user has switched
+// away from must count the message as unread too - otherwise a notification
+// arrives with nothing lit anywhere. Returning to the terminal marks it read.
+func TestUnreadWhileTerminalUnfocusedAndClearedOnReturn(t *testing.T) {
+	sender := &fakeReadTrackerSender{}
+	m := newTestModelWithSender(sender, nil)
+	chat := Chat{Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	m.currentAccount = 0
+	m.chats.SetItems(m.accounts[0].Chats)
+	m.chats.Select(0)
+	m.selectedView = viewChat // the chat is open and on screen the whole time
+
+	// The user switches away from the terminal.
+	next, cmd := m.Update(tea.BlurMsg{})
+	m = next.(Model)
+	runCmd(cmd)
+
+	next, cmd = m.Update(IncomingMessageMsg{AccountIdx: 0, From: chat.Address, Message: Message{ID: "m1", Content: "hi"}})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := m.chats.Items()[0].(Chat).Unread; got != 1 {
+		t.Fatalf("Unread while the terminal was unfocused = %d, want 1", got)
+	}
+	if len(sender.persisted) != 1 || sender.persisted[0] != 1 {
+		t.Fatalf("SetChatUnread calls = %v, want [1]", sender.persisted)
+	}
+
+	// And back: the chat is being read again.
+	next, cmd = m.Update(tea.FocusMsg{})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := m.chats.Items()[0].(Chat).Unread; got != 0 {
+		t.Fatalf("Unread after returning to the terminal = %d, want 0", got)
+	}
+	if sender.resets == 0 {
+		t.Fatal("no ResetChatUnread after returning to the terminal; the tray dot would stay lit")
+	}
+}
+
+// Same for the idle fallback, which is what covers terminals that never
+// report focus at all: going idle makes arriving messages unread, and the
+// next keystroke marks the open chat read again.
+func TestUnreadWhileIdleAndClearedOnActivity(t *testing.T) {
+	sender := &fakeReadTrackerSender{}
+	m := newTestModelWithSender(sender, nil)
+	chat := Chat{Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	m.currentAccount = 0
+	m.chats.SetItems(m.accounts[0].Chats)
+	m.chats.Select(0)
+	m.selectedView = viewChat
+
+	next, cmd := m.Update(idleMsg{gen: m.idleGen})
+	m = next.(Model)
+	runCmd(cmd)
+	if !m.idle {
+		t.Fatal("test setup: model did not go idle")
+	}
+
+	next, cmd = m.Update(IncomingMessageMsg{AccountIdx: 0, From: chat.Address, Message: Message{ID: "m1", Content: "hi"}})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := m.chats.Items()[0].(Chat).Unread; got != 1 {
+		t.Fatalf("Unread while idle = %d, want 1", got)
+	}
+
+	next, _ = m.Update(keyText("x"))
+	m = next.(Model)
+	if got := m.chats.Items()[0].(Chat).Unread; got != 0 {
+		t.Fatalf("Unread after the next keystroke = %d, want 0", got)
+	}
+}

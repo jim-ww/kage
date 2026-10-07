@@ -176,16 +176,30 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	oldFocused := m.focused && !m.idle
 	oldAccountJID, oldChatAddress := m.activeChatKey()
 
+	// Returning to the app marks the chat on screen read - see readOpenChat.
+	markRead := false
+	if _, ok := msg.(tea.FocusMsg); ok {
+		markRead = true
+	}
+
 	if im, ok := msg.(idleMsg); ok {
 		if im.gen == m.idleGen {
 			m.idle = true
 		}
 	} else if isActivityMsg(msg) {
+		markRead = markRead || m.idle
 		m.idle = false
 		m.idleGen++
 		gen := m.idleGen
 		defer func() {
 			retCmd = tea.Batch(retCmd, idleTimer(gen))
+		}()
+	}
+
+	if markRead {
+		readCmd := m.readOpenChat()
+		defer func() {
+			retCmd = tea.Batch(retCmd, readCmd)
 		}()
 	}
 

@@ -192,7 +192,7 @@ func (m *Model) showNotification(text string) tea.Cmd {
 func (m *Model) cancelPending() {
 	wasComposing := !m.editingMsg.empty()
 	m.editingMsg = msgRef{}
-	m.replyToIdx = -1
+	m.replyTo = msgRef{}
 	m.reactingMsgIdx = -1
 	m.emojiPicker = nil
 	m.lastClickedMsgIdx = -1

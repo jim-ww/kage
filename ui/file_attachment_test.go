@@ -310,7 +310,7 @@ func TestSendWithAttachmentAndReplySendsCaptionSeparately(t *testing.T) {
 		_ = cmd()
 	}
 	m.selectedMsg = 0
-	m.replyToIdx = 0
+	m.replyTo = msgRef{id: "orig-id"}
 	m.stageAttachment(path)
 
 	m.input.SetValue("check this out")
@@ -318,8 +318,8 @@ func TestSendWithAttachmentAndReplySendsCaptionSeparately(t *testing.T) {
 	if sendCmd == nil {
 		t.Fatal("sendCurrentInput returned nil, want the async upload+send command")
 	}
-	if m.replyToIdx != -1 {
-		t.Fatal("replyToIdx not cleared immediately on send")
+	if !m.replyTo.empty() {
+		t.Fatal("reply target not cleared immediately on send")
 	}
 	if len(m.pendingAttachments) != 0 {
 		t.Fatalf("pendingAttachments not cleared immediately on send: %#v", m.pendingAttachments)
@@ -406,7 +406,7 @@ func TestMultiAttachmentSendSplitsIntoSeparateMessages(t *testing.T) {
 		_ = cmd()
 	}
 	m.selectedMsg = 0
-	m.replyToIdx = 0
+	m.replyTo = msgRef{id: "orig-id"}
 	m.stageAttachment(pathA)
 	m.stageAttachment(pathB)
 
