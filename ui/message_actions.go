@@ -217,7 +217,13 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 
 	m.notifyTypingStopped()
 	m.restoreStashedDraft()
-	cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
+	// Re-read rather than reusing the chatIdx this function opened with: the
+	// send bumped the chat's activity, which re-sorts the list (see
+	// setChatLastMessage), and the old index now names a different chat -
+	// whose draft this would otherwise overwrite with the cleared input.
+	if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
+		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
+	}
 	m.updateSizes()
 	m.refreshViewport()
 	m.viewport.GotoBottom()
