@@ -282,6 +282,10 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		uiAccounts, err := client.listAccounts()
 		if err != nil {
 			slog.Warn("runTUI: loading accounts", "err", err)
+			// Say so in the UI: the model starts with no accounts, so a
+			// dropped snapshot otherwise looks exactly like having none
+			// configured.
+			p.Send(ui.AccountsSnapshotMsg{StartAccount: startAccountIdx, Err: err.Error()})
 			return
 		}
 		slog.Debug("runTUI: listAccounts done", "elapsed", time.Since(start))

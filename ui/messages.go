@@ -767,6 +767,12 @@ type AccountsSnapshotMsg struct {
 	// CallState is the daemon's current call state, if any was in progress
 	// when this client attached.
 	CallState *CallStateMsg
+
+	// Err is set instead of Accounts when the snapshot couldn't be fetched
+	// at all. Reported rather than dropped: the TUI starts with no accounts
+	// (see above), so a silently lost snapshot is indistinguishable from a
+	// user with no configured accounts - an empty sidebar and no clue why.
+	Err string
 }
 
 // AccountConnectedMsg is sent into the Bubble Tea loop once a configured

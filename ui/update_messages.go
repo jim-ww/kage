@@ -921,6 +921,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 
 	case AccountsSnapshotMsg:
+		if msg.Err != "" {
+			return m, m.showNotification("loading accounts: " + msg.Err), true
+		}
 		cmd := m.installAccounts(msg.Accounts, msg.StartAccount)
 		if msg.CallState != nil {
 			m, _ = m.handleCallStateMsg(*msg.CallState)
