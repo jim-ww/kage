@@ -166,6 +166,16 @@ func isActivityMsg(msg tea.Msg) bool {
 
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
+	// Captured before the idle bookkeeping below, which mutates m.idle. The
+	// state reported to the daemon is focused && !idle, so reading "old"
+	// after that mutation made every idle transition compare equal to itself
+	// and never get reported at all - leaving the idle fallback, the only
+	// thing covering terminals that don't send focus events (plain tmux
+	// among them), completely dead. The daemon then believed the open chat
+	// was on screen forever and suppressed its notifications.
+	oldFocused := m.focused && !m.idle
+	oldAccountJID, oldChatAddress := m.activeChatKey()
+
 	if im, ok := msg.(idleMsg); ok {
 		if im.gen == m.idleGen {
 			m.idle = true
@@ -180,8 +190,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	}
 
 	if m.focusReporter != nil {
-		oldFocused := m.focused && !m.idle
-		oldAccountJID, oldChatAddress := m.activeChatKey()
 		defer func() {
 			rm, ok := retModel.(Model)
 			if !ok {
