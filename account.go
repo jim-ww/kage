@@ -976,6 +976,11 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 
 	resyncPeerDeviceLists(ctx, sess, merged)
+	// Same healing refreshRoster does on reconnect - needed here too, since
+	// this is the path a fresh daemon start takes and a contact stuck at
+	// subscription=from would otherwise stay invisible until the first
+	// reconnect happened to fix it.
+	healLopsidedSubscriptions(ctx, sess, contacts, client.ResubscribeContact)
 	probeRosterPresence(ctx, client, merged)
 
 	return newChats, newMessages, newHistoryMore, nil
@@ -2169,12 +2174,9 @@ func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 				added = append(added, c.JID)
 			}
 		}
-		for jid, e := range entries {
-			if _, ok := live[jid]; ok || e.Subs == "" {
-				continue
-			}
+		removed = staleRosterEntries(entries, live)
+		for _, jid := range removed {
 			delete(entries, jid)
-			removed = append(removed, jid)
 		}
 	})
 
@@ -2189,7 +2191,7 @@ func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		slog.Debug("roster refresh found a new contact", "jid", s.account.JID, "contact", jid)
 		s.broadcastChat(ctx, srv, accountIdx, jid, live[jid])
 	}
-	healLopsidedSubscriptions(ctx, s, client, contacts)
+	healLopsidedSubscriptions(ctx, s, contacts, client.ResubscribeContact)
 
 	for _, jid := range removed {
 		slog.Debug("roster refresh dropped a contact the server no longer lists", "jid", s.account.JID, "contact", jid)
@@ -2218,15 +2220,53 @@ func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 // "none", so this can't turn into a request they get re-prompted for on
 // every reconnect, and "from" is not a state kage's own UI can otherwise
 // produce.
-func healLopsidedSubscriptions(ctx context.Context, s *accountSession, client *xmpp.Client, contacts []xmpp.Contact) {
+// resubscribe is client.ResubscribeContact, taken as a parameter so the
+// selection rule can be tested without a live client.
+func healLopsidedSubscriptions(
+	ctx context.Context, s *accountSession, contacts []xmpp.Contact,
+	resubscribe func(context.Context, string) error,
+) {
 	for _, c := range contacts {
 		if c.Subscription != "from" {
 			continue
 		}
-		if err := client.ResubscribeContact(ctx, c.JID); err != nil {
+		if err := resubscribe(ctx, c.JID); err != nil {
 			slog.Warn("re-requesting presence for a contact we can't see", "jid", s.account.JID, "contact", c.JID, "err", err)
 			continue
 		}
 		slog.Debug("re-requested presence for a contact stuck at subscription=from", "jid", s.account.JID, "contact", c.JID)
 	}
+}
+
+// staleRosterEntries returns the cached contacts that a freshly fetched
+// roster no longer lists, sorted for a stable order. live maps each fetched
+// contact's bare JID to its name.
+//
+// Two kinds of cached entry are never considered stale:
+//
+//   - one with an empty subscription. Those are the local-only chat rows
+//     ensureChat creates for someone who messaged us without being a
+//     contact; they were never in the server's roster to begin with, so its
+//     not listing them means nothing.
+//   - all of them, when the fetch came back with no contacts at all. "The
+//     user deleted every single contact" and "this response didn't actually
+//     carry the roster" look identical from here, and only one of them is
+//     plausible: kage doesn't request roster versioning (mellium's
+//     roster.Fetch sends no ver attribute, so the server always replies with
+//     the full list), but a future change there, or any server quirk, would
+//     otherwise silently wipe the whole roster. A genuinely emptied roster
+//     still reconciles through the removal pushes that emptied it.
+func staleRosterEntries(cached map[string]rosterEntry, live map[string]string) []string {
+	if len(live) == 0 {
+		return nil
+	}
+	var stale []string
+	for jid, e := range cached {
+		if _, ok := live[jid]; ok || e.Subs == "" {
+			continue
+		}
+		stale = append(stale, jid)
+	}
+	sort.Strings(stale)
+	return stale
 }
