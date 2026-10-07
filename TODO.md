@@ -1,10 +1,7 @@
 ## Bugs
 - after switching to new account, tray icon started showing 'new message' alert all the time
-- new message from unknown acc doesnt show up in chats, until full restart
 - message save as dialog doesnt ask path
-- presence statuses are still broken (online peers appear as offline sometimes)
 - cached avatars do not get deleted
-- received message appeared in notifications, but not in opened kage client/chat
 - focused state is broken, unread tray icon doesnt show (after switching focus from window), same thing other way, even when viewing chat, unread count in chats list AND unread tray icon appear (even though app open & chat focused)
 - call widget is ugly and unhelpful. some keybindings do not work
 - fix: rarely, cannot scroll past certain message and load older history
@@ -16,7 +13,6 @@
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - if tui relaunched, then calling statusbar not shown?
 - check how local/remote messages timestampt are handled?
-- contacts: resubscribe action does nothing?
 - avatars: check caching logic. sometimes, old avatars never get updated
 - adding account, or changing config file values imperatively from app, when config is managed by nix
 
