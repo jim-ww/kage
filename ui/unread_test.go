@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -146,6 +147,51 @@ func TestUnreadSkipsFocusedChatAndDecryptFailures(t *testing.T) {
 	m = next.(Model)
 	if got := m.chats.Items()[0].(Chat).Unread; got != 0 {
 		t.Fatalf("Unread after decrypt-failed message = %d, want 0", got)
+	}
+	if len(sender.persisted) != 0 {
+		t.Fatalf("SetChatUnread calls = %v, want none", sender.persisted)
+	}
+}
+
+// TestUnreadSkipsFocusedChatBelowTopOfList is the regression for "notification
+// appears and the tray badge lights while I”'m actively in the chat".
+//
+// The incoming message bumps its chat”'s activity, which re-sorts the list
+// (setChatLastMessage -> sortChatsByActivity) and moves it to the top from
+// wherever it was. Everything after that in the handler used the index taken
+// *before* the sort, so a chat open and focused anywhere but the top was
+// asked about under a stale index: it looked unfocused (counted unread, and
+// the count landed on whichever chat had taken that index) and off-screen (no
+// repaint).
+func TestUnreadSkipsFocusedChatBelowTopOfList(t *testing.T) {
+	sender := &fakeReadTrackerSender{}
+	m := newTestModelWithSender(sender, nil)
+	now := time.Now()
+	// alice sorts first, so the focused chat (bob) sits below the top.
+	alice := Chat{Name: "alice", Address: "alice@example.test", LastActivity: now}
+	bob := Chat{Name: "bob", Address: "bob@example.test", LastActivity: now.Add(-time.Hour)}
+	m.accounts = []Account{{Chats: []list.Item{alice, bob}, Messages: map[int][]Message{}}}
+	m.currentAccount = 0
+	m.chats.SetItems(m.accounts[0].Chats)
+	m.chats.Select(1)
+	m.selectedView = viewChat // bob is open and being read
+
+	next, cmd := m.Update(IncomingMessageMsg{AccountIdx: 0, From: bob.Address, Message: Message{ID: "m1", Content: "hi"}})
+	m = next.(Model)
+	runCmd(cmd)
+
+	// bob has just become the most recent, so it is now the top row - and
+	// the selection followed it there.
+	if got := m.chats.Items()[0].(Chat).Address; got != bob.Address {
+		t.Fatalf("top chat after the message = %q, want %q", got, bob.Address)
+	}
+	if got := m.chats.GlobalIndex(); got != 0 {
+		t.Fatalf("selected index after the sort = %d, want 0", got)
+	}
+	for _, item := range m.chats.Items() {
+		if chat := item.(Chat); chat.Unread != 0 {
+			t.Fatalf("Unread on %s = %d, want 0 - the chat was open and focused", chat.Address, chat.Unread)
+		}
 	}
 	if len(sender.persisted) != 0 {
 		t.Fatalf("SetChatUnread calls = %v, want none", sender.persisted)

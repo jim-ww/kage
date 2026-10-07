@@ -232,8 +232,12 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 					Pending: true,
 				}
 				msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
+				// Asked before setChatLastMessage: the activity bump it
+				// applies re-sorts the list, after which chatIdx names a
+				// different chat (see IncomingMessageMsg).
+				isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 				cmd = tea.Batch(cmd, m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(placeholder)))
-				if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+				if isOpenChat {
 					m.selectedMsg = len(msgs) - 1
 					m.refreshViewport()
 					m.viewport.GotoBottom()
@@ -293,6 +297,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsgs...)
 		var cmds []tea.Cmd
 		cmds = append(cmds, m.setChatLastMessage(msg.AccountIdx, chatIdx, lastContent))
+		// Re-resolved after the sort setChatLastMessage just applied - see
+		// IncomingMessageMsg.
+		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.To); chatIdx < 0 {
+			return m, tea.Batch(cmds...), true
+		}
 		if msg.Err != nil {
 			notification := "send failed: " + msg.Err.Error()
 			if msg.Err.Error() == uploadCanceledMsg {
@@ -336,6 +345,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		newMsg.ReplyToID = msg.ReplyToID
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		notice := m.showNotification("file sent: " + filepath.Base(msg.Path))
+		// Re-resolved after the sort setChatLastMessage just applied - see
+		// IncomingMessageMsg.
+		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.To); chatIdx < 0 {
+			return m, tea.Batch(lastMsgCmd, notice), true
+		}
 		// Same race as ComposedSendResultMsg's batch: the upload runs async,
 		// so the daemon's broadcast of this very message can land before the
 		// result does and already be in the chat.
@@ -408,10 +422,17 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		newMsg.ReplyToID = msg.ReplyToID
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
-		// Repainting and marking-as-read are two different questions with two
-		// different answers: the pane showing this chat has to repaint even
-		// when the chat list (or the accounts panel) is what holds the focus,
-		// but only actually viewing the chat makes the message read.
+		// The bumped activity just re-sorted the list (setChatLastMessage ->
+		// sortChatsByActivity), so every index into Chats is now a different
+		// chat: this message makes its chat the most recent, which moves it
+		// to the top of the unpinned block from wherever it was. Everything
+		// below asks about *this* chat, so it has to ask by address again -
+		// using the pre-sort index told the open, focused chat it wasn't on
+		// screen (no repaint) and counted the message as unread, against
+		// whichever chat had landed on the old index.
+		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.From); chatIdx < 0 {
+			return m, tea.Batch(typingCmd, cmd), true
+		}
 		if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
@@ -508,11 +529,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		msgs[idx].Encrypted = msg.Encrypted
 		msgs[idx].EncMethod = msg.EncMethod
 		msgs[idx].Edited = true
+		// Asked before setChatLastMessage: the activity bump it applies
+		// re-sorts the list, after which chatIdx names a different chat (see
+		// IncomingMessageMsg).
+		isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 		var cmd tea.Cmd
 		if idx == len(msgs)-1 {
 			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msgs[idx]))
 		}
-		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+		if isOpenChat {
 			m.refreshViewport()
 		}
 		return m, cmd, true
@@ -528,11 +553,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		msgs[idx].Retracted = true
+		// Asked before setChatLastMessage: the activity bump it applies
+		// re-sorts the list, after which chatIdx names a different chat (see
+		// IncomingMessageMsg).
+		isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 		var cmd tea.Cmd
 		if idx == len(msgs)-1 {
 			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, retractedPreview)
 		}
-		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+		if isOpenChat {
 			m.refreshViewport()
 		}
 		return m, cmd, true
@@ -617,8 +646,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				msgs[idx].Attachments = msg.Attachments
 			}
 		}
+		isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msgs[idx]))
-		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+		if isOpenChat {
 			m.refreshViewport()
 		}
 		return m, tea.Batch(cmd, lastMsgCmd), true
@@ -688,6 +718,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		msgs[idx].Reactions = msg.Reactions
+		// Asked before setChatLastMessage: the activity bump it applies
+		// re-sorts the list, after which chatIdx names a different chat (see
+		// IncomingMessageMsg).
+		isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 		var cmd tea.Cmd
 		if idx == len(msgs)-1 {
 			preview := MessagePreviewContent(msgs[idx])
@@ -696,7 +730,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			}
 			cmd = m.setChatLastMessage(msg.AccountIdx, chatIdx, preview)
 		}
-		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+		if isOpenChat {
 			m.refreshViewport()
 		}
 		return m, cmd, true
@@ -1011,6 +1045,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, msg.Messages...)
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msg.Messages[len(msg.Messages)-1]))
+		// Re-resolved after the sort, same as IncomingMessageMsg above.
+		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.From); chatIdx < 0 {
+			return m, lastMsgCmd, true
+		}
 		// Same repaint-vs-read split as IncomingMessageMsg above.
 		if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
