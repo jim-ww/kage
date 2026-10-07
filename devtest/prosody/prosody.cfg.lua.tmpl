@@ -14,6 +14,9 @@ s2s_require_encryption = false
 modules_enabled = {
 	"roster";
 	"saslauth";
+	"register"; -- XEP-0077 in-band registration; allow_registration above does
+	            -- nothing without it, and tests that need a pair of accounts
+	            -- with no shared history register throwaway ones per run
 	"dialback";
 	"tls";
 	"disco";
