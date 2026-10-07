@@ -49,7 +49,7 @@
               pname = "kage";
               version = v;
               src = pkgs.lib.cleanSource ./.;
-              vendorHash = "sha256-YACS2POFyXwhdWchf8AjPSxjGJcX3hP3ewykcvkCqqY=";
+              vendorHash = "sha256-sHCgerhTEp2k8Z6SlDV5M+gysS8QqcZa5cpQishwbgQ=";
 
               env.CGO_ENABLED = 1;
 
