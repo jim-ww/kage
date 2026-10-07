@@ -112,3 +112,35 @@ func TestInitSkipsEmptyFocusReportWhileAChatIsPending(t *testing.T) {
 		t.Fatalf("last focus report = %+v, want bob@example.test focused", last)
 	}
 }
+
+// TestSnapshotLandsAtTheBottomOfTheChat is the regression for the chat
+// opening scrolled to the oldest message of the loaded page: the TUI comes
+// up in viewChat with the cursor on the first row, so nothing ran
+// openCurrentChat (and so nothing scrolled to the live tail) for the chat
+// being read - the accounts snapshot only re-rendered the viewport, leaving
+// it at offset zero.
+func TestSnapshotLandsAtTheBottomOfTheChat(t *testing.T) {
+	msgs := make([]Message, 60)
+	for i := range msgs {
+		msgs[i] = Message{Content: "message body"}
+	}
+	m := newSnapshotTestModel(&fakeReadTrackerSender{}, "")
+	m.width, m.termHeight = 80, 20
+	m.updateSizes()
+
+	snapshot := snapshotWithChat(Chat{Name: "bob", Address: "bob@example.test"})
+	snapshot.Accounts[0].Messages = map[int][]Message{0: msgs}
+	next, cmd := m.Update(snapshot)
+	m = next.(Model)
+	runCmd(cmd)
+
+	if m.viewport.TotalLineCount() <= m.viewport.Height() {
+		t.Fatalf("test setup: content (%d lines) doesn't overflow the viewport (%d)", m.viewport.TotalLineCount(), m.viewport.Height())
+	}
+	if !m.viewport.AtBottom() {
+		t.Fatalf("viewport Y offset after the snapshot = %d, want the bottom (%d)", m.viewport.YOffset(), m.viewport.TotalLineCount()-m.viewport.Height())
+	}
+	if m.selectedMsg != len(msgs)-1 {
+		t.Fatalf("selectedMsg after the snapshot = %d, want the newest message (%d)", m.selectedMsg, len(msgs)-1)
+	}
+}

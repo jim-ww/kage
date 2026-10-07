@@ -931,18 +931,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		// already fires it once, before any account exists to open, so this
 		// is the attempt that can actually succeed.
 		openCmd := m.openPendingChat()
-		// With no last-opened chat to restore (open_last_chat disabled, or
-		// the chat is gone), the TUI still comes up *in* a chat: the list
-		// cursor defaults to the first row and the model starts in viewChat.
-		// Nothing called openCurrentChat for it, so clear its stored unread
-		// count here the way an explicit open would - the user is looking at
-		// the chat, and otherwise its chat-list badge and the tray dot stay
-		// lit for as long as the chat stays open.
-		var readCmd tea.Cmd
-		if openCmd == nil && m.selectedView == viewChat {
-			readCmd = m.resetChatUnread(m.currentAccount, m.currentChatIndex())
+		var landedCmd tea.Cmd
+		if openCmd == nil {
+			landedCmd = m.landedInChat()
 		}
-		return m, tea.Batch(cmd, openCmd, readCmd), true
+		return m, tea.Batch(cmd, openCmd, landedCmd), true
 
 	case AccountLiveMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {

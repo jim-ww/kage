@@ -802,6 +802,32 @@ func (m *Model) openPendingChat() tea.Cmd {
 	return nil
 }
 
+// landedInChat covers the chat the TUI comes up *in* without anything
+// having opened it: the model is constructed in viewChat with the chat
+// list's cursor on the first row (and runTUI builds it with no accounts at
+// all, so the chats only arrive with the snapshot), which means the user is
+// reading that chat although openCurrentChat never ran for it. So do the two
+// things opening it would have done - put the view on the newest message,
+// scrolled to the bottom, instead of leaving it at the top of the loaded
+// page, and clear the chat's stored unread count so its chat-list badge and
+// the tray dot don't stay lit on a chat being read.
+//
+// Only for the accounts snapshot, which happens once per attach: doing it on
+// any later chat arrival (AccountLiveMsg fires on every reconnect) would
+// yank the viewport to the bottom out from under someone paging through
+// history.
+func (m *Model) landedInChat() tea.Cmd {
+	if m.selectedView != viewChat || m.currentChatIndex() < 0 {
+		return nil
+	}
+	if msgs := m.currentMessages(); len(msgs) > 0 {
+		m.selectedMsg = len(msgs) - 1
+	}
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+	return m.resetChatUnread(m.currentAccount, m.currentChatIndex())
+}
+
 func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
@@ -823,8 +849,6 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	if msgs := m.currentMessages(); len(msgs) > 0 {
 		m.selectedMsg = len(msgs) - 1
 	}
-	m.refreshViewport()
-	m.viewport.GotoBottom()
 	if m.lastChatSetter != nil && m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
 		if chat, ok := m.currentChat(); ok {
 			_ = m.lastChatSetter.SetLastChat(m.accounts[m.currentAccount].Name, chat.Address)
@@ -832,6 +856,12 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	}
 	draftCmd := m.swapComposeDraft(m.currentAccount, m.currentChatIndex())
 	m.updateSizes()
+	// Rendered and scrolled after updateSizes, not before: swapping in this
+	// chat's draft changes the compose box's height and so the viewport's,
+	// and a bottom computed against the old height isn't the bottom once the
+	// pane has been resized under it.
+	m.refreshViewport()
+	m.viewport.GotoBottom()
 	unreadCmd := m.resetChatUnread(m.currentAccount, m.currentChatIndex())
 	return m, tea.Batch(draftCmd, unreadCmd, m.input.Focus(), jumpCmd)
 }
