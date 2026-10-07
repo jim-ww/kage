@@ -135,11 +135,27 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			return
 		}
 		if mgr == nil {
-			slog.Warn("received omemo message but omemo isn't ready", "from", msgEv.From, "jid", s.account.JID)
-			return
+			// Almost always a message arriving in the window between the
+			// account going live and setupOmemo finishing its PEP round
+			// trips - which took over five seconds on a slow server in the
+			// case this was diagnosed from. Waiting for it is the whole fix;
+			// the branch below is for an account whose setup genuinely never
+			// succeeded.
+			s.waitOmemoReady(ctx, omemoSetupGrace)
+			mgr = s.omemoManagerFor(protocol)
 		}
-		pt, err := mgr.DecryptMessage(ctx, enc)
-		if errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
+		if mgr == nil {
+			// Stored as a failure row rather than dropped. This used to
+			// return, which lost the message outright - no row, no UI, no
+			// trace beyond this line - while the MAM path recorded the same
+			// condition as a visible "[could not be decrypted]". Of the two,
+			// the visible one is right, for the reason spelled out below:
+			// a silently vanished message is indistinguishable from nothing
+			// having been sent.
+			slog.Warn("received omemo message but omemo isn't ready", "from", msgEv.From, "jid", s.account.JID)
+			body = "[message could not be decrypted: omemo isn't ready]"
+			decryptFailed = true
+		} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
 			// Not a real failure - this stanza just wasn't encrypted for this
 			// device's current key (e.g. it also targets other/older devices
 			// on the same account). Nothing was lost, so stay quiet instead

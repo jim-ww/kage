@@ -54,6 +54,15 @@ type accountSession struct {
 	omemoMgrV2 atomic.Pointer[omemolib.Manager]
 	omemoMgrV1 atomic.Pointer[omemolib.Manager]
 
+	// omemoReady is closed once setupOmemo has finished its first run for
+	// this account, so an OMEMO message arriving in the window between the
+	// account going live and that setup completing can wait for it instead
+	// of being treated as undecryptable (see waitOmemoReady). nil for a
+	// session nothing will ever signal - a test fixture, or any session not
+	// built by connectAccountLocal - in which case waiting is skipped.
+	omemoReady     chan struct{}
+	omemoReadyOnce sync.Once
+
 	// localKey is the AES-256 key message bodies are sealed under at rest
 	// (crypto/localstore), derived once in main from the local storage
 	// password and shared by every account.
@@ -724,10 +733,11 @@ func retryInitialConnect(ctx context.Context, srv *ipc.Server, a *adapter, idx i
 // Connecting set; the caller clears it once connectAccountLive finishes.
 func connectAccountLocal(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte) (*accountSession, ui.Account, error) {
 	sess := &accountSession{
-		account:  acct,
-		db:       queries,
-		gpg:      gpg.Encrypter{},
-		localKey: localKey,
+		account:    acct,
+		db:         queries,
+		gpg:        gpg.Encrypter{},
+		localKey:   localKey,
+		omemoReady: make(chan struct{}),
 	}
 
 	rows, err := queries.ListRoster(ctx, acct.JID)
@@ -2044,4 +2054,45 @@ func (s *accountSession) broadcastChat(ctx context.Context, srv *ipc.Server, acc
 		},
 		Messages: hist,
 	})
+}
+
+// omemoSetupGrace bounds how long an incoming OMEMO message waits for
+// setupOmemo to finish before being recorded as undecryptable. Generous on
+// purpose: setupOmemo is several PEP round trips (bundle publish, prekey
+// check, device-list fetch and publish) and was measured at over five
+// seconds against a real server under load. The cost of waiting is one
+// delayed message; the cost of not waiting used to be losing it.
+const omemoSetupGrace = 15 * time.Second
+
+// signalOmemoReady marks this account's OMEMO setup as finished. Idempotent:
+// setupOmemo runs again on every reconnect, and only the first run is what
+// anything waits for.
+func (s *accountSession) signalOmemoReady() {
+	if s.omemoReady == nil {
+		return
+	}
+	s.omemoReadyOnce.Do(func() { close(s.omemoReady) })
+}
+
+// waitOmemoReady blocks until this account's OMEMO setup has completed, ctx
+// is done, or d elapses - whichever comes first. A session with no readiness
+// channel (see omemoReady) returns immediately rather than waiting out d.
+func (s *accountSession) waitOmemoReady(ctx context.Context, d time.Duration) {
+	if s.omemoReady == nil {
+		return
+	}
+	select {
+	case <-s.omemoReady:
+		return
+	default:
+	}
+	slog.Debug("waiting for omemo setup to finish", "jid", s.account.JID, "timeout", d)
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-s.omemoReady:
+	case <-ctx.Done():
+	case <-timer.C:
+		slog.Warn("gave up waiting for omemo setup", "jid", s.account.JID, "timeout", d)
+	}
 }

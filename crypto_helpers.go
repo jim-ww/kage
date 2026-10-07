@@ -172,6 +172,7 @@ func setupOmemo(ctx context.Context, s *accountSession) {
 			client.FetchOmemoDeviceListV1, client.PublishOmemoDeviceListV1))
 	}()
 	wg.Wait()
+	s.signalOmemoReady()
 }
 
 // storeOmemoManager publishes a freshly built Manager, keeping the previous
