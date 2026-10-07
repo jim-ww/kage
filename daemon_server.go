@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jim-ww/kage/config"
@@ -449,6 +450,10 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 		if i < len(sessions) && sessions[i] != nil {
 			acct = sessions[i].account
 		}
+		// Per-account timing: this call is what a starting TUI waits on
+		// before it can draw, so when a launch feels slow the answer is
+		// almost always which account's local load took the time.
+		acctStart := time.Now()
 		_, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
 		if err != nil {
 			out[i] = toWireAccount(ui.Account{Name: acct.JID, Alias: acct.Alias, ConnectError: err.Error()})
@@ -458,12 +463,14 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 		if i < len(sessions) && sessions[i] != nil {
 			if client := sessions[i].client.Load(); client != nil && !client.Closed() {
 				uiAcct.Status = accountStatus(sessions[i].account.Status)
-				// Cached on the client after its first successful disco round
-				// trip (see xmpp.Client.InvisibleSupported), so this is cheap
-				// on every subsequent listAccounts call/TUI attach.
-				discoCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				uiAcct.SupportsInvisible = client.InvisibleSupported(discoCtx)
-				cancel()
+				// Cache-only, never a live disco round trip: a TUI cannot
+				// draw its first frame until this call returns, and asking
+				// here cost up to the full disco timeout per account against
+				// a slow server - seconds of blank terminal. connectAccountLive
+				// warms this off the critical path, and an account still
+				// connecting reports false here and is corrected by the
+				// AccountConnectedMsg that follows.
+				uiAcct.SupportsInvisible, _ = client.InvisibleSupportedCached()
 			}
 			// connectAccountLocal above rebuilds a fresh roster from disk
 			// (no Presence there — that's live-only state), so pull current
@@ -483,6 +490,7 @@ func (d *daemonServer) listAccounts(ctx context.Context) []wireAccount {
 			}
 		}
 		out[i] = toWireAccount(uiAcct)
+		slog.Debug("listAccounts: account snapshot built", "jid", acct.JID, "chats", len(uiAcct.Chats), "elapsed", time.Since(acctStart))
 	}
 
 	// A TUI attach is the one moment we know a human is about to look at

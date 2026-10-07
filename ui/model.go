@@ -572,6 +572,27 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		inputHeightOverride:        initialInputHeight,
 		filePicker:                 &picker,
 	}
+	m.installAccounts(accounts, startAccount)
+	if initialCallState != nil {
+		m, _ = m.handleCallStateMsg(*initialCallState)
+	}
+	return m
+}
+
+// installAccounts replaces the model's accounts with a daemon snapshot and
+// brings the derived view state in line with it.
+//
+// Shared by New and AccountsSnapshotMsg: the snapshot can arrive either way
+// (synchronously at construction, or later over IPC once the daemon has
+// built it), and the two must not drift - everything below has to happen
+// before anything indexes into the chat lists.
+func (m *Model) installAccounts(accounts []Account, startAccount int) tea.Cmd {
+	m.accounts = accounts
+	if startAccount < 0 || startAccount >= len(accounts) {
+		startAccount = 0
+	}
+	m.currentAccount = startAccount
+
 	// Hidden chats arrive flagged from the daemon; take them out of the
 	// lists before anything indexes into them — see ui/hidden_chats.go.
 	// The daemon snapshot's chat order isn't activity-sorted (the daemon
@@ -581,13 +602,10 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		m.stripHiddenChats(i)
 		m.sortChatsByActivity(i)
 	}
-	if len(m.accounts) > 0 {
-		m.chats.SetItems(m.accounts[startAccount].Chats)
+	if len(m.accounts) == 0 {
+		return nil
 	}
-	if initialCallState != nil {
-		m, _ = m.handleCallStateMsg(*initialCallState)
-	}
-	return m
+	return m.chats.SetItems(m.accounts[m.currentAccount].Chats)
 }
 
 // newAddAccountForm builds fresh, empty textinput.Model fields for the

@@ -348,10 +348,11 @@ type wireAccountAddedMsg struct {
 	Account wireAccount
 }
 type wireAccountLiveMsg struct {
-	Index          int
-	NewChats       []ui.Chat
-	NewMessages    map[int][]ui.Message
-	NewHistoryMore map[int]bool
+	Index             int
+	NewChats          []ui.Chat
+	NewMessages       map[int][]ui.Message
+	NewHistoryMore    map[int]bool
+	SupportsInvisible bool
 }
 type wireAccountConnectErrorMsg struct {
 	Index int

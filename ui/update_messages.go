@@ -887,12 +887,24 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, cmd, true
 
+	case AccountsSnapshotMsg:
+		cmd := m.installAccounts(msg.Accounts, msg.StartAccount)
+		if msg.CallState != nil {
+			m, _ = m.handleCallStateMsg(*msg.CallState)
+		}
+		m.refreshViewport()
+		// openPendingChat is what honours config's last-opened chat. Init
+		// already fires it once, before any account exists to open, so this
+		// is the attempt that can actually succeed.
+		return m, tea.Batch(cmd, m.openPendingChat()), true
+
 	case AccountLiveMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {
 			return m, nil, true
 		}
 		m.accounts[msg.Index].Connecting = false
 		m.accounts[msg.Index].ConnectError = ""
+		m.accounts[msg.Index].SupportsInvisible = msg.SupportsInvisible
 		var cmd tea.Cmd
 		if len(msg.NewChats) > 0 {
 			m.accounts[msg.Index].Chats = append(m.accounts[msg.Index].Chats, msg.NewChats...)

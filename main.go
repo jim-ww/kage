@@ -210,22 +210,6 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	quitting := make(chan struct{})
 	defer close(quitting)
 
-	start = time.Now()
-	uiAccounts, err := client.listAccounts()
-	if err != nil {
-		return err
-	}
-	slog.Debug("runTUI: listAccounts done", "elapsed", time.Since(start))
-	// Best-effort: a call already in progress on the daemon just means the
-	// status bar shows up a moment later, via the next live transition,
-	// rather than not launching at all.
-	start = time.Now()
-	initialCallState, err := client.getCallState()
-	if err != nil {
-		initialCallState = nil
-	}
-	slog.Debug("runTUI: getCallState done", "elapsed", time.Since(start))
-
 	openLastChatAddress := ""
 	startAccountIdx := cfg.DefaultAccountIndex()
 	lastChatAccountIdx := cfg.LastChatAccountIndex()
@@ -260,15 +244,50 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		AvatarsDisabled:         cfg.AvatarsDisabled,
 		AutoUnhideDisabled:      cfg.AutoUnhideDisabled,
 	}
-	model := ui.New(uiAccounts, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, initialCallState)
-	if len(uiAccounts) == 0 {
+	// Deliberately constructed with no accounts: fetching them is a round
+	// trip to the daemon that reads and decrypts a page of history per chat
+	// and can queue behind the daemon's own account connects, and nothing
+	// can be drawn until tea.Program starts. Waiting for it here left the
+	// terminal blank for as long as that took - seconds against a slow
+	// server. The snapshot arrives as ui.AccountsSnapshotMsg below.
+	model := ui.New(nil, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, nil)
+	if len(cfg.Accounts) == 0 {
 		// First run, or every account was removed: open straight into the
 		// add-account modal (defaults to login mode; ctrl+r switches to
 		// register) instead of a dead empty sidebar with no obvious way in.
+		// Decided from config rather than from the snapshot, which hasn't
+		// been fetched yet - the two agree, since the daemon reports one
+		// entry per configured account.
 		model = model.OpenAddAccountForm()
 	}
 	p := tea.NewProgram(model)
 	client.setProgram(p)
+
+	// p.Send blocks until p.Run's loop is draining, so this goroutine simply
+	// waits rather than dropping the snapshot if it wins the race.
+	go func() {
+		start := time.Now()
+		uiAccounts, err := client.listAccounts()
+		if err != nil {
+			slog.Warn("runTUI: loading accounts", "err", err)
+			return
+		}
+		slog.Debug("runTUI: listAccounts done", "elapsed", time.Since(start))
+		// Best-effort: a call already in progress on the daemon just means
+		// the status bar shows up a moment later, via the next live
+		// transition, rather than the snapshot not arriving at all.
+		callStart := time.Now()
+		initialCallState, err := client.getCallState()
+		if err != nil {
+			initialCallState = nil
+		}
+		slog.Debug("runTUI: getCallState done", "elapsed", time.Since(callStart))
+		p.Send(ui.AccountsSnapshotMsg{
+			Accounts:     uiAccounts,
+			StartAccount: startAccountIdx,
+			CallState:    initialCallState,
+		})
+	}()
 	slog.Debug("runTUI: ready to start bubbletea program", "elapsed", time.Since(launchStart))
 
 	// If the daemon goes away mid-session (crash, upgrade), don't leave the

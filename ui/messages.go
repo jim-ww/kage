@@ -748,6 +748,27 @@ type AccountRemoveErrorMsg struct {
 	Err   error
 }
 
+// AccountsSnapshotMsg delivers the daemon's initial account snapshot after
+// the program is already running.
+//
+// Building that snapshot is a round trip to the daemon, which reads and
+// decrypts a page of history per chat and can queue behind the daemon's own
+// account connects - so waiting for it before the first frame meant the
+// terminal sat blank for however long that took (seconds, against a slow
+// server). The UI starts on whatever is known from config alone and takes
+// this when it arrives.
+type AccountsSnapshotMsg struct {
+	Accounts []Account
+
+	// StartAccount is the account to display, from config (default account,
+	// or the one holding the last-opened chat).
+	StartAccount int
+
+	// CallState is the daemon's current call state, if any was in progress
+	// when this client attached.
+	CallState *CallStateMsg
+}
+
 // AccountConnectedMsg is sent into the Bubble Tea loop once a configured
 // account's *local* storage has been opened and its cached roster/history
 // loaded from disk — no network involved, so this is fast and lets local
@@ -773,6 +794,13 @@ type AccountLiveMsg struct {
 	NewChats       []list.Item
 	NewMessages    map[int][]Message // indices are relative to Chats *after* NewChats is appended
 	NewHistoryMore map[int]bool      // same indexing as NewMessages; whether older history exists beyond what's loaded
+
+	// SupportsInvisible carries the XEP-0186 disco result, resolved as part
+	// of going live. It rides along here because the snapshot a TUI gets on
+	// attach deliberately doesn't wait for that round trip (see
+	// daemonServer.listAccounts), so a client that attached while this
+	// account was still connecting learns the answer from this message.
+	SupportsInvisible bool
 }
 
 // AccountConnectErrorMsg is sent into the Bubble Tea loop when a configured

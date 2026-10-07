@@ -176,7 +176,17 @@ func (c *Client) InvisibleSupported(ctx context.Context) bool {
 
 	info, err := disco.GetInfo(ctx, "", c.JID.Domain(), c.session)
 	if err != nil {
+		// Cached as "no" rather than left unknown. The result is only used to
+		// decide whether to offer an invisible-status option, and a server
+		// that is slow or silent to disco#info used to make every caller pay
+		// this round trip's full timeout again - which, on the TUI-attach
+		// path, meant seconds of blank terminal before the first frame. The
+		// cache lives on the Client, so a reconnect (which builds a new one)
+		// asks again.
 		slog.Debug("checking invisible presence support", "jid", c.JID.String(), "err", err)
+		c.mu.Lock()
+		c.invisibleSupported, c.invisibleSupportedSet = false, true
+		c.mu.Unlock()
 		return false
 	}
 	supported := false
@@ -191,6 +201,20 @@ func (c *Client) InvisibleSupported(ctx context.Context) bool {
 	c.invisibleSupported, c.invisibleSupportedSet = supported, true
 	c.mu.Unlock()
 	return supported
+}
+
+// InvisibleSupportedCached reports what InvisibleSupported already knows,
+// without ever going to the network: ok is false if nothing has asked yet on
+// this connection.
+//
+// For callers on a latency-sensitive path (listAccounts, which a TUI blocks
+// on before it can draw anything) - they take "not known yet" over a
+// disco#info round trip, and pick the real value up from the account-connected
+// broadcast that follows.
+func (c *Client) InvisibleSupportedCached() (supported, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.invisibleSupported, c.invisibleSupportedSet
 }
 
 // SetInvisible sends XEP-0186 invisible presence: the stream stays fully

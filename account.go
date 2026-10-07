@@ -682,7 +682,7 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	// went out.
 	a.flushOutbox(ctx, sess)
 
-	broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore})
+	broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
 
 	// Start listening (and reconnecting on drop) right away, concurrently
 	// with syncArchive below - not after it. c.serve() has been reading the
@@ -731,7 +731,7 @@ func retryInitialConnect(ctx context.Context, srv *ipc.Server, a *adapter, idx i
 		}
 
 		slog.Debug("initial connect succeeded on retry", "jid", sess.account.JID)
-		broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore})
+		broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
 		go superviseAccount(ctx, srv, a, idx, sess)
 		a.flushOutbox(ctx, sess)
 
@@ -884,6 +884,19 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		start := time.Now()
 		setupOmemo(ctx, sess)
 		slog.Debug("setupOmemo done", "jid", sess.account.JID, "elapsed", time.Since(start))
+	}()
+
+	// Warmed here, in the background with everything else, so listAccounts
+	// never has to make this disco#info round trip itself - a TUI blocks on
+	// that call before it can draw its first frame.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		discoCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		start := time.Now()
+		supported := client.InvisibleSupported(discoCtx)
+		slog.Debug("invisible-presence support resolved", "jid", sess.account.JID, "supported", supported, "elapsed", time.Since(start))
 	}()
 
 	slog.Debug("fetching live roster", "jid", sess.account.JID)
@@ -2269,4 +2282,16 @@ func staleRosterEntries(cached map[string]rosterEntry, live map[string]string) [
 	}
 	sort.Strings(stale)
 	return stale
+}
+
+// invisibleSupported reports whether sess's server advertised XEP-0186, from
+// the cache connectAccountLive warmed - never a fresh round trip, since both
+// callers are on a broadcast path.
+func invisibleSupported(sess *accountSession) bool {
+	client := sess.client.Load()
+	if client == nil {
+		return false
+	}
+	supported, _ := client.InvisibleSupportedCached()
+	return supported
 }
