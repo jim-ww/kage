@@ -298,21 +298,20 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		var cmds []tea.Cmd
 		cmds = append(cmds, m.setChatLastMessage(msg.AccountIdx, chatIdx, lastContent))
 		// Re-resolved after the sort setChatLastMessage just applied - see
-		// IncomingMessageMsg.
-		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.To); chatIdx < 0 {
-			return m, tea.Batch(cmds...), true
-		}
+		// IncomingMessageMsg. Guarded rather than returned on, so a send
+		// failure is still reported even if the chat went away meanwhile.
+		chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.To)
 		if msg.Err != nil {
 			notification := "send failed: " + msg.Err.Error()
 			if msg.Err.Error() == uploadCanceledMsg {
 				notification = uploadCanceledMsg
 			}
 			cmds = append(cmds, m.showNotification(notification))
-			if placeholder, ok := failedAttachmentPlaceholder(msg); ok {
+			if placeholder, ok := failedAttachmentPlaceholder(msg); ok && chatIdx >= 0 {
 				msgs = m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
 			}
 		}
-		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+		if chatIdx >= 0 && msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
@@ -917,7 +916,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		cmd := m.sortChatsByActivity(msg.Index)
 		if msg.Index == m.currentAccount {
 			m.refreshViewport()
-			cmd = tea.Batch(cmd, m.openPendingChat())
+			cmd = tea.Batch(cmd, m.openPendingChat(), m.landedInChat())
 		}
 		return m, cmd, true
 
@@ -930,12 +929,12 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		// openPendingChat is what honours config's last-opened chat. Init
 		// already fires it once, before any account exists to open, so this
 		// is the attempt that can actually succeed.
-		openCmd := m.openPendingChat()
-		var landedCmd tea.Cmd
-		if openCmd == nil {
-			landedCmd = m.landedInChat()
-		}
-		return m, tea.Batch(cmd, openCmd, landedCmd), true
+		// Re-armed: an AccountConnectedMsg that beat the snapshot in (the
+		// daemon connects its accounts as the TUI attaches, so either order
+		// happens) may have landed against chats this snapshot just
+		// replaced, leaving the view mid-content.
+		m.landedOnce = false
+		return m, tea.Batch(cmd, m.openPendingChat(), m.landedInChat()), true
 
 	case AccountLiveMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {
@@ -960,7 +959,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		if msg.Index == m.currentAccount {
 			m.refreshViewport()
-			cmd = tea.Batch(cmd, m.openPendingChat())
+			cmd = tea.Batch(cmd, m.openPendingChat(), m.landedInChat())
 		}
 		return m, cmd, true
 

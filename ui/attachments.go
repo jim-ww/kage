@@ -101,8 +101,12 @@ func (m *Model) showFailedAttachmentPlaceholder(msg ComposedSendResultMsg) (tea.
 		return nil, false
 	}
 	msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
+	// Asked before setChatLastMessage: the activity bump it applies re-sorts
+	// the list, after which chatIdx names a different chat (see
+	// IncomingMessageMsg).
+	isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 	cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(placeholder))
-	if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+	if isOpenChat {
 		m.selectedMsg = len(msgs) - 1
 		m.refreshViewport()
 		m.viewport.GotoBottom()

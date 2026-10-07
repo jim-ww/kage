@@ -253,7 +253,13 @@ type Model struct {
 	// from it (config's auto_unhide_disabled).
 	autoUnhideDisabled bool
 	focusReporter      FocusReporter
-	callController     CallController
+	// landedOnce marks the one-time startup landing as done - see
+	// Model.landedInChat. Whichever message first brings the current
+	// account's chats in gets to put the view on the newest message; every
+	// later arrival (AccountLiveMsg fires on each reconnect) must leave the
+	// viewport where the user left it.
+	landedOnce     bool
+	callController CallController
 
 	// focused tracks whether the terminal currently has OS focus, reported
 	// by tea.FocusMsg/tea.BlurMsg (requires terminal support). Starts true

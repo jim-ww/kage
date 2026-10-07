@@ -784,6 +784,7 @@ func (m *Model) openPendingChat() tea.Cmd {
 	for i, item := range m.chats.Items() {
 		if chat, ok := item.(Chat); ok && chat.Address == addr {
 			m.pendingOpenChatAddress = ""
+			m.landedOnce = true
 			m.chats.Select(i)
 			model, cmd := m.openCurrentChat()
 			*m = model.(Model)
@@ -812,12 +813,23 @@ func (m *Model) openPendingChat() tea.Cmd {
 // page, and clear the chat's stored unread count so its chat-list badge and
 // the tray dot don't stay lit on a chat being read.
 //
-// Only for the accounts snapshot, which happens once per attach: doing it on
-// any later chat arrival (AccountLiveMsg fires on every reconnect) would
-// yank the viewport to the bottom out from under someone paging through
-// history.
+// Called from every message that can first bring the current account's chats
+// in - the snapshot, AccountConnectedMsg, AccountLiveMsg - since which one
+// wins the race depends on whether the daemon was already running. It only
+// ever acts once (landedOnce): any later chat arrival (AccountLiveMsg fires
+// on every reconnect) must leave the viewport where the user left it. The
+// snapshot re-arms it, being the attach-time truth about every account and
+// arriving before the user can have scrolled anywhere.
 func (m *Model) landedInChat() tea.Cmd {
-	if m.selectedView != viewChat || m.currentChatIndex() < 0 {
+	if m.landedOnce || m.currentChatIndex() < 0 {
+		return nil
+	}
+	m.landedOnce = true
+	// The restore had its chance and the chat wasn't there (hidden, or gone
+	// from the roster); dropping it keeps a much later chat arrival from
+	// yanking the user into it mid-session.
+	m.pendingOpenChatAddress = ""
+	if m.selectedView != viewChat {
 		return nil
 	}
 	if msgs := m.currentMessages(); len(msgs) > 0 {

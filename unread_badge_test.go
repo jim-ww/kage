@@ -9,6 +9,21 @@ import (
 	"github.com/jim-ww/kage/storage"
 )
 
+// resetUnreadBadge clears the process-global badge state (and the tray flag
+// derived from it) so a test asserting on daemon.Unread() reads only its own
+// writes, whatever ran before it in this package.
+func resetUnreadBadge(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		unreadBadge.mu.Lock()
+		unreadBadge.counts = nil
+		unreadBadge.mu.Unlock()
+		daemon.SetUnread(false)
+	}
+	clear()
+	t.Cleanup(clear)
+}
+
 func TestUnreadBadgeTracksLastUnreadChat(t *testing.T) {
 	tr := &unreadTracker{}
 	t.Cleanup(func() { daemon.SetUnread(false) })
@@ -85,13 +100,13 @@ func TestUnreadBadgeIgnoresHiddenChats(t *testing.T) {
 // row to open, so it has to go with the entry rather than re-lighting the
 // dot on every daemon start.
 func TestForgetChatDropsStoredUnreadCount(t *testing.T) {
+	resetUnreadBadge(t)
 	dir := t.TempDir()
 	dbConn, queries, err := storage.Open(filepath.Join(dir, "kage.db"))
 	if err != nil {
 		t.Fatalf("opening storage: %v", err)
 	}
 	t.Cleanup(func() { dbConn.Close() })
-	t.Cleanup(func() { daemon.SetUnread(false) })
 
 	ctx := context.Background()
 	const accountJID, peer = "me@example.com", "gone@example.com"
@@ -101,7 +116,6 @@ func TestForgetChatDropsStoredUnreadCount(t *testing.T) {
 		t.Fatalf("SetChatUnread: %v", err)
 	}
 	unreadBadge.set(accountJID, peer, 3)
-	t.Cleanup(func() { unreadBadge.forgetAccount(accountJID) })
 	if !daemon.Unread() {
 		t.Fatal("badge off with an unread chat")
 	}

@@ -144,3 +144,47 @@ func TestSnapshotLandsAtTheBottomOfTheChat(t *testing.T) {
 		t.Fatalf("selectedMsg after the snapshot = %d, want the newest message (%d)", m.selectedMsg, len(msgs)-1)
 	}
 }
+
+// TestLandingHappensOnceAndDropsThePendingChat guards the other side of
+// keeping the pending address alive past Init: once the TUI has landed in a
+// chat, a later chat arrival (AccountLiveMsg fires on every account
+// reconnect, not just the first) must not open that chat under the user or
+// move the viewport.
+func TestLandingHappensOnceAndDropsThePendingChat(t *testing.T) {
+	msgs := make([]Message, 60)
+	for i := range msgs {
+		msgs[i] = Message{Content: "message body"}
+	}
+	m := newSnapshotTestModel(&fakeReadTrackerSender{}, "carol@example.test")
+	m.width, m.termHeight = 80, 20
+	m.updateSizes()
+
+	// The snapshot has chats, but not the one that was pending.
+	snapshot := snapshotWithChat(Chat{Name: "bob", Address: "bob@example.test"})
+	snapshot.Accounts[0].Messages = map[int][]Message{0: msgs}
+	next, cmd := m.Update(snapshot)
+	m = next.(Model)
+	runCmd(cmd)
+	if m.pendingOpenChatAddress != "" {
+		t.Fatalf("pending chat address = %q, want it dropped once the TUI landed elsewhere", m.pendingOpenChatAddress)
+	}
+
+	// Scroll away, the way a user reading history would.
+	m.viewport.GotoTop()
+
+	// carol shows up on a later reconnect.
+	next, cmd = m.Update(AccountLiveMsg{
+		Index:    0,
+		NewChats: []list.Item{Chat{Name: "carol", Address: "carol@example.test"}},
+	})
+	m = next.(Model)
+	runCmd(cmd)
+
+	chat, ok := m.currentChat()
+	if !ok || chat.Address != "bob@example.test" {
+		t.Fatalf("open chat after the late arrival = %+v, want bob@example.test", chat)
+	}
+	if !m.viewport.AtTop() {
+		t.Fatalf("viewport Y offset = %d, want it left where the user scrolled (top)", m.viewport.YOffset())
+	}
+}

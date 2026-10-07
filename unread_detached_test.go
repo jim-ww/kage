@@ -29,7 +29,7 @@ func TestCountUnreadOnlyWhileNoTUIAttached(t *testing.T) {
 	const accountJID, peer = "me@example.com", "peer@example.com"
 	s := &accountSession{account: config.Account{JID: accountJID}, db: queries}
 	srv := ipc.NewServer()
-	t.Cleanup(func() { daemon.SetUnread(false) })
+	resetUnreadBadge(t)
 
 	unreadCount := func() int {
 		t.Helper()
