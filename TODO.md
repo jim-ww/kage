@@ -4,8 +4,6 @@
 - cached avatars do not get deleted
 - focused state is broken, unread tray icon doesnt show (after switching focus from window), same thing other way, even when viewing chat, unread count in chats list AND unread tray icon appear (even though app open & chat focused)
 - call widget is ugly and unhelpful. some keybindings do not work
-- fix: rarely, cannot scroll past certain message and load older history
-- non-focused state of app, with open chat doesnt send notifications?
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
 - account manager: fix adding duplicate accounts
 - make sure user can paste to all textinputs (e.g. account add JID/password)
@@ -28,10 +26,12 @@
 - search window doesnt have vim bindings.
 
 ## Refactor
+- live tests share the alice/bob devtest accounts, so `go test -tags integration ./...` is flaky two ways: packages run in parallel and fight over the same roster/archive, and MAM paging tests depend on an archive that grows every run. give each test its own throwaway accounts (see newThrowawayAccount) or reset devtest/prosody/data per run
 - create generic ui components and reuse them across repo:
   many ui places of app have its own one-off modals, instead of sharing single, well defined and dynamic modal component. and beside modal rendering itself, we also need proper 'list' component. not using random bullshit in every place.
 
 ## Features
+- contacts: show subscription state (pending/none/both) - the UI has no way to tell a request is outstanding
 - should also encrypt saved attachments?
 - disable/mute notifications per-contact
 - block/unblock contacts
