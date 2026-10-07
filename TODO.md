@@ -1,4 +1,8 @@
 ## Bugs
+- after switching to new account, tray icon started showing 'new message' alert all the time
+- new message from unknown acc doesnt show up in chats, until full restart
+- message save as dialog doesnt ask path
+- presence statuses are still broken (online peers appear as offline sometimes)
 - cached avatars do not get deleted
 - received message appeared in notifications, but not in opened kage client/chat
 - focused state is broken, unread tray icon doesnt show (after switching focus from window), same thing other way, even when viewing chat, unread count in chats list AND unread tray icon appear (even though app open & chat focused)
@@ -32,6 +36,7 @@
   many ui places of app have its own one-off modals, instead of sharing single, well defined and dynamic modal component. and beside modal rendering itself, we also need proper 'list' component. not using random bullshit in every place.
 
 ## Features
+- should also encrypt saved attachments?
 - disable/mute notifications per-contact
 - block/unblock contacts
 - archive contact chats? integrate that together with existing 'hide' feature? e.g. hidden == archived
