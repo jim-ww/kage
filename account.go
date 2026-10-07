@@ -1211,6 +1211,11 @@ func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 				// outage swallowed the one sync that would have caught it - stays
 				// invisible until the app is fully restarted.
 				setupOmemo(ctx, s)
+				// Before anything that reads the roster cache below, and
+				// not just to refresh it: see refreshRoster for why a
+				// reconnected stream is deaf to roster pushes until it has
+				// asked for the roster once.
+				refreshRoster(ctx, a.srv, s.accountIdx, s, client)
 				resyncPeerDeviceLists(ctx, s, derefRoster(s.roster.Load()))
 				probeRosterPresence(ctx, client, derefRoster(s.roster.Load()))
 				slog.Debug("account reconnected", "jid", s.account.JID)
@@ -2114,5 +2119,114 @@ func (s *accountSession) waitOmemoReady(ctx context.Context, d time.Duration) {
 	case <-timer.C:
 		s.omemoWaitGaveUp.Store(true)
 		slog.Warn("gave up waiting for omemo setup; will not wait again until it succeeds", "jid", s.account.JID, "timeout", d)
+	}
+}
+
+// refreshRoster re-fetches the live roster onto an already-connected
+// session, reconciling the cache, local storage and any attached UI with
+// what the server actually holds.
+//
+// The refresh is the lesser half of why this exists. RFC 6121 §2.1.6 only
+// sends roster pushes to a connection's "interested resources" - a resource
+// becomes interested by asking for the roster at least once (§2.2), and a
+// stream that never does gets no pushes for its whole life. connectAccountLive
+// asks as part of building the initial chat list, so a first connection is
+// interested; reconnectWithBackoff builds a brand-new stream and did not,
+// so every reconnect used to permanently deafen the account to roster
+// changes. Reconnects are routine (a dropped keepalive is enough), which is
+// why a contact appearing or a subscription completing seemed to need a full
+// restart rather than just reconnecting.
+//
+// Contacts the server no longer lists are dropped, which is also how a
+// deletion made from another client while we were offline finally lands.
+// Entries with an empty subscription are left alone: those are the
+// local-only chat rows ensureChat creates for someone who messaged us
+// without being a contact, and they were never in the server's roster to
+// begin with.
+func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client) {
+	contacts, err := client.Roster(ctx)
+	if err != nil {
+		slog.Warn("refreshing roster", "jid", s.account.JID, "err", err)
+		return
+	}
+	slog.Debug("roster refreshed", "jid", s.account.JID, "contacts", len(contacts))
+
+	live := make(map[string]string, len(contacts))
+	for _, c := range contacts {
+		live[c.JID] = c.Name
+	}
+
+	var added, removed []string
+	s.mutateRoster(func(entries map[string]rosterEntry) {
+		for _, c := range contacts {
+			e, known := entries[c.JID]
+			// Only the fields the roster IQ is authoritative for, so a
+			// presence stanza processed while the fetch was in flight isn't
+			// rolled back (same reasoning as connectAccountLive).
+			e.Name, e.Subs = c.Name, c.Subscription
+			entries[c.JID] = e
+			if !known {
+				added = append(added, c.JID)
+			}
+		}
+		for jid, e := range entries {
+			if _, ok := live[jid]; ok || e.Subs == "" {
+				continue
+			}
+			delete(entries, jid)
+			removed = append(removed, jid)
+		}
+	})
+
+	for _, c := range contacts {
+		if err := s.db.UpsertRoster(ctx, storage.UpsertRosterParams{
+			AccountJid: s.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
+		}); err != nil {
+			slog.Warn("persisting refreshed roster entry", "jid", c.JID, "err", err)
+		}
+	}
+	for _, jid := range added {
+		slog.Debug("roster refresh found a new contact", "jid", s.account.JID, "contact", jid)
+		s.broadcastChat(ctx, srv, accountIdx, jid, live[jid])
+	}
+	healLopsidedSubscriptions(ctx, s, client, contacts)
+
+	for _, jid := range removed {
+		slog.Debug("roster refresh dropped a contact the server no longer lists", "jid", s.account.JID, "contact", jid)
+		if err := s.db.DeleteRosterByJID(ctx, storage.DeleteRosterByJIDParams{
+			AccountJid: s.account.JID, Jid: jid,
+		}); err != nil {
+			slog.Warn("deleting roster entry after roster refresh", "contact", jid, "err", err)
+		}
+		broadcast(srv, evChatRemoved, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: jid})
+	}
+}
+
+// healLopsidedSubscriptions re-requests presence for every contact stuck at
+// subscription="from" - they can see us, we can't see them, so they show as
+// permanently offline.
+//
+// approveAndReciprocate already asks for presence the moment an inbound
+// request is approved, but that is a single attempt against a server
+// reconciling several subscription changes at once, and a request that gets
+// swallowed in that window leaves the contact looking offline forever with
+// nothing to retry it. Re-asking on every roster refresh (so: every connect
+// and every reconnect) makes the recovery idempotent instead of relying on
+// one stanza landing at the right moment.
+//
+// Only "from" is healed. A contact who actually declined us is left at
+// "none", so this can't turn into a request they get re-prompted for on
+// every reconnect, and "from" is not a state kage's own UI can otherwise
+// produce.
+func healLopsidedSubscriptions(ctx context.Context, s *accountSession, client *xmpp.Client, contacts []xmpp.Contact) {
+	for _, c := range contacts {
+		if c.Subscription != "from" {
+			continue
+		}
+		if err := client.ResubscribeContact(ctx, c.JID); err != nil {
+			slog.Warn("re-requesting presence for a contact we can't see", "jid", s.account.JID, "contact", c.JID, "err", err)
+			continue
+		}
+		slog.Debug("re-requested presence for a contact stuck at subscription=from", "jid", s.account.JID, "contact", c.JID)
 	}
 }
