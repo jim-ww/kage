@@ -703,7 +703,14 @@ func (m Model) Init() tea.Cmd {
 	// would otherwise never notice this as a "change" and the daemon would
 	// keep assuming no chat is open (its post-disconnect default) until the
 	// user does something that actually changes focus/chat.
-	if m.focusReporter != nil {
+	//
+	// Skipped while a chat is still pending: with no accounts loaded yet
+	// (runTUI builds the model without them) activeChatKey has no chat to
+	// name, and reporting that emptiness would undo the starting chat runTUI
+	// already reported from config - re-opening the notification window this
+	// report exists to close. The snapshot that loads the accounts reports
+	// the real state a moment later either way.
+	if m.focusReporter != nil && (len(m.accounts) > 0 || m.pendingOpenChatAddress == "") {
 		accountJID, chatAddress := m.activeChatKey()
 		focused := m.focused && !m.idle
 		reporter := m.focusReporter

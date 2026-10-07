@@ -82,3 +82,33 @@ func TestSnapshotClearsUnreadOnTheChatItLandsIn(t *testing.T) {
 		t.Fatalf("ResetChatUnread calls = %d, want 1", sender.resets)
 	}
 }
+
+// TestInitSkipsEmptyFocusReportWhileAChatIsPending guards the startup
+// notification window: runTUI reports the chat it is coming up in (from
+// config) before the model exists, so Init must not overwrite that with the
+// empty key activeChatKey necessarily returns while no account is loaded -
+// the daemon would then believe nobody is watching that chat and notify for
+// messages the user is looking at.
+func TestInitSkipsEmptyFocusReportWhileAChatIsPending(t *testing.T) {
+	m := newSnapshotTestModel(&fakeSuccessSender{}, "bob@example.test")
+	reporter := &recordingFocusReporter{}
+	m.focusReporter = reporter
+
+	drainCmds(m.Init())
+	if len(reporter.calls) != 0 {
+		t.Fatalf("focus reports from Init = %v, want none while the chat is pending", reporter.calls)
+	}
+
+	// Once the accounts land and the pending chat opens, the real state goes
+	// out as usual.
+	next, cmd := m.Update(snapshotWithChat(Chat{Name: "bob", Address: "bob@example.test"}))
+	m = next.(Model)
+	drainCmds(cmd)
+	if len(reporter.calls) == 0 {
+		t.Fatal("no focus report after the snapshot opened the chat")
+	}
+	last := reporter.calls[len(reporter.calls)-1]
+	if last.chatAddress != "bob@example.test" || !last.focused {
+		t.Fatalf("last focus report = %+v, want bob@example.test focused", last)
+	}
+}

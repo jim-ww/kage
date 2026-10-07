@@ -217,6 +217,17 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		openLastChatAddress = cfg.State.LastChatAddress
 		startAccountIdx = lastChatAccountIdx
 	}
+	// Tell the daemon which chat this TUI is coming up in before the model
+	// exists, let alone its accounts: ui.Model's own report can't name a chat
+	// until the snapshot lands (several seconds against a slow server - see
+	// below), and until something names one the daemon rightly assumes
+	// nobody is watching and fires a desktop notification for the chat the
+	// user is in fact staring at.
+	if openLastChatAddress != "" {
+		if err := client.SetFocusState(cfg.Accounts[startAccountIdx].JID, openLastChatAddress, true); err != nil {
+			slog.Warn("runTUI: reporting the starting chat to the daemon", "err", err)
+		}
+	}
 	ui.AttachmentsDir = cfg.AttachmentsDir
 	if err := ui.SetContactColors(cfg.ContactColors); err != nil {
 		// Not fatal: the rest of the colors still apply, and a typo in one
