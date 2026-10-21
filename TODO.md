@@ -31,6 +31,7 @@
   many ui places of app have its own one-off modals, instead of sharing single, well defined and dynamic modal component. and beside modal rendering itself, we also need proper 'list' component. not using random bullshit in every place.
 
 ## Features
+- media previews: for images, videos, links
 - contacts: show subscription state (pending/none/both) - the UI has no way to tell a request is outstanding
 - should also encrypt saved attachments?
 - disable/mute notifications per-contact
