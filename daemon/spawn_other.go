@@ -40,3 +40,6 @@ func Stop() (ok bool, err error) {
 
 // Notify is a no-op outside Linux; see EnsureRunning.
 func Notify(title, body string) {}
+
+// SetUnread is a no-op outside Linux; see EnsureRunning.
+func SetUnread(unread bool) {}
