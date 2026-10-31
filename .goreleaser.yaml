@@ -20,7 +20,7 @@ builds:
   # call support (mic capture via malgo, playback via oto) needs it - see
   # call/audio_cgo.go.
   - id: linux-amd64
-    main: ./...
+    main: .
     env:
       - CGO_ENABLED=1
     goos:
@@ -34,7 +34,7 @@ builds:
   # call/audio_nocgo.go's stub kicks in: voice calls are unavailable in
   # these builds.
   - id: linux-cross
-    main: ./...
+    main: .
     env:
       - CGO_ENABLED=0
     goos:
@@ -44,7 +44,7 @@ builds:
       - "386"
 
   - id: windows
-    main: ./...
+    main: .
     env:
       - CGO_ENABLED=0
     goos:
@@ -55,7 +55,7 @@ builds:
       - "386"
 
   - id: darwin
-    main: ./...
+    main: .
     env:
       - CGO_ENABLED=0
     goos:
