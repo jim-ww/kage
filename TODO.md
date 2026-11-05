@@ -1,4 +1,6 @@
 ## Bugs
+- own messages increment chat unread count
+- cant erase chat inputbox with SHIFT key down
 - after switching to new account, tray icon started showing 'new message' alert all the time
 - message save as dialog doesnt ask path
 - cached avatars do not get deleted
@@ -31,6 +33,7 @@
   many ui places of app have its own one-off modals, instead of sharing single, well defined and dynamic modal component. and beside modal rendering itself, we also need proper 'list' component. not using random bullshit in every place.
 
 ## Features
+- add more clear mic/video
 - media previews: for images, videos, links
 - contacts: show subscription state (pending/none/both) - the UI has no way to tell a request is outstanding
 - should also encrypt saved attachments?
