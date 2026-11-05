@@ -25,7 +25,6 @@ const (
 	rpcSetInputHeight           = "SetInputHeight"
 	rpcSetFilePickerSort        = "SetFilePickerSort"
 	rpcSetLastChat              = "SetLastChat"
-	rpcSetChatUnread            = "SetChatUnread"
 	rpcResetChatUnread          = "ResetChatUnread"
 	rpcChatUnreadCounts         = "ChatUnreadCounts"
 	rpcSaveDraft                = "SaveDraft"
@@ -84,6 +83,7 @@ const (
 	evAccountLive          = "AccountLive"
 	evAccountConnectError  = "AccountConnectError"
 	evHistorySynced        = "HistorySynced"
+	evChatUnread           = "ChatUnread"
 	evHistorySyncStarted   = "HistorySyncStarted"
 	evHistorySyncFinished  = "HistorySyncFinished"
 	evIncomingCall         = "IncomingCall"
@@ -150,10 +150,6 @@ type filePickerSortParams struct {
 	Ascending bool
 }
 type setLastChatParams struct{ AccountJID, ChatAddress string }
-type chatUnreadCountParams struct {
-	AccountJID, ChatAddress string
-	Count                   int
-}
 type accountJIDParams struct{ AccountJID string }
 type chatUnreadCountsResult struct{ Counts map[string]int }
 type saveDraftParams struct{ AccountJID, ChatAddress, Text string }

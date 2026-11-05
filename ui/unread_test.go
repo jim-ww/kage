@@ -63,16 +63,10 @@ func nonIdleCmd(cmd tea.Cmd) tea.Msg {
 
 // fakeReadTrackerSender combines fakeSuccessSender with ChatReadTracker so
 // New's sender.(ChatReadTracker) type assertion picks it up, and records
-// calls so persistence can be asserted alongside in-memory state.
+// resets so persistence can be asserted alongside in-memory state.
 type fakeReadTrackerSender struct {
 	fakeSuccessSender
-	persisted []int // counts passed to SetChatUnread, in order
-	resets    int
-}
-
-func (f *fakeReadTrackerSender) SetChatUnread(accountJID, chatAddress string, count int) error {
-	f.persisted = append(f.persisted, count)
-	return nil
+	resets int
 }
 
 func (f *fakeReadTrackerSender) ResetChatUnread(accountJID, chatAddress string) error {
@@ -84,72 +78,79 @@ func (f *fakeReadTrackerSender) ChatUnreadCounts(accountJID string) (map[string]
 	return nil, nil
 }
 
-// TestUnreadIncrementsOnUnfocusedIncoming guards that a message arriving for
-// a chat that isn't the actively-focused one bumps Chat.Unread, both in
-// memory and via ChatReadTracker, while an own ("IsMe") message never does.
-func TestUnreadIncrementsOnUnfocusedIncoming(t *testing.T) {
-	sender := &fakeReadTrackerSender{}
+// newUnreadTestModel is one account (me@example.test) with a single chat
+// with bob, shown in view.
+func newUnreadTestModel(sender *fakeReadTrackerSender, view selectedView) Model {
 	m := newTestModelWithSender(sender, nil)
 	chat := Chat{Address: "bob@example.test"}
-	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	m.accounts = []Account{{Name: "me@example.test", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
 	m.currentAccount = 0
 	m.chats.SetItems(m.accounts[0].Chats)
-	m.selectedView = viewChats // chat list focused, not the chat itself
+	m.chats.Select(0)
+	m.selectedView = view
+	return m
+}
+
+func unreadOf(m Model) int {
+	return m.chats.Items()[0].(Chat).Unread
+}
+
+// TestChatUnreadMsgSetsCount guards that the chat list shows whatever count
+// the daemon pushes, including a zero from another client having read the
+// chat, and that an incoming message alone never counts: the daemon does
+// that, since only it knows whether any attached TUI is reading the chat.
+func TestChatUnreadMsgSetsCount(t *testing.T) {
+	sender := &fakeReadTrackerSender{}
+	m := newUnreadTestModel(sender, viewChats)
 
 	next, cmd := m.Update(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.test", Message: Message{ID: "m1", Content: "hi"}})
 	m = next.(Model)
 	runCmd(cmd)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 1 {
-		t.Fatalf("Unread after first incoming = %d, want 1", got)
-	}
-	if len(sender.persisted) != 1 || sender.persisted[0] != 1 {
-		t.Fatalf("SetChatUnread calls = %v, want [1]", sender.persisted)
+	if got := unreadOf(m); got != 0 {
+		t.Fatalf("Unread after an incoming message alone = %d, want 0", got)
 	}
 
-	next, cmd = m.Update(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.test", Message: Message{ID: "m2", Content: "again"}})
+	next, cmd = m.Update(ChatUnreadMsg{AccountJID: "me@example.test", ChatAddress: "bob@example.test", Count: 2})
 	m = next.(Model)
 	runCmd(cmd)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 2 {
-		t.Fatalf("Unread after second incoming = %d, want 2", got)
+	if got := unreadOf(m); got != 2 {
+		t.Fatalf("Unread after ChatUnreadMsg = %d, want 2", got)
 	}
 
-	// An own/outgoing message must never count as unread.
-	next, cmd = m.Update(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.test", Message: Message{ID: "m3", Content: "me", IsMe: true}})
+	// Another account's chat with the same address is left alone.
+	next, cmd = m.Update(ChatUnreadMsg{AccountJID: "other@example.test", ChatAddress: "bob@example.test", Count: 5})
 	m = next.(Model)
 	runCmd(cmd)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 2 {
-		t.Fatalf("Unread after own message = %d, want unchanged 2", got)
+	if got := unreadOf(m); got != 2 {
+		t.Fatalf("Unread after another account's ChatUnreadMsg = %d, want 2", got)
+	}
+
+	next, cmd = m.Update(ChatUnreadMsg{AccountJID: "me@example.test", ChatAddress: "bob@example.test"})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := unreadOf(m); got != 0 {
+		t.Fatalf("Unread after the chat was read elsewhere = %d, want 0", got)
+	}
+	if sender.resets != 0 {
+		t.Fatalf("ResetChatUnread calls = %d, want 0", sender.resets)
 	}
 }
 
-// TestUnreadSkipsFocusedChatAndDecryptFailures guards two exclusions: a
-// message for the chat currently being viewed shouldn't count (the user is
-// already looking at it), and an undecryptable-placeholder message never
-// counts since opening the chat won't reveal any more content.
-func TestUnreadSkipsFocusedChatAndDecryptFailures(t *testing.T) {
+// TestChatUnreadMsgOnReadChatResets covers a count the daemon made before it
+// heard this client had opened the chat (focus is reported asynchronously):
+// the chat is being read, so it's cleared rather than shown.
+func TestChatUnreadMsgOnReadChatResets(t *testing.T) {
 	sender := &fakeReadTrackerSender{}
-	m := newTestModelWithSender(sender, nil)
-	chat := Chat{Address: "bob@example.test"}
-	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
-	m.currentAccount = 0
-	m.chats.SetItems(m.accounts[0].Chats)
-	m.chats.Select(0)
-	m.selectedView = viewChat // actively viewing this chat
+	m := newUnreadTestModel(sender, viewChat)
 
-	next, _ := m.Update(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.test", Message: Message{ID: "m1", Content: "hi"}})
+	next, cmd := m.Update(ChatUnreadMsg{AccountJID: "me@example.test", ChatAddress: "bob@example.test", Count: 1})
 	m = next.(Model)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 0 {
-		t.Fatalf("Unread while chat focused = %d, want 0", got)
+	runCmd(cmd)
+	if got := unreadOf(m); got != 0 {
+		t.Fatalf("Unread on the chat being read = %d, want 0", got)
 	}
-
-	m.selectedView = viewChats // unfocus, then a decrypt failure arrives
-	next, _ = m.Update(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.test", Message: Message{ID: "m2", Content: "[message could not be decrypted: x]", DecryptFailed: true}})
-	m = next.(Model)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 0 {
-		t.Fatalf("Unread after decrypt-failed message = %d, want 0", got)
-	}
-	if len(sender.persisted) != 0 {
-		t.Fatalf("SetChatUnread calls = %v, want none", sender.persisted)
+	if sender.resets != 1 {
+		t.Fatalf("ResetChatUnread calls = %d, want 1", sender.resets)
 	}
 }
 
@@ -192,9 +193,6 @@ func TestUnreadSkipsFocusedChatBelowTopOfList(t *testing.T) {
 		if chat := item.(Chat); chat.Unread != 0 {
 			t.Fatalf("Unread on %s = %d, want 0 - the chat was open and focused", chat.Address, chat.Unread)
 		}
-	}
-	if len(sender.persisted) != 0 {
-		t.Fatalf("SetChatUnread calls = %v, want none", sender.persisted)
 	}
 }
 
@@ -245,40 +243,6 @@ func TestUnreadResetPersistsWhenAlreadyZeroLocally(t *testing.T) {
 	}
 }
 
-// TestUnreadCountsHistorySyncBatch guards the MAM catch-up path
-// (HistorySyncedMsg): messages delivered this way while the chat isn't
-// focused count toward unread too (they can be genuinely new messages that
-// arrived while offline, not just historical replay), except own messages
-// and decrypt failures within the batch.
-func TestUnreadCountsHistorySyncBatch(t *testing.T) {
-	sender := &fakeReadTrackerSender{}
-	m := newTestModelWithSender(sender, nil)
-	chat := Chat{Address: "bob@example.test"}
-	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
-	m.currentAccount = 0
-	m.chats.SetItems(m.accounts[0].Chats)
-	m.selectedView = viewChats
-
-	next, cmd := m.Update(HistorySyncedMsg{
-		AccountIdx: 0,
-		From:       "bob@example.test",
-		Messages: []Message{
-			{ID: "h1", Content: "one"},
-			{ID: "h2", Content: "me", IsMe: true},
-			{ID: "h3", Content: "[message could not be decrypted: x]", DecryptFailed: true},
-			{ID: "h4", Content: "two"},
-		},
-	})
-	m = next.(Model)
-	runCmd(cmd)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 2 {
-		t.Fatalf("Unread after history sync batch = %d, want 2", got)
-	}
-	if len(sender.persisted) != 1 || sender.persisted[0] != 2 {
-		t.Fatalf("SetChatUnread calls = %v, want [2]", sender.persisted)
-	}
-}
-
 // TestChatDescriptionShowsUnreadCount guards the chat-list description
 // prefix used to surface the unread badge.
 func TestChatDescriptionShowsUnreadCount(t *testing.T) {
@@ -297,41 +261,34 @@ func TestChatDescriptionShowsUnreadCount(t *testing.T) {
 }
 
 // TestUnreadWhileTerminalUnfocusedAndClearedOnReturn pins the UI's "read"
-// rule against the daemon's: the daemon notifies for a message whenever no
-// client reports itself focused on that chat (FocusReporter, gated on
-// focused && !idle), so a chat left open in a terminal the user has switched
-// away from must count the message as unread too - otherwise a notification
-// arrives with nothing lit anywhere. Returning to the terminal marks it read.
+// rule against the daemon's: the daemon counts a message whenever no client
+// reports itself focused on that chat (FocusReporter, gated on focused &&
+// !idle), so a chat left open in a terminal the user has switched away from
+// shows the count. Returning to the terminal marks it read.
 func TestUnreadWhileTerminalUnfocusedAndClearedOnReturn(t *testing.T) {
 	sender := &fakeReadTrackerSender{}
-	m := newTestModelWithSender(sender, nil)
-	chat := Chat{Address: "bob@example.test"}
-	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
-	m.currentAccount = 0
-	m.chats.SetItems(m.accounts[0].Chats)
-	m.chats.Select(0)
-	m.selectedView = viewChat // the chat is open and on screen the whole time
+	m := newUnreadTestModel(sender, viewChat) // open and on screen the whole time
 
 	// The user switches away from the terminal.
 	next, cmd := m.Update(tea.BlurMsg{})
 	m = next.(Model)
 	runCmd(cmd)
 
-	next, cmd = m.Update(IncomingMessageMsg{AccountIdx: 0, From: chat.Address, Message: Message{ID: "m1", Content: "hi"}})
+	next, cmd = m.Update(ChatUnreadMsg{AccountJID: "me@example.test", ChatAddress: "bob@example.test", Count: 1})
 	m = next.(Model)
 	runCmd(cmd)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 1 {
+	if got := unreadOf(m); got != 1 {
 		t.Fatalf("Unread while the terminal was unfocused = %d, want 1", got)
 	}
-	if len(sender.persisted) != 1 || sender.persisted[0] != 1 {
-		t.Fatalf("SetChatUnread calls = %v, want [1]", sender.persisted)
+	if sender.resets != 0 {
+		t.Fatalf("ResetChatUnread calls while unfocused = %d, want 0", sender.resets)
 	}
 
 	// And back: the chat is being read again.
 	next, cmd = m.Update(tea.FocusMsg{})
 	m = next.(Model)
 	runCmd(cmd)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 0 {
+	if got := unreadOf(m); got != 0 {
 		t.Fatalf("Unread after returning to the terminal = %d, want 0", got)
 	}
 	if sender.resets == 0 {
@@ -340,17 +297,11 @@ func TestUnreadWhileTerminalUnfocusedAndClearedOnReturn(t *testing.T) {
 }
 
 // Same for the idle fallback, which is what covers terminals that never
-// report focus at all: going idle makes arriving messages unread, and the
-// next keystroke marks the open chat read again.
+// report focus at all: while idle the count shows, and the next keystroke
+// marks the open chat read again.
 func TestUnreadWhileIdleAndClearedOnActivity(t *testing.T) {
 	sender := &fakeReadTrackerSender{}
-	m := newTestModelWithSender(sender, nil)
-	chat := Chat{Address: "bob@example.test"}
-	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
-	m.currentAccount = 0
-	m.chats.SetItems(m.accounts[0].Chats)
-	m.chats.Select(0)
-	m.selectedView = viewChat
+	m := newUnreadTestModel(sender, viewChat)
 
 	next, cmd := m.Update(idleMsg{gen: m.idleGen})
 	m = next.(Model)
@@ -359,16 +310,16 @@ func TestUnreadWhileIdleAndClearedOnActivity(t *testing.T) {
 		t.Fatal("test setup: model did not go idle")
 	}
 
-	next, cmd = m.Update(IncomingMessageMsg{AccountIdx: 0, From: chat.Address, Message: Message{ID: "m1", Content: "hi"}})
+	next, cmd = m.Update(ChatUnreadMsg{AccountJID: "me@example.test", ChatAddress: "bob@example.test", Count: 1})
 	m = next.(Model)
 	runCmd(cmd)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 1 {
+	if got := unreadOf(m); got != 1 {
 		t.Fatalf("Unread while idle = %d, want 1", got)
 	}
 
 	next, _ = m.Update(keyText("x"))
 	m = next.(Model)
-	if got := m.chats.Items()[0].(Chat).Unread; got != 0 {
+	if got := unreadOf(m); got != 0 {
 		t.Fatalf("Unread after the next keystroke = %d, want 0", got)
 	}
 }

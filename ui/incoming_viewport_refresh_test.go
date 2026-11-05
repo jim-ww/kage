@@ -76,11 +76,11 @@ func TestIncomingMessageRefreshesViewportWhileChatListFocused(t *testing.T) {
 	}
 }
 
-// TestIncomingMessageUnreadTracksActualViewing pins the other half of the
-// split the fix introduces: re-rendering the pane must NOT be taken as "the
-// user has read this". Only actually viewing the chat (selectedView ==
-// viewChat) suppresses the unread bump.
-func TestIncomingMessageUnreadTracksActualViewing(t *testing.T) {
+// TestChatUnreadTracksActualViewing pins the other half of the split the fix
+// introduces: the pane being rendered must NOT be taken as "the user has read
+// this". Only actually viewing the chat (selectedView == viewChat) clears a
+// count the daemon pushes for it.
+func TestChatUnreadTracksActualViewing(t *testing.T) {
 	tests := []struct {
 		view       selectedView
 		wantUnread int
@@ -93,11 +93,7 @@ func TestIncomingMessageUnreadTracksActualViewing(t *testing.T) {
 		t.Run(viewName(tt.view), func(t *testing.T) {
 			m := newChatPaneModel(t, tt.view)
 
-			next, cmd := m.Update(IncomingMessageMsg{
-				AccountIdx: 0,
-				From:       "bob@example.test",
-				Message:    Message{ID: "m1", Content: "SENTINEL", Author: "bob"},
-			})
+			next, cmd := m.Update(ChatUnreadMsg{ChatAddress: "bob@example.test", Count: 1})
 			m = next.(Model)
 			runCmd(cmd)
 
@@ -108,9 +104,9 @@ func TestIncomingMessageUnreadTracksActualViewing(t *testing.T) {
 	}
 }
 
-// TestHistorySyncedRefreshesViewportWhileChatListFocused covers the same split
-// for MAM catch-up, which delivers messages that arrived while offline through
-// a different handler carrying the same isChatFocused condition.
+// TestHistorySyncedRefreshesViewportWhileChatListFocused covers the same
+// repaint for MAM catch-up, which delivers messages that arrived while
+// offline through a different handler.
 func TestHistorySyncedRefreshesViewportWhileChatListFocused(t *testing.T) {
 	m := newChatPaneModel(t, viewChats)
 
@@ -124,9 +120,6 @@ func TestHistorySyncedRefreshesViewportWhileChatListFocused(t *testing.T) {
 
 	if !strings.Contains(m.viewport.View(), "SENTINEL") {
 		t.Fatal("MAM-synced message missing from rendered chat pane while the chat list is focused")
-	}
-	if got := m.accounts[0].Chats[0].(Chat).Unread; got != 1 {
-		t.Fatalf("Unread = %d, want 1", got)
 	}
 }
 

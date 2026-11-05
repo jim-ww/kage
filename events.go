@@ -321,7 +321,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		ReplyToID:  msgEv.ReplyToID,
 		Message:    newMsg,
 	})
-	countUnreadWhileDetached(ctx, srv, s, from, []ui.Message{newMsg})
+	countUnread(ctx, srv, s, from, []ui.Message{newMsg})
 
 	incomingKey := focusedChatKey(s.account.JID, from)
 	chatIsFocused := clientFocus.chatVisible(incomingKey)

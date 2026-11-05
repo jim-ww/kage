@@ -110,10 +110,10 @@ func TestForgetChatDropsStoredUnreadCount(t *testing.T) {
 
 	ctx := context.Background()
 	const accountJID, peer = "me@example.com", "gone@example.com"
-	if err := queries.SetChatUnread(ctx, storage.SetChatUnreadParams{
-		AccountJid: accountJID, RosterJid: peer, Count: 3,
+	if _, err := queries.BumpChatUnread(ctx, storage.BumpChatUnreadParams{
+		AccountJid: accountJID, RosterJid: peer, Delta: 3,
 	}); err != nil {
-		t.Fatalf("SetChatUnread: %v", err)
+		t.Fatalf("BumpChatUnread: %v", err)
 	}
 	unreadBadge.set(accountJID, peer, 3)
 	if !daemon.Unread() {

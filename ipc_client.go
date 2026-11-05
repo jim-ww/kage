@@ -160,10 +160,6 @@ func (c *ipcClient) SetLastChat(accountJID, chatAddress string) error {
 	return c.conn.Call(rpcSetLastChat, setLastChatParams{AccountJID: accountJID, ChatAddress: chatAddress}, nil)
 }
 
-func (c *ipcClient) SetChatUnread(accountJID, chatAddress string, count int) error {
-	return c.conn.Call(rpcSetChatUnread, chatUnreadCountParams{AccountJID: accountJID, ChatAddress: chatAddress, Count: count}, nil)
-}
-
 func (c *ipcClient) ResetChatUnread(accountJID, chatAddress string) error {
 	return c.conn.Call(rpcResetChatUnread, setLastChatParams{AccountJID: accountJID, ChatAddress: chatAddress}, nil)
 }
@@ -453,6 +449,8 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.FileTransferDoneMsg](c, ev.Data)
 	case evHistorySynced:
 		sendEvent[ui.HistorySyncedMsg](c, ev.Data)
+	case evChatUnread:
+		sendEvent[ui.ChatUnreadMsg](c, ev.Data)
 	case evHistorySyncStarted:
 		sendEvent[ui.HistorySyncStartedMsg](c, ev.Data)
 	case evHistorySyncFinished:

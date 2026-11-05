@@ -11,8 +11,8 @@ import (
 	"github.com/jim-ww/kage/ui"
 )
 
-// unreadBadge mirrors the persisted per-chat unread counts (chatUnread, which
-// the attached TUIs own — see adapter.SetChatUnread) into the tray icon's
+// unreadBadge mirrors the persisted per-chat unread counts (chatUnread, see
+// countUnread and adapter.ResetChatUnread) into the tray icon's
 // unread dot, so the icon says "something is waiting" without the TUI having
 // to be open at all.
 //
@@ -99,28 +99,23 @@ func (t *unreadTracker) forgetAccount(accountJID string) {
 	t.applyLocked()
 }
 
-// countUnreadWhileDetached counts msgs toward chatAddress's persisted unread
-// total when no TUI is attached. The attached TUIs normally own that total
-// (they're the ones that know which chat is actually being looked at, and
-// they write it back absolute — see adapter.SetChatUnread), so this does
-// nothing while any of them is connected; with none, everything that arrives
-// would otherwise be silently read-on-arrival, leaving nothing for the tray
-// dot to show and nothing for the next TUI to open to.
+// countUnread counts msgs toward chatAddress's persisted unread total, unless
+// some attached TUI is looking at that chat right now (clientFocus - the same
+// rule that suppresses its desktop notification), and pushes the new total to
+// every attached TUI. The daemon is the only writer of a nonzero count: each
+// TUI only knows its own focus, so with several attached, one sitting in a
+// background terminal would count a conversation being read in another, and
+// keep showing a count that was cleared elsewhere.
 //
-// Applies the same rule the UI does for messages it receives while a chat
-// isn't focused (ui/update_messages.go): our own messages and ones that
-// failed to decrypt don't count.
-func countUnreadWhileDetached(ctx context.Context, srv *ipc.Server, s *accountSession, chatAddress string, msgs []ui.Message) {
-	if srv == nil || srv.ClientCount() > 0 {
-		return
-	}
+// Our own messages and ones that failed to decrypt don't count.
+func countUnread(ctx context.Context, srv *ipc.Server, s *accountSession, chatAddress string, msgs []ui.Message) {
 	delta := 0
 	for _, m := range msgs {
 		if !m.IsMe && !m.DecryptFailed {
 			delta++
 		}
 	}
-	if delta == 0 {
+	if delta == 0 || clientFocus.chatVisible(focusedChatKey(s.account.JID, chatAddress)) {
 		return
 	}
 	count, err := s.db.BumpChatUnread(ctx, storage.BumpChatUnreadParams{
@@ -129,10 +124,11 @@ func countUnreadWhileDetached(ctx context.Context, srv *ipc.Server, s *accountSe
 		Delta:      int64(delta),
 	})
 	if err != nil {
-		slog.Warn("counting unread messages received while detached", "jid", s.account.JID, "peer", chatAddress, "err", err)
+		slog.Warn("counting unread messages", "jid", s.account.JID, "peer", chatAddress, "err", err)
 		return
 	}
 	unreadBadge.set(s.account.JID, chatAddress, int(count))
+	broadcast(srv, evChatUnread, ui.ChatUnreadMsg{AccountJID: s.account.JID, ChatAddress: chatAddress, Count: int(count)})
 }
 
 func (t *unreadTracker) applyLocked() {

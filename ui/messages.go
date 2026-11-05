@@ -829,6 +829,15 @@ type HistorySyncedMsg struct {
 	Messages   []Message
 }
 
+// ChatUnreadMsg carries a chat's current unread count, pushed by the daemon
+// whenever it changes: it counts incoming messages for chats no attached TUI
+// is looking at, and zeroes a chat when any TUI opens it (ResetChatUnread).
+type ChatUnreadMsg struct {
+	AccountJID  string
+	ChatAddress string
+	Count       int
+}
+
 // HistorySyncStartedMsg marks an account entering the post-connect MAM
 // backfill (see syncArchive) so the UI can show a "syncing…" indicator
 // instead of leaving the user guessing why history keeps growing.
@@ -960,17 +969,12 @@ type FocusReporter interface {
 	SetFocusState(accountJID, chatAddress string, focused bool) error
 }
 
-// ChatReadTracker persists local-only unread message counts per chat,
-// implemented outside ui (main.go's adapter, backed by storage) so ui stays
-// decoupled from the storage layer. Called inline like Send/SetTyping
-// rather than through a tea.Cmd; a failure just means the in-memory count
-// (still updated regardless) won't survive a restart.
+// ChatReadTracker reads and clears the local-only unread message counts per
+// chat, implemented outside ui (main.go's adapter, backed by storage) so ui
+// stays decoupled from the storage layer. Counting itself is the daemon's
+// (see ChatUnreadMsg): only it knows whether any attached TUI is looking at
+// the chat.
 type ChatReadTracker interface {
-	// SetChatUnread persists an absolute count rather than a delta: several
-	// TUIs can be attached to one daemon and each one bumps its own count
-	// from the same broadcast event, so deltas would stack up into a stored
-	// count higher than any client ever showed.
-	SetChatUnread(accountJID, chatAddress string, count int) error
 	ResetChatUnread(accountJID, chatAddress string) error
 	ChatUnreadCounts(accountJID string) (map[string]int, error)
 }

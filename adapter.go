@@ -407,22 +407,9 @@ func (a *adapter) SetFocusState(tuiClient ipc.ClientID, accountJID, chatAddress 
 	return nil
 }
 
-// SetChatUnread implements ui.ChatReadTracker: stores the local-only unread
-// count for a chat. Absolute rather than a delta — see ui.ChatReadTracker.
-func (a *adapter) SetChatUnread(accountJID, chatAddress string, count int) error {
-	if err := a.queries.SetChatUnread(context.Background(), storage.SetChatUnreadParams{
-		AccountJid: accountJID,
-		RosterJid:  chatAddress,
-		Count:      int64(count),
-	}); err != nil {
-		return err
-	}
-	unreadBadge.set(accountJID, chatAddress, count)
-	return nil
-}
-
 // ResetChatUnread implements ui.ChatReadTracker: zeroes the persisted
-// unread counter for a chat, called when it's opened in the UI.
+// unread counter for a chat, called when it's opened in the UI, and tells
+// every attached TUI so the chat reads as read in all of them.
 func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
 	if err := a.queries.ResetChatUnread(context.Background(), storage.ResetChatUnreadParams{
 		AccountJid: accountJID,
@@ -431,6 +418,7 @@ func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
 		return err
 	}
 	unreadBadge.set(accountJID, chatAddress, 0)
+	broadcast(a.srv, evChatUnread, ui.ChatUnreadMsg{AccountJID: accountJID, ChatAddress: chatAddress})
 	return nil
 }
 

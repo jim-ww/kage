@@ -123,7 +123,7 @@ func TestIncomingMessageTrimsToLimit(t *testing.T) {
 // TestIncomingMessageSkipsAppendWhenViewingMidHistory guards against a live
 // message arriving while the chat's loaded window isn't the live tail
 // (HistoryNewer set — paged up, or landed on a search result): it must not
-// be spliced onto the end of that unrelated window, just counted unread.
+// be spliced onto the end of that unrelated window.
 func TestIncomingMessageSkipsAppendWhenViewingMidHistory(t *testing.T) {
 	m := newLimitTestModel(t, 3, 3)
 	m.accounts[0].HistoryNewer = map[int]bool{0: true}
@@ -146,10 +146,6 @@ func TestIncomingMessageSkipsAppendWhenViewingMidHistory(t *testing.T) {
 		if after[i].ID != before[i].ID {
 			t.Fatalf("window content changed at index %d: %q -> %q", i, before[i].ID, after[i].ID)
 		}
-	}
-	chat := updated.accounts[0].Chats[0].(Chat)
-	if chat.Unread != 1 {
-		t.Fatalf("chat.Unread = %d, want 1", chat.Unread)
 	}
 }
 

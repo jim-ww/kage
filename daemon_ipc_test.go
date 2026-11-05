@@ -69,13 +69,10 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 		t.Errorf("SidebarWidth = %d, want 42", cfg.State.SidebarWidth)
 	}
 
-	if err := client.SetChatUnread("me@example.com", "you@example.com", 3); err != nil {
-		t.Fatalf("SetChatUnread: %v", err)
-	}
-	// Repeating the same count (what a second attached TUI sends for the same
-	// message) must not stack up - the stored count is absolute.
-	if err := client.SetChatUnread("me@example.com", "you@example.com", 3); err != nil {
-		t.Fatalf("SetChatUnread (repeat): %v", err)
+	if _, err := queries.BumpChatUnread(context.Background(), storage.BumpChatUnreadParams{
+		AccountJid: "me@example.com", RosterJid: "you@example.com", Delta: 3,
+	}); err != nil {
+		t.Fatalf("BumpChatUnread: %v", err)
 	}
 	counts, err := client.ChatUnreadCounts("me@example.com")
 	if err != nil {
@@ -83,6 +80,15 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 	}
 	if counts["you@example.com"] != 3 {
 		t.Errorf("ChatUnreadCounts[you@example.com] = %d, want 3", counts["you@example.com"])
+	}
+	if err := client.ResetChatUnread("me@example.com", "you@example.com"); err != nil {
+		t.Fatalf("ResetChatUnread: %v", err)
+	}
+	if counts, err = client.ChatUnreadCounts("me@example.com"); err != nil {
+		t.Fatalf("ChatUnreadCounts: %v", err)
+	}
+	if counts["you@example.com"] != 0 {
+		t.Errorf("ChatUnreadCounts[you@example.com] after reset = %d, want 0", counts["you@example.com"])
 	}
 
 	if err := client.SaveDraft("me@example.com", "you@example.com", "hello there"); err != nil {

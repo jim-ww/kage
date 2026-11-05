@@ -1564,9 +1564,8 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 			// MAM catch-up delivers messages that arrived while we were
 			// offline, not just a replay of what was already seen, so these
 			// count as unread exactly like a live one would - see
-			// countUnreadWhileDetached, and HistorySyncedMsg's handling in
-			// ui/update_messages.go for the same reasoning on the TUI side.
-			countUnreadWhileDetached(ctx, srv, s, peerJID, newMsgs)
+			// countUnread.
+			countUnread(ctx, srv, s, peerJID, newMsgs)
 		}
 		// Resume from where the server says the page ended, not from the last
 		// item that survived filtering. Chat states, receipts and markers are

@@ -278,43 +278,13 @@ func (m Model) isChatOnScreen(accountIdx, chatIdx int) bool {
 	return accountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 }
 
-// incrementChatUnread bumps the in-memory unread count for chatIdx by delta
-// and, if a ChatReadTracker is wired in, persists the bump so it survives a
-// restart. Best-effort: a persistence failure doesn't roll back the
-// in-memory count.
-func (m *Model) incrementChatUnread(accountIdx, chatIdx, delta int) tea.Cmd {
-	if accountIdx < 0 || accountIdx >= len(m.accounts) || delta == 0 {
-		return nil
-	}
-	if chatIdx < 0 || chatIdx >= len(m.accounts[accountIdx].Chats) {
-		return nil
-	}
-	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
-	if !ok {
-		return nil
-	}
-	count := chat.Unread + delta
-	cmd := m.setChatUnread(accountIdx, chatIdx, count)
-	if m.chatReadTracker == nil {
-		return cmd
-	}
-	accountJID, address := m.accounts[accountIdx].Name, chat.Address
-	tracker := m.chatReadTracker
-	return tea.Batch(cmd, func() tea.Msg {
-		_ = tracker.SetChatUnread(accountJID, address, count)
-		return nil
-	})
-}
-
 // resetChatUnread zeroes chatIdx's unread count, in memory and (if wired)
 // persisted, called when the chat becomes the actively-focused one.
 //
 // The persisted reset is sent even when this client already shows the chat
-// as read: the stored count is written by whichever client saw the message
-// (several TUIs can be attached, and the daemon counts for itself while none
-// is — see countUnreadWhileDetached), so a zero here is no evidence that
-// storage agrees. Gating on it left a stored count that nothing could ever
-// clear, keeping the tray's unread dot lit for a chat the user had read.
+// as read: the stored count is the daemon's, so a zero here is no evidence
+// that storage agrees. Gating on it left a stored count that nothing could
+// ever clear, keeping the tray's unread dot lit for a chat the user had read.
 func (m *Model) resetChatUnread(accountIdx, chatIdx int) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil

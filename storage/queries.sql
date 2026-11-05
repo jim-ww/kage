@@ -578,16 +578,9 @@ SELECT EXISTS(
 	WHERE accountJID = sqlc.arg(account_jid) AND mode = 'gpg'
 );
 
--- name: SetChatUnread :exec
-INSERT INTO chatUnread (accountJID, rosterJID, count)
-VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(count))
-ON CONFLICT (accountJID, rosterJID) DO UPDATE
-SET count = excluded.count;
-
 -- name: BumpChatUnread :one
--- Used only by the daemon when no TUI is attached: with nobody to compute an
--- absolute count (see SetChatUnread), the daemon counts the messages itself so
--- they aren't silently read-on-arrival. Returns the new count for the tray badge.
+-- Counts messages arriving for a chat no attached TUI is looking at. Returns
+-- the new count for the tray badge and the TUIs' chat lists.
 INSERT INTO chatUnread (accountJID, rosterJID, count)
 VALUES (sqlc.arg(account_jid), sqlc.arg(roster_jid), sqlc.arg(delta))
 ON CONFLICT (accountJID, rosterJID) DO UPDATE

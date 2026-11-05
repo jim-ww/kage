@@ -24,9 +24,8 @@ type BumpChatUnreadParams struct {
 	Delta      int64  `db:"delta"`
 }
 
-// Used only by the daemon when no TUI is attached: with nobody to compute an
-// absolute count (see SetChatUnread), the daemon counts the messages itself so
-// they aren't silently read-on-arrival. Returns the new count for the tray badge.
+// Counts messages arriving for a chat no attached TUI is looking at. Returns
+// the new count for the tray badge and the TUIs' chat lists.
 func (q *Queries) BumpChatUnread(ctx context.Context, arg BumpChatUnreadParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, bumpChatUnread, arg.AccountJid, arg.RosterJid, arg.Delta)
 	var count int64
@@ -2585,24 +2584,6 @@ type SetChatEncryptionModeParams struct {
 
 func (q *Queries) SetChatEncryptionMode(ctx context.Context, arg SetChatEncryptionModeParams) error {
 	_, err := q.db.ExecContext(ctx, setChatEncryptionMode, arg.AccountJid, arg.RosterJid, arg.Mode)
-	return err
-}
-
-const setChatUnread = `-- name: SetChatUnread :exec
-INSERT INTO chatUnread (accountJID, rosterJID, count)
-VALUES (?1, ?2, ?3)
-ON CONFLICT (accountJID, rosterJID) DO UPDATE
-SET count = excluded.count
-`
-
-type SetChatUnreadParams struct {
-	AccountJid string `db:"account_jid"`
-	RosterJid  string `db:"roster_jid"`
-	Count      int64  `db:"count"`
-}
-
-func (q *Queries) SetChatUnread(ctx context.Context, arg SetChatUnreadParams) error {
-	_, err := q.db.ExecContext(ctx, setChatUnread, arg.AccountJid, arg.RosterJid, arg.Count)
 	return err
 }
 

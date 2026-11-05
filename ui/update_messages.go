@@ -402,14 +402,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			// Currently viewing a mid-history window (paged up, or a
 			// search-result jump) — Messages[chatIdx] isn't the live tail, so
 			// splicing a just-arrived message onto its end would show it next
-			// to unrelated older messages instead of where it belongs. Just
-			// count it unread; it'll show up normally next time the window
-			// loads the true tail (paging back down, or jump-to-latest).
-			var cmd tea.Cmd
-			if !msg.Message.IsMe && !msg.Message.DecryptFailed {
-				cmd = m.incrementChatUnread(msg.AccountIdx, chatIdx, 1)
-			}
-			return m, cmd, true
+			// to unrelated older messages instead of where it belongs. It'll
+			// show up normally next time the window loads the true tail
+			// (paging back down, or jump-to-latest).
+			return m, nil, true
 		}
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
@@ -436,9 +432,6 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
-		}
-		if !m.isChatFocused(msg.AccountIdx, chatIdx) && !newMsg.IsMe && !newMsg.DecryptFailed {
-			cmd = tea.Batch(cmd, m.incrementChatUnread(msg.AccountIdx, chatIdx, 1))
 		}
 		return m, tea.Batch(typingCmd, cmd), true
 
@@ -1056,26 +1049,26 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.From); chatIdx < 0 {
 			return m, lastMsgCmd, true
 		}
-		// Same repaint-vs-read split as IncomingMessageMsg above.
+		// Same repaint as IncomingMessageMsg above.
 		if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
 			m.selectedMsg = len(msgs) - 1
 			m.refreshViewport()
 			m.viewport.GotoBottom()
 		}
-		if !m.isChatFocused(msg.AccountIdx, chatIdx) {
-			// MAM catch-up delivers messages that arrived while offline (see
-			// syncArchive), not just historical replay of what was already
-			// seen elsewhere — those genuinely-new, non-"me" messages count
-			// toward unread the same as a live IncomingMessageMsg would.
-			unread := 0
-			for _, nm := range msg.Messages {
-				if !nm.IsMe && !nm.DecryptFailed {
-					unread++
-				}
-			}
-			lastMsgCmd = tea.Batch(lastMsgCmd, m.incrementChatUnread(msg.AccountIdx, chatIdx, unread))
-		}
 		return m, lastMsgCmd, true
+
+	case ChatUnreadMsg:
+		accountIdx := m.accountIndexByJID(msg.AccountJID)
+		chatIdx := m.chatIndexByAddress(accountIdx, msg.ChatAddress)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		if msg.Count > 0 && m.isChatFocused(accountIdx, chatIdx) {
+			// Counted before the daemon heard this client had the chat open
+			// (focus is reported asynchronously); it's being read.
+			return m, m.resetChatUnread(accountIdx, chatIdx), true
+		}
+		return m, m.setChatUnread(accountIdx, chatIdx, msg.Count), true
 
 	case chatSwitchSettledMsg:
 		if msg.gen != m.chatSwitchGen {
