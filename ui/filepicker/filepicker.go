@@ -79,6 +79,10 @@ type entry struct {
 	// symlinkDir whether that target is a directory.
 	symlinkPath string
 	symlinkDir  bool
+	// nameDisplay is the name, plus " → target" for symlinks, and
+	// nameWidth its rendered width.
+	nameDisplay string
+	nameWidth   int
 	hidden      bool
 	group       int
 	size        string
@@ -87,6 +91,16 @@ type entry struct {
 }
 
 func newEntry(dir string, d os.DirEntry) entry {
+	e := statEntry(dir, d)
+	e.nameDisplay = e.name
+	if e.isSymlink {
+		e.nameDisplay += " → " + e.symlinkPath
+	}
+	e.nameWidth = lipgloss.Width(e.nameDisplay)
+	return e
+}
+
+func statEntry(dir string, d os.DirEntry) entry {
 	e := entry{name: d.Name(), isDir: d.IsDir()}
 	e.hidden, _ = IsHidden(e.name)
 	e.group = entryGroup(e.isDir, e.hidden)
@@ -666,11 +680,10 @@ func (m Model) SortLabel() string {
 // size/date land in a straight column at the end of the line, not wrapped
 // mid-value the way a lipgloss Width-constrained style would).
 type fileRow struct {
-	idx         int
-	entry       *entry
-	disabled    bool
-	nameDisplay string // name, plus " → target" for symlinks
-	date        string
+	idx      int
+	entry    *entry
+	disabled bool
+	date     string
 }
 
 func (m Model) visibleRows() ([]fileRow, int) {
@@ -682,19 +695,12 @@ func (m Model) visibleRows() ([]fileRow, int) {
 		if f.info == nil {
 			continue
 		}
-		nameDisplay := f.name
-		if f.isSymlink {
-			nameDisplay += " → " + f.symlinkPath
-		}
-		if w := lipgloss.Width(nameDisplay); w > maxNameWidth {
-			maxNameWidth = w
-		}
+		maxNameWidth = max(maxNameWidth, f.nameWidth)
 		rows = append(rows, fileRow{
-			idx:         i,
-			entry:       f,
-			disabled:    !m.canSelect(f.name) && !f.isDir,
-			nameDisplay: nameDisplay,
-			date:        humanize.Time(f.time(m.SortField)),
+			idx:      i,
+			entry:    f,
+			disabled: !m.canSelect(f.name) && !f.isDir,
+			date:     humanize.Time(f.time(m.SortField)),
 		})
 	}
 	return rows, maxNameWidth
@@ -717,6 +723,50 @@ func (m Model) rowSuffixWidth() int {
 	return w
 }
 
+// painter renders text in a style by concatenating the style's ANSI
+// prefix/suffix around it, which is what Style.Render produces for a
+// colors/attributes-only style, without Render's per-call width measuring
+// and line splitting. Styles that do more than that (padding, width,
+// borders, ...) fall back to Render.
+type painter struct {
+	style          lipgloss.Style
+	prefix, suffix string
+	wraps          bool
+}
+
+func newPainter(style lipgloss.Style) *painter {
+	p := &painter{style: style}
+	const probe = " x "
+	out := style.Render(probe)
+	i := strings.Index(out, probe)
+	if i < 0 {
+		return p
+	}
+	p.prefix, p.suffix = out[:i], out[i+len(probe):]
+	const check = "  ab é  "
+	p.wraps = style.Render(check) == p.prefix+check+p.suffix
+	return p
+}
+
+func (p *painter) render(s string) string {
+	if p.wraps {
+		return p.prefix + s + p.suffix
+	}
+	return p.style.Render(s)
+}
+
+// painters lazily builds one painter per style a View call actually uses.
+type painters map[*lipgloss.Style]*painter
+
+func (ps painters) get(style *lipgloss.Style) *painter {
+	p, ok := ps[style]
+	if !ok {
+		p = newPainter(*style)
+		ps[style] = p
+	}
+	return p
+}
+
 // View returns the view of the file picker.
 func (m Model) View() string {
 	if len(m.files) == 0 {
@@ -732,54 +782,60 @@ func (m Model) View() string {
 	if nameColWidth := m.Width - m.rowSuffixWidth(); nameColWidth > maxNameWidth {
 		maxNameWidth = nameColWidth
 	}
+	st := &m.Styles
+	paint := painters{}
+	sizeFmt := " %" + strconv.Itoa(fileSizeWidth) + "s"
+	dateFmt := " %" + strconv.Itoa(dateWidth) + "s"
 	for _, r := range rows {
-		pad := strings.Repeat(" ", maxNameWidth-lipgloss.Width(r.nameDisplay))
+		pad := strings.Repeat(" ", maxNameWidth-r.entry.nameWidth)
 
 		if m.selected == r.idx { //nolint:nestif
 			selected := ""
 			if m.ShowPermissions {
 				selected += " " + r.entry.info.Mode().String()
 			}
-			selected += " " + r.nameDisplay + pad
+			selected += " " + r.entry.nameDisplay + pad
 			if m.ShowSize {
-				selected += fmt.Sprintf(" %"+strconv.Itoa(fileSizeWidth)+"s", r.entry.size)
+				selected += fmt.Sprintf(sizeFmt, r.entry.size)
 			}
 			if m.ShowDate {
-				selected += fmt.Sprintf(" %"+strconv.Itoa(dateWidth)+"s", r.date)
+				selected += fmt.Sprintf(dateFmt, r.date)
 			}
 			if r.disabled {
-				s.WriteString(m.Styles.DisabledCursor.Render(m.Cursor) + m.Styles.DisabledSelected.Render(selected))
+				s.WriteString(paint.get(&st.DisabledCursor).render(m.Cursor) + paint.get(&st.DisabledSelected).render(selected))
 			} else {
-				s.WriteString(m.Styles.Cursor.Render(m.Cursor) + m.Styles.Selected.Render(selected))
+				s.WriteString(paint.get(&st.Cursor).render(m.Cursor) + paint.get(&st.Selected).render(selected))
 			}
 			s.WriteRune('\n')
 			continue
 		}
 
-		style := m.Styles.File
+		style := &st.File
 		if r.entry.isDir {
-			style = m.Styles.Directory
+			style = &st.Directory
 		} else if r.entry.isSymlink {
-			style = m.Styles.Symlink
+			style = &st.Symlink
 		} else if r.disabled {
-			style = m.Styles.DisabledFile
+			style = &st.DisabledFile
 		}
 
-		s.WriteString(m.Styles.Cursor.Render(" "))
+		s.WriteString(paint.get(&st.Cursor).render(" "))
 		if m.ShowPermissions {
-			s.WriteString(" " + m.Styles.Permission.Render(r.entry.info.Mode().String()))
+			s.WriteString(" " + paint.get(&st.Permission).render(r.entry.info.Mode().String()))
 		}
-		s.WriteString(" " + style.Render(r.nameDisplay) + pad)
+		s.WriteString(" " + paint.get(style).render(r.entry.nameDisplay) + pad)
 		if m.ShowSize {
-			s.WriteString(" " + m.Styles.FileSize.Render(fmt.Sprintf("%"+strconv.Itoa(fileSizeWidth)+"s", r.entry.size)))
+			s.WriteString(" " + paint.get(&st.FileSize).render(fmt.Sprintf(sizeFmt[1:], r.entry.size)))
 		}
 		if m.ShowDate {
-			s.WriteString(" " + m.Styles.Date.Render(fmt.Sprintf("%"+strconv.Itoa(dateWidth)+"s", r.date)))
+			s.WriteString(" " + paint.get(&st.Date).render(fmt.Sprintf(dateFmt[1:], r.date)))
 		}
 		s.WriteRune('\n')
 	}
 
-	for i := lipgloss.Height(s.String()); i <= m.Height(); i++ {
+	// Pad to Height()+1 lines (the rows' trailing newline already
+	// starts one more).
+	for i := len(rows) + 1; i <= m.Height(); i++ {
 		s.WriteRune('\n')
 	}
 

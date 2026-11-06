@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestOpenFollowsSymlinkToDir(t *testing.T) {
@@ -66,5 +67,30 @@ func TestHiddenEntriesFiltered(t *testing.T) {
 	m, _ = m.Update(cmd())
 	if len(m.files) != 2 {
 		t.Fatalf("with hidden shown got %d files, want 2", len(m.files))
+	}
+}
+
+func TestPainterMatchesRender(t *testing.T) {
+	d := DefaultStyles()
+	styles := map[string]lipgloss.Style{
+		"cursor":   d.Cursor,
+		"selected": d.Selected,
+		"file":     d.File,
+		"empty":    d.EmptyDirectory,
+		"width":    lipgloss.NewStyle().Width(30).Foreground(lipgloss.Color("1")),
+		"border":   lipgloss.NewStyle().Border(lipgloss.NormalBorder()),
+		"under":    lipgloss.NewStyle().Underline(true),
+	}
+	texts := []string{"", " ", ">", " -rw-r--r-- report.pdf      12kB   3 minutes ago", "日本語 → /tmp/x"}
+	for name, style := range styles {
+		p := newPainter(style)
+		for _, text := range texts {
+			if got, want := p.render(text), style.Render(text); got != want {
+				t.Errorf("%s: render(%q) = %q, want %q", name, text, got, want)
+			}
+		}
+	}
+	if !newPainter(d.Selected).wraps {
+		t.Error("color/bold style fell back to Render")
 	}
 }
