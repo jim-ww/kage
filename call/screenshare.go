@@ -303,10 +303,16 @@ func gpuScreenRecorderCmd(profile videoQualityProfile) *exec.Cmd {
 		"-s", fmt.Sprintf("%dx%d", profile.camWidth, profile.camHeight),
 		"-bm", "cbr",
 		"-q", fmt.Sprint(profile.screenBitrateKbps),
-		// Same Baseline-vs-SDP mismatch wfRecorderCmd forces away - the
-		// hardware encoders default to High. "constrained_baseline" is
-		// h264_vaapi's name for it.
-		"-ffmpeg-video-opts", "profile=constrained_baseline",
+		// - profile: same Baseline-vs-SDP mismatch wfRecorderCmd forces
+		//   away - gsr asks for High. "constrained_baseline" is
+		//   h264_vaapi's name for it.
+		// - coder: gsr asks for CABAC, which Baseline doesn't allow.
+		// - flags: gsr always sets global_header, which moves SPS/PPS out
+		//   of the bitstream into container extradata - and the raw h264
+		//   muxer has nowhere to put that, so without in-band SPS/PPS
+		//   before each keyframe a viewer joining mid-stream can't decode
+		//   anything.
+		"-ffmpeg-video-opts", "profile=constrained_baseline;coder=cavlc;flags=-global_header",
 		"-v", "no", // FPS/damage chatter
 		"-o", "/dev/stdout",
 	)
