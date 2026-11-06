@@ -95,6 +95,14 @@ func currentVideoQuality() call.VideoQuality {
 	return call.VideoQuality(videoQuality.Load())
 }
 
+// screenRecorder mirrors cfg.ScreenRecorder for beginScreenShareCapture —
+// same reasoning as videoQuality above.
+var screenRecorder atomic.Int32
+
+func currentScreenRecorder() call.ScreenRecorder {
+	return call.ScreenRecorder(screenRecorder.Load())
+}
+
 // defaultEncryptionMode mirrors cfg.DefaultEncryptionMode for
 // resolveEncryptionMode (crypto_helpers.go) and account.go's chat-list
 // fallback, which have no other path back to the loaded config — same
@@ -210,6 +218,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	hiddenChats.replace(cfg.State.HiddenChats)
 	pinnedChats.replace(cfg.State.PinnedChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
+	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 
 	if !cfg.GPGDisabled {
@@ -312,6 +321,7 @@ func (b *backend) Reload(cfg config.Config) {
 	hiddenChats.replace(cfg.State.HiddenChats)
 	pinnedChats.replace(cfg.State.PinnedChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
+	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 }
 

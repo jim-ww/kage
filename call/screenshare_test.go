@@ -126,3 +126,40 @@ func TestIsVCLNAL(t *testing.T) {
 		})
 	}
 }
+
+// TestGPUScreenRecorderCmdFollowsQuality verifies the quality preset reaches
+// gpu-screen-recorder as both a resolution limit and a CBR bitrate, and that
+// it writes raw H.264 to stdout rather than a container Run can't parse.
+func TestGPUScreenRecorderCmdFollowsQuality(t *testing.T) {
+	args := gpuScreenRecorderCmd(VideoQualityLow.profile()).Args
+	want := map[string]string{
+		"-c":  "h264",
+		"-k":  "h264",
+		"-s":  "640x480",
+		"-bm": "cbr",
+		"-q":  "800",
+		"-o":  "/dev/stdout",
+	}
+	got := map[string]string{}
+	for i := 1; i+1 < len(args); i += 2 {
+		got[args[i]] = args[i+1]
+	}
+	for flag, v := range want {
+		if got[flag] != v {
+			t.Errorf("%s = %q, want %q (args: %v)", flag, got[flag], v, args)
+		}
+	}
+}
+
+func TestScreenRecorderFromString(t *testing.T) {
+	for in, want := range map[string]ScreenRecorder{
+		"":                    ScreenRecorderWF,
+		"wf-recorder":         ScreenRecorderWF,
+		"gpu-screen-recorder": ScreenRecorderGPU,
+		"bogus":               ScreenRecorderWF,
+	} {
+		if got := ScreenRecorderFromString(in); got != want {
+			t.Errorf("ScreenRecorderFromString(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

@@ -87,7 +87,7 @@ Accounts can also be set directly under `settings.accounts` (same shape as `[[ac
 ## Optional dependencies
 
 - `mpv` — playing video (video calls)
-- `wf-recorder` — screen sharing in calls
+- `wf-recorder` or `gpu-screen-recorder` (`screen_recorder` option) — screen sharing in calls
 - `libnotify` — desktop notifications
 - `wl-clipboard` / `xclip` — pasting images into chat
 

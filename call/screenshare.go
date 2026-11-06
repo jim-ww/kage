@@ -67,26 +67,27 @@ func VideoQualityFromString(s string) VideoQuality {
 
 // videoQualityProfile is the concrete capture parameters one VideoQuality
 // bucket maps to: camWidth/camHeight for the webcam's requested capture
-// size, crf for libx264's quality target (lower = higher bitrate/quality),
-// and wfBitrateKbps for wf-recorder's screen capture (which has no
-// resolution to pick - it always captures the real output size - so quality
-// is controlled by bitrate alone there).
+// size (and gpu-screen-recorder's output resolution limit), crf for
+// libx264's quality target (lower = higher bitrate/quality), and
+// screenBitrateKbps for screen capture (wf-recorder has no resolution to
+// pick - it always captures the real output size - so quality is
+// controlled by bitrate alone there).
 type videoQualityProfile struct {
 	camWidth, camHeight int
 	crf                 int
-	wfBitrateKbps       int
+	screenBitrateKbps   int
 }
 
 func (q VideoQuality) profile() videoQualityProfile {
 	switch q {
 	case VideoQualityVeryLow:
-		return videoQualityProfile{camWidth: 320, camHeight: 240, crf: 32, wfBitrateKbps: 300}
+		return videoQualityProfile{camWidth: 320, camHeight: 240, crf: 32, screenBitrateKbps: 300}
 	case VideoQualityLow:
-		return videoQualityProfile{camWidth: 640, camHeight: 480, crf: 26, wfBitrateKbps: 800}
+		return videoQualityProfile{camWidth: 640, camHeight: 480, crf: 26, screenBitrateKbps: 800}
 	case VideoQualityHigh:
-		return videoQualityProfile{camWidth: 1920, camHeight: 1080, crf: 18, wfBitrateKbps: 4000}
+		return videoQualityProfile{camWidth: 1920, camHeight: 1080, crf: 18, screenBitrateKbps: 4000}
 	default: // VideoQualityMedium
-		return videoQualityProfile{camWidth: 1280, camHeight: 720, crf: 20, wfBitrateKbps: 1800}
+		return videoQualityProfile{camWidth: 1280, camHeight: 720, crf: 20, screenBitrateKbps: 1800}
 	}
 }
 
@@ -219,22 +220,57 @@ func (s *annexBSource) Stop() {
 	_ = s.cmd.Wait()
 }
 
+// ScreenRecorder selects the program ScreenShare captures the screen with -
+// see ScreenRecorderFromString for the config.toml string this maps from.
+type ScreenRecorder int
+
+const (
+	ScreenRecorderWF ScreenRecorder = iota
+	ScreenRecorderGPU
+)
+
+// ScreenRecorderFromString maps config.toml's screen_recorder string onto a
+// ScreenRecorder, defaulting to ScreenRecorderWF for "" or anything
+// unrecognized - same lenient default as VideoQualityFromString.
+func ScreenRecorderFromString(s string) ScreenRecorder {
+	switch s {
+	case "gpu-screen-recorder":
+		return ScreenRecorderGPU
+	default:
+		return ScreenRecorderWF
+	}
+}
+
 // ScreenShare captures the current output via wf-recorder (wlroots'
-// screencopy protocol) as a raw H.264 Annex-B bytestream - no container, so
-// the stream can be split into NAL units and pushed onto a WebRTC video
-// track directly, the same way call/audio.go's Mic feeds Opus frames to the
-// peer connection.
+// screencopy protocol, encoded with libx264 on the CPU) or
+// gpu-screen-recorder (hardware encode via VAAPI/NVENC) as a raw H.264
+// Annex-B bytestream - no container, so the stream can be split into NAL
+// units and pushed onto a WebRTC video track directly, the same way
+// call/audio.go's Mic feeds Opus frames to the peer connection.
 type ScreenShare struct {
 	*annexBSource
 }
 
-// NewScreenShare starts wf-recorder and returns once the subprocess is
+// NewScreenShare starts recorder and returns once the subprocess is
 // running. Run must be called (typically in its own goroutine) to actually
 // pump captured NAL units. quality picks the capture bitrate (see
 // VideoQuality).
-func NewScreenShare(quality VideoQuality) (*ScreenShare, error) {
-	profile := quality.profile()
-	cmd := exec.Command(
+func NewScreenShare(recorder ScreenRecorder, quality VideoQuality) (*ScreenShare, error) {
+	var cmd *exec.Cmd
+	if recorder == ScreenRecorderGPU {
+		cmd = gpuScreenRecorderCmd(quality.profile())
+	} else {
+		cmd = wfRecorderCmd(quality.profile())
+	}
+	src, err := startAnnexBSource("screen share", cmd)
+	if err != nil {
+		return nil, err
+	}
+	return &ScreenShare{src}, nil
+}
+
+func wfRecorderCmd(profile videoQualityProfile) *exec.Cmd {
+	return exec.Command(
 		"wf-recorder",
 		"-y", // "-f -" still prompts to overwrite "-" as if it were a real file without this
 		"-c", "libx264",
@@ -248,16 +284,32 @@ func NewScreenShare(quality VideoQuality) (*ScreenShare, error) {
 		// bitstream profile consistent with what's negotiated, same as
 		// NewCamera already does for its libx264 encode.
 		"-p", "profile=baseline",
-		"-p", fmt.Sprintf("b=%dk", profile.wfBitrateKbps),
+		"-p", fmt.Sprintf("b=%dk", profile.screenBitrateKbps),
 		"-m", "h264",
 		"-r", fmt.Sprint(videoCaptureFramerate),
 		"-f", "/dev/stdout",
 	)
-	src, err := startAnnexBSource("screen share", cmd)
-	if err != nil {
-		return nil, err
-	}
-	return &ScreenShare{src}, nil
+}
+
+func gpuScreenRecorderCmd(profile videoQualityProfile) *exec.Cmd {
+	return exec.Command(
+		"gpu-screen-recorder",
+		"-w", "screen",
+		"-c", "h264", // ffmpeg's raw Annex-B muxer
+		"-k", "h264",
+		"-f", fmt.Sprint(videoCaptureFramerate),
+		// Unlike wf-recorder, gsr can scale on the GPU before encoding, so
+		// quality caps resolution here too, not just bitrate.
+		"-s", fmt.Sprintf("%dx%d", profile.camWidth, profile.camHeight),
+		"-bm", "cbr",
+		"-q", fmt.Sprint(profile.screenBitrateKbps),
+		// Same Baseline-vs-SDP mismatch wfRecorderCmd forces away - the
+		// hardware encoders default to High. "constrained_baseline" is
+		// h264_vaapi's name for it.
+		"-ffmpeg-video-opts", "profile=constrained_baseline",
+		"-v", "no", // FPS/damage chatter
+		"-o", "/dev/stdout",
+	)
 }
 
 // Camera captures a video4linux2 device (a webcam) via ffmpeg, encoding to
@@ -286,7 +338,7 @@ func NewCamera(device string, quality VideoQuality) (*Camera, error) {
 		// baseline one call/peer.go declares in SDP, which a peer's decoder
 		// then can't parse: RTP arrives, nothing ever gets decoded, no error
 		// either side. Forcing 4:2:0 here keeps the actual bitstream profile
-		// consistent with what's negotiated - see NewScreenShare's
+		// consistent with what's negotiated - see wfRecorderCmd's
 		// "-p", "profile=baseline" for the same fix on that path.
 		"-pix_fmt", "yuv420p",
 		"-c:v", "libx264",
@@ -358,7 +410,7 @@ func indexStartCode(buf []byte, from int) int {
 
 // VideoCodec names which codec a peer's incoming video track was actually
 // negotiated with (see webrtc.TrackRemote.Codec()) - the peer picks this,
-// not us: kage's own screen-share always sends H.264 (wf-recorder/x264),
+// not us: kage's own screen-share always sends H.264,
 // but an arbitrary Jingle peer sending video (e.g. a phone placing a video
 // call) may have chosen VP8 instead, and mpv needs telling which one it's
 // getting fed - feeding VP8 payload through an H.264 demuxer produces no

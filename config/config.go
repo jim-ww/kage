@@ -121,11 +121,16 @@ type Config struct {
 	NoticeDuration int `toml:"notice_duration,omitempty"`
 	// VideoQuality picks the capture profile for outgoing screen-share/camera
 	// video: "very_low", "low", "medium" (DefaultVideoQuality when unset), or
-	// "high". Controls resolution/bitrate for both wf-recorder (screen) and
+	// "high". Controls resolution/bitrate for both the screen recorder and
 	// ffmpeg (camera) - see call.VideoQualityFromString.
-	VideoQuality string        `toml:"video_quality,omitempty"`
-	Storage      StorageConfig `toml:"storage,omitempty"`
-	Accounts     []Account     `toml:"accounts,omitempty"`
+	VideoQuality string `toml:"video_quality,omitempty"`
+	// ScreenRecorder picks the program outgoing screen-share video is
+	// captured with: "wf-recorder" (DefaultScreenRecorder when unset;
+	// CPU-encoded) or "gpu-screen-recorder" (hardware-encoded, lighter) -
+	// see call.ScreenRecorderFromString.
+	ScreenRecorder string        `toml:"screen_recorder,omitempty"`
+	Storage        StorageConfig `toml:"storage,omitempty"`
+	Accounts       []Account     `toml:"accounts,omitempty"`
 
 	// State holds settings the app itself persists at runtime (dragged
 	// sidebar width, last opened chat, ...), loaded from a separate
@@ -167,6 +172,10 @@ const DefaultNoticeDurationSeconds = 3
 // set in config.toml.
 const DefaultVideoQuality = "medium"
 
+// DefaultScreenRecorder is the screen-share capture program used when
+// screen_recorder isn't set in config.toml.
+const DefaultScreenRecorder = "wf-recorder"
+
 // DefaultEncryptionMode is the outgoing encryption mode a chat starts with
 // when default_encryption_mode isn't set in config.toml.
 const DefaultEncryptionMode = "omemo-v1"
@@ -180,6 +189,7 @@ func defaultConfig() Config {
 		MaxMessagesPerChat:    DefaultMaxMessagesPerChat,
 		NoticeDuration:        DefaultNoticeDurationSeconds,
 		VideoQuality:          DefaultVideoQuality,
+		ScreenRecorder:        DefaultScreenRecorder,
 		DefaultEncryptionMode: DefaultEncryptionMode,
 	}
 }

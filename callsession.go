@@ -157,13 +157,13 @@ type callSession struct {
 	qualityDone   chan struct{}
 
 	// sharing is true while we're actively capturing and sending our own
-	// screen; screenShare is the wf-recorder subprocess driving it, nil
+	// screen; screenShare is the capture subprocess driving it, nil
 	// whenever sharing is false. The peer's incoming screen share (if any)
 	// has no session-level flag here - it's just whatever video arrives on
 	// OnTrack, played via playRemoteVideo/ScreenViewer independently.
 	// pendingShare is true from the moment a content-add offering video is
 	// sent until the peer's content-accept lands - startVideoShare only
-	// actually starts wf-recorder once negotiation completes (see
+	// actually starts capturing once negotiation completes (see
 	// applyContentAccept), so an idle-forever video m-line never gets
 	// negotiated in the first place (see call.PeerConnection.AddVideoTrack).
 	sharing      bool
@@ -1540,7 +1540,7 @@ func (c *callSession) currentState() callState {
 }
 
 // startVideoShare adds the video track and sends a XEP-0166 content-add
-// offering it - the capture process (wf-recorder or, for useCamera, ffmpeg
+// offering it - the capture process (the screen recorder or, for useCamera, ffmpeg
 // reading the webcam) only actually starts once the peer's content-accept
 // lands (see applyContentAccept), so the video m-line only ever gets
 // negotiated with real media about to flow, never idle from the start (see
@@ -1770,9 +1770,10 @@ func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.Jingle
 // that's supported for now.
 const defaultCameraDevice = "/dev/video0"
 
-// beginScreenShareCapture launches the capture process (wf-recorder for a
-// screen share, ffmpeg/v4l2 for a camera - see c.videoUseCamera) and starts
-// pumping captured frames onto the now-fully-negotiated video track.
+// beginScreenShareCapture launches the capture process (the configured
+// call.ScreenRecorder for a screen share, ffmpeg/v4l2 for a camera - see
+// c.videoUseCamera) and starts pumping captured frames onto the
+// now-fully-negotiated video track.
 func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.mu.Lock()
 	useCamera := c.videoUseCamera
@@ -1784,7 +1785,7 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	if useCamera {
 		share, err = call.NewCamera(defaultCameraDevice, quality)
 	} else {
-		share, err = call.NewScreenShare(quality)
+		share, err = call.NewScreenShare(currentScreenRecorder(), quality)
 	}
 	if err != nil {
 		slog.Warn("starting video capture", "sid", c.sid, "camera", useCamera, "err", err)
@@ -1807,7 +1808,7 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 		stillOurs := c.videoSource == share
 		c.mu.Unlock()
 		if stillOurs {
-			// The capture process died on its own (wf-recorder/ffmpeg exited,
+			// The capture process died on its own (the recorder/ffmpeg exited,
 			// the user closed the screen picker, ...) - as far as the peer is
 			// concerned that's the same event as a user-initiated stop, so
 			// withdraw the content rather than just clearing our own flags.
