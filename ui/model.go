@@ -22,9 +22,9 @@ type Model struct {
 	width, height int
 	termHeight    int // raw terminal rows from the last WindowSizeMsg; height is derived from this minus the footer's actual (view-dependent) row count
 	selectedView
-	keys   KeyMap
+	keys   *KeyMap
 	theme  Theme
-	styles uiStyles
+	styles *uiStyles
 	zone   *zone.Manager // owns mouse click/scroll regions marked in View(); see ui/mouse.go
 
 	// maxMessagesPerChat caps how many messages are kept in
@@ -149,7 +149,7 @@ type Model struct {
 	chatListViewCache *chatListCacheEntry
 
 	input    *textarea.Model
-	viewport viewport.Model
+	viewport *viewport.Model
 
 	// draftHistory is the compose box's undo/redo stack for the current
 	// session — draftHistory[draftHistIdx] is always the value currently in
@@ -486,6 +486,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	picker.SortField = filepicker.ParseSortField(display.FilePickerSortField)
 	picker.SortAscending = display.FilePickerSortAscending
 	applyFilePickerStyles(&picker, styles.colors)
+	vp := viewport.New()
 	fileSender, _ := sender.(FileSender)
 	renamer, _ := sender.(ContactRenamer)
 	defaultAccountSetter, _ := sender.(DefaultAccountSetter)
@@ -518,7 +519,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 
 	m := Model{
 		selectedView:               viewChat,
-		keys:                       keys,
+		keys:                       &keys,
 		theme:                      theme,
 		styles:                     styles,
 		zone:                       zm,
@@ -541,7 +542,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		chatListViewCache:          &chatListCacheEntry{},
 		input:                      &ti,
 		draftHistory:               []string{""},
-		viewport:                   viewport.New(),
+		viewport:                   &vp,
 		selectedAttachment:         -1,
 		reactingMsgIdx:             -1,
 		flashMsgIdx:                -1,

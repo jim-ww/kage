@@ -1285,7 +1285,7 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 	if m.zone.Get(zonePaneViewport).InBounds(msg) {
 		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
+		*m.viewport, cmd = m.viewport.Update(msg)
 		if len(m.msgOffsets) > 0 {
 			yOffset := m.viewport.YOffset()
 			top := m.msgIndexAtOffset(yOffset)

@@ -63,9 +63,9 @@ type uiStyles struct {
 	callBar               lipgloss.Style
 }
 
-func newUIStyles(theme Theme) uiStyles {
+func newUIStyles(theme Theme) *uiStyles {
 	colors := newUIColors(theme)
-	return uiStyles{
+	return &uiStyles{
 		colors: colors,
 		messageTime: lipgloss.NewStyle().
 			Foreground(colors.time),
@@ -198,7 +198,7 @@ func newUIStyles(theme Theme) uiStyles {
 // distinct rows rather than one block sharing a single background, since the
 // name row's accent color would otherwise bleed into (and clash with) the
 // status text below it — and so each can be marked as its own click zone.
-func (s uiStyles) accountBarNameRow(width int, bg, fg color.Color, name string) string {
+func (s *uiStyles) accountBarNameRow(width int, bg, fg color.Color, name string) string {
 	return s.sidebarStatus.
 		Width(width).
 		Background(bg).
@@ -208,7 +208,7 @@ func (s uiStyles) accountBarNameRow(width int, bg, fg color.Color, name string) 
 
 // accountBarStatusRow renders just the account bar's status row, tinting it
 // on hover.
-func (s uiStyles) accountBarStatusRow(width int, status string, hovered bool) string {
+func (s *uiStyles) accountBarStatusRow(width int, status string, hovered bool) string {
 	fg := s.colors.textMuted
 	if hovered {
 		fg = s.colors.accentCyan
@@ -223,21 +223,21 @@ func (s uiStyles) accountBarStatusRow(width int, status string, hovered bool) st
 // chatStatusLine renders the chat pane's status bar (peer name/presence,
 // typing indicator) centered; the content is expected to already be colored
 // (see renderChatStatusBar) to match our own messages' "» [time]" glyph.
-func (s uiStyles) chatStatusLine(width int, content string) string {
+func (s *uiStyles) chatStatusLine(width int, content string) string {
 	return s.sidebarStatus.
 		Width(width).
 		Align(lipgloss.Center).
 		Render(content)
 }
 
-func (s uiStyles) sidebarInner(width, height int, content string) string {
+func (s *uiStyles) sidebarInner(width, height int, content string) string {
 	return s.sidebarPanel.
 		Width(width).
 		Height(height).
 		Render(s.sidebarList.Width(width).Render(content))
 }
 
-func (s uiStyles) sidebarBox(width, height int, border color.Color, content string) string {
+func (s *uiStyles) sidebarBox(width, height int, border color.Color, content string) string {
 	return s.sidebar.
 		Width(width).
 		Height(height).
@@ -245,11 +245,11 @@ func (s uiStyles) sidebarBox(width, height int, border color.Color, content stri
 		Render(content)
 }
 
-func (s uiStyles) inputInnerBox(width int, content string) string {
+func (s *uiStyles) inputInnerBox(width int, content string) string {
 	return s.inputInner.Width(width).Render(content)
 }
 
-func (s uiStyles) inputContainer(border color.Color, content string) string {
+func (s *uiStyles) inputContainer(border color.Color, content string) string {
 	return s.inputBox.BorderForeground(border).Render(content)
 }
 
@@ -262,7 +262,7 @@ const sendButtonLabel = " Send "
 // its Padding(0, 1).
 const sendButtonWidth = len(sendButtonLabel) + 2
 
-func (s uiStyles) renderSendButton(hovered bool) string {
+func (s *uiStyles) renderSendButton(hovered bool) string {
 	st := s.sendButton
 	if hovered {
 		st = st.Reverse(true)
@@ -296,7 +296,7 @@ func attachButtonWidth(icons bool) int {
 // padding, reversed on hover) so it reads as a real button rather than a
 // plain glyph, just kept small/unbold so it doesn't compete with the
 // higher-traffic send/attach buttons elsewhere.
-func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
+func (s *uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 	label := "[k]"
 	if icons {
 		label = "🔑"
@@ -318,7 +318,7 @@ func (s uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 // without turning into a full button chip. No trailing label - the glyph
 // alone is the whole clickable control (see
 // isReplyKeyHovered/isReactKeyHovered).
-func (s uiStyles) renderMsgActionKey(key string, hovered bool) string {
+func (s *uiStyles) renderMsgActionKey(key string, hovered bool) string {
 	if !hovered {
 		return s.messageMuted.Render(key)
 	}
@@ -327,7 +327,7 @@ func (s uiStyles) renderMsgActionKey(key string, hovered bool) string {
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended
 // under a message body that was collapsed for exceeding maxCollapsedBodyLines.
-func (s uiStyles) renderMsgExpandButton(expanded, hovered bool) string {
+func (s *uiStyles) renderMsgExpandButton(expanded, hovered bool) string {
 	label := "▾ show more"
 	if expanded {
 		label = "▴ show less"
@@ -339,7 +339,7 @@ func (s uiStyles) renderMsgExpandButton(expanded, hovered bool) string {
 	return st.Render(label)
 }
 
-func (s uiStyles) renderAttachButton(icons, hovered bool) string {
+func (s *uiStyles) renderAttachButton(icons, hovered bool) string {
 	st := s.attachButton
 	if hovered {
 		st = st.Reverse(true)
@@ -351,7 +351,7 @@ func (s uiStyles) renderAttachButton(icons, hovered bool) string {
 // its file-type icon, name, and a trailing "x" — the whole chip is a single
 // clickable zone (see zoneAttachmentRemove) that removes it. selected wraps
 // it in brackets, marking which one Tab/Backspace/ctrl+o currently act on.
-func (s uiStyles) renderAttachmentChip(icon, name string, selected, hovered bool) string {
+func (s *uiStyles) renderAttachmentChip(icon, name string, selected, hovered bool) string {
 	label := icon + " " + name + " ×"
 	if selected {
 		label = "[" + label + "]"
@@ -367,7 +367,7 @@ func (s uiStyles) renderAttachmentChip(icon, name string, selected, hovered bool
 // shows/hides the chat list sidebar (mirrors DefaultKeyMap.ToggleSidebar,
 // bound to Ctrl+\). Shows a closed-side icon when the list is hidden (click
 // to open it) and an open-side icon when visible (click to close it).
-func (s uiStyles) renderSidebarToggleButton(hidden, hovered bool) string {
+func (s *uiStyles) renderSidebarToggleButton(hidden, hovered bool) string {
 	icon := " ◧ "
 	if hidden {
 		icon = " ◨ "
@@ -388,7 +388,7 @@ func (s uiStyles) renderSidebarToggleButton(hidden, hovered bool) string {
 // it floats over ("half-transparent" being an approximation a terminal can
 // actually render); full brightness and reversed on hover, like every other
 // button here.
-func (s uiStyles) renderJumpToBottomButton(hovered bool) string {
+func (s *uiStyles) renderJumpToBottomButton(hovered bool) string {
 	st := lipgloss.NewStyle().
 		Foreground(s.colors.themFg).
 		Background(s.colors.borderD).
@@ -406,7 +406,7 @@ func (s uiStyles) renderJumpToBottomButton(hovered bool) string {
 // renderAccountMenuButton draws the account bar's menu affordance. Painted
 // with the account bar's own colors so it reads as part of that bar rather
 // than as something floating on top of it.
-func (s uiStyles) renderAccountMenuButton(icons bool, bg, fg color.Color, hovered bool) string {
+func (s *uiStyles) renderAccountMenuButton(icons bool, bg, fg color.Color, hovered bool) string {
 	label := " ⋯ "
 	if !icons {
 		label = " ... "
@@ -418,7 +418,7 @@ func (s uiStyles) renderAccountMenuButton(icons bool, bg, fg color.Color, hovere
 	return st.Render(label)
 }
 
-func (s uiStyles) contextMenuRow(label string, hovered bool, width int) string {
+func (s *uiStyles) contextMenuRow(label string, hovered bool, width int) string {
 	st := s.contextMenuItem
 	if hovered {
 		st = s.contextMenuItemHover
@@ -433,7 +433,7 @@ func (s uiStyles) contextMenuRow(label string, hovered bool, width int) string {
 // reset in the wrong color instead of themFg. Selected/hovered emphasis is
 // applied afterward, across the whole row at once, by rowBackgroundTint -
 // not here.
-func (s uiStyles) plainTextLine(line string) string {
+func (s *uiStyles) plainTextLine(line string) string {
 	if strings.Contains(line, "\x1b[") {
 		return line
 	}
@@ -448,7 +448,7 @@ const dateDividerDashes = 3
 // renderDateDivider renders a short "─── Tue 26 Aug ───" separator line
 // marking the start of a new calendar day in the message list, left-aligned
 // at the start of the row rather than centered or stretched to width.
-func (s uiStyles) renderDateDivider(label string) string {
+func (s *uiStyles) renderDateDivider(label string) string {
 	dashes := strings.Repeat("─", dateDividerDashes)
 	line := dashes + " " + label + " " + dashes
 	return s.messageTime.Render(line)
@@ -459,7 +459,7 @@ func (s uiStyles) renderDateDivider(label string) string {
 // so the row's own per-fragment foreground colors (sender name, reply
 // author, dimmed timestamp, ...) keep showing through the tint instead of
 // it only covering whatever ran before the first reset.
-func (s uiStyles) rowBackgroundTint(line string) string {
+func (s *uiStyles) rowBackgroundTint(line string) string {
 	bgCode, _, ok := strings.Cut(lipgloss.NewStyle().Background(s.colors.rowHoverBg).Render("\x00"), "\x00")
 	if !ok {
 		return line
@@ -467,7 +467,7 @@ func (s uiStyles) rowBackgroundTint(line string) string {
 	return bgCode + strings.ReplaceAll(line, "\x1b[m", "\x1b[m"+bgCode) + "\x1b[m"
 }
 
-func (s uiStyles) viewportContent(width, height int, content string) string {
+func (s *uiStyles) viewportContent(width, height int, content string) string {
 	return s.viewportBody.
 		Width(width).
 		Height(height).
@@ -476,7 +476,7 @@ func (s uiStyles) viewportContent(width, height int, content string) string {
 
 // noticeToast renders the notification text as a self-sized bordered toast,
 // wrapped to maxWidth so a long message doesn't stretch off-screen.
-func (s uiStyles) noticeToast(maxWidth int, content string) string {
+func (s *uiStyles) noticeToast(maxWidth int, content string) string {
 	style := s.notice
 	// -4 for the box's own Border(1,1) + Padding(0,1); only constrain width
 	// when the text actually needs wrapping, otherwise let it size to
@@ -488,7 +488,7 @@ func (s uiStyles) noticeToast(maxWidth int, content string) string {
 	return style.Render(content)
 }
 
-func (s uiStyles) viewportFrame(width, height int, content string) string {
+func (s *uiStyles) viewportFrame(width, height int, content string) string {
 	return s.viewportArea.
 		Width(width).
 		Height(height).
@@ -502,11 +502,11 @@ func (s uiStyles) viewportFrame(width, height int, content string) string {
 // of the whole visible chat — a full Unicode grapheme-width scan of the
 // pane — to produce output byte-identical to what it was handed. See
 // renderViewportFrame for when that precondition holds.
-func (s uiStyles) viewportFramePresized(content string) string {
+func (s *uiStyles) viewportFramePresized(content string) string {
 	return s.viewportArea.Render(content)
 }
 
-func (s uiStyles) rootView(content string) string {
+func (s *uiStyles) rootView(content string) string {
 	return s.root.Render(content)
 }
 
@@ -515,7 +515,7 @@ func (s uiStyles) rootView(content string) string {
 // content wider than that is wrapped to fit instead of spilling past the
 // terminal edge, since lipgloss.Place neither wraps nor clips an oversized
 // child. A non-positive maxWidth means "don't constrain".
-func (s uiStyles) popupDialog(border color.Color, maxWidth int, content string) string {
+func (s *uiStyles) popupDialog(border color.Color, maxWidth int, content string) string {
 	if maxWidth > 0 {
 		content = wrapToWidth(content, maxWidth-s.popup.GetHorizontalFrameSize())
 	}
@@ -538,11 +538,11 @@ func wrapToWidth(content string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (s uiStyles) footerBar(width int, content string) string {
+func (s *uiStyles) footerBar(width int, content string) string {
 	return s.footer.Width(width).Render(content)
 }
 
-func (s uiStyles) callBarLine(width int, content string) string {
+func (s *uiStyles) callBarLine(width int, content string) string {
 	return s.callBar.Width(width).Render(content)
 }
 
@@ -555,7 +555,7 @@ func (s uiStyles) callBarLine(width int, content string) string {
 // that reset (i.e. no background at all) rather than callBar's background -
 // the outer callBarLine wrap only colors literal runs it's the sole
 // styler of, not text sandwiched between two already-rendered substrings.
-func (s uiStyles) callBarText(text string) string {
+func (s *uiStyles) callBarText(text string) string {
 	return lipgloss.NewStyle().
 		Foreground(s.colors.appBg).
 		Background(s.colors.accentCyan).
@@ -566,7 +566,7 @@ func (s uiStyles) callBarText(text string) string {
 // renderCallBarButton renders one of the call bar's [key] label buttons —
 // same small hover-reversed pattern as renderStoragePasswordButton, just
 // against callBar's background instead of the account bar's.
-func (s uiStyles) renderCallBarButton(label string, hovered bool) string {
+func (s *uiStyles) renderCallBarButton(label string, hovered bool) string {
 	st := lipgloss.NewStyle().
 		Foreground(s.colors.appBg).
 		Background(s.colors.accentCyan).
@@ -577,7 +577,7 @@ func (s uiStyles) renderCallBarButton(label string, hovered bool) string {
 	return st.Render(label)
 }
 
-func (s uiStyles) renderAccountRow(name string, selected, hovered bool) string {
+func (s *uiStyles) renderAccountRow(name string, selected, hovered bool) string {
 	style := s.accountNormal
 	if selected {
 		style = s.accountSelected
@@ -591,7 +591,7 @@ func (s uiStyles) renderAccountRow(name string, selected, hovered bool) string {
 	return style.Render(name)
 }
 
-func (s uiStyles) deletePrompt(width int, title, detail string) string {
+func (s *uiStyles) deletePrompt(width int, title, detail string) string {
 	body := s.popupDanger.Width(width).Render(title)
 	if detail != "" {
 		body += "\n" + s.messageReply.Width(width).Render(detail)
@@ -599,11 +599,11 @@ func (s uiStyles) deletePrompt(width int, title, detail string) string {
 	return body + "\n\n  [y] yes    [n] no"
 }
 
-func (s uiStyles) infoPopup(title string, rows []string, closeKey string) string {
+func (s *uiStyles) infoPopup(title string, rows []string, closeKey string) string {
 	return s.listPopup(title, rows, "[esc/"+closeKey+"] close")
 }
 
-func (s uiStyles) listPopup(title string, rows []string, footer string) string {
+func (s *uiStyles) listPopup(title string, rows []string, footer string) string {
 	body := lipgloss.NewStyle().Bold(true).Foreground(s.colors.borderA).Render(title)
 	for _, row := range rows {
 		body += "\n" + row
@@ -612,7 +612,7 @@ func (s uiStyles) listPopup(title string, rows []string, footer string) string {
 	return body
 }
 
-func (s uiStyles) renderMessagePrefix(selected, hovered bool) string {
+func (s *uiStyles) renderMessagePrefix(selected, hovered bool) string {
 	switch {
 	case selected:
 		return s.messageSelectedPrefix.Render("> ")
@@ -629,7 +629,7 @@ func (s uiStyles) renderMessagePrefix(selected, hovered bool) string {
 // left-hand cursor glyph) - selected bolds it, hovered underlines it, so
 // keyboard navigation between messages stays visible without needing a
 // dedicated marker column.
-func (s uiStyles) renderMessageHeader(name, timeLabel string, isMe, selected, hovered bool) string {
+func (s *uiStyles) renderMessageHeader(name, timeLabel string, isMe, selected, hovered bool) string {
 	timeStyle := s.messageNickThem
 	glyph := "«"
 	if isMe {
@@ -645,7 +645,7 @@ func (s uiStyles) renderMessageHeader(name, timeLabel string, isMe, selected, ho
 	return timeStyle.Render(glyph+" "+name+"["+timeLabel+"]") + " "
 }
 
-func (s uiStyles) renderReplyHint(author, preview string) string {
+func (s *uiStyles) renderReplyHint(author, preview string) string {
 	return s.messageReply.Render(fmt.Sprintf("↩ %s: %s", author, preview))
 }
 
@@ -656,6 +656,6 @@ func (s uiStyles) renderReplyHint(author, preview string) string {
 // bar separator (there's nothing to separate the name from).
 // budget is how many display cells the fragment may occupy, "↑ " included,
 // so a long quote's ellipsis can't spill onto the next line.
-func (s uiStyles) renderQuoteReplyFragment(preview string, budget int) string {
+func (s *uiStyles) renderQuoteReplyFragment(preview string, budget int) string {
 	return s.messageTime.Render("↑ " + previewText(preview, min(previewLen, budget-2)))
 }

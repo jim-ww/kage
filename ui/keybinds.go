@@ -243,7 +243,7 @@ func shortestKey(b key.Binding) string {
 // globalEntries lists bindings that work the same in every view — shown as
 // their own section in the help popup, and appended to each view's entries
 // for the footer hint.
-func (k KeyMap) globalEntries() []helpEntry {
+func (k *KeyMap) globalEntries() []helpEntry {
 	return []helpEntry{
 		{k.Switch, "switch focus"},
 		{k.AccountMenu, "account menu"},
@@ -256,7 +256,7 @@ func (k KeyMap) globalEntries() []helpEntry {
 // description that applies there. This is the single source of truth for
 // both the footer hint (helpHint) and the per-tab sections in the help popup
 // (renderHelpPopup) — keeping one list means the two can't drift apart.
-func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []helpEntry {
+func (k *KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []helpEntry {
 	switch view {
 	case viewAccounts:
 		return []helpEntry{
@@ -324,7 +324,7 @@ func (k KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []hel
 // "key desc" entry per binding joined by " · ". Key labels are pulled from
 // the (possibly user-remapped) bindings; the descriptions are tailored to
 // what each key does in that particular view.
-func (k KeyMap) helpHint(view selectedView, hasPendingAttachments bool) string {
+func (k *KeyMap) helpHint(view selectedView, hasPendingAttachments bool) string {
 	entries := k.viewEntries(view, hasPendingAttachments)
 	if entries == nil {
 		return ""
@@ -359,7 +359,7 @@ type helpSection struct {
 // helpSections builds the full-keybindings help popup's content: one section
 // per tab (labeled so it's clear which keys apply where), plus the bindings
 // that work everywhere.
-func (k KeyMap) helpSections() []helpSection {
+func (k *KeyMap) helpSections() []helpSection {
 	return []helpSection{
 		{"Accounts tab", k.viewEntries(viewAccounts, false)},
 		{"Chats tab", k.viewEntries(viewChats, false)},

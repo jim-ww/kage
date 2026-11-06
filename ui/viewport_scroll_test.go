@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
+	"github.com/jim-ww/kage/ui/viewport"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -14,6 +15,7 @@ import (
 func newScrollTestModel(t *testing.T, n, viewportHeight int) *Model {
 	t.Helper()
 	styles := newUIStyles(DefaultTheme())
+	vp := viewport.New()
 
 	msgs := make([]Message, n)
 	for i := range msgs {
@@ -28,6 +30,7 @@ func newScrollTestModel(t *testing.T, n, viewportHeight int) *Model {
 
 	m := &Model{
 		styles:        styles,
+		viewport:      &vp,
 		width:         80,
 		height:        24,
 		sidebarHidden: true,

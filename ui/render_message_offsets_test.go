@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
+	"github.com/jim-ww/kage/ui/viewport"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -20,6 +21,7 @@ import (
 // window, leaving the selected message off-screen.
 func TestRenderMessagesWithOffsetsMatchesLineSplit(t *testing.T) {
 	styles := newUIStyles(DefaultTheme())
+	vp := viewport.New()
 
 	msgs := []Message{
 		{ID: "1", Author: "bob", Content: "hello", SentAt: time.Now()},
@@ -37,6 +39,7 @@ func TestRenderMessagesWithOffsetsMatchesLineSplit(t *testing.T) {
 
 	m := Model{
 		styles:        styles,
+		viewport:      &vp,
 		width:         120,
 		height:        24,
 		sidebarHidden: true,

@@ -534,7 +534,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if m.selectedView == viewChat {
 			oldOffset := m.viewport.YOffset()
 			var viewportCmd tea.Cmd
-			m.viewport, viewportCmd = m.viewport.Update(msg)
+			*m.viewport, viewportCmd = m.viewport.Update(msg)
 			cmds = append(cmds, viewportCmd)
 			// Keep the message selection in sync with whatever paging
 			// just scrolled into view, instead of leaving it pointing

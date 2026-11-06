@@ -16,7 +16,8 @@ func TestHalfPageJumpsByHalfVisibleMessages(t *testing.T) {
 	const viewportHeight = 20
 	m := newScrollTestModel(t, 100, viewportHeight)
 	m.selectedView = viewChat
-	m.keys = DefaultKeyMap
+	keys := DefaultKeyMap
+	m.keys = &keys
 
 	visible := m.visibleMessageCount()
 	if visible <= 0 {

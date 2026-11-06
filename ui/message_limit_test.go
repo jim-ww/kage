@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
+	"github.com/jim-ww/kage/ui/viewport"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -53,6 +54,7 @@ func TestTrimMessagesFront(t *testing.T) {
 func newLimitTestModel(t *testing.T, n, limit int) *Model {
 	t.Helper()
 	styles := newUIStyles(DefaultTheme())
+	vp := viewport.New()
 
 	msgs := make([]Message, n)
 	base := time.Now()
@@ -68,6 +70,7 @@ func newLimitTestModel(t *testing.T, n, limit int) *Model {
 
 	m := &Model{
 		styles:             styles,
+		viewport:           &vp,
 		width:              80,
 		height:             24,
 		sidebarHidden:      true,
