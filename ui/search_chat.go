@@ -16,7 +16,7 @@ import (
 // persisted history (see submitSearchChat).
 func (m Model) renderSearchChatPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	footer := "[enter] search  ·  [esc] cancel"
 	body := m.styles.listPopup("Search chat", []string{m.popupInputView(m.searchInput)}, footer)
@@ -119,7 +119,7 @@ func (sr *searchResultsState) filteredMatches() []int {
 // contact manager/OMEMO device list.
 func (m Model) renderSearchResultsPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.searchResultsPrompt())
 	popup = m.zone.Mark(zoneSearchResultsPopup, popup)

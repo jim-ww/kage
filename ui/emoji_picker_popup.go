@@ -82,7 +82,7 @@ func (m Model) confirmEmojiPick(picked []string) (Model, tea.Cmd) {
 // for the pattern this mirrors).
 func (m Model) renderEmojiPickerPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.emojiPicker.View())
 	popup = m.zone.Mark(zoneEmojiPickerPopup, popup)
@@ -124,7 +124,7 @@ const filePickerChromeLines = 3 + popupChromeHeight
 // past the terminal's height (shifting what's drawn away from where the
 // zones were recorded).
 func (m *Model) sizeFilePicker() {
-	m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-chatStatusHeight-filePickerChromeLines))
+	m.filePicker.SetHeight(max(1, m.popupAreaHeight()-filePickerChromeLines))
 	m.filePicker.SetMaxWidth(m.popupTextWidth())
 }
 
@@ -137,7 +137,7 @@ func (m *Model) sizeEmojiPicker() {
 		return
 	}
 	innerWidth := max(1, m.chatAreaWidth()-popupChromeWidth)
-	innerHeight := max(1, m.height-m.inputAreaHeight()-popupChromeHeight)
+	innerHeight := max(1, m.popupAreaHeight()-popupChromeHeight)
 
 	columns := clamp(innerWidth/emojiPickerCellWidth, 4, 10)
 	rows := clamp(innerHeight-emojiPickerChromeLines, 2, 8)

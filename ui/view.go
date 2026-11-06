@@ -378,7 +378,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 	case m.pickingFile:
 		viewportArea = m.renderFilePickerPopup()
 	default:
-		viewportHeight := m.height - m.inputAreaHeight() - chatStatusHeight
+		viewportHeight := m.popupAreaHeight()
 		viewportArea = m.zone.Mark(zonePaneViewport, m.renderViewportFrame(viewportFrameCacheEntry{
 			width:   m.chatAreaWidth(),
 			height:  viewportHeight,
@@ -663,7 +663,7 @@ func footerWrapLines(hint string, width, maxLines int) []string {
 // clipped; row width is always capped to the available chat-area width.
 func (m Model) renderContextMenuPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	// Leave room for the popup's border + Padding(1, 4) (see uiStyles.popup).
 	maxItemWidth := max(6, cw-10)
@@ -718,7 +718,7 @@ func (m Model) deletePromptWidth() int {
 // area instead of overlaying raw ANSI (simpler and more portable).
 func (m Model) renderDeletePopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.deletePrompt(m.deletePromptWidth()))
 
@@ -770,7 +770,7 @@ func (m Model) deletePrompt(width int) string {
 // renderInfoPopup shows metadata about the currently selected message.
 func (m Model) renderInfoPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	// popup padding (4 each side) + border (1 each side).
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.infoPrompt(cw-10))
@@ -875,7 +875,7 @@ func (m Model) renderHelpPopup() string {
 // openItemsPerPage items.
 func (m Model) renderOpenPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	start, end := openPageBounds(len(m.openItems), m.openPage)
 	page := m.openItems[start:end]
@@ -927,7 +927,7 @@ func (m Model) renderOpenPopup() string {
 // padLinesToWidth).
 func (m Model) renderFilePickerPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	sortKey := caretKey(m.keys.SortFilePicker.Help().Key)
 	back := m.renderFilePickerNavButton("‹", zoneFilePickerBack, m.filePicker.CanGoBack())
@@ -993,7 +993,7 @@ func (m Model) renderFilePickerNavButton(glyph, zoneID string, enabled bool) str
 // if the last attempt failed.
 func (m Model) renderAddAccountPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	title := "Log in"
 	verb := "log in"
@@ -1036,7 +1036,7 @@ func altMode(register bool) string {
 // it protects.
 func (m Model) renderChangePasswordPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	s := m.changePasswordState
 	rows := []string{
@@ -1066,7 +1066,7 @@ func (m Model) renderChangePasswordPopup() string {
 // renderRenameChatPopup shows the single-field rename-contact prompt.
 func (m Model) renderRenameChatPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	footer := "[enter] save · [esc] cancel"
 	body := m.styles.listPopup("Rename chat", []string{m.popupInputView(m.renameInput)}, footer)
@@ -1078,7 +1078,7 @@ func (m Model) renderRenameChatPopup() string {
 // renderSaveAsPopup shows the single-field save-as destination-path prompt.
 func (m Model) renderSaveAsPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	footer := "[enter] save · [esc] cancel"
 	body := m.styles.listPopup("Save as", []string{m.popupInputView(m.saveAsInput)}, footer)

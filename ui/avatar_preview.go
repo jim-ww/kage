@@ -207,7 +207,7 @@ func (m Model) avatarPreviewSize(srcW, srcH int) (cols, rows int) {
 	// detail lines, and the footer.
 	const chromeRows = 10
 	const chromeCols = 12
-	maxRows := m.height - m.inputAreaHeight() - chromeRows
+	maxRows := m.popupAreaHeight() - chromeRows
 	maxCols := m.chatAreaWidth() - chromeCols
 	if maxRows < 1 || maxCols < avatarPreviewMinCols {
 		return 0, 0
@@ -227,7 +227,7 @@ func (m Model) avatarPreviewSize(srcW, srcH int) (cols, rows int) {
 // renderAvatarPreviewPopup draws the candidate over the file picker.
 func (m Model) renderAvatarPreviewPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 	preview := m.avatarPreview
 
 	// Every line but the picture is truncated: the picture is what sets the

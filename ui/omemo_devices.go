@@ -121,7 +121,7 @@ func (dl *deviceListState) removableDevices() []OmemoDevice {
 
 func (m Model) renderDeviceListPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.deviceListPrompt())
 	popup = m.zone.Mark(zoneDeviceListPopup, popup)

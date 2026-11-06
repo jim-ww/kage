@@ -73,7 +73,7 @@ func newAddContactInput(m Model) textinput.Model {
 
 func (m Model) renderContactManagerPopup() string {
 	cw := m.chatAreaWidth()
-	vh := m.height - m.inputAreaHeight()
+	vh := m.popupAreaHeight()
 
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.contactManagerPrompt())
 	popup = m.zone.Mark(zoneContactManagerPopup, popup)

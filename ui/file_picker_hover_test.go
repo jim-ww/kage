@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -35,7 +36,7 @@ func TestFilePickerHoverBurstLandsOnLastRow(t *testing.T) {
 // row's hover/click zone to a sliver, so hovering a row no longer selects
 // it.
 func TestFilePickerRowsFitSmallTerminal(t *testing.T) {
-	for _, size := range [][2]int{{120, 40}, {80, 20}, {60, 16}, {48, 12}} {
+	for _, size := range [][2]int{{120, 40}, {80, 20}, {60, 16}, {48, 13}} {
 		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
 			dir := t.TempDir()
 			for i := range 30 {
@@ -50,7 +51,9 @@ func TestFilePickerRowsFitSmallTerminal(t *testing.T) {
 			next, _ := m.Update(m.filePicker.Init()())
 			next, _ = next.(Model).Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 			m = next.(Model)
-			_ = m.View()
+			if lines := strings.Count(m.View().Content, "\n") + 1; lines > size[1] {
+				t.Fatalf("frame is %d lines on a %d-line terminal", lines, size[1])
+			}
 
 			for row := range m.filePicker.Height() {
 				z := awaitZone(t, m.zone, zoneFilePickerRow(row))

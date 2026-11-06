@@ -207,6 +207,13 @@ func (m Model) chatAreaWidth() int {
 // terminal edge. popupDialog wraps content down to this.
 func (m Model) popupWidth() int { return m.chatAreaWidth() }
 
+// popupAreaHeight is the height of the chat area a popup replaces the
+// message viewport in: everything between the chat status line and the
+// compose box.
+func (m Model) popupAreaHeight() int {
+	return max(0, m.height-m.inputAreaHeight()-chatStatusHeight)
+}
+
 // popupTextWidth is how wide a line of popup body text may be — popupWidth
 // minus the dialog's own border and padding. Prose long enough to need
 // wrapping should be wrapped to this *before* being styled: popupDialog

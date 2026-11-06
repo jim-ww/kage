@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -56,6 +57,22 @@ func TestPopupsFitChatArea(t *testing.T) {
 					break
 				}
 			}
+		}
+	}
+}
+
+// TestPopupFrameFitsTerminal guards popups' Place height: the popup area
+// sits between the chat status line and the compose box, and padding a
+// popup to more than that pushes the whole frame past the terminal's
+// height.
+func TestPopupFrameFitsTerminal(t *testing.T) {
+	m := newMouseSweepBenchModel(30, 150)
+	m.openContextMenu("Menu", []contextMenuItem{{label: "one"}, {label: "two"}})
+	for _, size := range [][2]int{{120, 40}, {60, 16}} {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		m = next.(Model)
+		if lines := strings.Count(m.View().Content, "\n") + 1; lines != size[1] {
+			t.Errorf("%dx%d: frame is %d lines, want %d", size[0], size[1], lines, size[1])
 		}
 	}
 }
