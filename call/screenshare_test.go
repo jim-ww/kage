@@ -153,10 +153,10 @@ func TestGPUScreenRecorderCmdFollowsQuality(t *testing.T) {
 
 func TestScreenRecorderFromString(t *testing.T) {
 	for in, want := range map[string]ScreenRecorder{
-		"":                    ScreenRecorderWF,
+		"":                    ScreenRecorderGPU,
 		"wf-recorder":         ScreenRecorderWF,
 		"gpu-screen-recorder": ScreenRecorderGPU,
-		"bogus":               ScreenRecorderWF,
+		"bogus":               ScreenRecorderGPU,
 	} {
 		if got := ScreenRecorderFromString(in); got != want {
 			t.Errorf("ScreenRecorderFromString(%q) = %v, want %v", in, got, want)

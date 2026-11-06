@@ -125,8 +125,8 @@ type Config struct {
 	// ffmpeg (camera) - see call.VideoQualityFromString.
 	VideoQuality string `toml:"video_quality,omitempty"`
 	// ScreenRecorder picks the program outgoing screen-share video is
-	// captured with: "wf-recorder" (DefaultScreenRecorder when unset;
-	// CPU-encoded) or "gpu-screen-recorder" (hardware-encoded, lighter) -
+	// captured with: "gpu-screen-recorder" (DefaultScreenRecorder when
+	// unset; hardware-encoded) or "wf-recorder" (CPU-encoded, heavier) -
 	// see call.ScreenRecorderFromString.
 	ScreenRecorder string        `toml:"screen_recorder,omitempty"`
 	Storage        StorageConfig `toml:"storage,omitempty"`
@@ -174,7 +174,7 @@ const DefaultVideoQuality = "medium"
 
 // DefaultScreenRecorder is the screen-share capture program used when
 // screen_recorder isn't set in config.toml.
-const DefaultScreenRecorder = "wf-recorder"
+const DefaultScreenRecorder = "gpu-screen-recorder"
 
 // DefaultEncryptionMode is the outgoing encryption mode a chat starts with
 // when default_encryption_mode isn't set in config.toml.

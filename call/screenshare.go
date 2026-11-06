@@ -225,19 +225,19 @@ func (s *annexBSource) Stop() {
 type ScreenRecorder int
 
 const (
-	ScreenRecorderWF ScreenRecorder = iota
-	ScreenRecorderGPU
+	ScreenRecorderGPU ScreenRecorder = iota
+	ScreenRecorderWF
 )
 
 // ScreenRecorderFromString maps config.toml's screen_recorder string onto a
-// ScreenRecorder, defaulting to ScreenRecorderWF for "" or anything
+// ScreenRecorder, defaulting to ScreenRecorderGPU for "" or anything
 // unrecognized - same lenient default as VideoQualityFromString.
 func ScreenRecorderFromString(s string) ScreenRecorder {
 	switch s {
-	case "gpu-screen-recorder":
-		return ScreenRecorderGPU
-	default:
+	case "wf-recorder":
 		return ScreenRecorderWF
+	default:
+		return ScreenRecorderGPU
 	}
 }
 
@@ -257,10 +257,10 @@ type ScreenShare struct {
 // VideoQuality).
 func NewScreenShare(recorder ScreenRecorder, quality VideoQuality) (*ScreenShare, error) {
 	var cmd *exec.Cmd
-	if recorder == ScreenRecorderGPU {
-		cmd = gpuScreenRecorderCmd(quality.profile())
-	} else {
+	if recorder == ScreenRecorderWF {
 		cmd = wfRecorderCmd(quality.profile())
+	} else {
+		cmd = gpuScreenRecorderCmd(quality.profile())
 	}
 	src, err := startAnnexBSource("screen share", cmd)
 	if err != nil {
