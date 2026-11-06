@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jim-ww/kage/ui/emojipicker"
@@ -46,7 +47,7 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 	delegate.Styles.DimmedDesc = delegate.Styles.DimmedDesc.Foreground(colors.time)
 	delegate.Styles.FilterMatch = delegate.Styles.FilterMatch.Foreground(colors.filterMatch).Bold(true)
 	if !mouseEnabled {
-		return delegate
+		return newPtrDelegate(&delegate)
 	}
 
 	// Selected+hover recolors the row's left border — a decoration drawn at
@@ -57,13 +58,36 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 	hoveredSelected.Styles.SelectedTitle = hoveredSelected.Styles.SelectedTitle.BorderForeground(colors.accentCyan)
 	hoveredSelected.Styles.SelectedDesc = hoveredSelected.Styles.SelectedDesc.BorderForeground(colors.accentCyan)
 
-	return zoneChatListDelegate{
-		DefaultDelegate: delegate,
-		hoverSelected:   hoveredSelected,
-		colors:          colors,
-		zone:            zm,
-		hover:           hv,
+	return &zoneChatListDelegate{
+		ptrDelegate:   newPtrDelegate(&delegate),
+		hoverSelected: &hoveredSelected,
+		colors:        colors,
+		zone:          zm,
+		hover:         hv,
 	}
+}
+
+// ptrDelegate is a list.DefaultDelegate behind a pointer, answering Height,
+// Spacing and Update itself: DefaultDelegate's methods have value receivers,
+// and the list calls Height/Spacing several times per row per frame, each
+// call copying the whole ~4.7KB delegate (styles included).
+type ptrDelegate struct {
+	*list.DefaultDelegate
+	height, spacing int
+}
+
+func newPtrDelegate(d *list.DefaultDelegate) ptrDelegate {
+	return ptrDelegate{DefaultDelegate: d, height: d.Height(), spacing: d.Spacing()}
+}
+
+func (d ptrDelegate) Height() int  { return d.height }
+func (d ptrDelegate) Spacing() int { return d.spacing }
+
+func (d ptrDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
+	if d.UpdateFunc == nil {
+		return nil
+	}
+	return d.UpdateFunc(msg, m)
 }
 
 // zoneChatListDelegate wraps DefaultDelegate's rendering with a bubblezone
@@ -73,14 +97,14 @@ func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, h
 // support is enabled — otherwise the plain DefaultDelegate is returned, so
 // no zone markers are ever emitted into the rendered output.
 type zoneChatListDelegate struct {
-	list.DefaultDelegate
-	hoverSelected list.DefaultDelegate // used when the hovered row is also the selected one
+	ptrDelegate
+	hoverSelected *list.DefaultDelegate // used when the hovered row is also the selected one
 	colors        uiColors
 	zone          *zone.Manager
 	hover         *hoverState
 }
 
-func (d zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+func (d *zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	hovered := d.hover.id == zoneChatItem(index)
 	selected := index == m.Index()
 
