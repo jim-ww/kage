@@ -14,7 +14,7 @@ import (
 // newFilePickerBenchModel opens the attach-file picker over a directory of
 // nFiles files, inside the same realistic sidebar/chat model the mouse-sweep
 // benchmarks use.
-func newFilePickerBenchModel(b *testing.B, nFiles int) Model {
+func newFilePickerBenchModel(b testing.TB, nFiles int) Model {
 	b.Helper()
 	dir := b.TempDir()
 	for i := range nFiles {
@@ -31,7 +31,7 @@ func newFilePickerBenchModel(b *testing.B, nFiles int) Model {
 }
 
 // filePickerSweepPoints returns one pointer position per visible picker row.
-func filePickerSweepPoints(b *testing.B, m *Model) []tea.Mouse {
+func filePickerSweepPoints(b testing.TB, m *Model) []tea.Mouse {
 	b.Helper()
 	for attempt := range 100 {
 		_ = m.View()

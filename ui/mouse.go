@@ -324,7 +324,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		if row < 0 {
 			return m, nil
 		}
-		return m, filePickerMoveCmd(m.filePicker.SelectedRow(), row)
+		m.filePicker.SelectRow(row)
+		return m, nil
 	}
 
 	if m.emojiPicker != nil {
@@ -1161,37 +1162,13 @@ func (m Model) filePickerRowUnderMouse(msg tea.MouseMsg) int {
 	return -1
 }
 
-// filePickerMoveCmd walks the picker's cursor from cursorRow to targetRow
-// via synthetic up/down key presses — the picker's selection index isn't
-// exported, so this is the only way to move it to an arbitrary row from
-// outside. Returned as a tea.Sequence so the presses are applied one at a
-// time, in order, through the normal Update loop rather than by mutating
-// m.filePicker directly here.
-func filePickerMoveCmd(cursorRow, targetRow int) tea.Cmd {
-	if cursorRow < 0 || cursorRow == targetRow {
-		return nil
-	}
-	step := tea.KeyPressMsg{Code: tea.KeyDown}
-	if targetRow < cursorRow {
-		step = tea.KeyPressMsg{Code: tea.KeyUp}
-	}
-	var cmds []tea.Cmd
-	for range max(targetRow, cursorRow) - min(targetRow, cursorRow) {
-		cmds = append(cmds, func() tea.Msg { return step })
-	}
-	return tea.Sequence(cmds...)
-}
-
-// handleFilePickerClick turns a click on a file-picker row into the cursor
-// moves needed to select it (see filePickerMoveCmd), applied through the
-// normal pickingFile key interception in update_keys.go (which already
-// knows how to stage a selected file) rather than duplicating that logic
-// here. A single click on a directory opens it immediately, since a click
+// handleFilePickerClick selects the clicked file-picker row, and opens it
+// via a synthetic Enter routed through the normal pickingFile key
+// interception in update_keys.go (which already knows how to stage a
+// selected file) rather than duplicating that logic here. A single click on a directory opens it immediately, since a click
 // there can never be a final selection (Enter just navigates into it). A
 // second click on the already-selected row within the double-click window
-// opens it for anything else (i.e. files). In practice the cursor is
-// usually already on the clicked row by the time this fires, since
-// hovering it (handleMouseMotion) moves the cursor there first.
+// opens it for anything else (i.e. files).
 func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Mouse().Button != tea.MouseLeft {
 		return m, nil
@@ -1225,18 +1202,16 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 		return m, nil
 	}
 
-	cursorRow := m.filePicker.SelectedRow()
-
 	clickTime := time.Now()
 	isDoubleClick := m.lastFilePickerRow == targetRow && !m.lastFilePickerTime.IsZero() && clickTime.Sub(m.lastFilePickerTime) < 500*time.Millisecond
 	m.lastFilePickerRow = targetRow
 	m.lastFilePickerTime = clickTime
 
-	cmd := filePickerMoveCmd(cursorRow, targetRow)
+	m.filePicker.SelectRow(targetRow)
 	if isDoubleClick || m.filePicker.IsDirRow(targetRow) {
-		cmd = tea.Sequence(cmd, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} })
+		return m, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} }
 	}
-	return m, cmd
+	return m, nil
 }
 
 // openPickerRowUnderMouse returns the index into m.openItems (not just the

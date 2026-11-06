@@ -920,9 +920,8 @@ func (m Model) renderOpenPopup() string {
 }
 
 // renderFilePickerPopup marks each rendered row of the file picker with its
-// own zone (zoneFilePickerRow) so handleLeftClick can turn a click into the
-// right number of synthetic up/down key presses — the picker's selection
-// index isn't exported, so there's no other way to tell it "select row 3".
+// own zone (zoneFilePickerRow) so hover/click can map the pointer to a row
+// (filePicker.SelectRow).
 // Rows are padded to the widest row's width first so every row's click/hover
 // zone spans the full list width, not just its own text (see
 // padLinesToWidth).
