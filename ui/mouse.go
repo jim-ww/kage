@@ -1195,7 +1195,7 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 			return m, nil
 		}
 		var cmd tea.Cmd
-		*m.filePicker, cmd = m.filePicker.GoForward()
+		cmd = m.filePicker.GoForward()
 		return m, cmd
 	}
 	if targetRow < 0 {
@@ -1266,7 +1266,7 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			key = tea.KeyPressMsg{Code: tea.KeyUp}
 		}
 		var cmd tea.Cmd
-		*m.filePicker, cmd = m.filePicker.Update(key)
+		cmd = m.filePicker.Update(key)
 		return m, cmd
 	}
 
@@ -1285,7 +1285,7 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 	if m.zone.Get(zonePaneViewport).InBounds(msg) {
 		var cmd tea.Cmd
-		*m.viewport, cmd = m.viewport.Update(msg)
+		cmd = m.viewport.Update(msg)
 		if len(m.msgOffsets) > 0 {
 			yOffset := m.viewport.YOffset()
 			top := m.msgIndexAtOffset(yOffset)

@@ -309,7 +309,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		// bypass the key-interception block above and must still reach the
 		// picker. Without this, the picker remains permanently empty.
 		var cmd tea.Cmd
-		*m.filePicker, cmd = m.filePicker.Update(msg)
+		cmd = m.filePicker.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
 

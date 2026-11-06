@@ -408,8 +408,8 @@ func sortEntries(entries []entry, field SortField, ascending, dirsFirst bool) {
 	})
 }
 
-func (m Model) readDir(path string, showHidden bool) tea.Cmd {
-	sortField, sortAscending, dirsFirst := m.SortField, m.SortAscending, m.DirsFirst
+func (m *Model) readDir(path string, showHidden bool) tea.Cmd {
+	id, sortField, sortAscending, dirsFirst := m.id, m.SortField, m.SortAscending, m.DirsFirst
 	return func() tea.Msg {
 		dirEntries, err := os.ReadDir(path)
 		if err != nil {
@@ -426,7 +426,7 @@ func (m Model) readDir(path string, showHidden bool) tea.Cmd {
 			entries = append(entries, newEntry(path, d))
 		}
 		sortEntries(entries, sortField, sortAscending, dirsFirst)
-		return readDirMsg{id: m.id, entries: entries}
+		return readDirMsg{id: id, entries: entries}
 	}
 }
 
@@ -444,17 +444,17 @@ func (m *Model) SetWidth(w int) {
 }
 
 // Height returns the height of the file picker.
-func (m Model) Height() int {
+func (m *Model) Height() int {
 	return m.height
 }
 
 // Init initializes the file picker model.
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return m.readDir(m.CurrentDirectory, m.ShowHidden)
 }
 
 // Update handles user interactions within the file picker model.
-func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case readDirMsg:
 		if msg.id != m.id {
@@ -565,7 +565,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m.minIdx = 0
 				m.maxIdx = m.Height() - 1
 			}
-			return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
+			return m.readDir(m.CurrentDirectory, m.ShowHidden)
 		case key.Matches(msg, m.KeyMap.Open):
 			if len(m.files) == 0 {
 				break
@@ -598,10 +598,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.selected = 0
 			m.minIdx = 0
 			m.maxIdx = m.Height() - 1
-			return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
+			return m.readDir(m.CurrentDirectory, m.ShowHidden)
 		}
 	}
-	return m, nil
+	return nil
 }
 
 // CycleSort advances to the next of four sort states in a fixed order:
@@ -609,7 +609,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // and returns a command to re-read the current directory under it. The host
 // app calls this from its own keybinding rather than the picker owning one
 // itself, so the binding stays config-overridable and matched by key code.
-func (m Model) CycleSort() (Model, tea.Cmd) {
+func (m *Model) CycleSort() tea.Cmd {
 	switch {
 	case m.SortField == SortByUpdated && !m.SortAscending:
 		m.SortField, m.SortAscending = SortByUpdated, true
@@ -623,18 +623,18 @@ func (m Model) CycleSort() (Model, tea.Cmd) {
 	m.selected = 0
 	m.minIdx = 0
 	m.maxIdx = m.Height() - 1
-	return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
+	return m.readDir(m.CurrentDirectory, m.ShowHidden)
 }
 
 // CanGoBack reports whether Back (KeyMap.Back, or a host-driven equivalent
 // like a mouse click) has a parent directory to return to — i.e. whether any
 // directory has been descended into this session.
-func (m Model) CanGoBack() bool {
+func (m *Model) CanGoBack() bool {
 	return m.selectedStack.Length() > 0
 }
 
 // CanGoForward reports whether GoForward has a directory to redescend into.
-func (m Model) CanGoForward() bool {
+func (m *Model) CanGoForward() bool {
 	return len(m.forwardStack) > 0
 }
 
@@ -642,32 +642,32 @@ func (m Model) CanGoForward() bool {
 // restoring its cursor position, mirroring a browser's forward button. A
 // no-op if CanGoForward is false. Driven by the host app (e.g. a mouse click
 // on a forward button) rather than bound to a key here, same as CycleSort.
-func (m Model) GoForward() (Model, tea.Cmd) {
+func (m *Model) GoForward() tea.Cmd {
 	if !m.CanGoForward() {
-		return m, nil
+		return nil
 	}
 	frame := m.forwardStack[len(m.forwardStack)-1]
 	m.forwardStack = m.forwardStack[:len(m.forwardStack)-1]
 	m.pushView(m.selected, m.minIdx, m.maxIdx)
 	m.CurrentDirectory = frame.dir
 	m.selected, m.minIdx, m.maxIdx = frame.selected, frame.minIdx, frame.maxIdx
-	return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
+	return m.readDir(m.CurrentDirectory, m.ShowHidden)
 }
 
 // ToggleHidden flips ShowHidden and returns a command to re-read the current
 // directory under it. Like CycleSort, the host app drives this from its own
 // keybinding rather than the picker owning one itself.
-func (m Model) ToggleHidden() (Model, tea.Cmd) {
+func (m *Model) ToggleHidden() tea.Cmd {
 	m.ShowHidden = !m.ShowHidden
 	m.selected = 0
 	m.minIdx = 0
 	m.maxIdx = m.Height() - 1
-	return m, m.readDir(m.CurrentDirectory, m.ShowHidden)
+	return m.readDir(m.CurrentDirectory, m.ShowHidden)
 }
 
 // SortLabel returns a short human-readable description of the current sort,
 // e.g. "updated desc", suitable for a status line.
-func (m Model) SortLabel() string {
+func (m *Model) SortLabel() string {
 	dir := "desc"
 	if m.SortAscending {
 		dir = "asc"
@@ -686,7 +686,7 @@ type fileRow struct {
 	date     string
 }
 
-func (m Model) visibleRows() ([]fileRow, int) {
+func (m *Model) visibleRows() ([]fileRow, int) {
 	lo, hi := max(m.minIdx, 0), min(m.maxIdx+1, len(m.files))
 	rows := make([]fileRow, 0, max(hi-lo, 0))
 	maxNameWidth := 0
@@ -709,7 +709,7 @@ func (m Model) visibleRows() ([]fileRow, int) {
 // rowSuffixWidth is the rendered width of everything in a row other than
 // the name column: the cursor glyph, the optional permission string, the
 // space separating each field, and the optional size/date columns.
-func (m Model) rowSuffixWidth() int {
+func (m *Model) rowSuffixWidth() int {
 	w := 1 + 1 // cursor + space before name
 	if m.ShowPermissions {
 		w += 1 + permissionWidth
@@ -768,7 +768,7 @@ func (ps painters) get(style *lipgloss.Style) *painter {
 }
 
 // View returns the view of the file picker.
-func (m Model) View() string {
+func (m *Model) View() string {
 	if len(m.files) == 0 {
 		return m.Styles.EmptyDirectory.Height(m.Height()).MaxHeight(m.Height()).String()
 	}
@@ -844,7 +844,7 @@ func (m Model) View() string {
 
 // IsDirRow reports whether the visible row at index row (as rendered by
 // View, 0-based from the top of the current page) is a directory.
-func (m Model) IsDirRow(row int) bool {
+func (m *Model) IsDirRow(row int) bool {
 	idx := m.minIdx + row
 	if idx < 0 || idx >= len(m.files) {
 		return false
@@ -853,7 +853,7 @@ func (m Model) IsDirRow(row int) bool {
 }
 
 // DidSelectFile returns whether a user has selected a file (on this msg).
-func (m Model) DidSelectFile(msg tea.Msg) (bool, string) {
+func (m *Model) DidSelectFile(msg tea.Msg) (bool, string) {
 	didSelect, path := m.didSelectFile(msg)
 	if didSelect && m.canSelect(path) {
 		return true, path
@@ -864,7 +864,7 @@ func (m Model) DidSelectFile(msg tea.Msg) (bool, string) {
 // DidSelectDisabledFile returns whether a user tried to select a disabled file
 // (on this msg). This is necessary only if you would like to warn the user that
 // they tried to select a disabled file.
-func (m Model) DidSelectDisabledFile(msg tea.Msg) (bool, string) {
+func (m *Model) DidSelectDisabledFile(msg tea.Msg) (bool, string) {
 	didSelect, path := m.didSelectFile(msg)
 	if didSelect && !m.canSelect(path) {
 		return true, path
@@ -872,7 +872,7 @@ func (m Model) DidSelectDisabledFile(msg tea.Msg) (bool, string) {
 	return false, ""
 }
 
-func (m Model) didSelectFile(msg tea.Msg) (bool, string) {
+func (m *Model) didSelectFile(msg tea.Msg) (bool, string) {
 	if len(m.files) == 0 {
 		return false, ""
 	}
@@ -903,7 +903,7 @@ func (m Model) didSelectFile(msg tea.Msg) (bool, string) {
 	return false, ""
 }
 
-func (m Model) canSelect(file string) bool {
+func (m *Model) canSelect(file string) bool {
 	if len(m.AllowedTypes) <= 0 {
 		return true
 	}
@@ -928,7 +928,7 @@ func (m *Model) SelectRow(row int) {
 }
 
 // HighlightedPath returns the path of the currently highlighted file or directory.
-func (m Model) HighlightedPath() string {
+func (m *Model) HighlightedPath() string {
 	if len(m.files) == 0 || m.selected < 0 || m.selected >= len(m.files) {
 		return ""
 	}

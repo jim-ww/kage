@@ -177,7 +177,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 		if matchesKey(msg, m.keys.SortFilePicker) {
 			var sortCmd tea.Cmd
-			*m.filePicker, sortCmd = m.filePicker.CycleSort()
+			sortCmd = m.filePicker.CycleSort()
 			if m.filePickerSortSetter != nil {
 				if err := m.filePickerSortSetter.SetFilePickerSort(m.filePicker.SortField.String(), m.filePicker.SortAscending); err != nil {
 					return m, tea.Batch(sortCmd, m.showNotification("saving file picker sort: "+err.Error())), true
@@ -187,11 +187,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 		if matchesLetter(msg, '.') {
 			var hiddenCmd tea.Cmd
-			*m.filePicker, hiddenCmd = m.filePicker.ToggleHidden()
+			hiddenCmd = m.filePicker.ToggleHidden()
 			return m, hiddenCmd, true
 		}
 		var pickerCmd tea.Cmd
-		*m.filePicker, pickerCmd = m.filePicker.Update(msg)
+		pickerCmd = m.filePicker.Update(msg)
 		if m.pickingAvatar {
 			if selected, path := m.filePicker.DidSelectFile(msg); selected {
 				// Not published yet: the file goes to a preview first, so
@@ -534,7 +534,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if m.selectedView == viewChat {
 			oldOffset := m.viewport.YOffset()
 			var viewportCmd tea.Cmd
-			*m.viewport, viewportCmd = m.viewport.Update(msg)
+			viewportCmd = m.viewport.Update(msg)
 			cmds = append(cmds, viewportCmd)
 			// Keep the message selection in sync with whatever paging
 			// just scrolled into view, instead of leaving it pointing

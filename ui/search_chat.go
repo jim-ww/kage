@@ -19,7 +19,7 @@ func (m Model) renderSearchChatPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	footer := "[enter] search  ·  [esc] cancel"
-	body := m.styles.listPopup("Search chat", []string{m.popupInputView(*m.searchInput)}, footer)
+	body := m.styles.listPopup("Search chat", []string{m.popupInputView(m.searchInput)}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)

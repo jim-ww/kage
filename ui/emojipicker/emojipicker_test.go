@@ -65,7 +65,7 @@ func TestClearPickedThenConfirmSendsEmptySet(t *testing.T) {
 		t.Fatalf("expected untouched confirm to remove the already-picked cursor cell, got %v ok=%v", got, ok)
 	}
 
-	m, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	if len(m.picked) != 0 {
 		t.Fatalf("expected ClearPicked to empty the set, got %v", m.picked)
 	}

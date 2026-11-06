@@ -634,9 +634,12 @@ const addAccountFieldWidth = 42
 // dialog has room for: addAccountFieldWidth is a fixed maximum (see above),
 // but prompt + field + the popup's own border/padding can be wider than the
 // chat area on a small terminal, and popupDialog would then wrap the
-// field's rendered line in half. Sizing a copy keeps this render-only, so
-// the stored field's width survives the terminal growing back.
-func (m Model) popupInputView(in textinput.Model) string {
+// field's rendered line in half. The width is restored afterwards, keeping
+// this render-only, so the stored field's width survives the terminal
+// growing back.
+func (m Model) popupInputView(in *textinput.Model) string {
+	stored := in.Width()
+	defer in.SetWidth(stored)
 	avail := m.popupWidth() - popupChromeWidth - lipgloss.Width(in.Prompt)
 	in.SetWidth(clamp(avail, popupInputMinWidth, addAccountFieldWidth))
 	return in.View()

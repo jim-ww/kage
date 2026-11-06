@@ -232,12 +232,12 @@ func (m *Model) Resize(columns, visibleRows, width int) {
 }
 
 // Selection returns the emoji currently toggled on, in pick order.
-func (m Model) Selection() []string {
+func (m *Model) Selection() []string {
 	return m.picked
 }
 
 // Init implements tea.Model.
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return textinput.Blink
 }
 
@@ -245,30 +245,30 @@ func (m Model) Init() tea.Cmd {
 // callers check DidConfirm/DidCancel against the same msg right after
 // calling Update (mirroring ui/filepicker's DidSelectFile convention) and
 // close the picker themselves; Update never closes itself.
-func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		switch {
 		case key.Matches(keyMsg, m.KeyMap.Up):
 			m.moveCursor(-m.Columns)
-			return m, nil
+			return nil
 		case key.Matches(keyMsg, m.KeyMap.Down):
 			m.moveCursor(m.Columns)
-			return m, nil
+			return nil
 		case key.Matches(keyMsg, m.KeyMap.Left):
 			m.moveCursor(-1)
-			return m, nil
+			return nil
 		case key.Matches(keyMsg, m.KeyMap.Right):
 			m.moveCursor(1)
-			return m, nil
+			return nil
 		case key.Matches(keyMsg, m.KeyMap.Toggle):
 			m.toggleCursor()
-			return m, nil
+			return nil
 		case key.Matches(keyMsg, m.KeyMap.ClearPicked):
 			m.picked = nil
 			m.touched = true
-			return m, nil
+			return nil
 		case key.Matches(keyMsg, m.KeyMap.Confirm), key.Matches(keyMsg, m.KeyMap.Cancel):
-			return m, nil
+			return nil
 		}
 	}
 
@@ -279,7 +279,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.cursor = 0
 		m.refresh()
 	}
-	return m, cmd
+	return cmd
 }
 
 // DidConfirm reports whether msg is the Confirm key, and if so the emoji set
@@ -287,7 +287,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // cleared-to-empty one, once ClearPicked/Toggle has been touched at least
 // once - see touched), or just the highlighted cell if the picker was never
 // touched at all (so a single pick needs no Tab first).
-func (m Model) DidConfirm(msg tea.Msg) ([]string, bool) {
+func (m *Model) DidConfirm(msg tea.Msg) ([]string, bool) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok || !key.Matches(keyMsg, m.KeyMap.Confirm) {
 		return nil, false
@@ -300,7 +300,7 @@ func (m Model) DidConfirm(msg tea.Msg) ([]string, bool) {
 // confirmFrom), for an embedding app that wires up mouse clicks against the
 // zone marks View() produces once Zone/ID are set. index is whatever
 // VisibleCells() reported a click landed on.
-func (m Model) ClickConfirm(index int) []string {
+func (m *Model) ClickConfirm(index int) []string {
 	return m.confirmFrom(index)
 }
 
@@ -309,7 +309,7 @@ func (m Model) ClickConfirm(index int) []string {
 // ClearPicked/Toggle has been touched at least once - see touched), or just
 // the cell at index if the picker was never touched at all (so a single
 // pick needs no Tab first).
-func (m Model) confirmFrom(index int) []string {
+func (m *Model) confirmFrom(index int) []string {
 	// touched alone gates this - not len(m.picked) > 0 too. picked can be
 	// non-empty from SetPicked seeding a message's existing reactions before
 	// the user has touched anything; treating that the same as touched made
@@ -350,7 +350,7 @@ func (m Model) confirmFrom(index int) []string {
 // index i once Zone is set - an embedding app's mouse handler hit-tests a
 // click against zone.Get(id).InBounds(mouse) for each index VisibleCells
 // returns, then calls ClickConfirm(i) on a hit.
-func (m Model) CellZoneID(i int) string {
+func (m *Model) CellZoneID(i int) string {
 	return m.ID + "-cell-" + strconv.Itoa(i)
 }
 
@@ -358,7 +358,7 @@ func (m Model) CellZoneID(i int) string {
 // rendered as grid cells (i.e. within the scrolled-to window) - what an
 // embedding app's mouse handler should hit-test clicks against via
 // CellZoneID; a cell outside this range has no zone mark to hit at all.
-func (m Model) VisibleCells() []int {
+func (m *Model) VisibleCells() []int {
 	if len(m.visible) == 0 || m.Columns <= 0 {
 		return nil
 	}
@@ -414,7 +414,7 @@ func clampInt(v, lo, hi int) int {
 }
 
 // DidCancel reports whether msg is the Cancel key.
-func (m Model) DidCancel(msg tea.Msg) bool {
+func (m *Model) DidCancel(msg tea.Msg) bool {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	return ok && key.Matches(keyMsg, m.KeyMap.Cancel)
 }
@@ -491,7 +491,7 @@ func (m *Model) isPicked(e string) bool {
 }
 
 // View implements tea.Model.
-func (m Model) View() string {
+func (m *Model) View() string {
 	var b strings.Builder
 	if m.Title != "" {
 		b.WriteString(m.line(m.Styles.Title, m.Title))
@@ -551,7 +551,7 @@ func (m Model) View() string {
 // with style - keeps a single-line row (title, picked summary, footer) from
 // ever overflowing the popup regardless of terminal size or how long a
 // message preview/hint happens to be.
-func (m Model) line(style lipgloss.Style, text string) string {
+func (m *Model) line(style lipgloss.Style, text string) string {
 	if m.Width > 0 {
 		text = ansi.Truncate(text, m.Width, "…")
 	}
@@ -559,7 +559,7 @@ func (m Model) line(style lipgloss.Style, text string) string {
 }
 
 // pickedRowText renders the "Picked: ..." summary line's content.
-func (m Model) pickedRowText() string {
+func (m *Model) pickedRowText() string {
 	if len(m.picked) == 0 {
 		return "Picked: (none)"
 	}
@@ -572,7 +572,7 @@ func (m Model) pickedRowText() string {
 // that emoji (see RemovePickedAt) - clicking the summary line is otherwise
 // the only way to deselect something once a search query has scrolled its
 // grid cell out of view.
-func (m Model) pickedRowView() string {
+func (m *Model) pickedRowView() string {
 	label := m.Styles.PickedRow.Render("Picked: ")
 	if len(m.picked) == 0 {
 		return label + m.Styles.PickedRow.Render("(none)")
@@ -592,7 +592,7 @@ func (m Model) pickedRowView() string {
 // picked emoji chip - an embedding app's mouse handler hit-tests a click
 // against zone.Get(id).InBounds(mouse) for each index in range Selection(),
 // then calls RemovePickedAt(i) on a hit.
-func (m Model) PickedZoneID(i int) string {
+func (m *Model) PickedZoneID(i int) string {
 	return m.ID + "-picked-" + strconv.Itoa(i)
 }
 
@@ -609,7 +609,7 @@ func (m *Model) RemovePickedAt(i int) {
 	m.picked = append(m.picked[:i], m.picked[i+1:]...)
 }
 
-func (m Model) renderCell(i int) string {
+func (m *Model) renderCell(i int) string {
 	e := m.visible[i].Emoji
 	// Picked is marked by bracketing the glyph rather than a text attribute
 	// (see DefaultStyles' CellPicked doc) - applied to the plain glyph

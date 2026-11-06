@@ -941,9 +941,8 @@ func (m Model) renderFilePickerPopup() string {
 	// a row) is widest, so without this, rows narrower than the title got
 	// right-padded by padLinesToWidth *after* the date column instead of
 	// widening the name column in front of it.
-	picker := m.filePicker
-	picker.SetWidth(max(lipgloss.Width(title), lipgloss.Width(footer)))
-	lines := strings.Split(picker.View(), "\n")
+	m.filePicker.SetWidth(max(lipgloss.Width(title), lipgloss.Width(footer)))
+	lines := strings.Split(m.filePicker.View(), "\n")
 	width := 0
 	for _, line := range lines {
 		if w := lipgloss.Width(line); w > width {
@@ -994,7 +993,7 @@ func (m Model) renderAddAccountPopup() string {
 	count := m.addAccountFieldCount()
 	rows := make([]string, count)
 	for pos := 0; pos < count; pos++ {
-		rows[pos] = m.popupInputView(m.addAccountInputs[m.addAccountFieldIndex(pos)])
+		rows[pos] = m.popupInputView(&m.addAccountInputs[m.addAccountFieldIndex(pos)])
 	}
 	if m.addAccountBusy {
 		rows = append(rows, "", verb+"...")
@@ -1032,8 +1031,8 @@ func (m Model) renderChangePasswordPopup() string {
 		m.styles.popupDanger.Render(wrapToWidth("Write this down. If you lose it, your local message history is unrecoverable.", m.popupTextWidth())),
 		wrapToWidth("Leave both fields blank to turn local storage encryption off.", m.popupTextWidth()),
 		"",
-		m.popupInputView(s.inputs[0]),
-		m.popupInputView(s.inputs[1]),
+		m.popupInputView(&s.inputs[0]),
+		m.popupInputView(&s.inputs[1]),
 	}
 	if s.busy {
 		if s.inputs[0].Value() == "" {
@@ -1058,7 +1057,7 @@ func (m Model) renderRenameChatPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	footer := "[enter] save · [esc] cancel"
-	body := m.styles.listPopup("Rename chat", []string{m.popupInputView(*m.renameInput)}, footer)
+	body := m.styles.listPopup("Rename chat", []string{m.popupInputView(m.renameInput)}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
@@ -1070,7 +1069,7 @@ func (m Model) renderSaveAsPopup() string {
 	vh := m.height - m.inputAreaHeight()
 
 	footer := "[enter] save · [esc] cancel"
-	body := m.styles.listPopup("Save as", []string{m.popupInputView(*m.saveAsInput)}, footer)
+	body := m.styles.listPopup("Save as", []string{m.popupInputView(m.saveAsInput)}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)

@@ -88,7 +88,7 @@ func (m Model) contactManagerPrompt() string {
 	closeKey := m.keys.ContactManager.Help().Key
 
 	if cs.adding {
-		rows := []string{m.popupInputView(cs.addInput)}
+		rows := []string{m.popupInputView(&cs.addInput)}
 		if cs.busy {
 			rows = append(rows, "", "adding...")
 		} else if cs.err != "" {

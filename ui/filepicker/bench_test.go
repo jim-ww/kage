@@ -36,7 +36,7 @@ func loadedPicker(tb testing.TB, dir string, height int) Model {
 	m := New()
 	m.CurrentDirectory = dir
 	m.SetHeight(height)
-	m, _ = m.Update(m.Init()())
+	m.Update(m.Init()())
 	if len(m.files) == 0 {
 		tb.Fatal("picker loaded no files")
 	}
@@ -79,7 +79,7 @@ func BenchmarkCursorDownView(b *testing.B) {
 		if (i/100)%2 == 1 {
 			k = up
 		}
-		m, _ = m.Update(k)
+		m.Update(k)
 		_ = m.View()
 	}
 }

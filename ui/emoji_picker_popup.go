@@ -23,7 +23,7 @@ func (m Model) updateEmojiPickerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	var cmd tea.Cmd
-	*m.emojiPicker, cmd = m.emojiPicker.Update(msg)
+	cmd = m.emojiPicker.Update(msg)
 	return m, cmd, true
 }
 

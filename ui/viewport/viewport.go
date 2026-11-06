@@ -155,12 +155,12 @@ func (m *Model) setInitialValues() {
 }
 
 // Init exists to satisfy the tea.Model interface for composability purposes.
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return nil
 }
 
 // Height returns the height of the viewport.
-func (m Model) Height() int {
+func (m *Model) Height() int {
 	return m.height
 }
 
@@ -170,7 +170,7 @@ func (m *Model) SetHeight(h int) {
 }
 
 // Width returns the width of the viewport.
-func (m Model) Width() int {
+func (m *Model) Width() int {
 	return m.width
 }
 
@@ -180,24 +180,24 @@ func (m *Model) SetWidth(w int) {
 }
 
 // AtTop returns whether or not the viewport is at the very top position.
-func (m Model) AtTop() bool {
+func (m *Model) AtTop() bool {
 	return m.YOffset() <= 0
 }
 
 // AtBottom returns whether or not the viewport is at or past the very bottom
 // position.
-func (m Model) AtBottom() bool {
+func (m *Model) AtBottom() bool {
 	return m.YOffset() >= m.maxYOffset()
 }
 
 // PastBottom returns whether or not the viewport is scrolled beyond the last
 // line. This can happen when adjusting the viewport height.
-func (m Model) PastBottom() bool {
+func (m *Model) PastBottom() bool {
 	return m.YOffset() > m.maxYOffset()
 }
 
 // ScrollPercent returns the amount scrolled as a float between 0 and 1.
-func (m Model) ScrollPercent() float64 {
+func (m *Model) ScrollPercent() float64 {
 	total, _, _ := m.calculateLine(0)
 	if m.Height() >= total {
 		return 1.0
@@ -211,7 +211,7 @@ func (m Model) ScrollPercent() float64 {
 
 // HorizontalScrollPercent returns the amount horizontally scrolled as a float
 // between 0 and 1.
-func (m Model) HorizontalScrollPercent() float64 {
+func (m *Model) HorizontalScrollPercent() float64 {
 	if m.xOffset >= m.longestLineWidth-m.Width() {
 		return 1.0
 	}
@@ -290,14 +290,14 @@ func (m *Model) afterSetContent() {
 
 // GetContent returns the entire content as a single string.
 // Line endings are normalized to '\n'.
-func (m Model) GetContent() string {
+func (m *Model) GetContent() string {
 	return strings.Join(m.lines, "\n")
 }
 
 // calculateLine taking soft wrapping into account, returns the total viewable
 // lines and the real-line index for the given yoffset, as well as the virtual
 // line offset.
-func (m Model) calculateLine(yoffset int) (total, ridx, voffset int) {
+func (m *Model) calculateLine(yoffset int) (total, ridx, voffset int) {
 	if !m.SoftWrap {
 		total = len(m.lines)
 		ridx = min(yoffset, len(m.lines))
@@ -327,20 +327,20 @@ func (m Model) calculateLine(yoffset int) (total, ridx, voffset int) {
 
 // maxYOffset returns the maximum possible value of the y-offset based on the
 // viewport's content and set height.
-func (m Model) maxYOffset() int {
+func (m *Model) maxYOffset() int {
 	total, _, _ := m.calculateLine(0)
 	return max(0, total-m.Height()+m.Style.GetVerticalFrameSize())
 }
 
 // maxXOffset returns the maximum possible value of the x-offset based on the
 // viewport's content and set width.
-func (m Model) maxXOffset() int {
+func (m *Model) maxXOffset() int {
 	return max(0, m.longestLineWidth-m.Width())
 }
 
 // maxWidth returns the maximum width of the viewport. It accounts for the frame
 // size, in addition to the gutter size.
-func (m Model) maxWidth() int {
+func (m *Model) maxWidth() int {
 	var gutterSize int
 	if m.LeftGutterFunc != nil {
 		gutterSize = ansi.StringWidth(m.LeftGutterFunc(GutterContext{}))
@@ -350,13 +350,13 @@ func (m Model) maxWidth() int {
 
 // maxHeight returns the maximum height of the viewport. It accounts for the frame
 // size.
-func (m Model) maxHeight() int {
+func (m *Model) maxHeight() int {
 	return max(0, m.Height()-m.Style.GetVerticalFrameSize())
 }
 
 // visibleLines returns the lines that should currently be visible in the
 // viewport.
-func (m Model) visibleLines() (lines []string) {
+func (m *Model) visibleLines() (lines []string) {
 	maxHeight := m.maxHeight()
 	maxWidth := m.maxWidth()
 
@@ -392,7 +392,7 @@ func (m Model) visibleLines() (lines []string) {
 }
 
 // styleLines styles the lines using [Model.StyleLineFunc].
-func (m Model) styleLines(lines []string, offset int) []string {
+func (m *Model) styleLines(lines []string, offset int) []string {
 	if m.StyleLineFunc == nil {
 		return lines
 	}
@@ -404,7 +404,7 @@ func (m Model) styleLines(lines []string, offset int) []string {
 
 // highlightLines highlights the lines with [Model.HighlightStyle] and
 // [Model.SelectedHighlightStyle].
-func (m Model) highlightLines(lines []string, offset int) []string {
+func (m *Model) highlightLines(lines []string, offset int) []string {
 	if len(m.highlights) == 0 {
 		return lines
 	}
@@ -430,7 +430,7 @@ func (m Model) highlightLines(lines []string, offset int) []string {
 	return lines
 }
 
-func (m Model) softWrap(lines []string, maxWidth, maxHeight, total, ridx, voffset int) []string {
+func (m *Model) softWrap(lines []string, maxWidth, maxHeight, total, ridx, voffset int) []string {
 	wrappedLines := make([]string, 0, maxHeight)
 
 	var idx, lineWidth int
@@ -472,7 +472,7 @@ func (m Model) softWrap(lines []string, maxWidth, maxHeight, total, ridx, voffse
 }
 
 // setupGutter sets up the left gutter using [Model.LeftGutterFunc].
-func (m Model) setupGutter(lines []string, total, ridx int) []string {
+func (m *Model) setupGutter(lines []string, total, ridx int) []string {
 	if m.LeftGutterFunc == nil {
 		return lines
 	}
@@ -594,13 +594,13 @@ func (m *Model) ScrollRight(n int) {
 }
 
 // TotalLineCount returns the total number of lines (both hidden and visible) within the viewport.
-func (m Model) TotalLineCount() int {
+func (m *Model) TotalLineCount() int {
 	total, _, _ := m.calculateLine(0)
 	return total
 }
 
 // VisibleLineCount returns the number of the visible lines within the viewport.
-func (m Model) VisibleLineCount() int {
+func (m *Model) VisibleLineCount() int {
 	return len(m.visibleLines())
 }
 
@@ -670,7 +670,7 @@ func (m *Model) HighlightPrevious() {
 	m.showHighlight()
 }
 
-func (m Model) findNearestMatch() int {
+func (m *Model) findNearestMatch() int {
 	for i, match := range m.highlights {
 		if match.lineStart >= m.YOffset() {
 			return i
@@ -680,14 +680,7 @@ func (m Model) findNearestMatch() int {
 }
 
 // Update handles standard message-based viewport updates.
-func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	m = m.updateAsModel(msg)
-	return m, nil
-}
-
-// Author's note: this method has been broken out to make it easier to
-// potentially transition Update to satisfy tea.Model.
-func (m Model) updateAsModel(msg tea.Msg) Model {
+func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	if !m.initialized {
 		m.setInitialValues()
 	}
@@ -748,11 +741,11 @@ func (m Model) updateAsModel(msg tea.Msg) Model {
 		}
 	}
 
-	return m
+	return nil
 }
 
 // View renders the viewport into a string.
-func (m Model) View() string {
+func (m *Model) View() string {
 	w, h := m.Width(), m.Height()
 	if sw := m.Style.GetWidth(); sw != 0 {
 		w = min(w, sw)
