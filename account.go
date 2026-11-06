@@ -597,6 +597,16 @@ func (s *accountSession) rosterName(bareJID string) string {
 	return bareJID
 }
 
+// inRoster reports whether bareJID has a roster entry, i.e. a chat row.
+func (s *accountSession) inRoster(bareJID string) bool {
+	entries := s.roster.Load()
+	if entries == nil {
+		return false
+	}
+	_, ok := (*entries)[bareJID]
+	return ok
+}
+
 // ownResources returns the resource parts of this account's other currently
 // online devices (e.g. "kage-a1b2", a phone's "Conversations.xyz") - learned
 // the same way any contact's resources are, via setRosterPresence, since a

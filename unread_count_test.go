@@ -29,6 +29,7 @@ func TestCountUnreadSkipsChatAnyClientIsReading(t *testing.T) {
 	ctx := context.Background()
 	const accountJID, peer = "me@example.com", "peer@example.com"
 	s := &accountSession{account: config.Account{JID: accountJID}, db: queries}
+	s.roster.Store(&map[string]rosterEntry{peer: {}})
 	srv := ipc.NewServer()
 	resetUnreadBadge(t)
 
@@ -92,6 +93,17 @@ func TestCountUnreadSkipsChatAnyClientIsReading(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no ChatUnread event pushed to the attached client")
+	}
+
+	// No roster entry means no chat row to open and reset the count from.
+	countUnread(ctx, srv, s, accountJID, []ui.Message{{Content: "note to self"}})
+	countUnread(ctx, srv, s, "", []ui.Message{{Content: "from the server"}})
+	rows, err := queries.ListChatUnread(ctx, accountJID)
+	if err != nil {
+		t.Fatalf("ListChatUnread: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("unread rows = %+v, want only %s", rows, peer)
 	}
 
 	countUnread(ctx, srv, s, peer, []ui.Message{{Content: "only mine", IsMe: true}})

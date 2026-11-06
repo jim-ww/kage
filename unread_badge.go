@@ -107,7 +107,10 @@ func (t *unreadTracker) forgetAccount(accountJID string) {
 // background terminal would count a conversation being read in another, and
 // keep showing a count that was cleared elsewhere.
 //
-// Our own messages and ones that failed to decrypt don't count.
+// Our own messages and ones that failed to decrypt don't count, and neither
+// does a chat with no roster entry (our own bare JID, a stanza with no from):
+// the chat list is built from the roster, so there'd be no row to open and
+// nothing to ever reset the count, same as seedAccount's filter.
 func countUnread(ctx context.Context, srv *ipc.Server, s *accountSession, chatAddress string, msgs []ui.Message) {
 	delta := 0
 	for _, m := range msgs {
@@ -115,7 +118,7 @@ func countUnread(ctx context.Context, srv *ipc.Server, s *accountSession, chatAd
 			delta++
 		}
 	}
-	if delta == 0 || clientFocus.chatVisible(focusedChatKey(s.account.JID, chatAddress)) {
+	if delta == 0 || !s.inRoster(chatAddress) || clientFocus.chatVisible(focusedChatKey(s.account.JID, chatAddress)) {
 		return
 	}
 	count, err := s.db.BumpChatUnread(ctx, storage.BumpChatUnreadParams{
