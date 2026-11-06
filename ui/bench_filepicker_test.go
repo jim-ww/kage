@@ -148,3 +148,23 @@ func sequenceCmds(msg tea.Msg) ([]tea.Cmd, bool) {
 	}
 	return cmds, true
 }
+
+// BenchmarkFilePickerHoverMotionOnly is BenchmarkFilePickerHoverSweep
+// without rendering: what each motion event costs Update, which is what
+// decides whether the cursor keeps up with the pointer, since a terminal
+// emits motion events far faster than frames.
+func BenchmarkFilePickerHoverMotionOnly(b *testing.B) {
+	m := newFilePickerBenchModel(b, 2000)
+	points := filePickerSweepPoints(b, &m)
+	b.ResetTimer()
+	for range b.N {
+		for _, p := range points {
+			next, _ := m.Update(tea.MouseMotionMsg(p))
+			m = next.(Model)
+		}
+		for j := len(points) - 1; j >= 0; j-- {
+			next, _ := m.Update(tea.MouseMotionMsg(points[j]))
+			m = next.(Model)
+		}
+	}
+}
