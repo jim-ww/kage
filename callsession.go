@@ -2028,7 +2028,14 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 	}
 	slog.Debug("screen share: first remote video RTP packet received", "sid", c.sid, "seq", firstPacket.SequenceNumber, "payload_type", firstPacket.PayloadType, "codec", mimeType, "bytes", len(firstPacket.Payload))
 
-	sb := samplebuilder.New(50, depacketizer, 90000)
+	// maxLate is counted in packets, and a frame spanning more of them than
+	// that gets its head evicted before its tail arrives - so it has to
+	// cover a whole keyframe, which at CBR easily runs 5-10x an average
+	// frame (100KB+, ~100 RTP packets). Too low and every keyframe is
+	// silently dropped: the viewer never opens while P-frames keep flowing.
+	// The time cap keeps a lost packet from stalling playback for as long
+	// as that many packets take to arrive.
+	sb := samplebuilder.New(1000, depacketizer, 90000, samplebuilder.WithMaxTimeDelay(500*time.Millisecond))
 	sb.Push(firstPacket)
 	var viewer *call.ScreenViewer
 	packets, samples := 1, 0
