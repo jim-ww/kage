@@ -1,5 +1,4 @@
 ## Bugs
-- cant erase chat inputbox with SHIFT key down
 - after switching to new account, tray icon started showing 'new message' alert all the time
 - message save as dialog doesnt ask path
 - cached avatars do not get deleted

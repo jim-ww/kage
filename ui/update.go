@@ -164,6 +164,17 @@ func isActivityMsg(msg tea.Msg) bool {
 	}
 }
 
+// normalizeKey drops shift from backspace: terminals with the kitty keyboard
+// protocol report it as "shift+backspace", which no text input binds, so
+// erasing stopped working while shift was held.
+func normalizeKey(msg tea.Msg) tea.Msg {
+	if k, ok := msg.(tea.KeyPressMsg); ok && k.Code == tea.KeyBackspace && k.Mod&tea.ModShift != 0 {
+		k.Mod &^= tea.ModShift
+		return k
+	}
+	return msg
+}
+
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	// Captured before the idle bookkeeping below, which mutates m.idle. The
@@ -234,6 +245,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 
 	var cmds []tea.Cmd
 
+	msg = normalizeKey(msg)
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		if model, cmd, handled := m.updateKeyMsg(keyMsg); handled {
 			return model, cmd

@@ -477,3 +477,20 @@ func TestComposeClickPositionsCursor(t *testing.T) {
 		t.Fatalf("cursor column after click = %d, want %d", got, want)
 	}
 }
+
+// TestComposeShiftBackspaceErases checks backspace still erases while shift
+// is held — Kitty-protocol terminals report it as "shift+backspace".
+func TestComposeShiftBackspaceErases(t *testing.T) {
+	m := newTestModel(&fakeAccountAdder{})
+	m.selectedView = viewChat
+	m.accounts = []Account{{Name: "me", Chats: nil, Messages: map[int][]Message{}}}
+
+	next, _ := m.Update(keyText("ab"))
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace, Mod: tea.ModShift})
+	m = next.(Model)
+
+	if got, want := m.input.Value(), "a"; got != want {
+		t.Fatalf("input value after shift+backspace = %q, want %q", got, want)
+	}
+}
