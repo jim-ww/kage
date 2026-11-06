@@ -62,7 +62,66 @@ type errorMsg struct {
 
 type readDirMsg struct {
 	id      int
-	entries []os.DirEntry
+	entries []entry
+}
+
+// entry is a directory entry with everything View, sorting and Open need
+// stat'ed once at read time, rather than lstat'ing (os.DirEntry.Info) and
+// resolving symlinks again on every render, comparison and keypress.
+type entry struct {
+	name string
+	// info is nil when the entry vanished or couldn't be stat'ed between
+	// listing the directory and reading it.
+	info      os.FileInfo
+	isDir     bool
+	isSymlink bool
+	// symlinkPath is a symlink's resolved target ("" if unresolvable), and
+	// symlinkDir whether that target is a directory.
+	symlinkPath string
+	symlinkDir  bool
+	hidden      bool
+	group       int
+	size        string
+	modTime     time.Time
+	ctime       time.Time
+}
+
+func newEntry(dir string, d os.DirEntry) entry {
+	e := entry{name: d.Name(), isDir: d.IsDir()}
+	e.hidden, _ = IsHidden(e.name)
+	e.group = entryGroup(e.isDir, e.hidden)
+	info, err := d.Info()
+	if err != nil {
+		return e
+	}
+	e.info = info
+	e.size = strings.Replace(humanize.Bytes(uint64(info.Size())), " ", "", 1) //nolint:gosec
+	e.modTime = info.ModTime()
+	e.ctime = entryTime(SortByCreated, info)
+	if info.Mode()&os.ModeSymlink != 0 {
+		e.isSymlink = true
+		e.symlinkPath, _ = filepath.EvalSymlinks(filepath.Join(dir, e.name))
+		if e.symlinkPath != "" {
+			if target, err := os.Stat(e.symlinkPath); err == nil {
+				e.symlinkDir = target.IsDir()
+			}
+		}
+	}
+	return e
+}
+
+// time returns the timestamp entries are sorted by and display under field.
+func (e entry) time(field SortField) time.Time {
+	if field == SortByCreated {
+		return e.ctime
+	}
+	return e.modTime
+}
+
+// opensAsDir reports whether Open descends into e: a directory, or a
+// symlink to one.
+func (e entry) opensAsDir() bool {
+	return e.isDir || e.symlinkDir
 }
 
 const (
@@ -192,7 +251,7 @@ type Model struct {
 	AllowedTypes []string
 
 	KeyMap          KeyMap
-	files           []os.DirEntry
+	files           []entry
 	ShowPermissions bool
 	ShowSize        bool
 	ShowHidden      bool
@@ -302,12 +361,11 @@ func entryTime(field SortField, info os.FileInfo) time.Time {
 // (see sortEntries) lists dirs before hidden dirs before files before hidden
 // files, rather than lumping hidden entries in wherever their name/time
 // happens to land within the dir/file split.
-func entryGroup(entry os.DirEntry) int {
-	isHidden, _ := IsHidden(entry.Name())
+func entryGroup(isDir, isHidden bool) int {
 	switch {
-	case entry.IsDir() && !isHidden:
+	case isDir && !isHidden:
 		return 0
-	case entry.IsDir() && isHidden:
+	case isDir && isHidden:
 		return 1
 	case !isHidden:
 		return 2
@@ -316,23 +374,18 @@ func entryGroup(entry os.DirEntry) int {
 	}
 }
 
-func sortEntries(dirEntries []os.DirEntry, field SortField, ascending, dirsFirst bool) {
-	sort.Slice(dirEntries, func(i, j int) bool {
-		if dirsFirst {
-			gi, gj := entryGroup(dirEntries[i]), entryGroup(dirEntries[j])
-			if gi != gj {
-				return gi < gj
-			}
+func sortEntries(entries []entry, field SortField, ascending, dirsFirst bool) {
+	sort.Slice(entries, func(i, j int) bool {
+		ei, ej := &entries[i], &entries[j]
+		if dirsFirst && ei.group != ej.group {
+			return ei.group < ej.group
 		}
-		infoI, errI := dirEntries[i].Info()
-		infoJ, errJ := dirEntries[j].Info()
-		if errI != nil || errJ != nil {
-			return dirEntries[i].Name() < dirEntries[j].Name()
+		if ei.info == nil || ej.info == nil {
+			return ei.name < ej.name
 		}
-		ti := entryTime(field, infoI)
-		tj := entryTime(field, infoJ)
+		ti, tj := ei.time(field), ej.time(field)
 		if ti.Equal(tj) {
-			return dirEntries[i].Name() < dirEntries[j].Name()
+			return ei.name < ej.name
 		}
 		if ascending {
 			return ti.Before(tj)
@@ -349,21 +402,17 @@ func (m Model) readDir(path string, showHidden bool) tea.Cmd {
 			return errorMsg{err}
 		}
 
-		sortEntries(dirEntries, sortField, sortAscending, dirsFirst)
-
-		if showHidden {
-			return readDirMsg{id: m.id, entries: dirEntries}
-		}
-
-		var sanitizedDirEntries []os.DirEntry
-		for _, dirEntry := range dirEntries {
-			isHidden, _ := IsHidden(dirEntry.Name())
-			if isHidden {
-				continue
+		entries := make([]entry, 0, len(dirEntries))
+		for _, d := range dirEntries {
+			if !showHidden {
+				if hidden, _ := IsHidden(d.Name()); hidden {
+					continue
+				}
 			}
-			sanitizedDirEntries = append(sanitizedDirEntries, dirEntry)
+			entries = append(entries, newEntry(path, d))
 		}
-		return readDirMsg{id: m.id, entries: sanitizedDirEntries}
+		sortEntries(entries, sortField, sortAscending, dirsFirst)
+		return readDirMsg{id: m.id, entries: entries}
 	}
 }
 
@@ -509,28 +558,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 
 			f := m.files[m.selected]
-			info, err := f.Info()
-			if err != nil {
+			if f.info == nil || (f.isSymlink && f.symlinkPath == "") {
 				break
 			}
-			isSymlink := info.Mode()&os.ModeSymlink != 0
-			isDir := f.IsDir()
-
-			if isSymlink {
-				symlinkPath, _ := filepath.EvalSymlinks(filepath.Join(m.CurrentDirectory, f.Name()))
-				info, err := os.Stat(symlinkPath)
-				if err != nil {
-					break
-				}
-				if info.IsDir() {
-					isDir = true
-				}
-			}
+			isDir := f.opensAsDir()
 
 			if (!isDir && m.FileAllowed) || (isDir && m.DirAllowed) {
 				if key.Matches(msg, m.KeyMap.Select) {
 					// Select the current path as the selection
-					m.Path = filepath.Join(m.CurrentDirectory, f.Name())
+					m.Path = filepath.Join(m.CurrentDirectory, f.name)
 				}
 			}
 
@@ -538,7 +574,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				break
 			}
 
-			m.CurrentDirectory = filepath.Join(m.CurrentDirectory, f.Name())
+			m.CurrentDirectory = filepath.Join(m.CurrentDirectory, f.name)
 			m.pushView(m.selected, m.minIdx, m.maxIdx)
 			// A fresh descent, as opposed to GoForward retracing one just
 			// left via Back, invalidates whatever forward history existed —
@@ -631,34 +667,24 @@ func (m Model) SortLabel() string {
 // mid-value the way a lipgloss Width-constrained style would).
 type fileRow struct {
 	idx         int
-	entry       os.DirEntry
-	info        os.FileInfo
-	isSymlink   bool
-	symlinkPath string
+	entry       *entry
 	disabled    bool
 	nameDisplay string // name, plus " → target" for symlinks
-	size        string
 	date        string
 }
 
 func (m Model) visibleRows() ([]fileRow, int) {
-	rows := make([]fileRow, 0, m.maxIdx-m.minIdx+1)
+	lo, hi := max(m.minIdx, 0), min(m.maxIdx+1, len(m.files))
+	rows := make([]fileRow, 0, max(hi-lo, 0))
 	maxNameWidth := 0
-	for i, f := range m.files {
-		if i < m.minIdx || i > m.maxIdx {
+	for i := lo; i < hi; i++ {
+		f := &m.files[i]
+		if f.info == nil {
 			continue
 		}
-		info, err := f.Info()
-		if err != nil {
-			continue
-		}
-		isSymlink := info.Mode()&os.ModeSymlink != 0
-		name := f.Name()
-		nameDisplay := name
-		var symlinkPath string
-		if isSymlink {
-			symlinkPath, _ = filepath.EvalSymlinks(filepath.Join(m.CurrentDirectory, name))
-			nameDisplay += " → " + symlinkPath
+		nameDisplay := f.name
+		if f.isSymlink {
+			nameDisplay += " → " + f.symlinkPath
 		}
 		if w := lipgloss.Width(nameDisplay); w > maxNameWidth {
 			maxNameWidth = w
@@ -666,13 +692,9 @@ func (m Model) visibleRows() ([]fileRow, int) {
 		rows = append(rows, fileRow{
 			idx:         i,
 			entry:       f,
-			info:        info,
-			isSymlink:   isSymlink,
-			symlinkPath: symlinkPath,
-			disabled:    !m.canSelect(name) && !f.IsDir(),
+			disabled:    !m.canSelect(f.name) && !f.isDir,
 			nameDisplay: nameDisplay,
-			size:        strings.Replace(humanize.Bytes(uint64(info.Size())), " ", "", 1), //nolint:gosec
-			date:        humanize.Time(entryTime(m.SortField, info)),
+			date:        humanize.Time(f.time(m.SortField)),
 		})
 	}
 	return rows, maxNameWidth
@@ -716,11 +738,11 @@ func (m Model) View() string {
 		if m.selected == r.idx { //nolint:nestif
 			selected := ""
 			if m.ShowPermissions {
-				selected += " " + r.info.Mode().String()
+				selected += " " + r.entry.info.Mode().String()
 			}
 			selected += " " + r.nameDisplay + pad
 			if m.ShowSize {
-				selected += fmt.Sprintf(" %"+strconv.Itoa(fileSizeWidth)+"s", r.size)
+				selected += fmt.Sprintf(" %"+strconv.Itoa(fileSizeWidth)+"s", r.entry.size)
 			}
 			if m.ShowDate {
 				selected += fmt.Sprintf(" %"+strconv.Itoa(dateWidth)+"s", r.date)
@@ -735,9 +757,9 @@ func (m Model) View() string {
 		}
 
 		style := m.Styles.File
-		if r.entry.IsDir() {
+		if r.entry.isDir {
 			style = m.Styles.Directory
-		} else if r.isSymlink {
+		} else if r.entry.isSymlink {
 			style = m.Styles.Symlink
 		} else if r.disabled {
 			style = m.Styles.DisabledFile
@@ -745,11 +767,11 @@ func (m Model) View() string {
 
 		s.WriteString(m.Styles.Cursor.Render(" "))
 		if m.ShowPermissions {
-			s.WriteString(" " + m.Styles.Permission.Render(r.info.Mode().String()))
+			s.WriteString(" " + m.Styles.Permission.Render(r.entry.info.Mode().String()))
 		}
 		s.WriteString(" " + style.Render(r.nameDisplay) + pad)
 		if m.ShowSize {
-			s.WriteString(" " + m.Styles.FileSize.Render(fmt.Sprintf("%"+strconv.Itoa(fileSizeWidth)+"s", r.size)))
+			s.WriteString(" " + m.Styles.FileSize.Render(fmt.Sprintf("%"+strconv.Itoa(fileSizeWidth)+"s", r.entry.size)))
 		}
 		if m.ShowDate {
 			s.WriteString(" " + m.Styles.Date.Render(fmt.Sprintf("%"+strconv.Itoa(dateWidth)+"s", r.date)))
@@ -771,7 +793,7 @@ func (m Model) IsDirRow(row int) bool {
 	if idx < 0 || idx >= len(m.files) {
 		return false
 	}
-	return m.files[idx].IsDir()
+	return m.files[idx].isDir
 }
 
 // DidSelectFile returns whether a user has selected a file (on this msg).
@@ -808,23 +830,10 @@ func (m Model) didSelectFile(msg tea.Msg) (bool, string) {
 		// The key press was a selection, let's confirm whether the current file could
 		// be selected or used for navigating deeper into the stack.
 		f := m.files[m.selected]
-		info, err := f.Info()
-		if err != nil {
+		if f.info == nil || (f.isSymlink && f.symlinkPath == "") {
 			return false, ""
 		}
-		isSymlink := info.Mode()&os.ModeSymlink != 0
-		isDir := f.IsDir()
-
-		if isSymlink {
-			symlinkPath, _ := filepath.EvalSymlinks(filepath.Join(m.CurrentDirectory, f.Name()))
-			info, err := os.Stat(symlinkPath)
-			if err != nil {
-				break
-			}
-			if info.IsDir() {
-				isDir = true
-			}
-		}
+		isDir := f.opensAsDir()
 
 		if (!isDir && m.FileAllowed) || (isDir && m.DirAllowed) && m.Path != "" {
 			return true, m.Path
@@ -867,5 +876,5 @@ func (m Model) HighlightedPath() string {
 	if len(m.files) == 0 || m.selected < 0 || m.selected >= len(m.files) {
 		return ""
 	}
-	return filepath.Join(m.CurrentDirectory, m.files[m.selected].Name())
+	return filepath.Join(m.CurrentDirectory, m.files[m.selected].name)
 }
