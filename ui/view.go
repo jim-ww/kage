@@ -932,8 +932,20 @@ func (m Model) renderFilePickerPopup() string {
 	sortKey := caretKey(m.keys.SortFilePicker.Help().Key)
 	back := m.renderFilePickerNavButton("‹", zoneFilePickerBack, m.filePicker.CanGoBack())
 	forward := m.renderFilePickerNavButton("›", zoneFilePickerForward, m.filePicker.CanGoForward())
-	title := back + " " + forward + "  Attach file — " + m.filePicker.CurrentDirectory
-	footer := "[enter] open/select · [" + sortKey + "] sort: " + m.filePicker.SortLabel() + " · [esc] cancel"
+	// Title and footer are kept to one line each (sizeFilePicker's height
+	// math depends on it): the directory is cut from the left, keeping its
+	// most specific end, and the footer from the right. listPopup indents
+	// the footer by 2.
+	title := back + " " + forward + "  Attach file — "
+	dir := m.filePicker.CurrentDirectory
+	if avail := m.popupTextWidth() - lipgloss.Width(title); lipgloss.Width(dir) > avail {
+		dir = ""
+		if avail > 1 {
+			dir = "…" + ansi.TruncateLeft(m.filePicker.CurrentDirectory, lipgloss.Width(m.filePicker.CurrentDirectory)-avail+1, "")
+		}
+	}
+	title += dir
+	footer := ansi.Truncate("[enter] open/select · ["+sortKey+"] sort: "+m.filePicker.SortLabel()+" · [esc] cancel", m.popupTextWidth()-2, "…")
 
 	// Set the picker's minimum row width to at least the title/footer's
 	// width so short filenames don't leave size/date stranded mid-line —

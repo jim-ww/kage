@@ -954,7 +954,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			return m, m.showNotification("no chat selected")
 		}
 		m.pickingFile = true
-		m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+		m.sizeFilePicker()
 		return m, m.filePicker.Init()
 	}
 

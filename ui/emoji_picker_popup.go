@@ -111,6 +111,23 @@ const emojiPickerCellWidth = emojipicker.CellWidth
 // reserving it either way keeps sizing math simple and on the safe side).
 const emojiPickerChromeLines = 9
 
+// filePickerChromeLines is everything in the file picker popup besides its
+// rows: the title, the blank line and footer listPopup puts under the rows,
+// and the dialog's border + vertical padding. renderFilePickerPopup keeps
+// title and footer to one line each, so this is exact.
+const filePickerChromeLines = 3 + popupChromeHeight
+
+// sizeFilePicker fits the file picker into the chat area's popup space -
+// called when the picker opens and on every terminal resize. Rows must
+// neither wrap (a wrapped row's hover/click zone collapses to a sliver
+// between its first line's start and last line's end) nor push the frame
+// past the terminal's height (shifting what's drawn away from where the
+// zones were recorded).
+func (m *Model) sizeFilePicker() {
+	m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-chatStatusHeight-filePickerChromeLines))
+	m.filePicker.SetMaxWidth(m.popupTextWidth())
+}
+
 // sizeEmojiPicker recomputes the open emoji picker's Columns/VisibleRows to
 // fit the current chat-area popup space instead of a fixed size that can
 // overflow a small terminal - called both when the picker first opens and

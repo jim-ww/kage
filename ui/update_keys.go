@@ -217,7 +217,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				// this it now overflows the terminal by one row, pushing
 				// that new row (the only feedback that anything was
 				// attached) off screen until the picker closes.
-				m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+				m.sizeFilePicker()
 			}
 			return m, tea.Batch(cmds...), true
 		}
@@ -447,7 +447,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				return m, tea.Batch(cmds...), true
 			}
 			m.pickingFile = true
-			m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+			m.sizeFilePicker()
 			return m, m.filePicker.Init(), true
 		}
 

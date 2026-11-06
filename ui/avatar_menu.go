@@ -30,7 +30,7 @@ func (m *Model) openAvatarMenu() tea.Cmd {
 			// tells its selection handler where the path is going.
 			m.pickingAvatar = true
 			m.pickingFile = true
-			m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+			m.sizeFilePicker()
 			return m.filePicker.Init()
 		}},
 		{label: "Remove avatar", run: func(m *Model) tea.Cmd {

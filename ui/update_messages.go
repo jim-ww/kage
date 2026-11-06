@@ -91,6 +91,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.termHeight = msg.Height
 		m.updateSizes()
 		m.sizeEmojiPicker()
+		m.sizeFilePicker()
 		m.refreshViewport()
 		m.viewport.GotoBottom()
 		return m, nil, true

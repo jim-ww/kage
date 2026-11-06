@@ -18,6 +18,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/dustin/go-humanize"
 )
 
@@ -148,6 +149,9 @@ const (
 	// "23 minutes ago" (15 chars).
 	dateWidth   = 15
 	paddingLeft = 2
+	// minNameWidth is the narrowest name column MaxWidth squeezes names into
+	// before dropping the size/date columns to make room instead.
+	minNameWidth = 12
 )
 
 // SortField selects which timestamp file entries are sorted by.
@@ -293,6 +297,13 @@ type Model struct {
 	// padding names only to the widest name currently on screen.
 	Width int
 
+	// MaxWidth, when > 0, caps every row's rendered width so a host can fit
+	// rows into a box without them wrapping: names too long for the name
+	// column are truncated with "…", and if not even minNameWidth columns
+	// are left for names, the date and then the size column are dropped.
+	// Takes precedence over Width.
+	MaxWidth int
+
 	FileSelected  string
 	selected      int
 	selectedStack stack
@@ -430,12 +441,22 @@ func (m *Model) readDir(path string, showHidden bool) tea.Cmd {
 	}
 }
 
-// SetHeight sets the height of the file picker.
+// SetHeight sets the height of the file picker, resizing the visible
+// window from its current top row and scrolling it just enough to keep the
+// cursor in view.
 func (m *Model) SetHeight(h int) {
 	m.height = h
-	if m.maxIdx > m.height-1 {
-		m.maxIdx = m.minIdx + m.height - 1
+	m.maxIdx = m.minIdx + h - 1
+	if m.selected > m.maxIdx {
+		m.maxIdx = m.selected
+		m.minIdx = max(0, m.selected-h+1)
 	}
+}
+
+// SetMaxWidth sets the maximum rendered row width; see the MaxWidth field
+// doc.
+func (m *Model) SetMaxWidth(w int) {
+	m.MaxWidth = w
 }
 
 // SetWidth sets the minimum rendered row width; see the Width field doc.
@@ -709,15 +730,15 @@ func (m *Model) visibleRows() ([]fileRow, int) {
 // rowSuffixWidth is the rendered width of everything in a row other than
 // the name column: the cursor glyph, the optional permission string, the
 // space separating each field, and the optional size/date columns.
-func (m *Model) rowSuffixWidth() int {
+func (m *Model) rowSuffixWidth(showSize, showDate bool) int {
 	w := 1 + 1 // cursor + space before name
 	if m.ShowPermissions {
 		w += 1 + permissionWidth
 	}
-	if m.ShowSize {
+	if showSize {
 		w += 1 + fileSizeWidth
 	}
-	if m.ShowDate {
+	if showDate {
 		w += 1 + dateWidth
 	}
 	return w
@@ -774,31 +795,52 @@ func (m *Model) View() string {
 	}
 	var s strings.Builder
 
-	rows, maxNameWidth := m.visibleRows()
+	rows, nameCol := m.visibleRows()
+	showSize, showDate := m.ShowSize, m.ShowDate
+	suffix := m.rowSuffixWidth(showSize, showDate)
+	if m.MaxWidth > 0 {
+		for m.MaxWidth-suffix < minNameWidth && (showDate || showSize) {
+			if showDate {
+				showDate = false
+			} else {
+				showSize = false
+			}
+			suffix = m.rowSuffixWidth(showSize, showDate)
+		}
+	}
 	// When Width is set, widen the name column beyond the longest visible
 	// name so every row reaches Width — otherwise size/date only line up
 	// with the longest name currently on screen, not the picker's actual
 	// right edge, and short names leave them stranded mid-line.
-	if nameColWidth := m.Width - m.rowSuffixWidth(); nameColWidth > maxNameWidth {
-		maxNameWidth = nameColWidth
+	nameCol = max(nameCol, m.Width-suffix)
+	if m.MaxWidth > 0 {
+		nameCol = max(1, min(nameCol, m.MaxWidth-suffix))
 	}
 	st := &m.Styles
 	paint := painters{}
 	sizeFmt := " %" + strconv.Itoa(fileSizeWidth) + "s"
 	dateFmt := " %" + strconv.Itoa(dateWidth) + "s"
-	for _, r := range rows {
-		pad := strings.Repeat(" ", maxNameWidth-r.entry.nameWidth)
+	for i, r := range rows {
+		if i > 0 {
+			s.WriteRune('\n')
+		}
+		name, nameWidth := r.entry.nameDisplay, r.entry.nameWidth
+		if nameWidth > nameCol {
+			name = ansi.Truncate(name, nameCol, "…")
+			nameWidth = lipgloss.Width(name)
+		}
+		pad := strings.Repeat(" ", nameCol-nameWidth)
 
 		if m.selected == r.idx { //nolint:nestif
 			selected := ""
 			if m.ShowPermissions {
 				selected += " " + r.entry.info.Mode().String()
 			}
-			selected += " " + r.entry.nameDisplay + pad
-			if m.ShowSize {
+			selected += " " + name + pad
+			if showSize {
 				selected += fmt.Sprintf(sizeFmt, r.entry.size)
 			}
-			if m.ShowDate {
+			if showDate {
 				selected += fmt.Sprintf(dateFmt, r.date)
 			}
 			if r.disabled {
@@ -806,7 +848,6 @@ func (m *Model) View() string {
 			} else {
 				s.WriteString(paint.get(&st.Cursor).render(m.Cursor) + paint.get(&st.Selected).render(selected))
 			}
-			s.WriteRune('\n')
 			continue
 		}
 
@@ -823,19 +864,17 @@ func (m *Model) View() string {
 		if m.ShowPermissions {
 			s.WriteString(" " + paint.get(&st.Permission).render(r.entry.info.Mode().String()))
 		}
-		s.WriteString(" " + paint.get(style).render(r.entry.nameDisplay) + pad)
-		if m.ShowSize {
+		s.WriteString(" " + paint.get(style).render(name) + pad)
+		if showSize {
 			s.WriteString(" " + paint.get(&st.FileSize).render(fmt.Sprintf(sizeFmt[1:], r.entry.size)))
 		}
-		if m.ShowDate {
+		if showDate {
 			s.WriteString(" " + paint.get(&st.Date).render(fmt.Sprintf(dateFmt[1:], r.date)))
 		}
-		s.WriteRune('\n')
 	}
 
-	// Pad to Height()+1 lines (the rows' trailing newline already
-	// starts one more).
-	for i := len(rows) + 1; i <= m.Height(); i++ {
+	// Pad to exactly Height() lines.
+	for i := max(len(rows), 1); i < m.Height(); i++ {
 		s.WriteRune('\n')
 	}
 

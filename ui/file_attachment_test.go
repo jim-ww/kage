@@ -221,7 +221,7 @@ func TestFilePickerPopupShrinksWhenAttachmentsRowAppears(t *testing.T) {
 	}
 	m.filePicker.CurrentDirectory = dir
 	m.pickingFile = true
-	m.filePicker.SetHeight(max(1, m.height-m.inputAreaHeight()-6))
+	m.sizeFilePicker()
 	next, _ := m.Update(m.filePicker.Init()())
 	m = next.(Model)
 
