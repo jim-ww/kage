@@ -573,7 +573,10 @@ func (m *Model) actionEditMessage() tea.Cmd {
 		return nil
 	}
 	msgs := m.currentMessages()
-	idx := lastOwnMessageIdx(msgs)
+	idx := m.selectedMsg
+	if idx < 0 || idx >= len(msgs) || !msgs[idx].IsMe {
+		idx = lastOwnMessageIdx(msgs)
+	}
 	if idx < 0 {
 		return m.showNotification("no message to edit")
 	}
@@ -592,8 +595,8 @@ func (m *Model) actionEditMessage() tea.Cmd {
 }
 
 // lastOwnMessageIdx returns the index of the last message with IsMe set, or
-// -1 if the chat has none — this is the only message ctrl+e can edit
-// (callers must separately reject it if it's an attachment).
+// -1 if the chat has none — what ctrl+e edits when the selected message
+// isn't ours (callers must separately reject it if it's an attachment).
 func lastOwnMessageIdx(msgs []Message) int {
 	for i := range slices.Backward(msgs) {
 		if msgs[i].IsMe {
@@ -913,21 +916,13 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(draftCmd, unreadCmd, m.input.Focus(), jumpCmd)
 }
 
-// canEdit returns true only when selectedMsg is the last "IsMe" message and
-// isn't an attachment (its body is the upload URL, not editable text).
+// canEdit returns true only when selectedMsg is an "IsMe" message and isn't
+// an attachment (its body is the upload URL, not editable text).
 func (m Model) canEdit(msgs []Message) bool {
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return false
 	}
-	if !msgs[m.selectedMsg].IsMe || len(msgs[m.selectedMsg].Attachments) > 0 {
-		return false
-	}
-	for i := m.selectedMsg + 1; i < len(msgs); i++ {
-		if msgs[i].IsMe {
-			return false
-		}
-	}
-	return true
+	return msgs[m.selectedMsg].IsMe && len(msgs[m.selectedMsg].Attachments) == 0
 }
 
 // retractSelectedMsg flags the current message as deleted rather than

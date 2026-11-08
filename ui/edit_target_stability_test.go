@@ -130,3 +130,43 @@ func TestEditOfMessageGoneFromWindowIsNotSavedElsewhere(t *testing.T) {
 		t.Fatal("edit state not cleared")
 	}
 }
+
+// TestEditOlderOwnMessage covers editing a selected own message that isn't
+// the last one we sent: the correction targets it, not the newest.
+func TestEditOlderOwnMessage(t *testing.T) {
+	sender := &fakeFileSender{}
+	m := newEditTestModel(t, sender)
+	msgs := m.accounts[0].Messages[0]
+	msgs = append(msgs, Message{ID: "newer", Author: "me", IsMe: true, Content: "later", SentAt: time.Now().Add(time.Minute)})
+	m.accounts[0].Messages[0] = msgs
+	m.selectedMsg = 2
+
+	if !m.canEdit(m.currentMessages()) {
+		t.Fatal("canEdit rejected an older own message")
+	}
+	_ = m.actionEditMessage()
+	m.input.SetValue("hello")
+	_ = m.sendCurrentInput()
+
+	msgs = m.accounts[0].Messages[0]
+	if got := msgs[messageIndexByID(msgs, "mine")]; got.Content != "hello" || !got.Edited {
+		t.Fatalf("older message not edited: %+v", got)
+	}
+	if got := msgs[messageIndexByID(msgs, "newer")]; got.Content != "later" || got.Edited {
+		t.Fatalf("newer message changed: %+v", got)
+	}
+	if len(sender.sendCalls) != 1 || sender.sendCalls[0].opts.ReplaceID != "mine" {
+		t.Fatalf("want one correction for %q, got %#v", "mine", sender.sendCalls)
+	}
+}
+
+// TestEditFallsBackToLastOwnWhenPeerSelected keeps ctrl+e working from the
+// compose box when the selection sits on the peer's message.
+func TestEditFallsBackToLastOwnWhenPeerSelected(t *testing.T) {
+	m := newEditTestModel(t, &fakeFileSender{})
+	m.selectedMsg = 1
+	_ = m.actionEditMessage()
+	if m.editingMsg != refMessage(m.currentMessages()[2]) {
+		t.Fatalf("edit target = %+v, want last own message", m.editingMsg)
+	}
+}

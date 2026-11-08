@@ -358,7 +358,7 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 		case "yank":
 			keys.YankMsg = ui.NewBinding(override, "yank")
 		case "edit":
-			keys.EditMsg = ui.NewBinding(override, "edit (own last)")
+			keys.EditMsg = ui.NewBinding(override, "edit")
 		case "reply":
 			keys.ReplyMsg = ui.NewBinding(override, "reply")
 		case "info":

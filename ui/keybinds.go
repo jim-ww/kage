@@ -113,7 +113,7 @@ var DefaultKeyMap = KeyMap{
 	DeleteMsg:    NewBinding([]string{"ctrl+shift+d"}, "delete"),
 	YankMsg:      NewBinding([]string{"ctrl+y"}, "yank"),
 	YankDraft:    NewBinding([]string{"ctrl+shift+y"}, "copy draft"),
-	EditMsg:      NewBinding([]string{"ctrl+e"}, "edit (own last)"),
+	EditMsg:      NewBinding([]string{"ctrl+e"}, "edit"),
 	ReplyMsg:     NewBinding([]string{"ctrl+r"}, "reply"),
 	RetryMsg:     NewBinding([]string{"ctrl+shift+t"}, "retry"),
 	InfoMsg:      NewBinding([]string{"ctrl+i"}, "message info"),
