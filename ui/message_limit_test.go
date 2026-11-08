@@ -98,6 +98,7 @@ func newLimitTestModel(t *testing.T, n, limit int) *Model {
 // to still be reachable (via an older-history fetch) rather than just lost.
 func TestIncomingMessageTrimsToLimit(t *testing.T) {
 	m := newLimitTestModel(t, 3, 3)
+	m.selectedMsg = 2 // "c"
 
 	updated, _, handled := m.handleEventMsg(IncomingMessageMsg{
 		AccountIdx: 0,
@@ -115,8 +116,8 @@ func TestIncomingMessageTrimsToLimit(t *testing.T) {
 	if got[0].ID != "b" || got[2].ID != "new" {
 		t.Fatalf("expected oldest message dropped, got IDs %q, %q, %q", got[0].ID, got[1].ID, got[2].ID)
 	}
-	if updated.selectedMsg != 2 {
-		t.Fatalf("selectedMsg = %d, want 2 (last)", updated.selectedMsg)
+	if updated.selectedMsg != 1 {
+		t.Fatalf("selectedMsg = %d, want 1 (still \"c\" after the trim)", updated.selectedMsg)
 	}
 	if !updated.accounts[0].HistoryMore[0] {
 		t.Fatal("HistoryMore should be true — trimming dropped a message that's still in storage")

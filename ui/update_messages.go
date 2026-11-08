@@ -34,8 +34,14 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 // left in memory (recoverable at any time via an ordinary older-history
 // fetch — nothing needs to be specially retained here, storage already has
 // it).
-func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) []Message {
-	msgs := append(m.accounts[accountIdx].Messages[chatIdx], newMsgs...)
+//
+// For the open chat it also keeps selectedMsg on the same message, shifted
+// by whatever the trim dropped - new messages never move the selection. See
+// followTail for the matching viewport refresh.
+func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) {
+	old := m.accounts[accountIdx].Messages[chatIdx]
+	isOpenChat := accountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
+	msgs := append(old, newMsgs...)
 	trimmed, drop := trimMessagesFront(msgs, m.maxMessagesPerChat)
 	if drop > 0 {
 		if m.accounts[accountIdx].HistoryMore == nil {
@@ -44,7 +50,22 @@ func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) []Mes
 		m.accounts[accountIdx].HistoryMore[chatIdx] = true
 	}
 	m.accounts[accountIdx].Messages[chatIdx] = trimmed
-	return trimmed
+	if isOpenChat {
+		m.selectedMsg = max(0, m.selectedMsg-drop)
+	}
+}
+
+// followTail repaints the open chat after appendAndTrim: kept scrolled to
+// the bottom if it was there, otherwise kept on the selected message. Must
+// run before anything else refreshes the viewport, since AtBottom is read
+// against the pre-append content.
+func (m *Model) followTail() {
+	if m.viewport.AtBottom() {
+		m.refreshViewport()
+		m.viewport.GotoBottom()
+		return
+	}
+	m.refreshViewportFullScrollTo(m.selectedMsg)
 }
 
 // mergeLiveTail appends to fresh (a HistoryWindowMsg's just-loaded tail
@@ -232,16 +253,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 					IsMe:    true,
 					Pending: true,
 				}
-				msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
+				m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
 				// Asked before setChatLastMessage: the activity bump it
 				// applies re-sorts the list, after which chatIdx names a
 				// different chat (see IncomingMessageMsg).
 				isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 				cmd = tea.Batch(cmd, m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(placeholder)))
 				if isOpenChat {
-					m.selectedMsg = len(msgs) - 1
-					m.refreshViewport()
-					m.viewport.GotoBottom()
+					m.followTail()
 				}
 				return m, cmd, true
 			}
@@ -295,7 +314,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				newMsgs = newMsgs[1:]
 			}
 		}
-		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsgs...)
+		m.appendAndTrim(msg.AccountIdx, chatIdx, newMsgs...)
 		var cmds []tea.Cmd
 		cmds = append(cmds, m.setChatLastMessage(msg.AccountIdx, chatIdx, lastContent))
 		// Re-resolved after the sort setChatLastMessage just applied - see
@@ -309,13 +328,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			}
 			cmds = append(cmds, m.showNotification(notification))
 			if placeholder, ok := failedAttachmentPlaceholder(msg); ok && chatIdx >= 0 {
-				msgs = m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
+				m.appendAndTrim(msg.AccountIdx, chatIdx, placeholder)
 			}
 		}
 		if chatIdx >= 0 && msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
-			m.selectedMsg = len(msgs) - 1
-			m.refreshViewport()
-			m.viewport.GotoBottom()
+			m.followTail()
 		}
 		return m, tea.Batch(cmds...), true
 
@@ -356,11 +373,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], newMsg.ID) >= 0 {
 			return m, tea.Batch(lastMsgCmd, notice), true
 		}
-		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
+		m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
-			m.selectedMsg = len(msgs) - 1
-			m.refreshViewport()
-			m.viewport.GotoBottom()
+			m.followTail()
 		}
 		return m, tea.Batch(lastMsgCmd, notice), true
 
@@ -416,7 +431,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		typingCmd := m.setPeerTyping(msg.AccountIdx, msg.From, false)
 		newMsg := msg.Message
 		newMsg.ReplyToID = msg.ReplyToID
-		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
+		m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
 		// The bumped activity just re-sorted the list (setChatLastMessage ->
 		// sortChatsByActivity), so every index into Chats is now a different
@@ -430,9 +445,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, tea.Batch(typingCmd, cmd), true
 		}
 		if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
-			m.selectedMsg = len(msgs) - 1
-			m.refreshViewport()
-			m.viewport.GotoBottom()
+			m.followTail()
 		}
 		return m, tea.Batch(typingCmd, cmd), true
 
@@ -1044,7 +1057,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		msgs := m.appendAndTrim(msg.AccountIdx, chatIdx, msg.Messages...)
+		m.appendAndTrim(msg.AccountIdx, chatIdx, msg.Messages...)
 		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msg.Messages[len(msg.Messages)-1]))
 		// Re-resolved after the sort, same as IncomingMessageMsg above.
 		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.From); chatIdx < 0 {
@@ -1052,9 +1065,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		// Same repaint as IncomingMessageMsg above.
 		if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
-			m.selectedMsg = len(msgs) - 1
-			m.refreshViewport()
-			m.viewport.GotoBottom()
+			m.followTail()
 		}
 		return m, lastMsgCmd, true
 
