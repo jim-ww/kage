@@ -344,24 +344,32 @@ type Contact struct {
 	JID          string
 	Name         string
 	Subscription string
+	// Ask is true while a subscription request we sent is still waiting
+	// for the contact's approval (the item's ask="subscribe").
+	Ask bool
 }
 
-// Roster fetches the account's contact list from the server.
+// Roster fetches the account's contact list from the server. Decoded here
+// rather than through mellium's roster.Fetch for the same reason as roster
+// pushes (see rosterPushItem): its Item drops the ask attribute.
 func (c *Client) Roster(ctx context.Context) ([]Contact, error) {
-	iter := roster.Fetch(ctx, c.session)
-	defer iter.Close()
-
-	var contacts []Contact
-	for iter.Next() {
-		item := iter.Item()
+	var q rosterPushQuery
+	query := xmlstream.Wrap(nil, xml.StartElement{Name: rosterQueryName})
+	if err := c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.GetIQ}, &q); err != nil {
+		return nil, fmt.Errorf("fetching roster: %w", err)
+	}
+	contacts := make([]Contact, 0, len(q.Items))
+	for _, item := range q.Items {
+		j, err := jid.Parse(item.JID)
+		if err != nil || item.JID == "" {
+			continue
+		}
 		contacts = append(contacts, Contact{
-			JID:          item.JID.String(),
+			JID:          j.String(),
 			Name:         item.Name,
 			Subscription: item.Subscription,
+			Ask:          item.Ask == "subscribe",
 		})
-	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("fetching roster: %w", err)
 	}
 	return contacts, nil
 }

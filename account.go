@@ -440,6 +440,7 @@ func (s *accountSession) deleteOutboxByLocalID(ctx context.Context, localID stri
 type rosterEntry struct {
 	Name      string
 	Subs      string
+	Ask       bool                  // a subscription request we sent is still pending
 	Presence  ui.Presence           // last known live presence; zero value (PresenceOffline) until a PresenceEvent arrives
 	Resources []ui.ResourcePresence // currently online devices (full-JID resources), sorted by resource name
 }
@@ -829,7 +830,8 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		// after everything already delivered - flushOutbox will actually
 		// attempt them again once this account reconnects.
 		hist = append(hist, pendingByPeer[r.Jid]...)
-		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid], Hidden: hiddenChats.has(acct.JID, r.Jid), Pinned: pinnedChats.has(acct.JID, r.Jid)}
+		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid], Hidden: hiddenChats.has(acct.JID, r.Jid), Pinned: pinnedChats.has(acct.JID, r.Jid),
+			Subscription: r.Subs}
 		if len(hist) > 0 {
 			messages[i] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
@@ -969,7 +971,8 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 		idx := existingChatCount + len(newChats)
 		hist, hasMore, _ := loadHistoryWindow(ctx, sess, c.JID, name, nil, historyPageSize)
-		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources, Hidden: hiddenChats.has(sess.account.JID, c.JID), Pinned: pinnedChats.has(sess.account.JID, c.JID)}
+		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources, Hidden: hiddenChats.has(sess.account.JID, c.JID), Pinned: pinnedChats.has(sess.account.JID, c.JID),
+			Subscription: c.Subscription, SubscriptionPending: c.Ask}
 		if len(hist) > 0 {
 			newMessages[idx] = hist
 			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
@@ -990,7 +993,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	merged := sess.mutateRoster(func(entries map[string]rosterEntry) {
 		for _, c := range contacts {
 			e := entries[c.JID]
-			e.Name, e.Subs = c.Name, c.Subscription
+			e.Name, e.Subs, e.Ask = c.Name, c.Subscription, c.Ask
 			entries[c.JID] = e
 		}
 	})
@@ -2055,7 +2058,7 @@ func (s *accountSession) handleRosterPush(ctx context.Context, srv *ipc.Server, 
 	s.mutateRoster(func(entries map[string]rosterEntry) {
 		e, ok := entries[peer]
 		known = ok
-		e.Name, e.Subs = ev.Name, ev.Subscription
+		e.Name, e.Subs, e.Ask = ev.Name, ev.Subscription, ev.Ask
 		entries[peer] = e
 	})
 	if err := s.db.UpsertRoster(ctx, storage.UpsertRosterParams{
@@ -2065,7 +2068,8 @@ func (s *accountSession) handleRosterPush(ctx context.Context, srv *ipc.Server, 
 	}
 
 	// Broadcast even for an already-known contact: ChatAddedMsg is an
-	// upsert, so this is also how a rename made on another client reaches
+	// upsert, so this is also how a rename made on another client, or a
+	// subscription changing (a request approved, still pending), reaches
 	// the chat list.
 	s.broadcastChat(ctx, srv, accountIdx, peer, ev.Name)
 
@@ -2114,6 +2118,9 @@ func (s *accountSession) broadcastChat(ctx context.Context, srv *ipc.Server, acc
 			Resources:      entry.Resources,
 			Unread:         int(unread),
 			Pinned:         pinnedChats.has(s.account.JID, peer),
+
+			Subscription:        entry.Subs,
+			SubscriptionPending: entry.Ask,
 		},
 		Messages: hist,
 	})

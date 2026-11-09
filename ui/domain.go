@@ -324,6 +324,14 @@ type Chat struct {
 	Presence Presence
 	Typing   bool // true while the peer has an active XEP-0085 "composing" state
 
+	// Subscription is the roster's RFC 6121 presence subscription with this
+	// contact: "both", "to" (we see their presence, they don't see ours),
+	// "from" (the reverse) or "none"; "" when unknown (no roster entry).
+	// SubscriptionPending is true while a request we sent awaits their
+	// approval.
+	Subscription        string
+	SubscriptionPending bool
+
 	// Resources lists this contact's currently online devices (full-JID
 	// resources), sorted by resource name. Populated from live
 	// xmpp.PresenceEvents (see PresenceMsg.Resource) — a resource is added

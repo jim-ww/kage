@@ -124,6 +124,9 @@ func (m Model) contactManagerPrompt() string {
 		if c.Name != "" && c.Name != c.Address {
 			label = fmt.Sprintf("%s <%s>", c.Name, c.Address)
 		}
+		if s := subscriptionLabel(c); s != "" {
+			label += " (" + s + ")"
+		}
 		if c.Hidden {
 			label += " (hidden)"
 		}
@@ -137,6 +140,24 @@ func (m Model) contactManagerPrompt() string {
 	rows = append(rows, "", hint)
 
 	return m.styles.infoPopup("Contacts", rows, closeKey)
+}
+
+// subscriptionLabel says what's missing from a contact's presence
+// subscription, "" when nothing is (both ways) or it's unknown - the
+// difference between "offline" and "can't see whether they're online".
+func subscriptionLabel(c Chat) string {
+	switch {
+	case c.SubscriptionPending:
+		return "request pending"
+	case c.Subscription == "to":
+		return "you see them, they don't see you"
+	case c.Subscription == "from":
+		return "they see you, you don't see them"
+	case c.Subscription == "none":
+		return "not subscribed"
+	default:
+		return ""
+	}
 }
 
 // acceptContactRemove removes the contact staged in pendingRemove - the

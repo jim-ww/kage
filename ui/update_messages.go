@@ -809,10 +809,18 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		// appending a second one for the same address.
 		if idx := m.chatIndexByAddress(msg.AccountIdx, msg.Chat.Address); idx >= 0 {
 			chat, ok := m.accounts[msg.AccountIdx].Chats[idx].(Chat)
-			if !ok || msg.Chat.Name == "" || chat.Name == msg.Chat.Name {
+			if !ok {
 				return m, nil, true
 			}
-			chat.Name = msg.Chat.Name
+			renamed := msg.Chat.Name != "" && chat.Name != msg.Chat.Name
+			resubscribed := chat.Subscription != msg.Chat.Subscription || chat.SubscriptionPending != msg.Chat.SubscriptionPending
+			if !renamed && !resubscribed {
+				return m, nil, true
+			}
+			if renamed {
+				chat.Name = msg.Chat.Name
+			}
+			chat.Subscription, chat.SubscriptionPending = msg.Chat.Subscription, msg.Chat.SubscriptionPending
 			m.accounts[msg.AccountIdx].Chats[idx] = chat
 			var cmd tea.Cmd
 			if msg.AccountIdx == m.currentAccount {
