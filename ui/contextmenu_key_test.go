@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // shortcutMenu opens a menu whose items record which one ran into *ran.
@@ -87,5 +88,28 @@ func TestRefreshContextMenu(t *testing.T) {
 	m.refreshContextMenu()
 	if m.contextMenu != nil {
 		t.Fatal("menu with nothing left in it stayed open")
+	}
+}
+
+// TestContextMenuRowsNeverWrap checks a label longer than the popup can
+// fit is cut to one line rather than wrapped onto a second - and that the
+// longest label that does fit isn't cut at all.
+func TestContextMenuRowsNeverWrap(t *testing.T) {
+	m := newTestModel(nil)
+	open := func(label string) string {
+		m.openContextMenu("x", []contextMenuItem{
+			{label: label, run: func(*Model) tea.Cmd { return nil }},
+			{label: "Short", key: 's', run: func(*Model) tea.Cmd { return nil }},
+		})
+		return m.renderContextMenuPopup()
+	}
+	short := open("Copy")
+	long := open("start " + strings.Repeat("x", 300) + " end")
+	if lipgloss.Height(long) != lipgloss.Height(short) || strings.Contains(long, " end") {
+		t.Fatalf("long label wrapped:\n%s", long)
+	}
+	fits := "Default ALSA Output (currently PipeWire)"
+	if popup := open(fits); !strings.Contains(popup, fits) || lipgloss.Height(popup) != lipgloss.Height(short) {
+		t.Fatalf("label that fits got cut or wrapped:\n%s", popup)
 	}
 }

@@ -613,11 +613,10 @@ func (m Model) renderContextMenuPopup() string {
 	maxItemWidth := max(6, cw-10)
 	longest := 0
 	for _, item := range m.contextMenu.items {
-		w := lipgloss.Width(item.label)
+		w := lipgloss.Width(item.label) + 1 // contextMenuRow's left padding
 		if item.key != 0 {
-			// The key, the gap before it, and the padding either side that
-			// contextMenuRowText leaves out of the row.
-			w += contextMenuKeyGap + 1 + 2
+			// The gap, the key, and one cell of room after it.
+			w += contextMenuKeyGap + 1 + 1
 		}
 		longest = max(longest, w)
 	}
@@ -665,7 +664,9 @@ const contextMenuKeyGap = 3
 // the right come out of width.
 func contextMenuRowText(item contextMenuItem, width int) string {
 	if item.key == 0 {
-		return item.label
+		// Truncated rather than left to wrap: a wrapped row would be two
+		// lines tall and knock the whole popup out of shape.
+		return ansi.Truncate(item.label, max(0, width-1), "…")
 	}
 	inner := width - 2
 	label := ansi.Truncate(item.label, max(0, inner-contextMenuKeyGap-1), "…")
