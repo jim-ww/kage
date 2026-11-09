@@ -1307,6 +1307,9 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		// state, and nothing here distinguished the two.
 		slog.Debug("presence received", "jid", s.account.JID, "from", from, "resource", resource, "presence", presence, "available", ev.Available, "show", ev.Show)
 		s.setRosterPresence(from, resource, presence)
+		if !ev.Available && resource != "" {
+			s.peerWentOffline(ctx, ev.From)
+		}
 		broadcast(srv, evPresence, ui.PresenceMsg{
 			AccountIdx: accountIdx,
 			From:       from,

@@ -1736,6 +1736,32 @@ func (a *adapter) SetDesktopAudio(enabled bool) error {
 	return nil
 }
 
+// shutdownHangupTimeout bounds how long daemon shutdown waits on hanging up
+// calls - a dead connection mustn't hold the whole shutdown hostage.
+const shutdownHangupTimeout = 2 * time.Second
+
+// hangupAllCalls hangs up every account's call in progress, giving up
+// after timeout.
+func (a *adapter) hangupAllCalls(timeout time.Duration) {
+	a.mu.Lock()
+	sessions := append([]*accountSession(nil), a.sessions...)
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	for _, sess := range sessions {
+		if sess == nil || sess.currentCall() == nil {
+			continue
+		}
+		wg.Go(func() {
+			if err := sess.hangupCall(ctx); err != nil {
+				slog.Warn("hanging up call on shutdown", "jid", sess.account.JID, "err", err)
+			}
+		})
+	}
+	wg.Wait()
+}
+
 // peerDeviceSyncInterval is how long a peer's cached OMEMO device list is
 // trusted before a send re-fetches it. Long enough that a busy conversation
 // doesn't put a PEP IQ in front of every message, short enough that a

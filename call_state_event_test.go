@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
+
+	"github.com/jim-ww/kage/config"
+	"github.com/jim-ww/kage/storage"
 )
 
 // TestCallStateEventVideoSource checks the outgoing-video fields the UI
@@ -84,5 +89,27 @@ func TestNextDesktopFrameSkipsBacklog(t *testing.T) {
 	close(ch)
 	if f := nextDesktopFrame(ch); f != nil {
 		t.Fatalf("closed source gave %v", f)
+	}
+}
+
+// TestPeerWentOfflineEndsCall checks the peer device a call is with going
+// unavailable ends the call, while another of the contact's devices going
+// away doesn't.
+func TestPeerWentOfflineEndsCall(t *testing.T) {
+	_, db, err := storage.Open(filepath.Join(t.TempDir(), "calls.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := &accountSession{account: config.Account{JID: "alice@example.test"}, db: db}
+	c := &callSession{sess: sess, peer: "bob@example.test", remoteJID: "bob@example.test/phone", state: callConnected, done: make(chan struct{})}
+	sess.call = c
+
+	sess.peerWentOffline(context.Background(), "bob@example.test/laptop")
+	if sess.currentCall() == nil {
+		t.Fatal("another of the peer's devices going offline ended the call")
+	}
+	sess.peerWentOffline(context.Background(), "bob@example.test/phone")
+	if sess.currentCall() != nil || c.currentState() != callEnded {
+		t.Fatal("the call's peer device going offline didn't end the call")
 	}
 }

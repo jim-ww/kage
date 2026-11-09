@@ -359,6 +359,14 @@ func (b *backend) Reload(cfg config.Config) {
 func (b *backend) Shutdown() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	// Calls are hung up properly before anything is torn down - while the
+	// connections can still carry the session-terminate (or retract), and
+	// attached TUIs can still hear that the call ended. Just dropping the
+	// connection leaves the peer ringing, or in a call with nobody on the
+	// other end, until their side times out.
+	if b.adapter != nil {
+		b.adapter.hangupAllCalls(shutdownHangupTimeout)
+	}
 	if b.ln != nil {
 		b.ln.Close()
 	}

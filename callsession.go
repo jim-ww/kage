@@ -515,8 +515,8 @@ func (s *accountSession) hangupCall(ctx context.Context) error {
 	case callRingingLocal:
 		// An incoming call we haven't answered yet: no Jingle session exists
 		// to terminate, only the XEP-0353 propose to decline - same wire
-		// action as rejectCall, reached here when hangupCall (ctrl+g) is used
-		// instead of the dedicated reject key.
+		// action as rejectCall, reached here when the call is hung up rather
+		// than rejected (e.g. on daemon shutdown).
 		c.rejectAndNotifyOwnDevices(ctx, remote)
 	default:
 		if remote != "" {
@@ -527,6 +527,24 @@ func (s *accountSession) hangupCall(ctx context.Context) error {
 	}
 	c.end(ctx, "ended", "hung up")
 	return nil
+}
+
+// peerWentOffline ends the current call if fullJID - the peer device it's
+// with - just went unavailable: that device can no longer send a
+// session-terminate or retract, so without this the call would sit there
+// until ICE gave up (connected) or forever (still ringing).
+func (s *accountSession) peerWentOffline(ctx context.Context, fullJID string) {
+	c := s.currentCall()
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	match := c.remoteJID != "" && c.remoteJID == fullJID
+	c.mu.Unlock()
+	if match {
+		slog.Debug("call peer went offline", "sid", c.sid, "peer", fullJID)
+		c.end(ctx, "ended", "peer went offline")
+	}
 }
 
 // rejectCall declines a ringing incoming call.
