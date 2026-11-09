@@ -117,7 +117,7 @@ func (m Model) updateContextMenuKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 // messageContextMenuItems builds the right-click menu for the message at
 // idx (already selected by the caller — see handleRightClick). Order:
-// content actions first (copy/open/save), then compose actions
+// content actions first (copy/open/save/save as), then compose actions
 // (reply/edit/react), then info, then the destructive delete last.
 func (m *Model) messageContextMenuItems(idx int) []contextMenuItem {
 	msgs := m.currentMessages()
@@ -131,7 +131,8 @@ func (m *Model) messageContextMenuItems(idx int) []contextMenuItem {
 	if len(openableItems(msgs[idx])) > 0 {
 		items = append(items,
 			contextMenuItem{label: "Open", run: (*Model).actionOpenMessage},
-			contextMenuItem{label: "Save as", run: (*Model).actionSaveMessage},
+			contextMenuItem{label: "Save", run: (*Model).actionSaveMessage},
+			contextMenuItem{label: "Save as", run: (*Model).actionSaveMessageAs},
 		)
 	}
 	items = append(items, contextMenuItem{label: "Reply", run: (*Model).actionReplyMessage})
