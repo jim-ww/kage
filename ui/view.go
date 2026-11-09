@@ -669,9 +669,11 @@ func (m Model) renderContextMenuPopup() string {
 	maxItemWidth := max(6, cw-10)
 	longest := 0
 	for _, item := range m.contextMenu.items {
-		if w := lipgloss.Width(item.label); w > longest {
-			longest = w
+		w := lipgloss.Width(item.label)
+		if item.key != 0 {
+			w += contextMenuKeyGap + 1
 		}
+		longest = max(longest, w)
 	}
 	// contextMenuMinWidth keeps rows from shrink-wrapping to the longest
 	// label alone — that reads as squeezed/cramped on anything but a
@@ -684,7 +686,7 @@ func (m Model) renderContextMenuPopup() string {
 		// Highlighted when the pointer is over it or the keyboard cursor
 		// is on it — the menu is driven both ways.
 		active := m.isHovered(zoneContextMenuItem(i)) || i == m.contextMenu.cursor
-		row := m.styles.contextMenuRow(item.label, active, itemWidth)
+		row := m.styles.contextMenuRow(contextMenuRowText(item, itemWidth), active, itemWidth)
 		rows[i] = m.zone.Mark(zoneContextMenuItem(i), row)
 	}
 
@@ -702,6 +704,24 @@ func (m Model) renderContextMenuPopup() string {
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+}
+
+// contextMenuKeyGap is the minimum space between an item's label and its
+// right-aligned shortcut key.
+const contextMenuKeyGap = 3
+
+// contextMenuRowText lays out one menu row's text for a row width wide:
+// the label, plus the item's shortcut key (if any) pushed to the right
+// edge. contextMenuRow's own left padding and one cell of breathing room on
+// the right come out of width.
+func contextMenuRowText(item contextMenuItem, width int) string {
+	if item.key == 0 {
+		return item.label
+	}
+	inner := width - 2
+	label := ansi.Truncate(item.label, max(0, inner-contextMenuKeyGap-1), "…")
+	gap := max(1, inner-lipgloss.Width(label)-1)
+	return label + strings.Repeat(" ", gap) + string(item.key)
 }
 
 // deletePromptWidth is the wrap width for any styles.deletePrompt call

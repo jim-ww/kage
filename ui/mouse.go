@@ -736,14 +736,9 @@ func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 		m.closeContextMenu()
 		return m, nil
 	}
-	before := m.contextMenu
 	for i, item := range m.contextMenu.items {
 		if m.zone.Get(zoneContextMenuItem(i)).InBounds(msg) {
-			cmd := item.run(&m)
-			if m.contextMenu == before {
-				m.closeContextMenu()
-			}
-			return m, cmd
+			return m.runContextMenuItem(item)
 		}
 	}
 	m.closeContextMenu()

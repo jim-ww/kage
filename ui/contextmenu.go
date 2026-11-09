@@ -12,7 +12,13 @@ import (
 // receiver) and returns whatever tea.Cmd the equivalent keybinding would.
 type contextMenuItem struct {
 	label string
-	run   func(m *Model) tea.Cmd
+	// key, when set, is a single-letter shortcut that runs the item straight
+	// from the keyboard while the menu is open, shown right-aligned on its
+	// row. It's checked before the menu's own navigation/close keys, so a
+	// letter ConfirmNo uses ("n") only belongs on an item that itself means
+	// "no".
+	key rune
+	run func(m *Model) tea.Cmd
 }
 
 // contextMenu is the popup-menu state: a fixed list of actions applicable
@@ -34,6 +40,11 @@ type contextMenu struct {
 	// separately (hoverState), so moving the pointer doesn't yank the
 	// keyboard's place in the list.
 	cursor int
+	// refresh, when set, rebuilds title and items from the model's current
+	// state - for a menu whose actions depend on something that can change
+	// while it's open (the call menu: a call ringing, connecting, ending).
+	// See refreshContextMenu.
+	refresh func(m *Model) (string, []contextMenuItem)
 }
 
 func zoneContextMenuItem(i int) string { return fmt.Sprintf("ctxmenu-item-%d", i) }
@@ -49,10 +60,45 @@ func (m *Model) closeContextMenu() {
 	m.contextMenu = nil
 }
 
-// updateContextMenuKey drives the popup from the keyboard: cursor moves,
-// SelectSend runs the highlighted item, Back/ConfirmNo closes.
+// refreshContextMenu rebuilds the open menu from current state if it was
+// opened with a refresh func, keeping the cursor in range, and closes it if
+// nothing applicable is left.
+func (m *Model) refreshContextMenu() {
+	menu := m.contextMenu
+	if menu == nil || menu.refresh == nil {
+		return
+	}
+	title, items := menu.refresh(m)
+	if len(items) == 0 {
+		m.closeContextMenu()
+		return
+	}
+	menu.title, menu.items = title, items
+	menu.cursor = min(menu.cursor, len(items)-1)
+}
+
+// runContextMenuItem runs item and closes the menu it was picked from - unless
+// the item opened a menu of its own (a submenu), which must not be closed
+// again from under it.
+func (m Model) runContextMenuItem(item contextMenuItem) (Model, tea.Cmd) {
+	before := m.contextMenu
+	cmd := item.run(&m)
+	if m.contextMenu == before {
+		m.closeContextMenu()
+	}
+	return m, cmd
+}
+
+// updateContextMenuKey drives the popup from the keyboard: an item's own
+// shortcut key runs it directly, otherwise cursor moves, SelectSend runs the
+// highlighted item, Back/ConfirmNo closes.
 func (m Model) updateContextMenuKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	menu := m.contextMenu
+	for _, item := range menu.items {
+		if item.key != 0 && matchesLetter(msg, item.key) {
+			return m.runContextMenuItem(item)
+		}
+	}
 	switch {
 	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
 		m.closeContextMenu()
@@ -64,13 +110,7 @@ func (m Model) updateContextMenuKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if menu.cursor < 0 || menu.cursor >= len(menu.items) {
 			return m, nil
 		}
-		cmd := menu.items[menu.cursor].run(&m)
-		// An action that opened a menu of its own must not have it closed
-		// again from under it — the same guard handleContextMenuClick uses.
-		if m.contextMenu == menu {
-			m.closeContextMenu()
-		}
-		return m, cmd
+		return m.runContextMenuItem(menu.items[menu.cursor])
 	}
 	return m, nil
 }
