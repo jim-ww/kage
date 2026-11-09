@@ -1108,7 +1108,7 @@ func (m Model) renderAccountsList(width int) string {
 	}
 	rows := make([]string, len(m.accounts))
 	for i, account := range m.accounts {
-		label := fmt.Sprintf("%s (%s)", account.DisplayName(), account.StatusText())
+		label := fmt.Sprintf("%s (%s)", account.NameWithJID(), account.StatusText())
 		// The glyph is rendered separately and prepended after styling the
 		// rest of the row, never passed through renderAccountRow's own
 		// style.Render - that call ends in a full ANSI reset, and wrapping

@@ -215,6 +215,16 @@ func (a Account) DisplayName() string {
 	return a.Name
 }
 
+// NameWithJID is DisplayName plus the account's JID when an alias hides it -
+// for the places there's room to say which account an alias stands for
+// (the accounts list, the account menu's title).
+func (a Account) NameWithJID() string {
+	if a.Alias == "" || a.Alias == a.Name {
+		return a.Name
+	}
+	return a.Alias + " · " + a.Name
+}
+
 // StatusText is a plain-text description of the account's connection state,
 // for the account bar/list — connecting/offline/syncing take priority over
 // the configured presence since they describe why the account can't be used

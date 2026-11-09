@@ -1017,7 +1017,7 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if m.zone.Get(zoneAccountRow(i)).InBounds(msg) {
 			m.setSelectedView(viewAccounts)
 			cmd := m.switchAccount(i)
-			m.openContextMenu(m.accounts[i].DisplayName(), m.accountRowContextMenuItems(i))
+			m.openContextMenu(m.accounts[i].NameWithJID(), m.accountRowContextMenuItems(i))
 			return m, cmd
 		}
 	}

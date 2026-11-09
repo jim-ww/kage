@@ -236,3 +236,22 @@ func TestContextMenuFallsBackToGenericTitle(t *testing.T) {
 		t.Errorf("untitled menu lost its heading")
 	}
 }
+
+// TestAliasedAccountShowsJID checks an alias doesn't hide which account it
+// is everywhere: the account menu's title and the accounts list carry the
+// JID too.
+func TestAliasedAccountShowsJID(t *testing.T) {
+	m := newTestModel(nil)
+	m.accounts = []Account{{Name: "me@example.org", Alias: "Work"}}
+	m.currentAccount = 0
+	m.openAccountMenu()
+	if m.contextMenu == nil || m.contextMenu.title != "Work · me@example.org" {
+		t.Fatalf("account menu title: %+v", m.contextMenu)
+	}
+	if list := m.renderAccountsList(80); !strings.Contains(list, "Work · me@example.org") {
+		t.Fatalf("accounts list doesn't show the JID: %q", list)
+	}
+	if got := (Account{Name: "me@example.org"}).NameWithJID(); got != "me@example.org" {
+		t.Fatalf("unaliased: %q", got)
+	}
+}

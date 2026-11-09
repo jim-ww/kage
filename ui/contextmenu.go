@@ -272,7 +272,7 @@ func (m *Model) openAccountMenu() tea.Cmd {
 	if len(items) == 0 {
 		return m.showNotification("no actions for this account")
 	}
-	m.openContextMenu(m.accounts[idx].DisplayName(), items)
+	m.openContextMenu(m.accounts[idx].NameWithJID(), items)
 	return nil
 }
 
