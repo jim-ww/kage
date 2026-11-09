@@ -219,3 +219,70 @@ func TestFileTransferDoneReachesOtherAttachedClients(t *testing.T) {
 		t.Errorf("client B: FileTransferDoneMsg.ID = %q, want %q", done.ID, path)
 	}
 }
+
+// TestOwnEditsReachOtherAttachedClients is the same multi-TUI regression as
+// TestSendNotifiesOtherAttachedClients, for what's done to a message after
+// it's sent: an edit, a reaction, a delete (retraction) and the local-only
+// delete of someone else's message all used to update storage and the TUI
+// that did it, and nothing else - a second attached TUI kept showing the
+// old text until it reloaded from storage.
+func TestOwnEditsReachOtherAttachedClients(t *testing.T) {
+	ctx := context.Background()
+	aliceClient, err := xmpp.Dial(ctx, "alice@localhost", "alicepw", devtestTLSConfig(t))
+	if err != nil {
+		t.Fatalf("dial alice: %v", err)
+	}
+	t.Cleanup(func() { aliceClient.Close() })
+
+	sockPath, aliceSess := newTestDaemon(t, aliceClient)
+	if err := aliceSess.db.SetChatEncryptionMode(ctx, storage.SetChatEncryptionModeParams{
+		AccountJid: "alice@localhost", RosterJid: "bob@localhost", Mode: "none",
+	}); err != nil {
+		t.Fatalf("SetChatEncryptionMode: %v", err)
+	}
+	clientA, _ := attachTestIPCClient(t, sockPath)
+	_, eventsB := attachTestIPCClient(t, sockPath)
+
+	var sent sendResult
+	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: "bob@localhost", Body: "typo"}, &sent); err != nil || sent.ID == "" {
+		t.Fatalf("Send: %+v %v", sent, err)
+	}
+
+	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: "bob@localhost", Body: "fixed",
+		Opts: ui.SendOptions{ReplaceID: sent.ID}}, &sendResult{}); err != nil {
+		t.Fatalf("correction: %v", err)
+	}
+	var corrected ui.MessageCorrectedMsg
+	awaitEvent(t, eventsB, evMessageCorrected, &corrected, 10*time.Second)
+	if corrected.ReplaceID != sent.ID || corrected.NewContent != "fixed" || corrected.From != "bob@localhost" {
+		t.Fatalf("correction seen by B: %+v", corrected)
+	}
+
+	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: "bob@localhost",
+		Opts: ui.SendOptions{ReactionTargetID: sent.ID, Reactions: []string{"👍"}}}, &sendResult{}); err != nil {
+		t.Fatalf("reaction: %v", err)
+	}
+	var reactions ui.MessageReactionsMsg
+	awaitEvent(t, eventsB, evMessageReactions, &reactions, 10*time.Second)
+	if reactions.MessageID != sent.ID || len(reactions.Reactions) == 0 {
+		t.Fatalf("reaction seen by B: %+v", reactions)
+	}
+
+	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: "bob@localhost",
+		Opts: ui.SendOptions{RetractID: sent.ID}}, &sendResult{}); err != nil {
+		t.Fatalf("retraction: %v", err)
+	}
+	var retracted ui.MessageRetractedMsg
+	awaitEvent(t, eventsB, evMessageRetracted, &retracted, 10*time.Second)
+	if retracted.RetractID != sent.ID {
+		t.Fatalf("retraction seen by B: %+v", retracted)
+	}
+
+	if err := clientA.MarkRetracted(0, "bob@localhost", "someone-elses-message"); err != nil {
+		t.Fatalf("MarkRetracted: %v", err)
+	}
+	awaitEvent(t, eventsB, evMessageRetracted, &retracted, 10*time.Second)
+	if retracted.RetractID != "someone-elses-message" {
+		t.Fatalf("local delete seen by B: %+v", retracted)
+	}
+}

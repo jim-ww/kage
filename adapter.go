@@ -731,12 +731,15 @@ func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 	if !ok {
 		return fmt.Errorf("unknown account %d", accountIdx)
 	}
-	_, err := s.db.MarkMessageRetracted(context.Background(), storage.MarkMessageRetractedParams{
+	if _, err := s.db.MarkMessageRetracted(context.Background(), storage.MarkMessageRetractedParams{
 		AccountJid: s.account.JID,
 		IDAttr:     nullString(id),
 		RosterJid:  nullString(to),
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	broadcast(a.srv, evMessageRetracted, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: to, RetractID: id})
+	return nil
 }
 
 // PurgeMessage implements ui.MessageSender: erases a message outright from
@@ -1235,6 +1238,14 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		if err := replaceReactions(ctx, s, to, opts.ReactionTargetID, meReactorJID, opts.Reactions); err != nil {
 			slog.Warn("persisting our own reactions", "err", err)
 		}
+		// Every other attached TUI only learns of our own reaction from this
+		// (see the plain-send broadcast below for why).
+		broadcast(a.srv, evMessageReactions, ui.MessageReactionsMsg{
+			AccountIdx: accountIdx,
+			From:       to,
+			MessageID:  opts.ReactionTargetID,
+			Reactions:  loadReactionsForMessage(ctx, s, to, opts.ReactionTargetID),
+		})
 		return id, nil
 	}
 
@@ -1253,6 +1264,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}); err != nil {
 			slog.Warn("marking retracted message in storage", "err", err)
 		}
+		broadcast(a.srv, evMessageRetracted, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: to, RetractID: opts.RetractID})
 		return id, nil
 	}
 
@@ -1377,6 +1389,17 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}); err != nil {
 			slog.Warn("persisting correction", "err", err)
 		}
+		// The editing TUI already shows the new text; every other attached
+		// one only learns of it from this - same reason as the plain-send
+		// broadcast below.
+		broadcast(a.srv, evMessageCorrected, ui.MessageCorrectedMsg{
+			AccountIdx: accountIdx,
+			From:       to,
+			ReplaceID:  opts.ReplaceID,
+			NewContent: body,
+			Encrypted:  e2eEncrypted,
+			EncMethod:  e2eeMethod,
+		})
 		return id, nil
 	}
 
