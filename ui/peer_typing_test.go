@@ -79,3 +79,20 @@ func TestPeerTypingClearedWhenOffline(t *testing.T) {
 		t.Error("chat still marked typing after the contact went offline")
 	}
 }
+
+// TestOwnMessageKeepsPeerTyping checks our own sent message (echoed back by
+// the daemon to every attached TUI) doesn't clear the contact's typing
+// indicator - they may well still be typing - while theirs does.
+func TestOwnMessageKeepsPeerTyping(t *testing.T) {
+	m := newTypingTestModel(t)
+	next, _ := m.Update(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.test", Message: Message{ID: "mine", IsMe: true, Content: "hi"}})
+	m = next.(Model)
+	if !m.accounts[0].Chats[0].(Chat).Typing {
+		t.Fatal("our own message cleared the contact's typing indicator")
+	}
+	next, _ = m.Update(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.test", Message: Message{ID: "theirs", Content: "yo"}})
+	m = next.(Model)
+	if m.accounts[0].Chats[0].(Chat).Typing {
+		t.Fatal("their message didn't clear their typing indicator")
+	}
+}

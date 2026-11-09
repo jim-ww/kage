@@ -428,7 +428,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		// Whatever they were composing, they've now sent it - not every
 		// client bothers to pair the message with an "active" chat state.
-		typingCmd := m.setPeerTyping(msg.AccountIdx, msg.From, false)
+		// Only for their message: ours (echoed back to every attached TUI,
+		// or sent from another of our devices) says nothing about whether
+		// they're still typing.
+		var typingCmd tea.Cmd
+		if !msg.Message.IsMe {
+			typingCmd = m.setPeerTyping(msg.AccountIdx, msg.From, false)
+		}
 		newMsg := msg.Message
 		newMsg.ReplyToID = msg.ReplyToID
 		m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)

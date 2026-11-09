@@ -268,7 +268,9 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			return
 		}
 
-		if state, ok := msg.chatState(); ok {
+		// A sent carbon's chat state is our own, typed on another of our
+		// devices - not anything the contact is doing.
+		if state, ok := msg.chatState(); ok && !outgoing {
 			c.enqueue(ChatStateEvent{From: msg.From.String(), State: state})
 		}
 
