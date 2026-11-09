@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -405,97 +404,42 @@ func (m Model) renderChatArea(colors uiColors) string {
 	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 }
 
-// renderCallBar builds the persistent call status bar row: plain status text
-// plus real clickable [key] label buttons (zoneCallAnswer/Reject/Mute/Hangup)
-// for whichever actions apply to the current call state — mirrors the
-// zoneSendButton pattern (m.zone.Mark around a styles.render* button,
-// hover-highlighted via m.isHovered). "" when there's no call to show,
-// matching callBarActive so View() only reserves space for it when needed.
+// renderCallBar builds the persistent call status bar row: the status text
+// (callStatus) on the left, the state's clickable buttons (callBarButtons)
+// right-aligned. Always exactly one row: the status is truncated to make
+// room, and on a terminal too narrow for every button only the menu button
+// is kept, since it reaches everything the others do. "" when there's no
+// call to show, matching callBarActive so View() only reserves space for it
+// when needed.
 func (m Model) renderCallBar(width int) string {
 	if m.call == nil {
-		if m.videoDialPrompt {
-			text := "📹 start video call from:·"
-			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[ctrl+c] camera", m.isHovered(zoneCallVideoCamera)))
-			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[ctrl+s] screen", m.isHovered(zoneCallVideoScreen)))
-			return m.styles.callBarLine(width, text+cameraBtn+m.styles.callBarText("·")+screenBtn+m.styles.callBarText("·[esc] cancel"))
-		}
 		return ""
 	}
-	switch m.call.state {
-	case "ringing-local":
-		text := "📞 incoming call: " + m.call.peer + "·"
-		answer := m.zone.Mark(zoneCallAnswer, m.styles.renderCallBarButton("[ctrl+y] answer", m.isHovered(zoneCallAnswer)))
-		reject := m.zone.Mark(zoneCallReject, m.styles.renderCallBarButton("[ctrl+n] reject", m.isHovered(zoneCallReject)))
-		return m.styles.callBarLine(width, text+answer+m.styles.callBarText("·")+reject)
-
-	case "proposing", "ringing-remote", "negotiating":
-		verb := "calling"
-		if m.call.state == "negotiating" {
-			verb = "connecting to"
+	inner := max(0, width-2) // callBar's own horizontal padding
+	buttons := m.callBarButtons()
+	rendered := func(bs []callBarButton) (string, int) {
+		parts := make([]string, len(bs))
+		for i, b := range bs {
+			parts[i] = m.zone.Mark(b.zone, m.styles.renderCallBarButton("["+b.label+"]", m.isHovered(b.zone)))
 		}
-		text := "📞 " + verb + " " + m.call.peer + "...·"
-		if m.call.fingerprintChanged {
-			text += "⚠ peer's call key changed since last time!·"
-		}
-		if m.call.sas != "" {
-			text += "🔑 " + m.call.sas + "·"
-		}
-		hangup := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[ctrl+h] hang up", m.isHovered(zoneCallHangup)))
-		return m.styles.callBarLine(width, text+hangup)
-
-	case "connected":
-		dur := "00:00"
-		if !m.call.startedAt.IsZero() {
-			dur = formatCallDuration(time.Since(m.call.startedAt))
-		}
-		mic := "🎤 unmuted"
-		muteLabel := "[ctrl+m] mute"
-		if m.call.muted {
-			mic = "🎤 muted"
-			muteLabel = "[ctrl+m] unmute"
-		}
-		quality := "📶 …"
-		if m.call.quality != "" {
-			quality = "📶 " + m.call.quality
-		}
-		text := "📞 " + m.call.peer + "·" + dur + "·" + mic + "·" + quality + "·"
-		if m.call.fingerprintChanged {
-			text += "⚠ peer's call key changed since last time!·"
-		}
-		if m.call.sas != "" {
-			text += "🔑 " + m.call.sas + "·"
-		}
-		if m.videoSourcePrompt {
-			text += "start video from:·"
-			cameraBtn := m.zone.Mark(zoneCallVideoCamera, m.styles.renderCallBarButton("[ctrl+c] camera", m.isHovered(zoneCallVideoCamera)))
-			screenBtn := m.zone.Mark(zoneCallVideoScreen, m.styles.renderCallBarButton("[ctrl+s] screen", m.isHovered(zoneCallVideoScreen)))
-			return m.styles.callBarLine(width, text+cameraBtn+m.styles.callBarText("·")+screenBtn+m.styles.callBarText("·[esc] cancel"))
-		}
-		if m.call.sharing {
-			text += "🖥 sharing·"
-		}
-		dot := m.styles.callBarText("·")
-		muteBtn := m.zone.Mark(zoneCallMute, m.styles.renderCallBarButton(muteLabel, m.isHovered(zoneCallMute)))
-		hangupBtn := m.zone.Mark(zoneCallHangup, m.styles.renderCallBarButton("[ctrl+h] hang up", m.isHovered(zoneCallHangup)))
-		reopenBtn := m.zone.Mark(zoneCallReopenVideo, m.styles.renderCallBarButton("[ctrl+r] reopen video", m.isHovered(zoneCallReopenVideo)))
-		buttons := muteBtn + dot + reopenBtn + dot + hangupBtn
-		if m.call.sharing {
-			stopBtn := m.zone.Mark(zoneCallStopVideo, m.styles.renderCallBarButton("[ctrl+v] stop video", m.isHovered(zoneCallStopVideo)))
-			buttons += dot + stopBtn
-		} else {
-			videoBtn := m.zone.Mark(zoneCallVideo, m.styles.renderCallBarButton("[ctrl+v] video", m.isHovered(zoneCallVideo)))
-			buttons += dot + videoBtn
-		}
-		return m.styles.callBarLine(width, text+buttons)
-
-	case "ended", "failed":
-		// Terminal state: nothing left to click, just the plain self-clearing
-		// text (callClearMsg drops m.call shortly after — see call.go).
-		return m.styles.callBarLine(width, m.callBarLine())
-
-	default:
-		return ""
+		out := strings.Join(parts, m.styles.callBarText(" "))
+		return out, lipgloss.Width(out)
 	}
+	btns, btnsWidth := rendered(buttons)
+	if btnsWidth > inner && len(buttons) > 1 {
+		btns, btnsWidth = rendered(buttons[len(buttons)-1:])
+	}
+	if btnsWidth > inner {
+		btns, btnsWidth = "", 0
+	}
+
+	room := inner
+	if btnsWidth > 0 {
+		room -= btnsWidth + 1
+	}
+	status := ansi.Truncate(m.callStatus(), max(0, room), "…")
+	gap := max(0, inner-lipgloss.Width(status)-btnsWidth)
+	return m.styles.callBarLine(width, m.styles.callBarText(status+strings.Repeat(" ", gap))+btns)
 }
 
 // overlayBottomRight splices toast on top of base, anchored a small margin
@@ -671,7 +615,9 @@ func (m Model) renderContextMenuPopup() string {
 	for _, item := range m.contextMenu.items {
 		w := lipgloss.Width(item.label)
 		if item.key != 0 {
-			w += contextMenuKeyGap + 1
+			// The key, the gap before it, and the padding either side that
+			// contextMenuRowText leaves out of the row.
+			w += contextMenuKeyGap + 1 + 2
 		}
 		longest = max(longest, w)
 	}
@@ -679,6 +625,9 @@ func (m Model) renderContextMenuPopup() string {
 	// label alone — that reads as squeezed/cramped on anything but a
 	// narrow terminal, where maxItemWidth still clamps it down.
 	const contextMenuMinWidth = 20
+	// The title sizes the rows too: the call menu's ("alice@example.org is
+	// calling") is often its longest line.
+	longest = max(longest, lipgloss.Width(m.contextMenu.title))
 	itemWidth := min(max(longest, contextMenuMinWidth), maxItemWidth)
 
 	rows := make([]string, len(m.contextMenu.items))

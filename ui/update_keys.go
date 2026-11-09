@@ -251,82 +251,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
-	// ── Ringing-local call banner intercepts y/n (answer/reject) ───────
-	// Checked ahead of the global switch since y/n aren't otherwise bound
-	// outside a confirm popup (already handled above) — a call can ring in
-	// on any view, not just while its matching chat happens to be open.
-	if m.call != nil && m.call.state == "ringing-local" {
-		switch {
-		case matchesCtrlLetter(msg, 'y'):
-			return m, m.answerRingingCall(), true
-		case matchesCtrlLetter(msg, 'n'), matchesKey(msg, m.keys.Back):
-			return m, m.rejectRingingCall(), true
-		}
-	}
-
-	// ── "camera or screen?" prompt (VideoToggle on a connected, not yet
-	// sharing call) intercepts ctrl+c/ctrl+s/esc while open, swallowing
-	// everything else so a stray keystroke can't fall through to e.g.
-	// toggleScreenShare below with the prompt still (confusingly) up ────
-	if m.videoSourcePrompt {
-		switch {
-		case matchesCtrlLetter(msg, 'c'):
-			var cmd tea.Cmd
-			m, cmd = m.startVideo(true)
-			return m, cmd, true
-		case matchesCtrlLetter(msg, 's'):
-			var cmd tea.Cmd
-			m, cmd = m.startVideo(false)
-			return m, cmd, true
-		case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
-			m.videoSourcePrompt = false
-			return m, nil, true
-		}
-		return m, nil, true
-	}
-
-	// ── "camera or screen?" pre-dial prompt (VideoCallToggle with no call
-	// in progress) intercepts ctrl+c/ctrl+s/esc while open, same shape as
-	// videoSourcePrompt above but answered before a call exists at all ──
-	if m.videoDialPrompt {
-		switch {
-		case matchesCtrlLetter(msg, 'c'):
-			var cmd tea.Cmd
-			m, cmd = m.startVideoCall(true)
-			return m, cmd, true
-		case matchesCtrlLetter(msg, 's'):
-			var cmd tea.Cmd
-			m, cmd = m.startVideoCall(false)
-			return m, cmd, true
-		case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
-			m.videoDialPrompt = false
-			return m, nil, true
-		}
-		return m, nil, true
-	}
-
-	// ── Call bar intercepts ctrl+h (hang up) / ctrl+m (mute) / ctrl+v
-	// (video) / ctrl+s (screen share) while a call is in progress but not
-	// ringing-local (that's ctrl+y/ctrl+n above). All call-mode binds live
-	// under ctrl+ specifically so they never fight the same plain letters
-	// while composing a message during a call ───────────────────────────
-	if m.call != nil && m.callInProgress() && m.call.state != "ringing-local" {
-		switch {
-		case matchesCtrlLetter(msg, 'h'):
-			return m, m.hangupCurrentCall(), true
-		case matchesCtrlLetter(msg, 'm') && m.call.state == "connected":
-			return m, m.toggleMuteCall(), true
-		case matchesCtrlLetter(msg, 'v') && m.call.state == "connected" && !m.call.sharing:
-			return m.startVideoPrompt(), nil, true
-		case matchesCtrlLetter(msg, 'v') && m.call.state == "connected" && m.call.sharing:
-			return m, m.toggleScreenShare(), true
-		case matchesCtrlLetter(msg, 's') && m.call.state == "connected":
-			return m, m.toggleScreenShare(), true
-		case matchesCtrlLetter(msg, 'r') && m.call.state == "connected":
-			return m, m.reopenRemoteVideo(), true
-		}
-	}
-
 	switch {
 
 	// ── Global ────────────────────────────────────────────────────────
@@ -418,17 +342,10 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, cmd, true
 		}
 
-	case matchesKey(msg, m.keys.CallToggle):
-		if m.selectedView == viewChat || m.callInProgress() {
-			return m, m.startCallToCurrentChat(), true
-		}
-
-	case matchesKey(msg, m.keys.VideoCallToggle):
-		if m.selectedView == viewChat || m.callInProgress() {
-			var cmd tea.Cmd
-			m, cmd = m.startVideoCallToCurrentChat()
-			return m, cmd, true
-		}
+	case matchesKey(msg, m.keys.CallMenu):
+		// Not gated to a view: a ringing or ongoing call has to be
+		// reachable from wherever the user happens to be.
+		return m, m.openCallMenu(), true
 
 	case matchesKey(msg, m.keys.RenameChat):
 		if m.selectedView == viewChats {

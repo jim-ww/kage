@@ -999,7 +999,7 @@ type CallController interface {
 	StartCall(accountIdx int, to string) tea.Msg
 	// StartVideoCall places a call the same way StartCall does, and starts
 	// sending our own video (camera or screen, see useCamera) the moment it
-	// connects - VideoCallToggle's action, distinct from starting a plain
+	// connects - the call menu's video call, distinct from starting a plain
 	// call and separately toggling video mid-call via ScreenShare.
 	StartVideoCall(accountIdx int, to string, useCamera bool) tea.Msg
 	AnswerCall(accountIdx int) tea.Msg

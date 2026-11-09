@@ -50,8 +50,7 @@ type KeyMap struct {
 	RedoDraft           key.Binding // Ctrl+Shift+Z — redo a change undone by UndoDraft
 	AvatarMenu          key.Binding // v (accounts panel) — set or remove this account's published avatar
 	AccountMenu         key.Binding // Ctrl+A — the account's actions (avatar, contacts, OMEMO devices, storage password, ...)
-	CallToggle          key.Binding // Ctrl+G — start a voice call to the open chat, or hang up the current call
-	VideoCallToggle     key.Binding // Ctrl+Shift+G — start a video call to the open chat (prompts camera/screen), or hang up the current call
+	CallMenu            key.Binding // Ctrl+G — the call menu: place a call to the selected chat, or answer/mute/video/hang up the current one
 	ToggleComposeExpand key.Binding // Ctrl+` — grow the compose box to ~half the chat pane, or shrink it back
 	Help                key.Binding // Ctrl+H — open the full-keybindings help popup
 	SearchChat          key.Binding // Ctrl+/ — search messages in the open chat
@@ -143,12 +142,17 @@ var DefaultKeyMap = KeyMap{
 	// matched by physical key position on essentially every terminal,
 	// unlike the Ctrl+Shift+<letter> this replaced, whose shift only
 	// survives under the Kitty keyboard protocol.
-	AccountMenu:         NewBinding([]string{"ctrl+a"}, "account menu"),
-	ContactManager:      NewBinding([]string{"c"}, "manage contacts"),
-	RemoveAttachment:    NewBinding([]string{"backspace"}, "remove attachment"),
-	ClearDraft:          NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
-	CallToggle:          NewBinding([]string{"ctrl+g"}, "call"),
-	VideoCallToggle:     NewBinding([]string{"ctrl+shift+g"}, "video call"),
+	AccountMenu:      NewBinding([]string{"ctrl+a"}, "account menu"),
+	ContactManager:   NewBinding([]string{"c"}, "manage contacts"),
+	RemoveAttachment: NewBinding([]string{"backspace"}, "remove attachment"),
+	ClearDraft:       NewBinding([]string{"ctrl+shift+e"}, "erase draft"),
+	// Every call action lives behind this one key, in a menu with plain
+	// letter shortcuts (see callMenuItems) - nothing call-related is bound
+	// globally, so no call action can ever shadow a chat key, and none
+	// relies on a ctrl+letter that's ambiguous in legacy terminal encoding
+	// (ctrl+h/ctrl+m/ctrl+i read as backspace/enter/tab there) or a
+	// ctrl+shift combo whose shift only survives the Kitty protocol.
+	CallMenu:            NewBinding([]string{"ctrl+g"}, "call"),
 	ToggleComposeExpand: NewBinding([]string{"ctrl+`"}, "expand input"),
 	UndoDraft:           NewBinding([]string{"ctrl+z"}, "undo"),
 	RedoDraft:           NewBinding([]string{"ctrl+shift+z"}, "redo"),
@@ -200,18 +204,6 @@ func matchesLetter(msg tea.KeyMsg, r rune) bool {
 		return kk.BaseCode == r
 	}
 	return msg.String() == string(r)
-}
-
-// matchesCtrlLetter is matchesLetter's ctrl-prefixed counterpart — used for
-// call-mode binds (h/m/v/s/r/y/n/c), which live under ctrl+ specifically so
-// they never collide with the same letters typed into the compose input
-// while a call is active (see the call-bar block in update_keys.go).
-func matchesCtrlLetter(msg tea.KeyMsg, r rune) bool {
-	kk := msg.Key()
-	if kk.BaseCode == r && kk.Mod == tea.ModCtrl {
-		return true
-	}
-	return msg.String() == "ctrl+"+string(r)
 }
 
 // helpEntry pairs a binding with the description it should show for a
@@ -298,8 +290,7 @@ func (k *KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []he
 			{k.SaveMsgAs, "save as"},
 			{k.AttachFile, "attach"},
 			{k.PasteImage, "paste image"},
-			{k.CallToggle, "call"},
-			{k.VideoCallToggle, "video call"},
+			{k.CallMenu, "call"},
 			{k.ClearDraft, "erase draft"},
 			{k.YankDraft, "copy draft"},
 			{k.UndoDraft, "undo"},

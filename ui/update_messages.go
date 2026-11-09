@@ -1162,6 +1162,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.call != nil && m.call.accountIdx == msg.accountIdx && m.call.gen == msg.gen {
 			m.call = nil
 			m.updateSizes()
+			m.refreshContextMenu()
 		}
 		return m, nil, true
 

@@ -379,6 +379,8 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 			keys.ConfirmNo = ui.NewBinding(override, "no")
 		case "add_account":
 			keys.AddAccount = ui.NewBinding(override, "add account")
+		case "call_menu":
+			keys.CallMenu = ui.NewBinding(override, "call")
 		}
 	}
 	return keys, nil

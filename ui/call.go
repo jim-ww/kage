@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -30,7 +31,6 @@ type callUIState struct {
 
 	muted     bool
 	quality   string    // "", "good", "fair", "poor"
-	sharing   bool      // true while we're actively sending our own video
 	startedAt time.Time // set the first time state becomes "connected"
 
 	video        string // "camera"/"screen" while sending (or about to), else ""
@@ -57,8 +57,8 @@ func callClearTimer(accountIdx, gen int) tea.Cmd {
 }
 
 // callInProgress reports whether accountIdx currently has a call that isn't
-// idle/terminal — used to disable starting a second call and to decide
-// whether CallToggle should hang up instead of dial.
+// idle/terminal — decides whether the call menu offers to place a call or
+// acts on the one in progress.
 func (m Model) callInProgress() bool {
 	return m.call != nil && m.call.state != "ended" && m.call.state != "failed"
 }
@@ -93,6 +93,7 @@ func (m Model) handleIncomingCallMsg(msg IncomingCallMsg) (Model, tea.Cmd) {
 	if !wasActive {
 		m.updateSizes()
 	}
+	m.refreshContextMenu()
 	return m, nil
 }
 
@@ -109,8 +110,6 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 	}
 	gen := 0
 	startedAt := time.Time{}
-	wasSharing := m.call != nil && m.call.sharing
-	sameStream := false
 	// A CallStateMsg for the same call (same gen) that's already connected
 	// keeps its startedAt — every quality-sampler tick rebroadcasts
 	// "connected" (see callSession.sampleQuality), and each one replacing
@@ -121,7 +120,6 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		if m.call.sid == msg.SID && !m.call.startedAt.IsZero() {
 			startedAt = m.call.startedAt
 			gen = m.call.gen // same logical call state stream, not a new call
-			sameStream = true
 		}
 	}
 	if !msg.StartedAt.IsZero() {
@@ -139,7 +137,6 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		gen:        gen,
 		muted:      msg.Muted,
 		quality:    msg.Quality,
-		sharing:    msg.Sharing,
 		startedAt:  startedAt,
 
 		video:        msg.Video,
@@ -153,17 +150,7 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 	if !wasActive {
 		m.updateSizes()
 	}
-	// Sharing having just started, or the call ending, makes a stale "camera
-	// or screen?" prompt meaningless - clear it then. But a redundant
-	// rebroadcast of the same still-connected state (sameStream, e.g. every
-	// qualitySampleInterval tick from callSession.sampleQuality) must NOT
-	// clear it: doing so unconditionally here used to close the prompt
-	// within a few seconds of opening it, often before the user had time to
-	// press c/s - see qualitySampleInterval in callsession.go.
-	if !sameStream || (msg.Sharing && !wasSharing) || msg.State == "ended" || msg.State == "failed" {
-		m.videoSourcePrompt = false
-		m.videoDialPrompt = false
-	}
+	m.refreshContextMenu()
 	var notice tea.Cmd
 	if msg.Notice != "" {
 		notice = m.showNotification(msg.Notice)
@@ -179,74 +166,130 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 // while it's still shown (see callClearMsg), so the bar doesn't disappear
 // and reappear (and the layout doesn't jump) right as a call ends.
 func (m Model) callBarActive() bool {
-	return m.call != nil || m.videoDialPrompt
+	return m.call != nil
 }
 
-// callBarLine renders the current call state as a single line for the
-// persistent call bar, or "" when there's nothing to show. Unlike the old
-// toast-based callBannerText, this is meant to occupy a real, fixed layout
-// row (see renderCallBar in view.go) rather than a self-clearing overlay —
-// the "[key] label" hint segments follow the same plain style used
-// elsewhere for static hints (e.g. deletePrompt's "[y] yes    [n] no").
-func (m Model) callBarLine() string {
+// callPeerName is how the call's peer is shown: the chat's name if the
+// call's account has a chat with them, else their bare JID.
+func (m Model) callPeerName() string {
 	if m.call == nil {
 		return ""
 	}
-	who := m.call.peer
-	switch m.call.state {
+	if m.call.accountIdx == m.currentAccount {
+		if idx := m.chatIndexByAddress(m.call.accountIdx, m.call.peer); idx >= 0 {
+			if chat, ok := m.chats.Items()[idx].(Chat); ok && chat.Name != "" {
+				return chat.Name
+			}
+		}
+	}
+	return m.call.peer
+}
+
+// callStatus is the call bar's status text: who, how long, and everything
+// worth knowing about the call right now, most important first so a narrow
+// terminal truncates the least important. "" when there's no call.
+func (m Model) callStatus() string {
+	c := m.call
+	if c == nil {
+		return ""
+	}
+	who := m.callPeerName()
+	var parts []string
+	switch c.state {
 	case "ringing-local":
-		return "📞 incoming call: " + who + "·[ctrl+y] answer·[ctrl+n] reject"
+		parts = append(parts, "📞 "+who+" is calling")
 	case "proposing", "ringing-remote":
-		return "📞 calling " + who + "...·[ctrl+h] hang up"
+		parts = append(parts, "📞 calling "+who+"…")
 	case "negotiating":
-		line := "📞 connecting to " + who + "...·[ctrl+h] hang up"
-		if m.call.fingerprintChanged {
-			line += "·⚠ peer's call key changed since last time!"
-		}
-		if m.call.sas != "" {
-			line += "·🔑 " + m.call.sas
-		}
-		return line
+		parts = append(parts, "📞 connecting to "+who+"…")
 	case "connected":
 		dur := "00:00"
-		if !m.call.startedAt.IsZero() {
-			dur = formatCallDuration(time.Since(m.call.startedAt))
+		if !c.startedAt.IsZero() {
+			dur = formatCallDuration(time.Since(c.startedAt))
 		}
-		mic := "🎤 unmuted"
-		if m.call.muted {
-			mic = "🎤 muted"
+		parts = append(parts, "📞 "+who, dur)
+	case "ended", "failed":
+		text := "📞 call " + c.state
+		if c.reason != "" {
+			text += ": " + c.reason
 		}
-		quality := "📶 …"
-		if m.call.quality != "" {
-			quality = "📶 " + m.call.quality
-		}
-		share := "[ctrl+s] share screen"
-		if m.call.sharing {
-			share = "🖥 sharing·[ctrl+v] stop video"
-		}
-		line := "📞 " + who + "·" + dur + "·" + mic + "·" + quality + "·[ctrl+m] mute·" + share + "·[ctrl+r] reopen video·[ctrl+h] hang up"
-		if m.call.fingerprintChanged {
-			// Loud and separate from the SAS itself - this is the automatic
-			// half of the MITM mitigation (TOFU), worth noticing even by
-			// someone who never checks the SAS.
-			line += "·⚠ peer's call key changed since last time!"
-		}
-		if m.call.sas != "" {
-			line += "·🔑 " + m.call.sas
-		}
-		return line
-	case "ended":
-		if m.call.reason != "" {
-			return "call ended: " + m.call.reason
-		}
-		return "call ended"
-	case "failed":
-		if m.call.reason != "" {
-			return "call failed: " + m.call.reason
-		}
-		return "call failed"
+		return text
 	default:
 		return ""
+	}
+	if c.fingerprintChanged {
+		// Loud and early, so truncation never hides it - this is the
+		// automatic half of the MITM mitigation (TOFU), worth noticing even
+		// by someone who never checks the SAS.
+		parts = append(parts, "⚠ peer's call key changed since last time!")
+	}
+	if c.state == "connected" {
+		if c.muted {
+			parts = append(parts, "muted")
+		}
+		switch {
+		case c.video == "camera" && c.videoPending:
+			parts = append(parts, "camera starting…")
+		case c.video == "camera":
+			parts = append(parts, "camera on")
+		case c.video == "screen" && c.videoPending:
+			parts = append(parts, "screen share starting…")
+		case c.video == "screen":
+			parts = append(parts, "sharing screen")
+		}
+		if c.remoteVideo && !c.viewerOpen {
+			parts = append(parts, "their video hidden")
+		} else if c.remoteVideo {
+			parts = append(parts, "their video")
+		}
+		switch c.quality {
+		case "fair":
+			parts = append(parts, "weak connection")
+		case "poor":
+			parts = append(parts, "poor connection")
+		}
+	}
+	if c.sas != "" {
+		parts = append(parts, "🔑 "+c.sas)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// callBarButton is one clickable action on the call bar.
+type callBarButton struct {
+	zone  string
+	label string
+	run   func(m *Model) tea.Cmd
+}
+
+// callBarButtons lists the call bar's buttons for the current call state,
+// in display order - the one list renderCallBar draws and the mouse
+// handlers hit-test, so a button that isn't shown can't be clicked through
+// a stale zone. The keyboard reaches all of these (and more) through the
+// call menu, which the last button opens.
+func (m Model) callBarButtons() []callBarButton {
+	if m.call == nil {
+		return nil
+	}
+	menu := callBarButton{zone: zoneCallMenu, label: caretKey(shortestKey(m.keys.CallMenu)) + " menu", run: (*Model).openCallMenu}
+	hangup := callBarButton{zone: zoneCallHangup, label: "hang up", run: (*Model).hangupCurrentCall}
+	switch m.call.state {
+	case "ringing-local":
+		return []callBarButton{
+			{zone: zoneCallAnswer, label: "answer", run: (*Model).answerRingingCall},
+			{zone: zoneCallReject, label: "reject", run: (*Model).rejectRingingCall},
+			menu,
+		}
+	case "proposing", "ringing-remote", "negotiating":
+		return []callBarButton{hangup, menu}
+	case "connected":
+		mute := "mute"
+		if m.call.muted {
+			mute = "unmute"
+		}
+		return []callBarButton{{zone: zoneCallMute, label: mute, run: (*Model).toggleMuteCall}, hangup, menu}
+	default:
+		return nil
 	}
 }
 
@@ -260,149 +303,142 @@ func formatCallDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", total/60, total%60)
 }
 
-// startCallToCurrentChat places a call to the currently open chat, or hangs
-// up/rejects whatever call is already in progress on this account — the
-// single action bound to CallToggle. No-ops (returning nil) when there's
-// nothing sensible to do (no call controller wired, no chat open while
-// idle).
-func (m Model) startCallToCurrentChat() tea.Cmd {
+// openCallMenu opens the call menu — every call action lives there, reached
+// by CallMenu from any view and by the call bar's menu button. While it's
+// open it follows the call (see contextMenu.refresh): a call ringing in,
+// connecting or ending swaps what it offers.
+func (m *Model) openCallMenu() tea.Cmd {
 	if m.callController == nil {
 		return m.showNotification("calling unavailable")
 	}
-	accountIdx := m.currentAccount
-	if m.call != nil && m.callInProgress() {
-		// A call is already up (ours or theirs, answered or not) — Toggle
-		// hangs it up. Ringing-local is handled separately via
-		// ConfirmYes/ConfirmNo (answer/reject), not this key.
-		return func() tea.Msg { return m.callController.HangupCall(accountIdx) }
-	}
-	chat, ok := m.currentChat()
-	if !ok || chat.Address == "" {
+	title, items := m.callMenuItems()
+	if len(items) == 0 {
 		return m.showNotification("no chat selected")
 	}
-	return func() tea.Msg { return m.callController.StartCall(accountIdx, chat.Address) }
+	m.openContextMenu(title, items)
+	m.contextMenu.refresh = (*Model).callMenuItems
+	return nil
 }
 
-// startVideoCallToCurrentChat opens the pre-dial "camera or screen?" prompt
-// for VideoCallToggle, or hangs up whatever call is already in progress
-// (mirroring startCallToCurrentChat) — the actual StartVideoCall RPC only
-// fires once the user picks a source, via startVideoCall below.
-func (m Model) startVideoCallToCurrentChat() (Model, tea.Cmd) {
-	if m.callController == nil {
-		cmd := m.showNotification("calling unavailable")
-		return m, cmd
+// callMenuItems builds the call menu for the current call's state, or for
+// placing a call to the selected chat when there's none. Each item's
+// shortcut letter is fixed per action across states (c is always the
+// camera, s the screen, h hang up), and y/n answer/reject like every other
+// yes/no prompt in the app.
+func (m *Model) callMenuItems() (string, []contextMenuItem) {
+	ctrl := m.callController
+	if ctrl == nil {
+		return "", nil
 	}
-	if m.call != nil && m.callInProgress() {
-		accountIdx := m.currentAccount
-		return m, func() tea.Msg { return m.callController.HangupCall(accountIdx) }
+	c := m.call
+	if c == nil || !m.callInProgress() {
+		chat, ok := m.currentChat()
+		if !ok || chat.Address == "" || (m.selectedView != viewChat && m.selectedView != viewChats) {
+			return "", nil
+		}
+		accountIdx, to := m.currentAccount, chat.Address
+		name := chat.Name
+		if name == "" {
+			name = to
+		}
+		return "Call " + name, []contextMenuItem{
+			{label: "Voice call", key: 'v', run: func(*Model) tea.Cmd {
+				return func() tea.Msg { return ctrl.StartCall(accountIdx, to) }
+			}},
+			{label: "Video call", key: 'c', run: func(*Model) tea.Cmd {
+				return func() tea.Msg { return ctrl.StartVideoCall(accountIdx, to, true) }
+			}},
+			{label: "Call and share screen", key: 's', run: func(*Model) tea.Cmd {
+				return func() tea.Msg { return ctrl.StartVideoCall(accountIdx, to, false) }
+			}},
+		}
 	}
-	if _, ok := m.currentChat(); !ok {
-		cmd := m.showNotification("no chat selected")
-		return m, cmd
+
+	accountIdx, who := c.accountIdx, m.callPeerName()
+	hangup := contextMenuItem{label: "Hang up", key: 'h', run: func(*Model) tea.Cmd {
+		return func() tea.Msg { return ctrl.HangupCall(accountIdx) }
+	}}
+	switch c.state {
+	case "ringing-local":
+		return who + " is calling", []contextMenuItem{
+			{label: "Answer", key: 'y', run: (*Model).answerRingingCall},
+			{label: "Reject", key: 'n', run: (*Model).rejectRingingCall},
+		}
+	case "connected":
+	default:
+		return "Calling " + who, []contextMenuItem{hangup}
 	}
-	m.videoDialPrompt = true
-	return m, nil
+
+	mute := "Mute"
+	if c.muted {
+		mute = "Unmute"
+	}
+	items := []contextMenuItem{{label: mute, key: 'm', run: (*Model).toggleMuteCall}}
+	items = append(items,
+		videoMenuItem(ctrl, accountIdx, c.video, "camera", "Start camera", "Stop camera", "Switch to camera", 'c'),
+		videoMenuItem(ctrl, accountIdx, c.video, "screen", "Share screen", "Stop sharing screen", "Switch to screen", 's'),
+	)
+	if c.remoteVideo && !c.viewerOpen {
+		items = append(items, contextMenuItem{label: "Show their video", key: 'o', run: func(*Model) tea.Cmd {
+			return func() tea.Msg { return ctrl.ReopenVideo(accountIdx) }
+		}})
+	}
+	return "Call with " + who, append(items, hangup)
 }
 
-// startVideoCall answers the pre-dial "camera or screen?" prompt, closing it
-// and placing a video call to the currently open chat with the chosen
-// source.
-func (m Model) startVideoCall(useCamera bool) (Model, tea.Cmd) {
-	m.videoDialPrompt = false
-	if m.callController == nil {
-		return m, nil
+// videoMenuItem is the call menu's toggle for one video source: start it,
+// stop it if it's what we're already sending, or switch to it from the
+// other one (the daemon swaps the capture in place - see
+// callSession.switchVideoSource).
+func videoMenuItem(ctrl CallController, accountIdx int, current, source, start, stop, switchTo string, key rune) contextMenuItem {
+	useCamera := source == "camera"
+	label, sharing := start, true
+	switch current {
+	case source:
+		label, sharing = stop, false
+	case "":
+	default:
+		label = switchTo
 	}
-	chat, ok := m.currentChat()
-	if !ok || chat.Address == "" {
-		cmd := m.showNotification("no chat selected")
-		return m, cmd
-	}
-	accountIdx := m.currentAccount
-	return m, func() tea.Msg { return m.callController.StartVideoCall(accountIdx, chat.Address, useCamera) }
+	return contextMenuItem{label: label, key: key, run: func(*Model) tea.Cmd {
+		return func() tea.Msg { return ctrl.ScreenShare(accountIdx, sharing, useCamera) }
+	}}
 }
 
 // answerRingingCall/rejectRingingCall/hangupCurrentCall/toggleMuteCall are
-// the call-bar action helpers — shared by both the keybind handlers
-// (update_keys.go) and the mouse-click handlers (mouse.go) so the RPC-calling
-// logic lives in exactly one place, mirroring startCallToCurrentChat above.
-// Each is a no-op (returning nil) if there's no call controller wired or no
-// call to act on.
+// shared by the call menu and the call bar's buttons (mouse.go). Each is a
+// no-op (returning nil) if there's no call controller wired or no call to
+// act on.
 
-func (m Model) answerRingingCall() tea.Cmd {
+func (m *Model) answerRingingCall() tea.Cmd {
 	if m.callController == nil || m.call == nil {
 		return nil
 	}
-	accountIdx := m.call.accountIdx
-	return func() tea.Msg { return m.callController.AnswerCall(accountIdx) }
+	ctrl, accountIdx := m.callController, m.call.accountIdx
+	return func() tea.Msg { return ctrl.AnswerCall(accountIdx) }
 }
 
-func (m Model) rejectRingingCall() tea.Cmd {
+func (m *Model) rejectRingingCall() tea.Cmd {
 	if m.callController == nil || m.call == nil {
 		return nil
 	}
-	accountIdx := m.call.accountIdx
-	return func() tea.Msg { return m.callController.RejectCall(accountIdx) }
+	ctrl, accountIdx := m.callController, m.call.accountIdx
+	return func() tea.Msg { return ctrl.RejectCall(accountIdx) }
 }
 
-func (m Model) hangupCurrentCall() tea.Cmd {
+func (m *Model) hangupCurrentCall() tea.Cmd {
 	if m.callController == nil || m.call == nil {
 		return nil
 	}
-	accountIdx := m.call.accountIdx
-	return func() tea.Msg { return m.callController.HangupCall(accountIdx) }
+	ctrl, accountIdx := m.callController, m.call.accountIdx
+	return func() tea.Msg { return ctrl.HangupCall(accountIdx) }
 }
 
 // toggleMuteCall flips the mic mute on the current (connected) call.
-func (m Model) toggleMuteCall() tea.Cmd {
+func (m *Model) toggleMuteCall() tea.Cmd {
 	if m.callController == nil || m.call == nil {
 		return nil
 	}
-	accountIdx, muted := m.call.accountIdx, !m.call.muted
-	return func() tea.Msg { return m.callController.MuteCall(accountIdx, muted) }
-}
-
-// toggleScreenShare flips whether we're sending our own screen on the
-// current (connected) call. Starting always means the screen (useCamera
-// false) — for a camera prompt, see startVideoPrompt/startVideo.
-func (m Model) toggleScreenShare() tea.Cmd {
-	if m.callController == nil || m.call == nil {
-		return nil
-	}
-	accountIdx, sharing := m.call.accountIdx, !m.call.sharing
-	return func() tea.Msg { return m.callController.ScreenShare(accountIdx, sharing, false) }
-}
-
-// reopenRemoteVideo re-requests the peer's video keyframe, reopening the
-// mpv viewer if it was closed by accident (the [r] hint in callBarLine) -
-// a no-op server-side if there's no incoming video to reopen.
-func (m Model) reopenRemoteVideo() tea.Cmd {
-	if m.callController == nil || m.call == nil {
-		return nil
-	}
-	accountIdx := m.call.accountIdx
-	return func() tea.Msg { return m.callController.ReopenVideo(accountIdx) }
-}
-
-// startVideoPrompt opens (or, if already sharing, is a no-op for) the
-// "camera or screen?" call-bar prompt that VideoToggle triggers - the actual
-// RPC only fires once the user picks a source, via startVideo. Returning the
-// mutated Model directly (not a tea.Cmd) since this only changes local UI
-// state, the same pattern confirmTarget uses for its popups.
-func (m Model) startVideoPrompt() Model {
-	if m.call == nil || m.call.state != "connected" || m.call.sharing {
-		return m
-	}
-	m.videoSourcePrompt = true
-	return m
-}
-
-// startVideo answers the "camera or screen?" prompt, closing it and sending
-// our own video from the chosen source on the current (connected) call.
-func (m Model) startVideo(useCamera bool) (Model, tea.Cmd) {
-	m.videoSourcePrompt = false
-	if m.callController == nil || m.call == nil {
-		return m, nil
-	}
-	accountIdx := m.call.accountIdx
-	return m, func() tea.Msg { return m.callController.ScreenShare(accountIdx, true, useCamera) }
+	ctrl, accountIdx, muted := m.callController, m.call.accountIdx, !m.call.muted
+	return func() tea.Msg { return ctrl.MuteCall(accountIdx, muted) }
 }

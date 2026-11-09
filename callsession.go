@@ -214,7 +214,7 @@ type callSession struct {
 	fingerprintChanged bool
 
 	// autoStartVideo/autoStartVideoUseCamera: set once at call creation by
-	// startVideoCall (VideoCallToggle's action - camera/screen chosen before
+	// startVideoCall (the call menu's video call - camera/screen chosen before
 	// dialing), consumed exactly once by onConnectionState the first time
 	// this call reaches callConnected, then cleared. A plain startCall call
 	// leaves autoStartVideo false, so nothing here changes for a normal
@@ -366,7 +366,7 @@ func (s *accountSession) startCall(ctx context.Context, srv *ipc.Server, account
 // startVideoCall places a call exactly like startCall, but additionally
 // arms autoStartVideo so the moment it reaches callConnected, onConnectionState
 // starts sending our own video (camera or screen, see useCamera) without a
-// separate ScreenShare call - VideoCallToggle's action.
+// separate ScreenShare call - the call menu's video call.
 func (s *accountSession) startVideoCall(ctx context.Context, srv *ipc.Server, accountIdx int, to string, useCamera bool) error {
 	_, err := s.doStartCall(ctx, srv, accountIdx, to, true, useCamera)
 	return err
@@ -874,7 +874,7 @@ func (c *callSession) initiateSession(ctx context.Context) error {
 	c.mu.Lock()
 	autoVideo, autoCamera := c.autoStartVideo, c.autoStartVideoUseCamera
 	c.mu.Unlock()
-	// A video call (startVideoCall/VideoCallToggle) bundles its video track
+	// A video call (startVideoCall, the call menu's video call) bundles its video track
 	// into this very first offer, rather than sending it later as a
 	// content-add once the audio-only call is already connected. The two
 	// ought to be equivalent per XEP-0166, but a real peer (Conversations)

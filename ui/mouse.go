@@ -39,11 +39,7 @@ const (
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
 	zoneCallHangup            = "call-hangup-button"
-	zoneCallVideo             = "call-video-button"
-	zoneCallVideoCamera       = "call-video-camera-button"
-	zoneCallVideoScreen       = "call-video-screen-button"
-	zoneCallStopVideo         = "call-stop-video-button"
-	zoneCallReopenVideo       = "call-reopen-video-button"
+	zoneCallMenu              = "call-menu-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
 	zoneFilePickerPopup       = "file-picker-popup"
 	zoneFilePickerBack        = "file-picker-back-button"
@@ -544,33 +540,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	// The call bar's own buttons take priority the same way zoneSendButton
 	// etc. do — it's a fixed status-bar area, so it should win over anything
 	// happening to render underneath it.
-	if m.callBarActive() {
-		if m.zone.Get(zoneCallAnswer).InBounds(mouse) {
-			return zoneCallAnswer
-		}
-		if m.zone.Get(zoneCallReject).InBounds(mouse) {
-			return zoneCallReject
-		}
-		if m.zone.Get(zoneCallMute).InBounds(mouse) {
-			return zoneCallMute
-		}
-		if m.zone.Get(zoneCallHangup).InBounds(mouse) {
-			return zoneCallHangup
-		}
-		if m.zone.Get(zoneCallVideo).InBounds(mouse) {
-			return zoneCallVideo
-		}
-		if m.zone.Get(zoneCallStopVideo).InBounds(mouse) {
-			return zoneCallStopVideo
-		}
-		if m.zone.Get(zoneCallVideoCamera).InBounds(mouse) {
-			return zoneCallVideoCamera
-		}
-		if m.zone.Get(zoneCallVideoScreen).InBounds(mouse) {
-			return zoneCallVideoScreen
-		}
-		if m.zone.Get(zoneCallReopenVideo).InBounds(mouse) {
-			return zoneCallReopenVideo
+	for _, b := range m.callBarButtons() {
+		if m.zone.Get(b.zone).InBounds(mouse) {
+			return b.zone
 		}
 	}
 	if m.zone.Get(zoneJumpToBottom).InBounds(mouse) {
@@ -750,46 +722,9 @@ func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd
 // three panes (sidebar / viewport / input) when the click missed anything
 // more specific inside it.
 func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if m.callBarActive() {
-		if m.videoDialPrompt {
-			if m.zone.Get(zoneCallVideoCamera).InBounds(msg) {
-				m, cmd := m.startVideoCall(true)
-				return m, cmd
-			}
-			if m.zone.Get(zoneCallVideoScreen).InBounds(msg) {
-				m, cmd := m.startVideoCall(false)
-				return m, cmd
-			}
-			return m, nil
-		}
-		if m.zone.Get(zoneCallAnswer).InBounds(msg) {
-			return m, m.answerRingingCall()
-		}
-		if m.zone.Get(zoneCallReject).InBounds(msg) {
-			return m, m.rejectRingingCall()
-		}
-		if m.zone.Get(zoneCallMute).InBounds(msg) {
-			return m, m.toggleMuteCall()
-		}
-		if m.zone.Get(zoneCallHangup).InBounds(msg) {
-			return m, m.hangupCurrentCall()
-		}
-		if m.zone.Get(zoneCallReopenVideo).InBounds(msg) {
-			return m, m.reopenRemoteVideo()
-		}
-		if m.videoSourcePrompt {
-			if m.zone.Get(zoneCallVideoCamera).InBounds(msg) {
-				m, cmd := m.startVideo(true)
-				return m, cmd
-			}
-			if m.zone.Get(zoneCallVideoScreen).InBounds(msg) {
-				m, cmd := m.startVideo(false)
-				return m, cmd
-			}
-		} else if m.zone.Get(zoneCallVideo).InBounds(msg) {
-			return m.startVideoPrompt(), nil
-		} else if m.zone.Get(zoneCallStopVideo).InBounds(msg) {
-			return m, m.toggleScreenShare()
+	for _, b := range m.callBarButtons() {
+		if m.zone.Get(b.zone).InBounds(msg) {
+			return m, b.run(&m)
 		}
 	}
 

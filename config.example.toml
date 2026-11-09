@@ -70,6 +70,7 @@ password_cmd = "pass show xmpp/user"
 # confirm_yes = ["y"]
 # confirm_no = ["n", "esc"]
 # add_account = ["a"]
+# call_menu = ["ctrl+g"]
 
 # theme: values shown are kage's actual default (Tokyo Night); uncomment and
 # edit only the colors you want to change.
