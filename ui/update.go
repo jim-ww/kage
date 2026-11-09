@@ -312,6 +312,19 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		cmd = m.filePicker.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
+	if _, ok := msg.(tea.PasteMsg); ok {
+		// The emoji picker's search box is what a paste is for while it's
+		// open; any other popup has nowhere to put one - and in both cases
+		// the compose box behind them must not get it. Only pastes: other
+		// non-key messages (the compose box's own cursor blink) still have
+		// to reach it below.
+		if m.emojiPicker != nil {
+			return m, tea.Batch(append(cmds, m.emojiPicker.Update(msg))...)
+		}
+		if m.popupActive() {
+			return m, tea.Batch(cmds...)
+		}
+	}
 
 	// Route remaining events to the focused component.
 	var cmd tea.Cmd
