@@ -1337,6 +1337,8 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		s.handleJingleMessage(ctx, srv, accountIdx, ev)
 	case xmpp.JingleEvent:
 		s.handleJingle(ctx, srv, accountIdx, ev)
+	case xmpp.MessageBouncedEvent:
+		s.handleBounce(ctx, srv, accountIdx, ev)
 	case xmpp.ChatStateEvent:
 		broadcast(srv, evTyping, ui.TypingMsg{
 			AccountIdx: accountIdx,
@@ -1983,6 +1985,34 @@ func (s *accountSession) mutateRoster(fn func(entries map[string]rosterEntry)) m
 	fn(updated)
 	s.roster.Store(&updated)
 	return updated
+}
+
+// handleBounce marks our message the recipient's side bounced as failed -
+// it never arrived, whatever our own server's ack said - and tells every
+// attached TUI why. A bounce whose ID isn't one of our stored messages (a
+// chat state, receipt or reaction of ours) has nothing to mark; it's only
+// logged.
+func (s *accountSession) handleBounce(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.MessageBouncedEvent) {
+	peer := bareJID(ev.From)
+	n, err := s.db.MarkMessageBounced(ctx, storage.MarkMessageBouncedParams{
+		AccountJid: s.account.JID,
+		IDAttr:     nullString(ev.ID),
+		RosterJid:  nullString(peer),
+	})
+	if err != nil {
+		slog.Warn("persisting bounced message", "jid", s.account.JID, "to", peer, "id", ev.ID, "err", err)
+	}
+	if n == 0 {
+		slog.Debug("bounce for nothing we stored", "jid", s.account.JID, "from", ev.From, "id", ev.ID, "reason", ev.Reason)
+		return
+	}
+	slog.Warn("message not delivered", "jid", s.account.JID, "to", ev.From, "id", ev.ID, "reason", ev.Reason)
+	broadcast(srv, evMessageSendFailed, ui.MessageSendFailedMsg{
+		AccountIdx: accountIdx,
+		To:         peer,
+		MessageID:  ev.ID,
+		Reason:     ev.Reason,
+	})
 }
 
 // approveAndReciprocate answers an inbound subscription request from peer by

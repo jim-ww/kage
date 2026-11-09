@@ -620,6 +620,16 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if idx < 0 {
 			return m, nil, true
 		}
+		if msg.Reason != "" {
+			// Bounced by the recipient's side: not delivered, whatever our
+			// own server's ack said - and worth saying even with the chat
+			// open, since a ✗ alone doesn't say why.
+			msgs[idx].Failed, msgs[idx].ServerAcked = true, false
+			if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+				m.refreshViewport()
+			}
+			return m, m.showNotification("not delivered to " + msg.To + ": " + msg.Reason), true
+		}
 		if msgs[idx].ServerAcked {
 			// Lost the race against a real ack that arrived just before the
 			// connection was declared dead - trust the ack, not the timeout.

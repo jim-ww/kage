@@ -447,6 +447,10 @@ type MessageSendFailedMsg struct {
 	AccountIdx int
 	To         string // bare/full JID this was addressed to (chat key)
 	MessageID  string
+	// Reason is set when the recipient's side bounced the message (it was
+	// never delivered, even if our server had acked it); empty for a send
+	// lost to a dropped connection.
+	Reason string
 }
 
 // MessageReactionsMsg is sent into the Bubble Tea loop when a XEP-0444

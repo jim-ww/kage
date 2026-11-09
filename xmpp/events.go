@@ -136,6 +136,18 @@ type RosterPushEvent struct {
 
 func (RosterPushEvent) isEvent() {}
 
+// MessageBouncedEvent is one of our own messages coming back from the
+// recipient's side as an error (RFC 6120 §8.3): it was not delivered. ID is
+// the bounced message's own ID, From the recipient it couldn't reach, and
+// Reason the error condition (plus its text, if the server gave one).
+type MessageBouncedEvent struct {
+	ID     string
+	From   string
+	Reason string
+}
+
+func (MessageBouncedEvent) isEvent() {}
+
 // ChatStateEvent is an incoming XEP-0085 chat state notification, standalone
 // or attached to a regular message.
 type ChatStateEvent struct {
@@ -208,6 +220,16 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		// The decoded value is valid regardless; only bail if we got nothing.
 		_ = d.DecodeElement(&msg, start)
 		logXML("IN", c.JID.String(), msg)
+
+		// An error is our own message bounced back "from" the recipient,
+		// often with the original payload still inside (ejabberd copies it)
+		// - our <composing/>, reaction, body. None of that is something the
+		// recipient did: read as theirs, it showed a contact typing every
+		// time we typed. Only its ID and why it failed mean anything.
+		if msg.Type == stanza.ErrorMessage {
+			c.enqueue(MessageBouncedEvent{ID: msg.ID, From: msg.From.String(), Reason: bounceReason(msg.Error)})
+			return
+		}
 
 		// XEP-0280: unwrap a carbon-copied message and process the original
 		// as if it arrived directly - this is what lets another resource on

@@ -1,7 +1,6 @@
-- change client-side stream volume
-- on nixos rebuild, call hangs or something. or one of clients dies
-
 ## Bugs
+- add new 'attachments' screen (for every chat).
+- on nixos rebuild, call hangs or something. or one of clients dies
 - after switching to new account, tray icon started showing 'new message' alert all the time
 - message save as dialog doesnt ask path
 - cached avatars do not get deleted

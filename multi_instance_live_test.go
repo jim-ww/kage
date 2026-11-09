@@ -65,6 +65,14 @@ func awaitEvent(t *testing.T, events chan ipc.Event, kind string, out any, timeo
 // clients.
 func newTestDaemon(t *testing.T, aliceClient *xmpp.Client) (sockPath string, sess *accountSession) {
 	t.Helper()
+	sockPath, sess, _ = newTestDaemonWithServer(t, aliceClient)
+	return sockPath, sess
+}
+
+// newTestDaemonWithServer is newTestDaemon also handing back the ipc.Server,
+// for a test that runs the account's event loop (listen) against it.
+func newTestDaemonWithServer(t *testing.T, aliceClient *xmpp.Client) (sockPath string, sess *accountSession, srv *ipc.Server) {
+	t.Helper()
 	dir := t.TempDir()
 	dbConn, aliceDB, err := storage.Open(filepath.Join(dir, "alice.db"))
 	if err != nil {
@@ -72,7 +80,7 @@ func newTestDaemon(t *testing.T, aliceClient *xmpp.Client) (sockPath string, ses
 	}
 	t.Cleanup(func() { dbConn.Close() })
 
-	srv := ipc.NewServer()
+	srv = ipc.NewServer()
 	aliceSess := &accountSession{
 		account:    config.Account{JID: "alice@localhost", Password: "alicepw"},
 		db:         aliceDB,
@@ -92,7 +100,7 @@ func newTestDaemon(t *testing.T, aliceClient *xmpp.Client) (sockPath string, ses
 	go srv.Accept(ln, ds.handle)
 	t.Cleanup(srv.Close)
 
-	return sockPath, aliceSess
+	return sockPath, aliceSess, srv
 }
 
 // TestSendNotifiesOtherAttachedClients is a live-server regression test for
@@ -321,5 +329,39 @@ func TestSettingsReachOtherAttachedClients(t *testing.T) {
 	awaitEvent(t, eventsB, evAccountStatus, &status, 5*time.Second)
 	if status.Status != ui.PresenceAway {
 		t.Fatalf("status seen by B: %+v", status)
+	}
+}
+
+// TestBouncedMessageMarkedFailed checks a message the recipient's side
+// bounces is marked failed, with the reason, in every attached TUI - not
+// left looking sent, and not read as the recipient talking to us.
+func TestBouncedMessageMarkedFailed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	aliceClient, err := xmpp.Dial(ctx, "alice@localhost", "alicepw", devtestTLSConfig(t))
+	if err != nil {
+		t.Fatalf("dial alice: %v", err)
+	}
+	t.Cleanup(func() { aliceClient.Close() })
+	sockPath, aliceSess, srv := newTestDaemonWithServer(t, aliceClient)
+	go listen(ctx, srv, 0, aliceSess)
+
+	const to = "nobody-here@localhost"
+	if err := aliceSess.db.SetChatEncryptionMode(ctx, storage.SetChatEncryptionModeParams{
+		AccountJid: "alice@localhost", RosterJid: to, Mode: "none",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	clientA, _ := attachTestIPCClient(t, sockPath)
+	_, eventsB := attachTestIPCClient(t, sockPath)
+
+	var sent sendResult
+	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: to, Body: "anyone there?"}, &sent); err != nil {
+		t.Fatal(err)
+	}
+	var failed ui.MessageSendFailedMsg
+	awaitEvent(t, eventsB, evMessageSendFailed, &failed, 10*time.Second)
+	if failed.MessageID != sent.ID || failed.Reason == "" {
+		t.Fatalf("failure seen by B: %+v (sent %s)", failed, sent.ID)
 	}
 }

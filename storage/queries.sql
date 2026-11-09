@@ -180,6 +180,17 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
 	AND rosterJID = sqlc.arg(roster_jid);
 
+-- name: MarkMessageBounced :execrows
+-- Our message came back from the recipient's server as an error: it was
+-- never delivered, even if our own server had already accepted it
+-- (serverAcked), so this overrides that.
+UPDATE messages
+SET sendFailed = TRUE, serverAcked = FALSE
+WHERE accountJID = sqlc.arg(account_jid)
+	AND idAttr = sqlc.arg(id_attr)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND sent = TRUE;
+
 -- name: MarkMessageSendFailed :execrows
 UPDATE messages
 SET sendFailed = TRUE

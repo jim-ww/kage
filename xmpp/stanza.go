@@ -16,6 +16,7 @@ import (
 // and for decoding incoming stanzas.
 type messageBody struct {
 	stanza.Message
+	Error       *stanza.Error         `xml:"jabber:client error"`
 	Body        string                `xml:"body,omitempty"`
 	Replace     *replaceElem          `xml:"urn:xmpp:message-correct:0 replace"`
 	Reply       *replyElem            `xml:"urn:xmpp:reply:0 reply"`
@@ -116,6 +117,21 @@ func (m messageBody) chatState() (ChatState, bool) {
 	default:
 		return ChatStateActive, false
 	}
+}
+
+// bounceReason renders a bounced message's error for a person: its
+// condition, and the server's text explaining it when there is one.
+func bounceReason(e *stanza.Error) string {
+	if e == nil || e.Condition == "" {
+		return "undeliverable"
+	}
+	reason := strings.ReplaceAll(string(e.Condition), "-", " ")
+	for _, text := range e.Text {
+		if text != "" {
+			return reason + ": " + text
+		}
+	}
+	return reason
 }
 
 // setChatState sets the one pointer field on m corresponding to state.

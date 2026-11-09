@@ -2280,6 +2280,32 @@ func (q *Queries) ListRoster(ctx context.Context, accountJid string) ([]ListRost
 	return items, nil
 }
 
+const markMessageBounced = `-- name: MarkMessageBounced :execrows
+UPDATE messages
+SET sendFailed = TRUE, serverAcked = FALSE
+WHERE accountJID = ?1
+	AND idAttr = ?2
+	AND rosterJID = ?3
+	AND sent = TRUE
+`
+
+type MarkMessageBouncedParams struct {
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+// Our message came back from the recipient's server as an error: it was
+// never delivered, even if our own server had already accepted it
+// (serverAcked), so this overrides that.
+func (q *Queries) MarkMessageBounced(ctx context.Context, arg MarkMessageBouncedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markMessageBounced, arg.AccountJid, arg.IDAttr, arg.RosterJid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const markMessageDelivered = `-- name: MarkMessageDelivered :execrows
 UPDATE messages
 SET delivered = TRUE
