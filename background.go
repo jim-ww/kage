@@ -124,6 +124,12 @@ func setAudioDevices(input, output string) {
 	audioDevices.Unlock()
 }
 
+// desktopAudioEnabled mirrors !state.toml's screen_share_audio_disabled:
+// whether sharing the screen also sends other applications' audio (see
+// callSession.syncDesktopAudio). Changed at runtime by
+// adapter.SetDesktopAudio.
+var desktopAudioEnabled atomic.Bool
+
 // defaultEncryptionMode mirrors cfg.DefaultEncryptionMode for
 // resolveEncryptionMode (crypto_helpers.go) and account.go's chat-list
 // fallback, which have no other path back to the loaded config — same
@@ -241,6 +247,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
 	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)
+	desktopAudioEnabled.Store(!cfg.State.ScreenShareAudioDisabled)
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 
 	if !cfg.GPGDisabled {
@@ -345,6 +352,7 @@ func (b *backend) Reload(cfg config.Config) {
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
 	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)
+	desktopAudioEnabled.Store(!cfg.State.ScreenShareAudioDisabled)
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 }
 

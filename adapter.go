@@ -1705,6 +1705,30 @@ func (a *adapter) SetAudioDevice(output bool, name string) error {
 	return errors.Join(errs...)
 }
 
+// SetDesktopAudio sets whether sharing the screen also sends what other
+// applications are playing, persists it to state.toml, and applies it to a
+// screen share already in progress.
+func (a *adapter) SetDesktopAudio(enabled bool) error {
+	desktopAudioEnabled.Store(enabled)
+	err := config.SetScreenShareAudio(a.cfgPath, enabled)
+	a.mu.Lock()
+	sessions := append([]*accountSession(nil), a.sessions...)
+	a.mu.Unlock()
+	for _, sess := range sessions {
+		if sess == nil {
+			continue
+		}
+		if c := sess.currentCall(); c != nil {
+			c.syncDesktopAudio()
+			c.broadcastUpdate()
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("saving desktop audio setting: %w", err)
+	}
+	return nil
+}
+
 // peerDeviceSyncInterval is how long a peer's cached OMEMO device list is
 // trusted before a send re-fetches it. Long enough that a busy conversation
 // doesn't put a PEP IQ in front of every message, short enough that a

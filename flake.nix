@@ -98,6 +98,9 @@
                     pkgs.xclip
                     pkgs.wf-recorder
                     pkgs.mpv
+                    # pw-record/pw-dump/pw-link: desktop audio while sharing
+                    # the screen (call/desktopaudio.go)
+                    pkgs.pipewire
                   ]
                 }
               '';

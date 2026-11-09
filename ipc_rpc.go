@@ -57,6 +57,7 @@ const (
 	rpcReopenVideo              = "ReopenVideo"
 	rpcAudioDevices             = "AudioDevices"
 	rpcSetAudioDevice           = "SetAudioDevice"
+	rpcSetDesktopAudio          = "SetDesktopAudio"
 	rpcGetCallState             = "GetCallState"
 )
 
@@ -231,6 +232,9 @@ type audioDevicesResult struct {
 	Inputs, Outputs []call.AudioDevice
 	Input, Output   string
 }
+type setDesktopAudioParams struct {
+	Enabled bool
+}
 type setAudioDeviceParams struct {
 	Output bool // false: the microphone
 	Name   string
@@ -282,6 +286,11 @@ type callStateEvent struct {
 	// was closed by hand, until ReopenVideo).
 	RemoteVideo bool
 	ViewerOpen  bool
+	// DesktopAudio is true while other applications' audio is being mixed
+	// into what we send (sharing the screen with desktop audio enabled);
+	// DesktopAudioEnabled is that setting itself.
+	DesktopAudio        bool
+	DesktopAudioEnabled bool
 	// Notice is a one-off message for the UI to show (e.g. a camera that
 	// failed to open), not part of the call's persistent state.
 	Notice string

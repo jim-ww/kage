@@ -75,6 +75,10 @@ type State struct {
 	// default too.
 	AudioInput  string `toml:"audio_input,omitempty"`
 	AudioOutput string `toml:"audio_output,omitempty"`
+	// ScreenShareAudioDisabled is persisted from the call menu's desktop
+	// audio toggle; unset means sharing the screen also sends what other
+	// applications are playing.
+	ScreenShareAudioDisabled bool `toml:"screen_share_audio_disabled,omitempty"`
 
 	// Path is the state file this was loaded from / would be written to.
 	// Not part of the toml shape.

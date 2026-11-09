@@ -60,3 +60,29 @@ func TestGetCallStateResultWireShape(t *testing.T) {
 		t.Fatalf("unexpected wire shape: %s", b)
 	}
 }
+
+// TestNextDesktopFrameSkipsBacklog checks desktop audio frames piling up
+// past the backlog are skipped so playback stays near real time, and that
+// an empty or closed source yields nothing without blocking.
+func TestNextDesktopFrameSkipsBacklog(t *testing.T) {
+	ch := make(chan []int16, 10)
+	for i := range 6 {
+		ch <- []int16{int16(i)}
+	}
+	if f := nextDesktopFrame(ch); f[0] != 2 || len(ch) != 3 {
+		t.Fatalf("got frame %v with %d left, want frame 2 with 3 left", f, len(ch))
+	}
+	if f := nextDesktopFrame(ch); f[0] != 3 {
+		t.Fatalf("got %v, want the next frame in order", f)
+	}
+	for len(ch) > 0 {
+		<-ch
+	}
+	if f := nextDesktopFrame(ch); f != nil {
+		t.Fatalf("empty source gave %v", f)
+	}
+	close(ch)
+	if f := nextDesktopFrame(ch); f != nil {
+		t.Fatalf("closed source gave %v", f)
+	}
+}

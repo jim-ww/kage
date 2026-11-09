@@ -126,6 +126,16 @@ func SetAudioDevices(path, input, output string) error {
 	})
 }
 
+// SetScreenShareAudio sets (or updates) whether sharing the screen also
+// sends desktop audio, in the state file next to path - called whenever
+// it's toggled in the call menu.
+func SetScreenShareAudio(path string, enabled bool) error {
+	return updateStateFile(path, func(st *State) error {
+		st.ScreenShareAudioDisabled = !enabled
+		return nil
+	})
+}
+
 // SetInputHeight sets (or updates) the input height in the state file next
 // to path, preserving everything else — called after the user finishes
 // dragging the compose box's top border (see ui.InputHeightSetter).

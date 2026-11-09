@@ -30,6 +30,9 @@ func (f *fakeCallController) HangupCall(int) tea.Msg         { return f.record("
 func (f *fakeCallController) RejectCall(int) tea.Msg         { return f.record("reject") }
 func (f *fakeCallController) MuteCall(_ int, m bool) tea.Msg { return f.record("mute %v", m) }
 func (f *fakeCallController) ReopenVideo(int) tea.Msg        { return f.record("reopen") }
+func (f *fakeCallController) SetDesktopAudio(on bool) tea.Msg {
+	return f.record("desktopaudio %v", on)
+}
 func (f *fakeCallController) ScreenShare(_ int, sharing, camera bool) tea.Msg {
 	return f.record("share %v camera=%v", sharing, camera)
 }
@@ -249,5 +252,29 @@ func TestCallBarButtons(t *testing.T) {
 	bar = m.renderCallBar(16)
 	if strings.Contains(bar, "[answer]") || !strings.Contains(bar, "[^G menu]") {
 		t.Fatalf("narrow ringing bar:\n%s", bar)
+	}
+}
+
+func TestCallMenuDesktopAudioToggle(t *testing.T) {
+	ctrl := &fakeCallController{}
+	m := callTestModel(ctrl)
+	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected", Video: "screen", Sharing: true, DesktopAudio: true, DesktopAudioEnabled: true})
+	if status := m.callStatus(); !strings.Contains(status, "sharing screen + audio") {
+		t.Fatalf("status %q", status)
+	}
+	m = press(t, m, ctrlG)
+	if !strings.Contains(strings.Join(callMenuLabels(m), "|"), "Stop desktop audio") {
+		t.Fatalf("menu: %v", callMenuLabels(m))
+	}
+	press(t, m, letter('a'))
+	if len(ctrl.calls) != 1 || ctrl.calls[0] != "desktopaudio false" {
+		t.Fatalf("calls %v", ctrl.calls)
+	}
+
+	// Not offered for the camera: there's no desktop to hear.
+	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected", Video: "camera", Sharing: true, DesktopAudioEnabled: true})
+	m = press(t, m, ctrlG)
+	if strings.Contains(strings.Join(callMenuLabels(m), "|"), "desktop audio") {
+		t.Fatalf("desktop audio offered for the camera: %v", callMenuLabels(m))
 	}
 }

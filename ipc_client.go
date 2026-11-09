@@ -365,6 +365,11 @@ func (c *ipcClient) ListAudioDevices() tea.Msg {
 	return msg
 }
 
+func (c *ipcClient) SetDesktopAudio(enabled bool) tea.Msg {
+	err := c.conn.Call(rpcSetDesktopAudio, setDesktopAudioParams{Enabled: enabled}, nil)
+	return ui.CallActionResultMsg{Action: "desktop audio switch", Err: err}
+}
+
 func (c *ipcClient) SetAudioDevice(output bool, name string) tea.Msg {
 	err := c.conn.Call(rpcSetAudioDevice, setAudioDeviceParams{Output: output, Name: name}, nil)
 	return ui.CallActionResultMsg{Action: "audio device switch", Err: err}
@@ -401,6 +406,7 @@ func (c *ipcClient) getCallState() (*ui.CallStateMsg, error) {
 		AccountIdx: res.AccountIdx, Peer: res.Peer, SID: res.SID, State: res.State,
 		Reason: res.Reason, Muted: res.Muted, Quality: res.Quality, Sharing: res.Sharing, StartedAt: res.StartedAt,
 		Video: res.Video, VideoPending: res.VideoPending, RemoteVideo: res.RemoteVideo, ViewerOpen: res.ViewerOpen,
+		DesktopAudio: res.DesktopAudio, DesktopAudioEnabled: res.DesktopAudioEnabled,
 		SAS: res.SAS, FingerprintChanged: res.FingerprintChanged,
 	}, nil
 }

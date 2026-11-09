@@ -39,12 +39,34 @@ func NewEncoder() (*Encoder, error) {
 		opus.WithSampleRate(SampleRate),
 		opus.WithChannels(Channels),
 		opus.WithApplication(opus.ApplicationVoIP),
+		opus.WithBitrate(voiceBitrate),
 		opus.WithVBR(true),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating opus encoder: %w", err)
 	}
 	return &Encoder{enc: enc}, nil
+}
+
+// Bitrates for Encoder's two tunings: plenty for mono speech, and enough
+// for music to survive (desktop audio during a screen share).
+const (
+	voiceBitrate = 24000
+	musicBitrate = 64000
+)
+
+// SetMusic retunes the encoder for music (desktop audio mixed in) or back
+// for voice. Opus signals its mode per packet, so this can change between
+// any two frames without the decoder needing to know.
+func (e *Encoder) SetMusic(music bool) error {
+	app, bitrate := opus.ApplicationVoIP, voiceBitrate
+	if music {
+		app, bitrate = opus.ApplicationAudio, musicBitrate
+	}
+	if err := e.enc.SetApplication(app); err != nil {
+		return err
+	}
+	return e.enc.SetBitrate(bitrate)
 }
 
 // Encode encodes one FrameSamples frame of 16-bit PCM into an Opus packet,

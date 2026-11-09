@@ -38,6 +38,9 @@ type callUIState struct {
 	remoteVideo  bool   // the peer is streaming video to us
 	viewerOpen   bool   // ...and its window is up
 
+	desktopAudio        bool // other apps' audio is being sent
+	desktopAudioEnabled bool // ...whenever the screen is shared
+
 	sas                string // short authentication string, "" until negotiated
 	fingerprintChanged bool   // peer's DTLS fingerprint doesn't match the pinned one
 }
@@ -144,6 +147,9 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		remoteVideo:  msg.RemoteVideo,
 		viewerOpen:   msg.ViewerOpen,
 
+		desktopAudio:        msg.DesktopAudio,
+		desktopAudioEnabled: msg.DesktopAudioEnabled,
+
 		sas:                msg.SAS,
 		fingerprintChanged: msg.FingerprintChanged,
 	}
@@ -234,6 +240,8 @@ func (m Model) callStatus() string {
 			parts = append(parts, "camera on")
 		case c.video == "screen" && c.videoPending:
 			parts = append(parts, "screen share starting…")
+		case c.video == "screen" && c.desktopAudio:
+			parts = append(parts, "sharing screen + audio")
 		case c.video == "screen":
 			parts = append(parts, "sharing screen")
 		}
@@ -382,6 +390,15 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 		videoMenuItem(ctrl, accountIdx, c.video, "camera", "Start camera", "Stop camera", "Switch to camera", 'c'),
 		videoMenuItem(ctrl, accountIdx, c.video, "screen", "Share screen", "Stop sharing screen", "Switch to screen", 's'),
 	)
+	if c.video == "screen" {
+		label, enable := "Share desktop audio", true
+		if c.desktopAudioEnabled {
+			label, enable = "Stop desktop audio", false
+		}
+		items = append(items, contextMenuItem{label: label, key: 'a', run: func(*Model) tea.Cmd {
+			return func() tea.Msg { return ctrl.SetDesktopAudio(enable) }
+		}})
+	}
 	if c.remoteVideo && !c.viewerOpen {
 		items = append(items, contextMenuItem{label: "Show their video", key: 'o', run: func(*Model) tea.Cmd {
 			return func() tea.Msg { return ctrl.ReopenVideo(accountIdx) }

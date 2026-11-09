@@ -114,6 +114,11 @@ type callSession struct {
 	micStop chan struct{}
 	micDone chan struct{}
 
+	// desktop captures other applications' audio, mixed into what the mic
+	// pump sends, while we share the screen with desktop audio on (see
+	// syncDesktopAudio) - nil otherwise.
+	desktop *call.DesktopAudio
+
 	// contentName/ufrag/pwd identify our half of the ICE session, repeated on
 	// every transport-info we trickle out.
 	contentName string
@@ -1500,9 +1505,15 @@ func (c *callSession) switchMic(device string) error {
 	return nil
 }
 
-// pumpMic encodes and sends mic's frames until stop or the call ends.
+// pumpMic encodes and sends mic's frames until stop or the call ends,
+// mixing in desktop audio while there is any (see syncDesktopAudio) - the
+// mic's clock paces both, so a call whose mic failed to open sends no
+// desktop audio either. Muting silences only the mic: shared desktop audio
+// keeps going. With desktop audio mixed in, the encoder is retuned for
+// music.
 func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Encoder, pc *call.PeerConnection) {
 	const frameDuration = call.FrameMillis * time.Millisecond
+	music := false
 	for {
 		select {
 		case <-c.done:
@@ -1511,10 +1522,25 @@ func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Enc
 			return
 		case frame := <-mic.Frames():
 			c.mu.Lock()
-			muted := c.muted
+			muted, desktop := c.muted, c.desktop
 			c.mu.Unlock()
-			if muted {
+			var extra []int16
+			if desktop != nil {
+				extra = nextDesktopFrame(desktop.Frames())
+			}
+			switch {
+			case muted && extra == nil:
 				continue // drop the frame rather than encode+send while muted
+			case muted:
+				frame = extra
+			case extra != nil:
+				call.MixFrame(frame, extra)
+			}
+			if (desktop != nil) != music {
+				music = desktop != nil
+				if err := enc.SetMusic(music); err != nil {
+					slog.Warn("retuning call audio encoder", "sid", c.sid, "music", music, "err", err)
+				}
 			}
 			packet, err := enc.Encode(frame)
 			if err != nil {
@@ -1527,6 +1553,67 @@ func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Enc
 			}
 		}
 	}
+}
+
+// nextDesktopFrame takes the next captured desktop audio frame without
+// waiting for one, skipping ahead when frames have piled up (the two
+// clocks drift) so the desktop audio stays close to real time.
+func nextDesktopFrame(frames <-chan []int16) []int16 {
+	const maxBacklog = 3
+	var frame []int16
+	for {
+		select {
+		case next, ok := <-frames:
+			if !ok {
+				return frame
+			}
+			frame = next
+			if len(frames) <= maxBacklog {
+				return frame
+			}
+		default:
+			return frame
+		}
+	}
+}
+
+// syncDesktopAudio starts or stops capturing desktop audio to match whether
+// it should be flowing right now: while we're sharing the screen (not the
+// camera) and desktop audio is enabled. Called on every change to either.
+func (c *callSession) syncDesktopAudio() {
+	want := func() bool {
+		return c.state == callConnected && c.sharing && !c.videoUseCamera && desktopAudioEnabled.Load()
+	}
+	c.mu.Lock()
+	wanted, running := want(), c.desktop
+	if !wanted && running != nil {
+		c.desktop = nil
+	}
+	c.mu.Unlock()
+	if wanted == (running != nil) {
+		return
+	}
+	if !wanted {
+		running.Close()
+		c.broadcastUpdate()
+		return
+	}
+
+	d, err := call.NewDesktopAudio()
+	if err != nil {
+		slog.Warn("starting desktop audio", "sid", c.sid, "err", err)
+		c.broadcastNotice(fmt.Sprintf("no desktop audio: %v", err))
+		return
+	}
+	c.mu.Lock()
+	if c.desktop != nil || !want() {
+		c.mu.Unlock()
+		d.Close()
+		return
+	}
+	c.desktop = d
+	c.mu.Unlock()
+	c.broadcastUpdate()
 }
 
 // switchSpeaker moves the call's playback to the named output device.
@@ -1924,6 +2011,7 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.videoSource = share
 	c.sharing = true
 	c.mu.Unlock()
+	c.syncDesktopAudio()
 
 	go recoverAndLog(c.sid, "screenShareCapture", func() {
 		err := share.Run(func(frame []byte, sinceLast time.Duration) error {
@@ -2002,6 +2090,7 @@ func (c *callSession) stopScreenShare() {
 	if share != nil {
 		share.Stop()
 	}
+	c.syncDesktopAudio()
 	c.broadcastUpdate()
 }
 
@@ -2355,9 +2444,9 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 		c.mu.Lock()
 		slog.Debug("call ending", "sid", c.sid, "prior_state", c.state.String(), "new_state", state, "reason", reason, "was_sharing", c.sharing)
 		c.state = callEnded
-		pc, mic, spk, share := c.pc, c.mic, c.spk, c.videoSource
+		pc, mic, spk, share, desktop := c.pc, c.mic, c.spk, c.videoSource, c.desktop
 		c.pc, c.mic, c.spk, c.enc, c.dec = nil, nil, nil, nil, nil
-		c.micStop, c.micDone = nil, nil
+		c.micStop, c.micDone, c.desktop = nil, nil, nil
 		c.videoSource, c.sharing = nil, false
 		if c.disconnectTimer != nil {
 			c.disconnectTimer.Stop()
@@ -2369,6 +2458,9 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 
 		if share != nil {
 			share.Stop()
+		}
+		if desktop != nil {
+			desktop.Close()
 		}
 		if mic != nil {
 			mic.Close()
@@ -2500,6 +2592,7 @@ func (c *callSession) stateEventLocked(state callState, reason string) callState
 		Muted: c.muted, Quality: c.quality, Sharing: c.sharing,
 		Video: video, VideoPending: c.pendingShare,
 		RemoteVideo: c.remoteVideo, ViewerOpen: c.remoteVideoViewer != nil,
+		DesktopAudio: c.desktop != nil, DesktopAudioEnabled: desktopAudioEnabled.Load(),
 		SAS: c.fingerprintSAS, FingerprintChanged: c.fingerprintChanged,
 	}
 }

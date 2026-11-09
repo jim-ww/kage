@@ -1012,6 +1012,10 @@ type CallController interface {
 	// the video itself never stopped flowing, so this doesn't touch
 	// signaling, just prompts the encoder for a fresh keyframe.
 	ReopenVideo(accountIdx int) tea.Msg
+	// SetDesktopAudio sets whether sharing the screen also sends what other
+	// applications are playing - a setting, not per call, applied at once
+	// to a share in progress.
+	SetDesktopAudio(enabled bool) tea.Msg
 }
 
 // AudioDeviceController lists and picks the microphone/speaker calls use,
@@ -1083,6 +1087,11 @@ type CallStateMsg struct {
 	// whether its window is currently up (closed by hand until ReopenVideo).
 	RemoteVideo bool
 	ViewerOpen  bool
+	// DesktopAudio is true while other applications' audio is mixed into
+	// what we send; DesktopAudioEnabled is the setting that does it while
+	// sharing the screen.
+	DesktopAudio        bool
+	DesktopAudioEnabled bool
 	// Notice is a one-off message to surface as a toast (e.g. a camera that
 	// failed to open) - not call state.
 	Notice string
