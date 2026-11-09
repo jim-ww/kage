@@ -17,9 +17,15 @@ const ringFadeMillis = 15 * time.Millisecond
 // states, before startMedia opens the call's real mic/speaker, and is
 // always stopped before that happens.
 type RingTone struct {
-	spk  *Speaker
+	spk  pcmSink
 	stop chan struct{}
 	done chan struct{}
+}
+
+// pcmSink is the part of Speaker RingTone uses.
+type pcmSink interface {
+	Write(frame []int16) error
+	Close() error
 }
 
 // NewRingTone opens a dedicated Speaker and starts looping the given
@@ -33,9 +39,13 @@ func NewRingTone(freqsHz []float64, pattern []time.Duration) (*RingTone, error) 
 	if err != nil {
 		return nil, err
 	}
+	return startRingTone(spk, freqsHz, pattern), nil
+}
+
+func startRingTone(spk pcmSink, freqsHz []float64, pattern []time.Duration) *RingTone {
 	r := &RingTone{spk: spk, stop: make(chan struct{}), done: make(chan struct{})}
 	go r.run(freqsHz, pattern)
-	return r, nil
+	return r
 }
 
 func (r *RingTone) run(freqsHz []float64, pattern []time.Duration) {
@@ -100,9 +110,12 @@ func (r *RingTone) run(freqsHz []float64, pattern []time.Duration) {
 	}
 }
 
-// Stop halts tone generation and releases the dedicated speaker.
+// Stop halts tone generation and releases the dedicated speaker. The
+// speaker is closed before waiting for the generator to exit: a stalled
+// output device (nothing draining playback) leaves run blocked inside
+// Write, which only a closed speaker unblocks.
 func (r *RingTone) Stop() {
 	close(r.stop)
-	<-r.done
 	r.spk.Close()
+	<-r.done
 }
