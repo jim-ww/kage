@@ -36,6 +36,7 @@ type DesktopAudio struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	once   sync.Once
+	err    error // why capture stopped on its own; set before done closes
 }
 
 // NewDesktopAudio starts capturing. It needs PipeWire's pw-record, pw-dump
@@ -70,9 +71,18 @@ func NewDesktopAudio() (*DesktopAudio, error) {
 	go func() {
 		defer close(d.done)
 		readPCMFrames(stdout, d.frames)
-		if err := cmd.Wait(); err != nil && ctx.Err() == nil {
-			slog.Warn("desktop audio: pw-record exited", "err", err, "stderr", lastLine(stderr.String()))
+		err := cmd.Wait()
+		if ctx.Err() != nil {
+			return // Close stopped it
 		}
+		if reason := lastLine(stderr.String()); reason != "" {
+			d.err = errors.New(reason)
+		} else if err != nil {
+			d.err = fmt.Errorf("pw-record: %w", err)
+		} else {
+			d.err = errors.New("pw-record exited")
+		}
+		slog.Warn("desktop audio: capture stopped on its own", "err", d.err)
 	}()
 	go d.linkLoop(ctx, nodeName)
 	return d, nil
@@ -83,6 +93,13 @@ func NewDesktopAudio() (*DesktopAudio, error) {
 // the desktop audio never drifts further behind than the channel holds.
 func (d *DesktopAudio) Frames() <-chan []int16 {
 	return d.frames
+}
+
+// Err is why capture stopped on its own - nil while it's running, or if
+// Close stopped it. Only meaningful once Frames has closed.
+func (d *DesktopAudio) Err() error {
+	<-d.done
+	return d.err
 }
 
 // Close stops capturing.

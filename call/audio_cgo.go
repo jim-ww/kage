@@ -100,14 +100,17 @@ func findDevice(ctx *malgo.AllocatedContext, kind malgo.DeviceType, name string)
 // DeviceID.Pointer hands back a C copy of the ID that's never freed - one
 // small allocation per opened device, kept alive for as long as the device
 // is, which is what miniaudio expects of it anyway.
-func openDevice(kind malgo.DeviceType, name string, data malgo.DataProc) (*malgo.AllocatedContext, *malgo.Device, error) {
+// fellBack reports a named device that isn't there, opened as the default
+// instead.
+func openDevice(kind malgo.DeviceType, name string, data malgo.DataProc) (_ *malgo.AllocatedContext, _ *malgo.Device, fellBack bool, _ error) {
 	ctx, err := newAudioContext()
 	if err != nil {
-		return nil, nil, fmt.Errorf("initializing audio context: %w", err)
+		return nil, nil, false, fmt.Errorf("initializing audio context: %w", err)
 	}
 	cfg := malgo.DefaultDeviceConfig(kind)
 	cfg.SampleRate = SampleRate
 	id := findDevice(ctx, kind, name)
+	fellBack = name != "" && id == nil
 	if kind == malgo.Capture {
 		cfg.Capture.Format, cfg.Capture.Channels = malgo.FormatS16, Channels
 		if id != nil {
@@ -123,15 +126,15 @@ func openDevice(kind malgo.DeviceType, name string, data malgo.DataProc) (*malgo
 	if err != nil {
 		ctx.Uninit()
 		ctx.Free()
-		return nil, nil, fmt.Errorf("opening audio device: %w", err)
+		return nil, nil, false, fmt.Errorf("opening audio device: %w", err)
 	}
 	if err := device.Start(); err != nil {
 		device.Uninit()
 		ctx.Uninit()
 		ctx.Free()
-		return nil, nil, fmt.Errorf("starting audio device: %w", err)
+		return nil, nil, false, fmt.Errorf("starting audio device: %w", err)
 	}
-	return ctx, device, nil
+	return ctx, device, fellBack, nil
 }
 
 // Mic captures audio from an input device via malgo (miniaudio bindings) and
@@ -145,9 +148,10 @@ func openDevice(kind malgo.DeviceType, name string, data malgo.DataProc) (*malgo
 // ALSA on Linux, CoreAudio on macOS, WASAPI/WinMM on Windows), which is both
 // more robust and actually cross-platform.
 type Mic struct {
-	ctx    *malgo.AllocatedContext
-	device *malgo.Device
-	frames chan []int16
+	ctx      *malgo.AllocatedContext
+	device   *malgo.Device
+	frames   chan []int16
+	fellBack bool
 }
 
 // NewMic opens the named capture device ("" for the system default, see
@@ -176,13 +180,17 @@ func NewMic(device string) (*Mic, error) {
 		}
 	}
 
-	ctx, dev, err := openDevice(malgo.Capture, device, data)
+	ctx, dev, fellBack, err := openDevice(malgo.Capture, device, data)
 	if err != nil {
 		return nil, fmt.Errorf("capture: %w", err)
 	}
-	m.ctx, m.device = ctx, dev
+	m.ctx, m.device, m.fellBack = ctx, dev, fellBack
 	return m, nil
 }
+
+// UsingDefaultInstead reports the device asked for wasn't there, so the
+// system default was opened in its place.
+func (m *Mic) UsingDefaultInstead() bool { return m.fellBack }
 
 // Frames returns the channel of captured FrameSamples-sized PCM frames.
 func (m *Mic) Frames() <-chan []int16 {
@@ -207,6 +215,7 @@ type Speaker struct {
 	samples   chan []int16
 	closed    chan struct{}
 	closeOnce sync.Once
+	fellBack  bool
 }
 
 // NewSpeaker opens the named playback device ("" for the system default,
@@ -237,13 +246,17 @@ func NewSpeaker(device string) (*Speaker, error) {
 		}
 	}
 
-	ctx, dev, err := openDevice(malgo.Playback, device, data)
+	ctx, dev, fellBack, err := openDevice(malgo.Playback, device, data)
 	if err != nil {
 		return nil, fmt.Errorf("playback: %w", err)
 	}
-	s.ctx, s.device = ctx, dev
+	s.ctx, s.device, s.fellBack = ctx, dev, fellBack
 	return s, nil
 }
+
+// UsingDefaultInstead reports the device asked for wasn't there, so the
+// system default was opened in its place.
+func (s *Speaker) UsingDefaultInstead() bool { return s.fellBack }
 
 // Write queues one frame of mono 16-bit PCM samples for playback. It blocks
 // if the queue is full (the playback engine isn't keeping up).

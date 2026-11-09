@@ -119,6 +119,10 @@ func (s *Server) handle(sc *serverConn, req Request, handler Handler) {
 	result, err := s.callHandler(sc.id, req, handler)
 	resp := Response{ID: req.ID}
 	if err != nil {
+		// The requesting TUI shows the error; this is its only trace in the
+		// log, which the TUI process (whose own log is the same file but
+		// whose notifications vanish) never writes for it.
+		slog.Warn("ipc: request failed", "method", req.Method, "client", sc.id, "err", err)
 		resp.Err = err.Error()
 	} else if result != nil {
 		b, merr := json.Marshal(result)

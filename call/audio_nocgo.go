@@ -20,13 +20,15 @@ type Mic struct{}
 
 func NewMic(string) (*Mic, error) { return nil, errNoAudio }
 
-func (m *Mic) Frames() <-chan []int16 { return nil }
-func (m *Mic) Close() error           { return nil }
+func (m *Mic) Frames() <-chan []int16    { return nil }
+func (m *Mic) UsingDefaultInstead() bool { return false }
+func (m *Mic) Close() error              { return nil }
 
 // Speaker is a stub on non-cgo builds; NewSpeaker always errors.
 type Speaker struct{}
 
 func NewSpeaker(string) (*Speaker, error) { return nil, errNoAudio }
 
-func (s *Speaker) Write([]int16) error { return errNoAudio }
-func (s *Speaker) Close() error        { return nil }
+func (s *Speaker) Write([]int16) error       { return errNoAudio }
+func (s *Speaker) UsingDefaultInstead() bool { return false }
+func (s *Speaker) Close() error              { return nil }

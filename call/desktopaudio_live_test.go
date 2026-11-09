@@ -75,3 +75,33 @@ func TestDesktopAudioCapturesOtherApps(t *testing.T) {
 		}
 	}
 }
+
+// TestDesktopAudioReportsWhyItStopped checks a capture that dies on its own
+// closes Frames and says why, rather than just going quiet.
+func TestDesktopAudioReportsWhyItStopped(t *testing.T) {
+	if err := exec.Command("pw-cli", "info", "0").Run(); err != nil {
+		t.Skipf("no PipeWire server reachable: %v", err)
+	}
+	d, err := NewDesktopAudio()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	time.Sleep(200 * time.Millisecond)
+	d.cmd.Process.Kill()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-d.Frames():
+			if !ok {
+				if d.Err() == nil {
+					t.Fatal("capture stopped with no reason")
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("Frames never closed after pw-record died")
+		}
+	}
+}

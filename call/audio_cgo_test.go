@@ -73,12 +73,18 @@ func TestUnknownDeviceFallsBackToDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("speaker: %v", err)
 	}
+	if !spk.UsingDefaultInstead() {
+		t.Error("speaker fallback not reported")
+	}
 	spk.Close()
 	mic, err := NewMic("unplugged headset")
 	if err != nil {
 		t.Fatalf("mic: %v", err)
 	}
 	defer mic.Close()
+	if !mic.UsingDefaultInstead() {
+		t.Error("mic fallback not reported")
+	}
 	select {
 	case <-mic.Frames():
 	case <-time.After(5 * time.Second):
@@ -95,6 +101,9 @@ func TestNamedDeviceOpens(t *testing.T) {
 	spk, err := NewSpeaker(outputs[0].Name)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if spk.UsingDefaultInstead() {
+		t.Error("a device that exists reported as a fallback")
 	}
 	spk.Close()
 }

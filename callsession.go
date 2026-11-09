@@ -1225,6 +1225,7 @@ func (c *callSession) onConnectionState(ctx context.Context, state webrtc.PeerCo
 		if autoVideo {
 			if err := c.startVideoShare(autoCamera); err != nil {
 				slog.Warn("auto-starting video", "sid", c.sid, "camera", autoCamera, "err", err)
+				c.broadcastNotice(fmt.Sprintf("couldn't start %s: %v", videoSourceLabel(autoCamera), err))
 			}
 		}
 	case webrtc.PeerConnectionStateFailed:
@@ -1481,8 +1482,13 @@ func (c *callSession) startMedia() error {
 	c.enc, c.dec, c.spk = enc, dec, spk
 	c.mu.Unlock()
 
+	if spk.UsingDefaultInstead() {
+		slog.Info("picked speaker not connected, using the default", "sid", c.sid, "device", output)
+		c.broadcastNotice(fmt.Sprintf("speaker %q isn't connected - using the default", output))
+	}
 	if err := c.switchMic(input); err != nil {
 		slog.Warn("opening capture device, proceeding without mic", "sid", c.sid, "err", err)
+		c.broadcastNotice(fmt.Sprintf("no microphone - they can't hear you: %v", err))
 	}
 	return nil
 }
@@ -1496,6 +1502,10 @@ func (c *callSession) switchMic(device string) error {
 	mic, err := call.NewMic(device)
 	if err != nil {
 		return err
+	}
+	if mic.UsingDefaultInstead() {
+		slog.Info("picked microphone not connected, using the default", "sid", c.sid, "device", device)
+		c.broadcastNotice(fmt.Sprintf("microphone %q isn't connected - using the default", device))
 	}
 	stop, done := make(chan struct{}), make(chan struct{})
 	c.mu.Lock()
@@ -1544,8 +1554,13 @@ func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Enc
 			c.mu.Unlock()
 			var extra []int16
 			if desktop != nil {
-				if extra = nextDesktopFrame(desktop.Frames()); extra != nil {
+				var ended bool
+				extra, ended = nextDesktopFrame(desktop.Frames())
+				if extra != nil {
 					call.ScaleFrame(extra, int(desktopAudioVolume.Load()))
+				}
+				if ended {
+					go c.desktopAudioEnded(desktop)
 				}
 			}
 			switch {
@@ -1577,24 +1592,41 @@ func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Enc
 
 // nextDesktopFrame takes the next captured desktop audio frame without
 // waiting for one, skipping ahead when frames have piled up (the two
-// clocks drift) so the desktop audio stays close to real time.
-func nextDesktopFrame(frames <-chan []int16) []int16 {
+// clocks drift) so the desktop audio stays close to real time. ended
+// reports the capture has stopped (frames closed).
+func nextDesktopFrame(frames <-chan []int16) (frame []int16, ended bool) {
 	const maxBacklog = 3
-	var frame []int16
 	for {
 		select {
 		case next, ok := <-frames:
 			if !ok {
-				return frame
+				return frame, true
 			}
 			frame = next
 			if len(frames) <= maxBacklog {
-				return frame
+				return frame, false
 			}
 		default:
-			return frame
+			return frame, false
 		}
 	}
+}
+
+// desktopAudioEnded drops a desktop audio capture that stopped on its own
+// (PipeWire restarted, pw-record crashed) and tells the user, who'd
+// otherwise keep sharing believing the audio goes along.
+func (c *callSession) desktopAudioEnded(d *call.DesktopAudio) {
+	c.mu.Lock()
+	ours := c.desktop == d
+	if ours {
+		c.desktop = nil
+	}
+	c.mu.Unlock()
+	if !ours {
+		return
+	}
+	d.Close()
+	c.broadcastNotice(fmt.Sprintf("desktop audio stopped: %v", d.Err()))
 }
 
 // syncDesktopAudio starts or stops capturing desktop audio to match whether
@@ -1642,6 +1674,10 @@ func (c *callSession) switchSpeaker(device string) error {
 	spk, err := call.NewSpeaker(device)
 	if err != nil {
 		return err
+	}
+	if spk.UsingDefaultInstead() {
+		slog.Info("picked speaker not connected, using the default", "sid", c.sid, "device", device)
+		c.broadcastNotice(fmt.Sprintf("speaker %q isn't connected - using the default", device))
 	}
 	c.mu.Lock()
 	if c.state == callEnded || c.spk == nil {
@@ -2306,6 +2342,7 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 		hasKeyframe = hasH264IDRNAL
 	default:
 		slog.Warn("screen share: remote video track has an unsupported codec, not viewing it", "sid", c.sid, "mime_type", mimeType)
+		c.broadcastNotice(fmt.Sprintf("can't show their video: unsupported codec %s", mimeType))
 		return
 	}
 	slog.Debug("screen share: first remote video RTP packet received", "sid", c.sid, "seq", firstPacket.SequenceNumber, "payload_type", firstPacket.PayloadType, "codec", mimeType, "bytes", len(firstPacket.Payload))
@@ -2366,6 +2403,7 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				v, err := call.NewScreenViewer(c.peer+" — video", videoCodec)
 				if err != nil {
 					slog.Warn("starting screen share viewer", "sid", c.sid, "err", err)
+					c.broadcastNotice(fmt.Sprintf("can't show their video: %v", err))
 					return
 				}
 				viewer = v
@@ -2463,6 +2501,9 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 
 		c.mu.Lock()
 		slog.Debug("call ending", "sid", c.sid, "prior_state", c.state.String(), "new_state", state, "reason", reason, "was_sharing", c.sharing)
+		if state == "failed" {
+			slog.Warn("call failed", "sid", c.sid, "peer", c.peer, "prior_state", c.state.String(), "reason", reason)
+		}
 		c.state = callEnded
 		pc, mic, spk, share, desktop := c.pc, c.mic, c.spk, c.videoSource, c.desktop
 		c.pc, c.mic, c.spk, c.enc, c.dec = nil, nil, nil, nil, nil

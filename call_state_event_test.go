@@ -74,21 +74,21 @@ func TestNextDesktopFrameSkipsBacklog(t *testing.T) {
 	for i := range 6 {
 		ch <- []int16{int16(i)}
 	}
-	if f := nextDesktopFrame(ch); f[0] != 2 || len(ch) != 3 {
-		t.Fatalf("got frame %v with %d left, want frame 2 with 3 left", f, len(ch))
+	if f, ended := nextDesktopFrame(ch); f[0] != 2 || len(ch) != 3 || ended {
+		t.Fatalf("got frame %v with %d left (ended %v), want frame 2 with 3 left", f, len(ch), ended)
 	}
-	if f := nextDesktopFrame(ch); f[0] != 3 {
+	if f, _ := nextDesktopFrame(ch); f[0] != 3 {
 		t.Fatalf("got %v, want the next frame in order", f)
 	}
 	for len(ch) > 0 {
 		<-ch
 	}
-	if f := nextDesktopFrame(ch); f != nil {
-		t.Fatalf("empty source gave %v", f)
+	if f, ended := nextDesktopFrame(ch); f != nil || ended {
+		t.Fatalf("empty source gave %v, ended %v", f, ended)
 	}
 	close(ch)
-	if f := nextDesktopFrame(ch); f != nil {
-		t.Fatalf("closed source gave %v", f)
+	if f, ended := nextDesktopFrame(ch); f != nil || !ended {
+		t.Fatalf("closed source gave %v, ended %v - want nothing, and ended", f, ended)
 	}
 }
 
