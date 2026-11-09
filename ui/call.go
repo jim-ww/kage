@@ -230,21 +230,7 @@ func (m Model) callStatus() string {
 		parts = append(parts, "⚠ peer's call key changed since last time!")
 	}
 	if c.state == "connected" {
-		if c.muted {
-			parts = append(parts, "muted")
-		}
-		switch {
-		case c.video == "camera" && c.videoPending:
-			parts = append(parts, "camera starting…")
-		case c.video == "camera":
-			parts = append(parts, "camera on")
-		case c.video == "screen" && c.videoPending:
-			parts = append(parts, "screen share starting…")
-		case c.video == "screen" && c.desktopAudio:
-			parts = append(parts, "sharing screen + audio")
-		case c.video == "screen":
-			parts = append(parts, "sharing screen")
-		}
+		// Mic and what we're sending are the call bar's buttons, not text.
 		if c.remoteVideo && !c.viewerOpen {
 			parts = append(parts, "their video hidden")
 		} else if c.remoteVideo {
@@ -263,42 +249,98 @@ func (m Model) callStatus() string {
 	return strings.Join(parts, " · ")
 }
 
-// callBarButton is one clickable action on the call bar.
+// The call menu's shortcut letters - one per action, the same in every
+// state, and shared with the call bar's buttons, which show them.
+const (
+	callKeyVoice   = 'v'
+	callKeyCamera  = 'c'
+	callKeyScreen  = 's'
+	callKeyAnswer  = 'y'
+	callKeyReject  = 'n'
+	callKeyMute    = 'm'
+	callKeyDesktop = 'a'
+	callKeyVideo   = 'o'
+	callKeyDevices = 'd'
+	callKeyHangup  = 'h'
+)
+
+// callBarButton is one clickable action on the call bar. priority decides
+// which buttons survive a narrow terminal: lowest go first.
 type callBarButton struct {
-	zone  string
-	label string
-	run   func(m *Model) tea.Cmd
+	zone     string
+	label    string
+	priority int
+	run      func(m *Model) tea.Cmd
 }
 
 // callBarButtons lists the call bar's buttons for the current call state,
 // in display order - the one list renderCallBar draws and the mouse
 // handlers hit-test, so a button that isn't shown can't be clicked through
-// a stale zone. The keyboard reaches all of these (and more) through the
-// call menu, which the last button opens.
+// a stale zone. Every button doubles as a status indicator (mic, what we're
+// sending) and carries the keys that do the same thing - the call menu key
+// plus that action's letter in it - so the keyboard path is never a guess.
 func (m Model) callBarButtons() []callBarButton {
-	if m.call == nil {
+	c := m.call
+	if c == nil {
 		return nil
 	}
-	menu := callBarButton{zone: zoneCallMenu, label: caretKey(shortestKey(m.keys.CallMenu)) + " menu", run: (*Model).openCallMenu}
-	hangup := callBarButton{zone: zoneCallHangup, label: "hang up", run: (*Model).hangupCurrentCall}
-	switch m.call.state {
+	menuKey := caretKey(shortestKey(m.keys.CallMenu))
+	keyed := func(key rune, text string) string { return menuKey + " " + string(key) + " " + text }
+	menu := callBarButton{zone: zoneCallMenu, label: menuKey + " menu", priority: 100, run: (*Model).openCallMenu}
+	hangup := callBarButton{zone: zoneCallHangup, label: keyed(callKeyHangup, "hang up"), priority: 90, run: (*Model).hangupCurrentCall}
+	switch c.state {
 	case "ringing-local":
 		return []callBarButton{
-			{zone: zoneCallAnswer, label: "answer", run: (*Model).answerRingingCall},
-			{zone: zoneCallReject, label: "reject", run: (*Model).rejectRingingCall},
+			{zone: zoneCallAnswer, label: keyed(callKeyAnswer, "answer"), priority: 95, run: (*Model).answerRingingCall},
+			{zone: zoneCallReject, label: keyed(callKeyReject, "reject"), priority: 94, run: (*Model).rejectRingingCall},
 			menu,
 		}
 	case "proposing", "ringing-remote", "negotiating":
 		return []callBarButton{hangup, menu}
 	case "connected":
-		mute := "mute"
-		if m.call.muted {
-			mute = "unmute"
-		}
-		return []callBarButton{{zone: zoneCallMute, label: mute, run: (*Model).toggleMuteCall}, hangup, menu}
 	default:
 		return nil
 	}
+
+	mic := keyed(callKeyMute, "🎤 on")
+	if c.muted {
+		mic = keyed(callKeyMute, "🔇 muted")
+	}
+	buttons := []callBarButton{{zone: zoneCallMute, label: mic, priority: 80, run: (*Model).toggleMuteCall}}
+	starting := ""
+	if c.videoPending {
+		starting = " starting…"
+	}
+	switch c.video {
+	case "screen":
+		buttons = append(buttons, callBarButton{zone: zoneCallStopScreen, label: keyed(callKeyScreen, "🖥 sharing"+starting+" ✕"), priority: 70,
+			run: func(m *Model) tea.Cmd { return m.stopSendingVideo(false) }})
+		audio := keyed(callKeyDesktop, "🔇 no desktop audio")
+		if c.desktopAudioEnabled {
+			audio = keyed(callKeyDesktop, "🔊 desktop audio")
+		}
+		buttons = append(buttons, callBarButton{zone: zoneCallDesktopAudio, label: audio, priority: 60, run: (*Model).toggleDesktopAudio})
+	case "camera":
+		buttons = append(buttons, callBarButton{zone: zoneCallStopCamera, label: keyed(callKeyCamera, "📷 on"+starting+" ✕"), priority: 70,
+			run: func(m *Model) tea.Cmd { return m.stopSendingVideo(true) }})
+	}
+	return append(buttons, hangup, menu)
+}
+
+// fitCallBarButtons drops the lowest-priority buttons until what's left,
+// rendered by width, fits in room - the menu, which reaches everything the
+// others do, goes last.
+func fitCallBarButtons(buttons []callBarButton, room int, width func([]callBarButton) int) []callBarButton {
+	for len(buttons) > 0 && width(buttons) > room {
+		low := 0
+		for i, b := range buttons {
+			if b.priority < buttons[low].priority {
+				low = i
+			}
+		}
+		buttons = append(buttons[:low:low], buttons[low+1:]...)
+	}
+	return buttons
 }
 
 // formatCallDuration renders d as mm:ss — calls in this slice are never
@@ -340,7 +382,7 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 	}
 	var devices []contextMenuItem
 	if m.audioDevices != nil {
-		devices = []contextMenuItem{{label: "Audio devices", key: 'd', run: (*Model).requestAudioDevices}}
+		devices = []contextMenuItem{{label: "Audio devices", key: callKeyDevices, run: (*Model).requestAudioDevices}}
 	}
 	c := m.call
 	if c == nil || !m.callInProgress() {
@@ -354,27 +396,27 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 			name = to
 		}
 		return "Call " + name, append([]contextMenuItem{
-			{label: "Voice call", key: 'v', run: func(*Model) tea.Cmd {
+			{label: "Voice call", key: callKeyVoice, run: func(*Model) tea.Cmd {
 				return func() tea.Msg { return ctrl.StartCall(accountIdx, to) }
 			}},
-			{label: "Video call", key: 'c', run: func(*Model) tea.Cmd {
+			{label: "Video call", key: callKeyCamera, run: func(*Model) tea.Cmd {
 				return func() tea.Msg { return ctrl.StartVideoCall(accountIdx, to, true) }
 			}},
-			{label: "Call and share screen", key: 's', run: func(*Model) tea.Cmd {
+			{label: "Call and share screen", key: callKeyScreen, run: func(*Model) tea.Cmd {
 				return func() tea.Msg { return ctrl.StartVideoCall(accountIdx, to, false) }
 			}},
 		}, devices...)
 	}
 
 	accountIdx, who := c.accountIdx, m.callPeerName()
-	hangup := contextMenuItem{label: "Hang up", key: 'h', run: func(*Model) tea.Cmd {
+	hangup := contextMenuItem{label: "Hang up", key: callKeyHangup, run: func(*Model) tea.Cmd {
 		return func() tea.Msg { return ctrl.HangupCall(accountIdx) }
 	}}
 	switch c.state {
 	case "ringing-local":
 		return who + " is calling", append([]contextMenuItem{
-			{label: "Answer", key: 'y', run: (*Model).answerRingingCall},
-			{label: "Reject", key: 'n', run: (*Model).rejectRingingCall},
+			{label: "Answer", key: callKeyAnswer, run: (*Model).answerRingingCall},
+			{label: "Reject", key: callKeyReject, run: (*Model).rejectRingingCall},
 		}, devices...)
 	case "connected":
 	default:
@@ -385,22 +427,22 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 	if c.muted {
 		mute = "Unmute"
 	}
-	items := []contextMenuItem{{label: mute, key: 'm', run: (*Model).toggleMuteCall}}
+	items := []contextMenuItem{{label: mute, key: callKeyMute, run: (*Model).toggleMuteCall}}
 	items = append(items,
-		videoMenuItem(ctrl, accountIdx, c.video, "camera", "Start camera", "Stop camera", "Switch to camera", 'c'),
-		videoMenuItem(ctrl, accountIdx, c.video, "screen", "Share screen", "Stop sharing screen", "Switch to screen", 's'),
+		videoMenuItem(ctrl, accountIdx, c.video, "camera", "Start camera", "Stop camera", "Switch to camera", callKeyCamera),
+		videoMenuItem(ctrl, accountIdx, c.video, "screen", "Share screen", "Stop sharing screen", "Switch to screen", callKeyScreen),
 	)
 	if c.video == "screen" {
 		label, enable := "Share desktop audio", true
 		if c.desktopAudioEnabled {
 			label, enable = "Stop desktop audio", false
 		}
-		items = append(items, contextMenuItem{label: label, key: 'a', run: func(*Model) tea.Cmd {
+		items = append(items, contextMenuItem{label: label, key: callKeyDesktop, run: func(*Model) tea.Cmd {
 			return func() tea.Msg { return ctrl.SetDesktopAudio(enable) }
 		}})
 	}
 	if c.remoteVideo && !c.viewerOpen {
-		items = append(items, contextMenuItem{label: "Show their video", key: 'o', run: func(*Model) tea.Cmd {
+		items = append(items, contextMenuItem{label: "Show their video", key: callKeyVideo, run: func(*Model) tea.Cmd {
 			return func() tea.Msg { return ctrl.ReopenVideo(accountIdx) }
 		}})
 	}
@@ -527,6 +569,25 @@ func (m *Model) hangupCurrentCall() tea.Cmd {
 	}
 	ctrl, accountIdx := m.callController, m.call.accountIdx
 	return func() tea.Msg { return ctrl.HangupCall(accountIdx) }
+}
+
+// stopSendingVideo stops sending our camera (or screen) on the current call.
+func (m *Model) stopSendingVideo(camera bool) tea.Cmd {
+	if m.callController == nil || m.call == nil {
+		return nil
+	}
+	ctrl, accountIdx := m.callController, m.call.accountIdx
+	return func() tea.Msg { return ctrl.ScreenShare(accountIdx, false, camera) }
+}
+
+// toggleDesktopAudio flips whether sharing the screen also sends desktop
+// audio.
+func (m *Model) toggleDesktopAudio() tea.Cmd {
+	if m.callController == nil || m.call == nil {
+		return nil
+	}
+	ctrl, enable := m.callController, !m.call.desktopAudioEnabled
+	return func() tea.Msg { return ctrl.SetDesktopAudio(enable) }
 }
 
 // toggleMuteCall flips the mic mute on the current (connected) call.

@@ -1,3 +1,6 @@
+- change client-side stream volume
+- on nixos rebuild, call hangs or something. or one of clients dies
+
 ## Bugs
 - after switching to new account, tray icon started showing 'new message' alert all the time
 - message save as dialog doesnt ask path

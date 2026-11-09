@@ -243,15 +243,20 @@ func TestCallBarButtons(t *testing.T) {
 	m := callTestModel(&fakeCallController{})
 	m, _ = m.handleIncomingCallMsg(IncomingCallMsg{From: "bob@example.test", SID: "s1"})
 	bar := m.renderCallBar(100)
-	for _, want := range []string{"Bob is calling", "[answer]", "[reject]", "[^G menu]"} {
+	for _, want := range []string{"Bob is calling", "[^G y answer]", "[^G n reject]", "[^G menu]"} {
 		if !strings.Contains(bar, want) {
 			t.Fatalf("ringing bar missing %q:\n%s", want, bar)
 		}
 	}
 	// Narrow: only the menu button survives.
 	bar = m.renderCallBar(16)
-	if strings.Contains(bar, "[answer]") || !strings.Contains(bar, "[^G menu]") {
+	if strings.Contains(bar, "answer") || !strings.Contains(bar, "[^G menu]") {
 		t.Fatalf("narrow ringing bar:\n%s", bar)
+	}
+	// In between: the lowest-priority button (reject) goes first.
+	bar = m.renderCallBar(lipgloss.Width("[^G y answer] [^G menu]") + 4)
+	if !strings.Contains(bar, "[^G y answer]") || strings.Contains(bar, "reject") {
+		t.Fatalf("medium ringing bar:\n%s", bar)
 	}
 }
 
@@ -259,8 +264,8 @@ func TestCallMenuDesktopAudioToggle(t *testing.T) {
 	ctrl := &fakeCallController{}
 	m := callTestModel(ctrl)
 	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected", Video: "screen", Sharing: true, DesktopAudio: true, DesktopAudioEnabled: true})
-	if status := m.callStatus(); !strings.Contains(status, "sharing screen + audio") {
-		t.Fatalf("status %q", status)
+	if bar := m.renderCallBar(200); !strings.Contains(bar, "[^G a 🔊 desktop audio]") {
+		t.Fatalf("bar:\n%s", bar)
 	}
 	m = press(t, m, ctrlG)
 	if !strings.Contains(strings.Join(callMenuLabels(m), "|"), "Stop desktop audio") {
@@ -276,5 +281,30 @@ func TestCallMenuDesktopAudioToggle(t *testing.T) {
 	m = press(t, m, ctrlG)
 	if strings.Contains(strings.Join(callMenuLabels(m), "|"), "desktop audio") {
 		t.Fatalf("desktop audio offered for the camera: %v", callMenuLabels(m))
+	}
+}
+
+// TestCallBarShowsWhatWeSend checks the mic and whatever we're sending show
+// as buttons that switch them off, with their keys on them.
+func TestCallBarShowsWhatWeSend(t *testing.T) {
+	ctrl := &fakeCallController{}
+	m := callTestModel(ctrl)
+	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected", Video: "screen", Sharing: true})
+	bar := m.renderCallBar(200)
+	for _, want := range []string{"[^G m 🎤 on]", "[^G s 🖥 sharing ✕]", "[^G a 🔇 no desktop audio]", "[^G h hang up]"} {
+		if !strings.Contains(bar, want) {
+			t.Fatalf("bar missing %q:\n%s", want, bar)
+		}
+	}
+	m, cmd := clickZone(t, m, zoneCallStopScreen)
+	nonIdleCmd(cmd)
+	if len(ctrl.calls) != 1 || ctrl.calls[0] != "share false camera=false" {
+		t.Fatalf("clicking the screen button: %v", ctrl.calls)
+	}
+
+	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected", Muted: true, Video: "camera", Sharing: true})
+	bar = m.renderCallBar(200)
+	if !strings.Contains(bar, "[^G m 🔇 muted]") || !strings.Contains(bar, "[^G c 📷 on ✕]") || strings.Contains(bar, "desktop audio") {
+		t.Fatalf("muted, camera bar:\n%s", bar)
 	}
 }

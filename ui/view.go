@@ -407,8 +407,9 @@ func (m Model) renderChatArea(colors uiColors) string {
 // renderCallBar builds the persistent call status bar row: the status text
 // (callStatus) on the left, the state's clickable buttons (callBarButtons)
 // right-aligned. Always exactly one row: the status is truncated to make
-// room, and on a terminal too narrow for every button only the menu button
-// is kept, since it reaches everything the others do. "" when there's no
+// room, and on a terminal too narrow for every button the least important
+// are dropped (fitCallBarButtons) - the menu, which reaches everything the
+// others do, last. "" when there's no
 // call to show, matching callBarActive so View() only reserves space for it
 // when needed.
 func (m Model) renderCallBar(width int) string {
@@ -425,13 +426,11 @@ func (m Model) renderCallBar(width int) string {
 		out := strings.Join(parts, m.styles.callBarText(" "))
 		return out, lipgloss.Width(out)
 	}
+	buttons = fitCallBarButtons(buttons, inner, func(bs []callBarButton) int {
+		_, w := rendered(bs)
+		return w
+	})
 	btns, btnsWidth := rendered(buttons)
-	if btnsWidth > inner && len(buttons) > 1 {
-		btns, btnsWidth = rendered(buttons[len(buttons)-1:])
-	}
-	if btnsWidth > inner {
-		btns, btnsWidth = "", 0
-	}
 
 	room := inner
 	if btnsWidth > 0 {
