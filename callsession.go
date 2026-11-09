@@ -174,12 +174,15 @@ type callSession struct {
 	videoUseCamera bool
 	videoSource    call.VideoSource
 
-	// receivingRemoteVideo is true for as long as playRemoteVideo is
-	// actively reading the peer's own video track - startVideoShare refuses
-	// to run while it's set (see that doc for why: a second video content
-	// added on top of an already-negotiated one from the peer was observed
-	// live to collide on the same mid and get the whole call terminated).
-	receivingRemoteVideo bool
+	// remoteVideo is true while the peer is actually streaming video to us:
+	// from the first keyframe playRemoteVideo assembles until the peer
+	// withdraws that content (applyContentRemove) or the track ends.
+	// viewerDismissed is set when the mpv window showing it is closed by
+	// hand - playRemoteVideo then keeps draining the track without popping
+	// a new window on the next keyframe, until reopenRemoteVideo asks for
+	// it back.
+	remoteVideo     bool
+	viewerDismissed bool
 
 	// remoteVideoTrack is the peer's currently active incoming video track,
 	// set for as long as playRemoteVideo is reading it - lets reopenRemoteVideo
@@ -1544,8 +1547,9 @@ func (c *callSession) currentState() callState {
 // reading the webcam) only actually starts once the peer's content-accept
 // lands (see applyContentAccept), so the video m-line only ever gets
 // negotiated with real media about to flow, never idle from the start (see
-// call.NewPeerConnection's doc comment for why that matters). No-op if
-// already sharing or a content-add is already in flight. Runs fine while
+// call.NewPeerConnection's doc comment for why that matters). Already
+// sending (or with a content-add in flight), it only switches the source to
+// useCamera's - see switchVideoSource. Runs fine while
 // we're already receiving the peer's own video too - each direction gets its
 // own content/mid (see call.PeerConnection.AddVideoTrack, which always
 // allocates a fresh transceiver rather than repurposing the recvonly one
@@ -1553,8 +1557,20 @@ func (c *callSession) currentState() callState {
 // sending video on the same call simultaneously.
 func (c *callSession) startVideoShare(useCamera bool) error {
 	c.mu.Lock()
-	if c.sharing || c.pendingShare {
+	if c.pendingShare {
+		// Capture hasn't started yet - beginScreenShareCapture reads the
+		// source once the peer's content-accept lands.
+		c.videoUseCamera = useCamera
 		c.mu.Unlock()
+		c.broadcastUpdate()
+		return nil
+	}
+	if c.sharing {
+		pc, same := c.pc, c.videoUseCamera == useCamera
+		c.mu.Unlock()
+		if !same && pc != nil {
+			c.switchVideoSource(pc, useCamera)
+		}
 		return nil
 	}
 	pc, state, remote := c.pc, c.state, c.remoteJID
@@ -1600,11 +1616,13 @@ func (c *callSession) startVideoShare(useCamera bool) error {
 	c.mu.Lock()
 	c.pendingShare = true
 	c.mu.Unlock()
+	c.broadcastUpdate()
 
 	if err := c.client.SendContentAdd(context.Background(), remote, c.sid, videoContent); err != nil {
 		c.mu.Lock()
 		c.pendingShare = false
 		c.mu.Unlock()
+		c.broadcastUpdate()
 		return fmt.Errorf("sending content-add: %w", err)
 	}
 	return nil
@@ -1765,6 +1783,12 @@ func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.Jingle
 	}
 }
 
+// videoSourceCamera/videoSourceScreen are callStateEvent.Video's values.
+const (
+	videoSourceCamera = "camera"
+	videoSourceScreen = "screen"
+)
+
 // defaultCameraDevice is the only camera device kage tries - no UI or config
 // exists yet to pick among several, so the common single-webcam case is all
 // that's supported for now.
@@ -1789,6 +1813,16 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	}
 	if err != nil {
 		slog.Warn("starting video capture", "sid", c.sid, "camera", useCamera, "err", err)
+		// The content is negotiated but nothing will ever be sent on it -
+		// withdraw it the same way a user-initiated stop would, so neither
+		// side is left showing a video that isn't coming.
+		c.stopScreenShare()
+		c.removeVideoContent(context.Background())
+		source := "screen share"
+		if useCamera {
+			source = "camera"
+		}
+		c.broadcastNotice(fmt.Sprintf("couldn't start %s: %v", source, err))
 		return
 	}
 	slog.Debug("screen share: capture started", "sid", c.sid, "camera", useCamera, "video_sender_ssrc", pc.VideoSenderSSRC())
@@ -1816,17 +1850,41 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 		}
 	})
 
-	c.broadcastState(c.currentState(), "")
+	c.broadcastUpdate()
 }
 
-// reopenRemoteVideo re-requests a keyframe for the peer's currently active
-// incoming video track, letting playRemoteVideo's viewer==nil branch reopen
-// mpv once it arrives - the recovery path for a peer who closed the mpv
-// window by accident and wants it back, without tearing down or
-// renegotiating the video content itself.
+// switchVideoSource swaps what feeds our already-negotiated outgoing video
+// track - camera to screen or back - without renegotiating: both sources
+// produce the same H.264 Annex-B stream, so all the peer sees is a fresh
+// keyframe (with its own SPS, i.e. possibly a new resolution) on the same
+// content.
+func (c *callSession) switchVideoSource(pc *call.PeerConnection, useCamera bool) {
+	c.mu.Lock()
+	old := c.videoSource
+	// Cleared before Stop so the old capture goroutine's stillOurs check
+	// doesn't mistake its own exit for the source dying and withdraw the
+	// content out from under the replacement.
+	c.videoSource = nil
+	c.videoUseCamera = useCamera
+	c.mu.Unlock()
+	slog.Debug("screen share: switching source", "sid", c.sid, "camera", useCamera)
+	if old != nil {
+		old.Stop()
+	}
+	c.beginScreenShareCapture(pc)
+}
+
+// reopenRemoteVideo brings back the viewer for the peer's currently active
+// incoming video after it was closed by hand: clears viewerDismissed and
+// re-requests a keyframe, letting playRemoteVideo's viewer==nil branch
+// reopen mpv once it arrives - without tearing down or renegotiating the
+// video content itself.
 func (c *callSession) reopenRemoteVideo() error {
 	c.mu.Lock()
 	pc, track := c.pc, c.remoteVideoTrack
+	if pc != nil && track != nil {
+		c.viewerDismissed = false
+	}
 	c.mu.Unlock()
 	if pc == nil || track == nil {
 		return fmt.Errorf("no active incoming video to reopen")
@@ -1847,7 +1905,7 @@ func (c *callSession) stopScreenShare() {
 	if share != nil {
 		share.Stop()
 	}
-	c.broadcastState(c.currentState(), "")
+	c.broadcastUpdate()
 }
 
 // withdrawVideoShare stops sending our own video and tells the peer so with
@@ -1864,11 +1922,7 @@ func (c *callSession) stopScreenShare() {
 // give the re-share's answer two m-lines for one mid.
 func (c *callSession) withdrawVideoShare(ctx context.Context) {
 	c.mu.Lock()
-	sharing, pending, remote := c.sharing, c.pendingShare, c.remoteJID
-	videoMid := ""
-	if c.pc != nil {
-		videoMid = c.pc.VideoMid()
-	}
+	sharing, pending := c.sharing, c.pendingShare
 	// Cleared here too so a stop pressed while the content-add is still in
 	// flight can't have a late content-accept start the capture anyway.
 	c.pendingShare = false
@@ -1878,7 +1932,20 @@ func (c *callSession) withdrawVideoShare(ctx context.Context) {
 	}
 
 	c.stopScreenShare()
+	c.removeVideoContent(ctx)
+}
 
+// removeVideoContent sends the content-remove for our outgoing video
+// content and forgets it from remoteContents - the signaling half of
+// withdrawVideoShare, also used on its own when capture fails to start at
+// all (nothing to stop locally then, but the content is still negotiated).
+func (c *callSession) removeVideoContent(ctx context.Context) {
+	c.mu.Lock()
+	remote, videoMid := c.remoteJID, ""
+	if c.pc != nil {
+		videoMid = c.pc.VideoMid()
+	}
+	c.mu.Unlock()
 	if videoMid == "" || remote == "" {
 		return
 	}
@@ -1932,6 +1999,9 @@ func (c *callSession) applyContentRemove(jingle xmpp.JingleIQ) {
 		var viewer *call.ScreenViewer
 		if wasVideo {
 			viewer, c.remoteVideoViewer = c.remoteVideoViewer, nil
+			// A later re-share from the peer is a new stream worth showing,
+			// even if this one's window had been closed.
+			c.remoteVideo, c.viewerDismissed = false, false
 		}
 		c.mu.Unlock()
 		if !found {
@@ -1940,6 +2010,9 @@ func (c *callSession) applyContentRemove(jingle xmpp.JingleIQ) {
 		slog.Debug("screen share: peer withdrew content", "sid", c.sid, "content", req.Name, "video", wasVideo)
 		if viewer != nil {
 			viewer.Close()
+		}
+		if wasVideo {
+			c.broadcastUpdate()
 		}
 	}
 }
@@ -1955,14 +2028,17 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 	slog.Debug("screen share: remote video track registered, waiting for packets", "sid", c.sid, "track_id", track.ID(), "ssrc", track.SSRC())
 
 	c.mu.Lock()
-	c.receivingRemoteVideo = true
 	c.remoteVideoTrack = track
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
-		c.receivingRemoteVideo = false
+		wasActive := c.remoteVideo
+		c.remoteVideo = false
 		c.remoteVideoTrack = nil
 		c.mu.Unlock()
+		if wasActive {
+			c.broadcastUpdate()
+		}
 	}()
 
 	// Request a keyframe now, not just once we're ready to decode: the
@@ -2056,6 +2132,13 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 			if hasKeyframe(sample.Data) && !sawKeyframe {
 				sawKeyframe = true
 				slog.Debug("screen share: first keyframe assembled", "sid", c.sid, "sample", samples, "bytes", len(sample.Data))
+				c.mu.Lock()
+				wasActive := c.remoteVideo
+				c.remoteVideo = true
+				c.mu.Unlock()
+				if !wasActive {
+					c.broadcastUpdate()
+				}
 			}
 			if samples == 1 || samples%60 == 0 {
 				slog.Debug("screen share: assembled sample", "sid", c.sid, "sample", samples, "bytes", len(sample.Data), "saw_keyframe", sawKeyframe)
@@ -2068,7 +2151,13 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				if !sawKeyframe {
 					continue
 				}
-				v, err := call.NewScreenViewer(c.peer+" — screen share", videoCodec)
+				c.mu.Lock()
+				dismissed := c.viewerDismissed
+				c.mu.Unlock()
+				if dismissed {
+					continue
+				}
+				v, err := call.NewScreenViewer(c.peer+" — video", videoCodec)
 				if err != nil {
 					slog.Warn("starting screen share viewer", "sid", c.sid, "err", err)
 					return
@@ -2078,18 +2167,31 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				c.remoteVideoViewer = v
 				c.mu.Unlock()
 				slog.Debug("screen share: mpv viewer launched", "sid", c.sid)
+				c.broadcastUpdate()
 			}
 			if err := viewer.WriteFrame(sample.Data); err != nil {
-				// mpv exited (e.g. the peer closed the window by accident) -
-				// this doesn't end the call's video: keep draining the track
-				// so reopenRemoteVideo (bound to a key in the UI) can request a
-				// fresh keyframe and reopen a new viewer without restarting
-				// the whole share.
+				// mpv exited (the window was closed) - this doesn't end the
+				// call's video: keep draining the track, but don't pop the
+				// window straight back up on the next keyframe either. It
+				// stays closed until reopenRemoteVideo (the call menu's
+				// "open video") asks for it back.
 				slog.Debug("screen share: writing to mpv failed, closing viewer", "sid", c.sid, "err", err)
+				// A viewer applyContentRemove already closed (the peer
+				// stopped, then re-shared on the same track) wasn't
+				// dismissed by anyone - the re-share should just show.
 				viewer.Close()
+				c.mu.Lock()
+				dismissed := c.remoteVideoViewer == viewer
+				if dismissed {
+					c.remoteVideoViewer = nil
+					c.viewerDismissed = true
+				}
+				c.mu.Unlock()
 				viewer = nil
-				c.clearRemoteVideoViewer()
 				sawKeyframe = false
+				if dismissed {
+					c.broadcastUpdate()
+				}
 				continue
 			}
 		}
@@ -2279,15 +2381,55 @@ func (c *callSession) logCall(state, reason string) {
 
 func (c *callSession) broadcastState(state callState, reason string) {
 	c.mu.Lock()
-	muted, quality, sharing := c.muted, c.quality, c.sharing
-	sas, fpChanged := c.fingerprintSAS, c.fingerprintChanged
+	ev := c.stateEventLocked(state, reason)
 	c.mu.Unlock()
 	slog.Debug("call state broadcast", "sid", c.sid, "state", state.String(), "reason", reason, "incoming", c.incoming)
-	broadcast(c.srv, evCallState, callStateEvent{
+	broadcast(c.srv, evCallState, ev)
+}
+
+// stateEventLocked builds the callStateEvent for state from everything else
+// currently known about the call. c.mu must be held.
+func (c *callSession) stateEventLocked(state callState, reason string) callStateEvent {
+	video := ""
+	if c.sharing || c.pendingShare {
+		video = videoSourceScreen
+		if c.videoUseCamera {
+			video = videoSourceCamera
+		}
+	}
+	return callStateEvent{
 		AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid, State: state.String(), Reason: reason,
-		Muted: muted, Quality: quality, Sharing: sharing,
-		SAS: sas, FingerprintChanged: fpChanged,
-	})
+		Muted: c.muted, Quality: c.quality, Sharing: c.sharing,
+		Video: video, VideoPending: c.pendingShare,
+		RemoteVideo: c.remoteVideo, ViewerOpen: c.remoteVideoViewer != nil,
+		SAS: c.fingerprintSAS, FingerprintChanged: c.fingerprintChanged,
+	}
+}
+
+// broadcastUpdate re-broadcasts the call's unchanged lifecycle state after
+// something else about it changed (video started/stopped, the peer's video
+// appeared, ...). Silent once the call has ended - end() already sent the
+// final state, and a late media goroutine winding down must not follow it
+// with a stale one.
+func (c *callSession) broadcastUpdate() {
+	if state := c.currentState(); state != callEnded {
+		c.broadcastState(state, "")
+	}
+}
+
+// broadcastNotice is broadcastUpdate carrying a one-off message for the UI
+// to surface (e.g. a capture device that failed to open) - something worth
+// telling the user that isn't itself a call state.
+func (c *callSession) broadcastNotice(notice string) {
+	c.mu.Lock()
+	state := c.state
+	ev := c.stateEventLocked(state, "")
+	c.mu.Unlock()
+	if state == callEnded {
+		return
+	}
+	ev.Notice = notice
+	broadcast(c.srv, evCallState, ev)
 }
 
 // setMuted flips the mic-gate checked by startMedia's capture loop and

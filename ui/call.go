@@ -30,8 +30,13 @@ type callUIState struct {
 
 	muted     bool
 	quality   string    // "", "good", "fair", "poor"
-	sharing   bool      // true while we're actively sending our own screen
+	sharing   bool      // true while we're actively sending our own video
 	startedAt time.Time // set the first time state becomes "connected"
+
+	video        string // "camera"/"screen" while sending (or about to), else ""
+	videoPending bool   // video requested, not flowing yet
+	remoteVideo  bool   // the peer is streaming video to us
+	viewerOpen   bool   // ...and its window is up
 
 	sas                string // short authentication string, "" until negotiated
 	fingerprintChanged bool   // peer's DTLS fingerprint doesn't match the pinned one
@@ -137,6 +142,11 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		sharing:    msg.Sharing,
 		startedAt:  startedAt,
 
+		video:        msg.Video,
+		videoPending: msg.VideoPending,
+		remoteVideo:  msg.RemoteVideo,
+		viewerOpen:   msg.ViewerOpen,
+
 		sas:                msg.SAS,
 		fingerprintChanged: msg.FingerprintChanged,
 	}
@@ -154,10 +164,14 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		m.videoSourcePrompt = false
 		m.videoDialPrompt = false
 	}
-	if msg.State == "ended" || msg.State == "failed" {
-		return m, callClearTimer(msg.AccountIdx, gen)
+	var notice tea.Cmd
+	if msg.Notice != "" {
+		notice = m.showNotification(msg.Notice)
 	}
-	return m, nil
+	if msg.State == "ended" || msg.State == "failed" {
+		return m, tea.Batch(notice, callClearTimer(msg.AccountIdx, gen))
+	}
+	return m, notice
 }
 
 // callBarActive reports whether the persistent call bar should occupy a row

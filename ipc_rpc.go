@@ -228,18 +228,9 @@ type reopenVideoParams struct {
 // live transition (see daemonServer.getCallState/ipcClient.GetCallState).
 // Active is false and the rest of the fields are zero when no call is up.
 type getCallStateResult struct {
-	Active             bool
-	AccountIdx         int
-	Peer               string // bare JID
-	SID                string
-	State              string
-	Reason             string
-	Muted              bool
-	Quality            string
-	Sharing            bool
-	StartedAt          time.Time
-	SAS                string
-	FingerprintChanged bool
+	Active    bool
+	StartedAt time.Time
+	callStateEvent
 }
 
 // incomingCallEvent tells attached clients that a peer is ringing us
@@ -266,7 +257,20 @@ type callStateEvent struct {
 	Reason     string
 	Muted      bool
 	Quality    string // "", "good", "fair", "poor" - "" until the first sample lands
-	Sharing    bool   // true while we're actively sending our own screen
+	Sharing    bool   // true while we're actively sending our own video
+	// Video is the source of the video we're sending ("camera"/"screen"),
+	// set from the moment it's requested - VideoPending is true until the
+	// peer has accepted it and capture actually started. "" when not sending.
+	Video        string
+	VideoPending bool
+	// RemoteVideo is true while the peer is streaming video to us;
+	// ViewerOpen is whether its mpv window is currently up (false after it
+	// was closed by hand, until ReopenVideo).
+	RemoteVideo bool
+	ViewerOpen  bool
+	// Notice is a one-off message for the UI to show (e.g. a camera that
+	// failed to open), not part of the call's persistent state.
+	Notice string
 	// SAS is the short authentication string derived from both ends' DTLS
 	// fingerprints (see computeSAS) - "" until negotiation completes.
 	SAS string

@@ -1051,7 +1051,18 @@ type CallStateMsg struct {
 	Reason     string
 	Muted      bool
 	Quality    string // "", "good", "fair", "poor"
-	Sharing    bool   // true while we're actively sending our own screen
+	Sharing    bool   // true while we're actively sending our own video
+	// Video is what we're sending ("camera"/"screen", "" for nothing) -
+	// already set while VideoPending, i.e. requested but not flowing yet.
+	Video        string
+	VideoPending bool
+	// RemoteVideo is true while the peer streams video to us; ViewerOpen is
+	// whether its window is currently up (closed by hand until ReopenVideo).
+	RemoteVideo bool
+	ViewerOpen  bool
+	// Notice is a one-off message to surface as a toast (e.g. a camera that
+	// failed to open) - not call state.
+	Notice string
 	// StartedAt is normally left zero - handleCallStateMsg fills it in the
 	// moment State first becomes "connected". A daemon-provided sync (a TUI
 	// attaching to a call already in progress) sets it explicitly so the
