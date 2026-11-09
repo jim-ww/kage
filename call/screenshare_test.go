@@ -47,8 +47,10 @@ func TestScreenShareRunGroupsNALsIntoFrames(t *testing.T) {
 		frames = append(frames, cp)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	// The stream ending without Stop means the capture process exited on
+	// its own - an error, carrying its last stderr line when there is one.
+	if err == nil {
+		t.Fatal("Run returned nil for a capture stream that ended on its own")
 	}
 
 	if len(frames) != 2 {
@@ -61,6 +63,18 @@ func TestScreenShareRunGroupsNALsIntoFrames(t *testing.T) {
 	}
 	if !bytes.Equal(frames[1], slice2) {
 		t.Errorf("frame 1 = %x, want %x", frames[1], slice2)
+	}
+}
+
+func TestRunReportsCaptureExitReason(t *testing.T) {
+	pr, pw := io.Pipe()
+	pw.Close()
+	stderr := &syncBuffer{}
+	stderr.Write([]byte("ffmpeg version 9\n  configuration: ...\n[video4linux2] /dev/video0: No such file or directory\n\n"))
+	s := &annexBSource{label: "camera", stdout: pr, stderr: stderr, done: make(chan struct{})}
+	err := s.Run(func([]byte, time.Duration) error { return nil })
+	if err == nil || err.Error() != "[video4linux2] /dev/video0: No such file or directory" {
+		t.Fatalf("Run error = %v, want the last stderr line", err)
 	}
 }
 

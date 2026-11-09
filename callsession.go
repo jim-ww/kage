@@ -1789,6 +1789,14 @@ const (
 	videoSourceScreen = "screen"
 )
 
+// videoSourceLabel names a video source in messages shown to the user.
+func videoSourceLabel(useCamera bool) string {
+	if useCamera {
+		return "camera"
+	}
+	return "screen share"
+}
+
 // defaultCameraDevice is the only camera device kage tries - no UI or config
 // exists yet to pick among several, so the common single-webcam case is all
 // that's supported for now.
@@ -1818,11 +1826,7 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 		// side is left showing a video that isn't coming.
 		c.stopScreenShare()
 		c.removeVideoContent(context.Background())
-		source := "screen share"
-		if useCamera {
-			source = "camera"
-		}
-		c.broadcastNotice(fmt.Sprintf("couldn't start %s: %v", source, err))
+		c.broadcastNotice(fmt.Sprintf("couldn't start %s: %v", videoSourceLabel(useCamera), err))
 		return
 	}
 	slog.Debug("screen share: capture started", "sid", c.sid, "camera", useCamera, "video_sender_ssrc", pc.VideoSenderSSRC())
@@ -1833,9 +1837,10 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.mu.Unlock()
 
 	go recoverAndLog(c.sid, "screenShareCapture", func() {
-		if err := share.Run(func(frame []byte, sinceLast time.Duration) error {
+		err := share.Run(func(frame []byte, sinceLast time.Duration) error {
 			return pc.WriteVideoSample(frame, sinceLast)
-		}); err != nil {
+		})
+		if err != nil {
 			slog.Warn("screen share capture ended", "sid", c.sid, "err", err)
 		}
 		c.mu.Lock()
@@ -1847,6 +1852,9 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 			// concerned that's the same event as a user-initiated stop, so
 			// withdraw the content rather than just clearing our own flags.
 			c.withdrawVideoShare(context.Background())
+			if err != nil {
+				c.broadcastNotice(fmt.Sprintf("%s stopped: %v", videoSourceLabel(useCamera), err))
+			}
 		}
 	})
 

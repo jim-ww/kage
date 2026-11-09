@@ -3,10 +3,12 @@ package call
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -99,8 +101,9 @@ func (q VideoQuality) profile() videoQualityProfile {
 // actually feeding them.
 type VideoSource interface {
 	// Run reads encoded frames until the source's process exits or Stop is
-	// called, calling write once per complete access unit. Blocks - callers
-	// run it in its own goroutine.
+	// called, calling write once per complete access unit. Returns nil only
+	// for Stop - a process exiting on its own is an error carrying the
+	// reason it gave. Blocks - callers run it in its own goroutine.
 	Run(write func(frame []byte, sinceLast time.Duration) error) error
 	Stop()
 }
@@ -198,12 +201,23 @@ func (s *annexBSource) Run(write func(frame []byte, sinceLast time.Duration) err
 				// frames especially: permission/device failures exit this
 				// way with nothing on stdout and the real reason only on
 				// stderr).
-				slog.Debug(s.label+": capture process stream ended", "frames", frames, "stderr", s.stderr.String())
-				return nil
+				stderr := s.stderr.String()
+				slog.Debug(s.label+": capture process stream ended", "frames", frames, "stderr", stderr)
+				if reason := lastLine(stderr); reason != "" {
+					return errors.New(reason)
+				}
+				return errors.New("capture process exited")
 			}
 			return err
 		}
 	}
+}
+
+// lastLine is the last non-blank line of s - for a capture process that
+// died, its stderr's last line is nearly always the actual reason.
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // Stop terminates the capture process and unblocks Run.
