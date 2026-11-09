@@ -134,6 +134,27 @@ func setAudioDevices(input, output string) {
 // adapter.SetDesktopAudio.
 var desktopAudioEnabled atomic.Bool
 
+// desktopAudioVolume mirrors state.toml's screen_share_audio_volume: the
+// gain, in percent, applied to desktop audio before it's mixed in (see
+// callSession.pumpMic). Changed at runtime by adapter.SetDesktopAudioVolume.
+var desktopAudioVolume atomic.Int32
+
+// Desktop audio volume bounds, in percent. No 0: silencing it is what
+// turning desktop audio off is for, and a stored 0 means "unset" (100).
+const (
+	minDesktopAudioVolume = 10
+	maxDesktopAudioVolume = 200
+)
+
+// clampDesktopAudioVolume brings percent into range, reading 0 (unset)
+// as the default 100.
+func clampDesktopAudioVolume(percent int) int {
+	if percent == 0 {
+		return 100
+	}
+	return max(minDesktopAudioVolume, min(maxDesktopAudioVolume, percent))
+}
+
 // defaultEncryptionMode mirrors cfg.DefaultEncryptionMode for
 // resolveEncryptionMode (crypto_helpers.go) and account.go's chat-list
 // fallback, which have no other path back to the loaded config — same
@@ -253,6 +274,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
 	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)
 	desktopAudioEnabled.Store(!cfg.State.ScreenShareAudioDisabled)
+	desktopAudioVolume.Store(int32(clampDesktopAudioVolume(cfg.State.ScreenShareAudioVolume)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 
 	if !cfg.GPGDisabled {
@@ -359,6 +381,7 @@ func (b *backend) Reload(cfg config.Config) {
 	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
 	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)
 	desktopAudioEnabled.Store(!cfg.State.ScreenShareAudioDisabled)
+	desktopAudioVolume.Store(int32(clampDesktopAudioVolume(cfg.State.ScreenShareAudioVolume)))
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 }
 

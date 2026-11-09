@@ -173,6 +173,19 @@ func SetScreenShareAudio(path string, enabled bool) error {
 	})
 }
 
+// SetScreenShareAudioVolume sets (or updates) the desktop audio's volume
+// in percent in the state file next to path - 100, the default, is
+// written as unset.
+func SetScreenShareAudioVolume(path string, percent int) error {
+	return updateStateFile(path, func(st *State) error {
+		st.ScreenShareAudioVolume = percent
+		if percent == 100 {
+			st.ScreenShareAudioVolume = 0
+		}
+		return nil
+	})
+}
+
 // SetInputHeight sets (or updates) the input height in the state file next
 // to path, preserving everything else — called after the user finishes
 // dragging the compose box's top border (see ui.InputHeightSetter).

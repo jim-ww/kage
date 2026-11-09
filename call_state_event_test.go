@@ -124,3 +124,11 @@ func TestOmemoFingerprintGroups(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestClampDesktopAudioVolume(t *testing.T) {
+	for in, want := range map[int]int{0: 100, 5: 10, 70: 70, 250: 200} {
+		if got := clampDesktopAudioVolume(in); got != want {
+			t.Errorf("clamp(%d) = %d, want %d", in, got, want)
+		}
+	}
+}

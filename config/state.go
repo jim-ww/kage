@@ -83,6 +83,9 @@ type State struct {
 	// audio toggle; unset means sharing the screen also sends what other
 	// applications are playing.
 	ScreenShareAudioDisabled bool `toml:"screen_share_audio_disabled,omitempty"`
+	// ScreenShareAudioVolume is the desktop audio's volume in percent
+	// (10-200), persisted from the call's volume slider; unset means 100.
+	ScreenShareAudioVolume int `toml:"screen_share_audio_volume,omitempty"`
 
 	// Path is the state file this was loaded from / would be written to.
 	// Not part of the toml shape.

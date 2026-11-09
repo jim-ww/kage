@@ -472,6 +472,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		}
 		return ""
 	}
+	if m.desktopVolumeOpen && m.call != nil {
+		return m.desktopVolumeZoneUnderMouse(mouse)
+	}
 	if m.contextMenu != nil {
 		for i := range m.contextMenu.items {
 			if m.zone.Get(zoneContextMenuItem(i)).InBounds(mouse) {
@@ -623,6 +626,9 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.contextMenu != nil {
 		return m.handleContextMenuClick(msg)
+	}
+	if m.desktopVolumeOpen && m.call != nil {
+		return m.handleDesktopVolumeClick(msg)
 	}
 
 	if m.avatarPreview != nil {
@@ -1235,6 +1241,9 @@ func (m Model) handleOpenPickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	if m.contextMenu != nil {
 		return m, nil
+	}
+	if m.desktopVolumeOpen && m.call != nil {
+		return m.handleDesktopVolumeWheel(msg)
 	}
 
 	mouse := msg.Mouse()

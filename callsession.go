@@ -1544,7 +1544,9 @@ func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Enc
 			c.mu.Unlock()
 			var extra []int16
 			if desktop != nil {
-				extra = nextDesktopFrame(desktop.Frames())
+				if extra = nextDesktopFrame(desktop.Frames()); extra != nil {
+					call.ScaleFrame(extra, int(desktopAudioVolume.Load()))
+				}
 			}
 			switch {
 			case muted && extra == nil:
@@ -2610,7 +2612,7 @@ func (c *callSession) stateEventLocked(state callState, reason string) callState
 		Muted: c.muted, Quality: c.quality, Sharing: c.sharing,
 		Video: video, VideoPending: c.pendingShare,
 		RemoteVideo: c.remoteVideo, ViewerOpen: c.remoteVideoViewer != nil,
-		DesktopAudio: c.desktop != nil, DesktopAudioEnabled: desktopAudioEnabled.Load(),
+		DesktopAudio: c.desktop != nil, DesktopAudioEnabled: desktopAudioEnabled.Load(), DesktopAudioVolume: int(desktopAudioVolume.Load()),
 		SAS: c.fingerprintSAS, FingerprintChanged: c.fingerprintChanged,
 	}
 }

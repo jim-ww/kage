@@ -1819,6 +1819,30 @@ func (a *adapter) SetDesktopAudio(enabled bool) error {
 	return nil
 }
 
+// SetDesktopAudioVolume sets the desktop audio's volume in percent
+// (clamped to 10-200), persists it to state.toml, and lets attached TUIs
+// know - a share in progress picks it up on its next frame.
+func (a *adapter) SetDesktopAudioVolume(percent int) error {
+	percent = clampDesktopAudioVolume(percent)
+	desktopAudioVolume.Store(int32(percent))
+	err := config.SetScreenShareAudioVolume(a.cfgPath, percent)
+	a.mu.Lock()
+	sessions := append([]*accountSession(nil), a.sessions...)
+	a.mu.Unlock()
+	for _, sess := range sessions {
+		if sess == nil {
+			continue
+		}
+		if c := sess.currentCall(); c != nil {
+			c.broadcastUpdate()
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("saving desktop audio volume: %w", err)
+	}
+	return nil
+}
+
 // shutdownHangupTimeout bounds how long daemon shutdown waits on hanging up
 // calls - a dead connection mustn't hold the whole shutdown hostage.
 const shutdownHangupTimeout = 2 * time.Second

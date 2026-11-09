@@ -88,3 +88,19 @@ func TestEncoderSetMusic(t *testing.T) {
 		}
 	}
 }
+
+func TestScaleFrame(t *testing.T) {
+	f := []int16{1000, -1000, 30000}
+	ScaleFrame(f, 50)
+	if want := []int16{500, -500, 15000}; !slices.Equal(f, want) {
+		t.Fatalf("50%%: %v", f)
+	}
+	ScaleFrame(f, 200)
+	if want := []int16{1000, -1000, 30000}; !slices.Equal(f, want) {
+		t.Fatalf("200%%: %v", f)
+	}
+	ScaleFrame(f, 200)
+	if f[2] != 32767 {
+		t.Fatalf("not clipped: %v", f)
+	}
+}

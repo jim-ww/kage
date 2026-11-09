@@ -61,6 +61,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
+	// ── Desktop audio volume popup intercepts all input until closed ───
+	if m.desktopVolumeOpen && m.call != nil {
+		return m.updateDesktopVolumeKey(msg)
+	}
+
 	// ── Emoji-picker popup intercepts all input until dismissed ────────
 	if m.emojiPicker != nil {
 		return m.updateEmojiPickerKey(msg)

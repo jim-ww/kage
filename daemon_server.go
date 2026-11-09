@@ -426,6 +426,13 @@ func (d *daemonServer) handle(client ipc.ClientID, method string, params json.Ra
 	case rpcAudioDevices:
 		return d.a.AudioDevices()
 
+	case rpcSetDesktopAudioVolume:
+		p, err := unmarshalParams[setDesktopAudioVolumeParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.SetDesktopAudioVolume(p.Percent)
+
 	case rpcSetDesktopAudio:
 		p, err := unmarshalParams[setDesktopAudioParams](params)
 		if err != nil {

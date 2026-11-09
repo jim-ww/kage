@@ -59,6 +59,7 @@ const (
 	rpcAudioDevices             = "AudioDevices"
 	rpcSetAudioDevice           = "SetAudioDevice"
 	rpcSetDesktopAudio          = "SetDesktopAudio"
+	rpcSetDesktopAudioVolume    = "SetDesktopAudioVolume"
 	rpcGetCallState             = "GetCallState"
 )
 
@@ -236,6 +237,9 @@ type audioDevicesResult struct {
 type setDesktopAudioParams struct {
 	Enabled bool
 }
+type setDesktopAudioVolumeParams struct {
+	Percent int
+}
 type setAudioDeviceParams struct {
 	Output bool // false: the microphone
 	Name   string
@@ -292,6 +296,7 @@ type callStateEvent struct {
 	// DesktopAudioEnabled is that setting itself.
 	DesktopAudio        bool
 	DesktopAudioEnabled bool
+	DesktopAudioVolume  int // percent
 	// Notice is a one-off message for the UI to show (e.g. a camera that
 	// failed to open), not part of the call's persistent state.
 	Notice string

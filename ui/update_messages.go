@@ -1171,6 +1171,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m.call = nil
 			m.updateSizes()
 			m.refreshContextMenu()
+			m.desktopVolumeOpen = false
 		}
 		return m, nil, true
 

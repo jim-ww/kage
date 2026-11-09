@@ -352,6 +352,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderInfoPopup()
 	case m.showHelp:
 		viewportArea = m.renderHelpPopup()
+	case m.desktopVolumeOpen && m.call != nil:
+		viewportArea = m.renderDesktopVolumePopup()
 	case m.emojiPicker != nil:
 		viewportArea = m.renderEmojiPickerPopup()
 	case m.deviceList != nil:

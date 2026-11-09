@@ -245,6 +245,17 @@ func propString(props map[string]any, key string) string {
 	}
 }
 
+// ScaleFrame applies a percent gain to frame in place, clipping at int16's
+// range.
+func ScaleFrame(frame []int16, percent int) {
+	if percent == 100 {
+		return
+	}
+	for i, s := range frame {
+		frame[i] = int16(max(-32768, min(32767, int32(s)*int32(percent)/100)))
+	}
+}
+
 // MixFrame adds src into dst sample by sample, clipping at int16's range.
 func MixFrame(dst, src []int16) {
 	for i := range min(len(dst), len(src)) {

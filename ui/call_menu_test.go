@@ -30,6 +30,9 @@ func (f *fakeCallController) HangupCall(int) tea.Msg         { return f.record("
 func (f *fakeCallController) RejectCall(int) tea.Msg         { return f.record("reject") }
 func (f *fakeCallController) MuteCall(_ int, m bool) tea.Msg { return f.record("mute %v", m) }
 func (f *fakeCallController) ReopenVideo(int) tea.Msg        { return f.record("reopen") }
+func (f *fakeCallController) SetDesktopAudioVolume(percent int) tea.Msg {
+	return f.record("volume %d", percent)
+}
 func (f *fakeCallController) SetDesktopAudio(on bool) tea.Msg {
 	return f.record("desktopaudio %v", on)
 }
@@ -264,7 +267,7 @@ func TestCallMenuDesktopAudioToggle(t *testing.T) {
 	ctrl := &fakeCallController{}
 	m := callTestModel(ctrl)
 	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected", Video: "screen", Sharing: true, DesktopAudio: true, DesktopAudioEnabled: true})
-	if bar := m.renderCallBar(200); !strings.Contains(bar, "[^G a 🔊 desktop audio]") {
+	if bar := m.renderCallBar(200); !strings.Contains(bar, "[^G v 🔊 100%]") {
 		t.Fatalf("bar:\n%s", bar)
 	}
 	m = press(t, m, ctrlG)
@@ -291,7 +294,7 @@ func TestCallBarShowsWhatWeSend(t *testing.T) {
 	m := callTestModel(ctrl)
 	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected", Video: "screen", Sharing: true})
 	bar := m.renderCallBar(200)
-	for _, want := range []string{"[^G m 🎤 on]", "[^G s 🖥 sharing ✕]", "[^G a 🔇 no desktop audio]", "[^G h hang up]"} {
+	for _, want := range []string{"[^G m 🎤 on]", "[^G s 🖥 sharing ✕]", "[^G v 🔇 no desktop audio]", "[^G h hang up]"} {
 		if !strings.Contains(bar, want) {
 			t.Fatalf("bar missing %q:\n%s", want, bar)
 		}

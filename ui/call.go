@@ -40,6 +40,7 @@ type callUIState struct {
 
 	desktopAudio        bool // other apps' audio is being sent
 	desktopAudioEnabled bool // ...whenever the screen is shared
+	desktopVolume       int  // ...at this volume, percent
 
 	sas                string // short authentication string, "" until negotiated
 	fingerprintChanged bool   // peer's DTLS fingerprint doesn't match the pinned one
@@ -149,6 +150,7 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 
 		desktopAudio:        msg.DesktopAudio,
 		desktopAudioEnabled: msg.DesktopAudioEnabled,
+		desktopVolume:       desktopVolumeOrDefault(msg.DesktopAudioVolume),
 
 		sas:                msg.SAS,
 		fingerprintChanged: msg.FingerprintChanged,
@@ -157,6 +159,9 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		m.updateSizes()
 	}
 	m.refreshContextMenu()
+	if msg.Video != "screen" {
+		m.desktopVolumeOpen = false
+	}
 	var notice tea.Cmd
 	if msg.Notice != "" {
 		notice = m.showNotification(msg.Notice)
@@ -259,6 +264,7 @@ const (
 	callKeyReject  = 'n'
 	callKeyMute    = 'm'
 	callKeyDesktop = 'a'
+	callKeyVolume  = 'v'
 	callKeyVideo   = 'o'
 	callKeyDevices = 'd'
 	callKeyHangup  = 'h'
@@ -315,11 +321,11 @@ func (m Model) callBarButtons() []callBarButton {
 	case "screen":
 		buttons = append(buttons, callBarButton{zone: zoneCallStopScreen, label: keyed(callKeyScreen, "🖥 sharing"+starting+" ✕"), priority: 70,
 			run: func(m *Model) tea.Cmd { return m.stopSendingVideo(false) }})
-		audio := keyed(callKeyDesktop, "🔇 no desktop audio")
+		audio := keyed(callKeyVolume, "🔇 no desktop audio")
 		if c.desktopAudioEnabled {
-			audio = keyed(callKeyDesktop, "🔊 desktop audio")
+			audio = keyed(callKeyVolume, fmt.Sprintf("🔊 %d%%", c.desktopVolume))
 		}
-		buttons = append(buttons, callBarButton{zone: zoneCallDesktopAudio, label: audio, priority: 60, run: (*Model).toggleDesktopAudio})
+		buttons = append(buttons, callBarButton{zone: zoneCallDesktopAudio, label: audio, priority: 60, run: (*Model).openDesktopVolume})
 	case "camera":
 		buttons = append(buttons, callBarButton{zone: zoneCallStopCamera, label: keyed(callKeyCamera, "📷 on"+starting+" ✕"), priority: 70,
 			run: func(m *Model) tea.Cmd { return m.stopSendingVideo(true) }})
@@ -439,7 +445,7 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 		}
 		items = append(items, contextMenuItem{label: label, key: callKeyDesktop, run: func(*Model) tea.Cmd {
 			return func() tea.Msg { return ctrl.SetDesktopAudio(enable) }
-		}})
+		}}, contextMenuItem{label: fmt.Sprintf("Desktop audio volume (%d%%)", c.desktopVolume), key: callKeyVolume, run: (*Model).openDesktopVolume})
 	}
 	if c.remoteVideo && !c.viewerOpen {
 		items = append(items, contextMenuItem{label: "Show their video", key: callKeyVideo, run: func(*Model) tea.Cmd {
