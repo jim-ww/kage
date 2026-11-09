@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -83,9 +84,14 @@ func (c *Client) FetchAvatarMetadata(ctx context.Context, peerJID string) (info 
 
 	if !iter.Next() {
 		if err := iter.Err(); err != nil {
-			// An item-not-found/not-subscribed error here is the normal
-			// case for a contact with no avatar, not something worth
-			// surfacing — the caller logs at debug and moves on.
+			// No metadata node at all is just "no avatar" - never
+			// published, or deleted - and reported as such, so a cached
+			// copy of one they took down gets dropped (ok false, no
+			// error). Anything else (not subscribed, a timeout) says
+			// nothing about whether they have one.
+			if errors.Is(err, stanza.Error{Condition: stanza.ItemNotFound}) {
+				return AvatarInfo{}, false, nil
+			}
 			return AvatarInfo{}, false, fmt.Errorf("fetching avatar metadata for %s: %w", peerJID, err)
 		}
 		return AvatarInfo{}, false, nil

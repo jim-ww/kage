@@ -122,6 +122,13 @@ func (s *accountSession) syncAvatar(ctx context.Context, srv *ipc.Server, accoun
 		return
 	}
 	if !ok || info.ID == "" {
+		// They publish no avatar (anymore): drop the one we still hold,
+		// or it would stay on screen forever.
+		if cachedAvatarHash(dir, bare) != "" {
+			removeCachedAvatar(bare)
+			slog.Debug("dropped avatar the contact no longer publishes", "jid", s.account.JID, "from", bare)
+			broadcast(srv, evAvatar, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: ""})
+		}
 		return
 	}
 	if info.Bytes > xmpp.AvatarMaxBytes {
