@@ -69,6 +69,12 @@ type State struct {
 	// ui.defaultEmojiSuggestions) so the picker converges on what this user
 	// actually reaches for instead of a fixed list.
 	ReactionEmojiUsage map[string]int `toml:"reaction_emoji_usage,omitempty"`
+	// AudioInput/AudioOutput are the call microphone and speaker picked in
+	// the call menu, by the audio backend's device name; unset means the
+	// system default. A device that's no longer there falls back to the
+	// default too.
+	AudioInput  string `toml:"audio_input,omitempty"`
+	AudioOutput string `toml:"audio_output,omitempty"`
 
 	// Path is the state file this was loaded from / would be written to.
 	// Not part of the toml shape.

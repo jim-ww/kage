@@ -349,6 +349,27 @@ func (c *ipcClient) ReopenVideo(accountIdx int) tea.Msg {
 	return ui.CallActionResultMsg{Action: "reopenvideo", AccountIdx: accountIdx, Err: err}
 }
 
+// ListAudioDevices/SetAudioDevice implement ui.AudioDeviceController.
+func (c *ipcClient) ListAudioDevices() tea.Msg {
+	var res audioDevicesResult
+	if err := c.conn.Call(rpcAudioDevices, nil, &res); err != nil {
+		return ui.AudioDevicesMsg{Err: err}
+	}
+	msg := ui.AudioDevicesMsg{Input: res.Input, Output: res.Output}
+	for _, d := range res.Inputs {
+		msg.Inputs = append(msg.Inputs, ui.AudioDevice{Name: d.Name, Default: d.Default})
+	}
+	for _, d := range res.Outputs {
+		msg.Outputs = append(msg.Outputs, ui.AudioDevice{Name: d.Name, Default: d.Default})
+	}
+	return msg
+}
+
+func (c *ipcClient) SetAudioDevice(output bool, name string) tea.Msg {
+	err := c.conn.Call(rpcSetAudioDevice, setAudioDeviceParams{Output: output, Name: name}, nil)
+	return ui.CallActionResultMsg{Action: "audio device switch", Err: err}
+}
+
 // listAccounts is the bootstrap call used once at startup, before ui.New,
 // to get every configured account's current state (not part of any ui
 // interface - main calls it directly).

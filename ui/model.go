@@ -267,6 +267,12 @@ type Model struct {
 	// viewport where the user left it.
 	landedOnce     bool
 	callController CallController
+	// audioDevices lists/picks call microphone and speaker; nil hides the
+	// call menu's "Audio devices". audioDevicesPending is set while a
+	// listing it asked for is in flight, so a late answer only opens the
+	// picker if it was actually asked for.
+	audioDevices        AudioDeviceController
+	audioDevicesPending bool
 
 	// focused tracks whether the terminal currently has OS focus, reported
 	// by tea.FocusMsg/tea.BlurMsg (requires terminal support). Starts true
@@ -499,6 +505,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	accountRemover, _ := sender.(AccountRemover)
 	focusReporter, _ := sender.(FocusReporter)
 	callController, _ := sender.(CallController)
+	audioDevices, _ := sender.(AudioDeviceController)
 
 	noticeDuration := display.NoticeDuration
 	if noticeDuration <= 0 {
@@ -563,6 +570,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		chatPinnedSetter:           chatPinnedSetter,
 		focusReporter:              focusReporter,
 		callController:             callController,
+		audioDevices:               audioDevices,
 		focused:                    true,
 		openChatAccountIdx:         -1,
 		loadingHistoryWindow:       make(map[int]bool),

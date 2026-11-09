@@ -1172,6 +1172,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case AudioDevicesMsg:
+		return m, m.handleAudioDevicesMsg(msg), true
+
 	case MissedCallMsg:
 		return m, m.showNotification("missed call from " + msg.From + " (busy)"), true
 

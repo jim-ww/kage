@@ -103,6 +103,27 @@ func currentScreenRecorder() call.ScreenRecorder {
 	return call.ScreenRecorder(screenRecorder.Load())
 }
 
+// audioDevices mirrors state.toml's audio_input/audio_output for the call
+// code: the devices every new call (and ring tone) opens, "" for the
+// system default. Changed at runtime by adapter.SetAudioDevice, which also
+// moves any call in progress over.
+var audioDevices struct {
+	sync.Mutex
+	input, output string
+}
+
+func currentAudioDevices() (input, output string) {
+	audioDevices.Lock()
+	defer audioDevices.Unlock()
+	return audioDevices.input, audioDevices.output
+}
+
+func setAudioDevices(input, output string) {
+	audioDevices.Lock()
+	audioDevices.input, audioDevices.output = input, output
+	audioDevices.Unlock()
+}
+
 // defaultEncryptionMode mirrors cfg.DefaultEncryptionMode for
 // resolveEncryptionMode (crypto_helpers.go) and account.go's chat-list
 // fallback, which have no other path back to the loaded config — same
@@ -219,6 +240,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	pinnedChats.replace(cfg.State.PinnedChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
+	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 
 	if !cfg.GPGDisabled {
@@ -322,6 +344,7 @@ func (b *backend) Reload(cfg config.Config) {
 	pinnedChats.replace(cfg.State.PinnedChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
+	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)
 	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
 }
 

@@ -1,95 +1,186 @@
 //go:build cgo
 
-// Package call's Mic/Speaker need cgo: malgo (miniaudio bindings) is cgo-only,
-// and oto v3's Linux backend is too (`#cgo pkg-config: alsa` in driver_unix.go).
+// Package call's Mic/Speaker need cgo: malgo (miniaudio bindings) is cgo-only.
 // See audio_nocgo.go for the stub used when cross-compiling with
 // CGO_ENABLED=0 (goreleaser's Windows/macOS release builds).
 
 package call
 
+// #include <stdlib.h>
+import "C"
+
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
+	"strings"
 	"sync"
+	"unsafe"
 
-	"github.com/ebitengine/oto/v3"
 	"github.com/gen2brain/malgo"
 )
 
-// Mic captures audio from the system's default input device via malgo
-// (miniaudio bindings) and delivers it as fixed-size (FrameSamples) mono
-// int16 frames on Frames(). Callers that want to encode with Opus can read
-// directly off that channel.
+// audioBackends is the backend list every malgo context here is initialized
+// with - nil lets miniaudio pick (PulseAudio, then ALSA, ... on Linux;
+// CoreAudio/WASAPI elsewhere). Tests swap in the null backend.
+var audioBackends []malgo.Backend
+
+// audioAppName is the application name kage's streams carry on a
+// PulseAudio/PipeWire server, so they're identifiable in its mixer. C
+// memory, allocated once: the context config holding it is passed to C,
+// which may not be handed a Go pointer nested inside another.
+var audioAppName = C.CString("kage")
+
+// newAudioContext opens a malgo context on audioBackends.
+func newAudioContext() (*malgo.AllocatedContext, error) {
+	var cfg malgo.ContextConfig
+	cfg.Pulse.PApplicationName = (*byte)(unsafe.Pointer(audioAppName))
+	return malgo.InitContext(audioBackends, cfg, func(string) {})
+}
+
+// AudioDevices lists the capture and playback devices the audio backend can
+// open, by the names Mic/Speaker accept. PulseAudio/PipeWire's monitor
+// sources ("Monitor of ...", a copy of what an output plays) are left out
+// of the inputs: they aren't microphones. So is anything without a usable
+// name (ALSA lists some PCMs with a blank one), since a name is all a
+// device is picked by.
+func AudioDevices() (inputs, outputs []AudioDevice, err error) {
+	ctx, err := newAudioContext()
+	if err != nil {
+		return nil, nil, fmt.Errorf("initializing audio context: %w", err)
+	}
+	defer func() {
+		ctx.Uninit()
+		ctx.Free()
+	}()
+	capture, err := ctx.Devices(malgo.Capture)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing capture devices: %w", err)
+	}
+	playback, err := ctx.Devices(malgo.Playback)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing playback devices: %w", err)
+	}
+	for _, d := range capture {
+		if strings.TrimSpace(d.Name()) == "" || strings.HasPrefix(d.Name(), "Monitor of ") {
+			continue
+		}
+		inputs = append(inputs, AudioDevice{Name: d.Name(), Default: d.IsDefault != 0})
+	}
+	for _, d := range playback {
+		if strings.TrimSpace(d.Name()) == "" {
+			continue
+		}
+		outputs = append(outputs, AudioDevice{Name: d.Name(), Default: d.IsDefault != 0})
+	}
+	return inputs, outputs, nil
+}
+
+// findDevice resolves a device name to the ID malgo opens it by - nil (the
+// system default) for "" or a device that isn't there anymore (unplugged
+// headset), so a stale choice degrades to the default instead of failing
+// the call.
+func findDevice(ctx *malgo.AllocatedContext, kind malgo.DeviceType, name string) *malgo.DeviceID {
+	if name == "" {
+		return nil
+	}
+	devices, err := ctx.Devices(kind)
+	if err != nil {
+		return nil
+	}
+	for i := range devices {
+		if devices[i].Name() == name {
+			id := devices[i].ID
+			return &id
+		}
+	}
+	return nil
+}
+
+// openDevice initializes and starts a malgo device on its own context.
+// DeviceID.Pointer hands back a C copy of the ID that's never freed - one
+// small allocation per opened device, kept alive for as long as the device
+// is, which is what miniaudio expects of it anyway.
+func openDevice(kind malgo.DeviceType, name string, data malgo.DataProc) (*malgo.AllocatedContext, *malgo.Device, error) {
+	ctx, err := newAudioContext()
+	if err != nil {
+		return nil, nil, fmt.Errorf("initializing audio context: %w", err)
+	}
+	cfg := malgo.DefaultDeviceConfig(kind)
+	cfg.SampleRate = SampleRate
+	id := findDevice(ctx, kind, name)
+	if kind == malgo.Capture {
+		cfg.Capture.Format, cfg.Capture.Channels = malgo.FormatS16, Channels
+		if id != nil {
+			cfg.Capture.DeviceID = id.Pointer()
+		}
+	} else {
+		cfg.Playback.Format, cfg.Playback.Channels = malgo.FormatS16, Channels
+		if id != nil {
+			cfg.Playback.DeviceID = id.Pointer()
+		}
+	}
+	device, err := malgo.InitDevice(ctx.Context, cfg, malgo.DeviceCallbacks{Data: data})
+	if err != nil {
+		ctx.Uninit()
+		ctx.Free()
+		return nil, nil, fmt.Errorf("opening audio device: %w", err)
+	}
+	if err := device.Start(); err != nil {
+		device.Uninit()
+		ctx.Uninit()
+		ctx.Free()
+		return nil, nil, fmt.Errorf("starting audio device: %w", err)
+	}
+	return ctx, device, nil
+}
+
+// Mic captures audio from an input device via malgo (miniaudio bindings) and
+// delivers it as fixed-size (FrameSamples) mono int16 frames on Frames().
+// Callers that want to encode with Opus can read directly off that channel.
 //
 // Not github.com/jfreymuth/pulse (used here in an earlier pass): it only
 // speaks the PulseAudio wire protocol, so it's Linux-only by construction,
 // and in practice proved unreliable talking to this daemon's audio session
-// even there. malgo dlopens the platform's real native backend (ALSA/
-// PulseAudio on Linux, CoreAudio on macOS, WASAPI/WinMM on Windows) the same
-// way oto's Speaker below already does for playback, which is both more
-// robust and actually cross-platform.
+// even there. malgo dlopens the platform's real native backend (PulseAudio/
+// ALSA on Linux, CoreAudio on macOS, WASAPI/WinMM on Windows), which is both
+// more robust and actually cross-platform.
 type Mic struct {
 	ctx    *malgo.AllocatedContext
 	device *malgo.Device
 	frames chan []int16
 }
 
-// NewMic opens the default capture device at SampleRate/Channels. Close
-// must be called when the call ends to release it.
-func NewMic() (*Mic, error) {
-	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(string) {})
-	if err != nil {
-		return nil, fmt.Errorf("initializing audio capture context: %w", err)
-	}
-
-	m := &Mic{
-		ctx:    ctx,
-		frames: make(chan []int16, 8),
-	}
-
-	cfg := malgo.DefaultDeviceConfig(malgo.Capture)
-	cfg.Capture.Format = malgo.FormatS16
-	cfg.Capture.Channels = Channels
-	cfg.SampleRate = SampleRate
+// NewMic opens the named capture device ("" for the system default, see
+// AudioDevices for names) at SampleRate/Channels. Close must be called when
+// the call ends to release it.
+func NewMic(device string) (*Mic, error) {
+	m := &Mic{frames: make(chan []int16, 8)}
 
 	// malgo calls this synchronously on its own audio thread as samples
 	// arrive; a frame-sized buffer is accumulated and handed off to
 	// Frames() so callers see clean FrameSamples-sized chunks to feed the
-	// Opus encoder 20ms at a time. inputSamples is raw little-endian S16
-	// bytes per cfg.Capture.Format/Channels above.
+	// Opus encoder 20ms at a time. inputSamples is raw little-endian S16.
 	var pending []int16
-	callbacks := malgo.DeviceCallbacks{
-		Data: func(_, inputSamples []byte, _ uint32) {
-			for i := 0; i+1 < len(inputSamples); i += 2 {
-				pending = append(pending, int16(binary.LittleEndian.Uint16(inputSamples[i:])))
+	data := func(_, inputSamples []byte, _ uint32) {
+		for i := 0; i+1 < len(inputSamples); i += 2 {
+			pending = append(pending, int16(binary.LittleEndian.Uint16(inputSamples[i:])))
+		}
+		for len(pending) >= FrameSamples {
+			frame := make([]int16, FrameSamples)
+			copy(frame, pending[:FrameSamples])
+			pending = pending[FrameSamples:]
+			select {
+			case m.frames <- frame:
+			default: // caller isn't keeping up; drop rather than block the audio thread
 			}
-			for len(pending) >= FrameSamples {
-				frame := make([]int16, FrameSamples)
-				copy(frame, pending[:FrameSamples])
-				pending = pending[FrameSamples:]
-				select {
-				case m.frames <- frame:
-				default: // caller isn't keeping up; drop rather than block the audio thread
-				}
-			}
-		},
+		}
 	}
 
-	device, err := malgo.InitDevice(ctx.Context, cfg, callbacks)
+	ctx, dev, err := openDevice(malgo.Capture, device, data)
 	if err != nil {
-		ctx.Uninit()
-		ctx.Free()
-		return nil, fmt.Errorf("opening capture device: %w", err)
+		return nil, fmt.Errorf("capture: %w", err)
 	}
-	if err := device.Start(); err != nil {
-		device.Uninit()
-		ctx.Uninit()
-		ctx.Free()
-		return nil, fmt.Errorf("starting capture device: %w", err)
-	}
-	m.device = device
-
+	m.ctx, m.device = ctx, dev
 	return m, nil
 }
 
@@ -106,87 +197,52 @@ func (m *Mic) Close() error {
 	return nil
 }
 
-// otoContext is a lazily-initialized, process-wide singleton: oto explicitly
-// does not support creating more than one Context, so every Speaker across
-// every call in this daemon's lifetime shares the one Context and gets its
-// own Player on top of it. On Linux, oto v3 requires cgo (`#cgo pkg-config:
-// alsa` in its driver_unix.go) and tries PulseAudio/PipeWire first, falling
-// back to dlopening libasound.so directly if no server answers - real extra
-// robustness confirmed live (oto's playback worked when the pulse-only Mic
-// implementation it replaced did not). On macOS/Windows this gets us
-// CoreAudio/WASAPI natively.
-var (
-	otoCtxOnce sync.Once
-	otoCtx     *oto.Context
-	otoCtxErr  error
-)
-
-func sharedOtoContext() (*oto.Context, error) {
-	otoCtxOnce.Do(func() {
-		var ready chan struct{}
-		otoCtx, ready, otoCtxErr = oto.NewContext(&oto.NewContextOptions{
-			SampleRate:   SampleRate,
-			ChannelCount: Channels,
-			Format:       oto.FormatSignedInt16LE,
-		})
-		if otoCtxErr == nil {
-			<-ready
-		}
-	})
-	return otoCtx, otoCtxErr
-}
-
-// Speaker plays back 16-bit PCM frames through the system's default audio
-// output, via oto (see sharedOtoContext).
+// Speaker plays back 16-bit PCM frames through an output device via malgo.
+// Playback is pulled by the device's own audio thread: whenever it runs dry
+// it plays silence rather than waiting, so a late network packet is a gap,
+// not a stall.
 type Speaker struct {
-	player  *oto.Player
-	samples chan []int16
-	closed  chan struct{}
+	ctx       *malgo.AllocatedContext
+	device    *malgo.Device
+	samples   chan []int16
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
-// NewSpeaker opens the default playback device at SampleRate/Channels.
-// Close must be called when the call ends.
-func NewSpeaker() (*Speaker, error) {
-	ctx, err := sharedOtoContext()
-	if err != nil {
-		return nil, fmt.Errorf("initializing audio output: %w", err)
-	}
-
+// NewSpeaker opens the named playback device ("" for the system default,
+// see AudioDevices for names) at SampleRate/Channels. Close must be called
+// when the call ends.
+func NewSpeaker(device string) (*Speaker, error) {
 	s := &Speaker{
 		samples: make(chan []int16, 8),
 		closed:  make(chan struct{}),
 	}
-	s.player = ctx.NewPlayer(&speakerReader{s: s})
-	s.player.Play()
 
-	return s, nil
-}
-
-// speakerReader adapts Speaker's frame channel to the io.Reader oto.Player
-// pulls from on its own goroutine - same blocking-until-a-frame-arrives shape
-// the old jfreymuth/pulse Int16Reader callback used, just over raw
-// little-endian bytes instead of []int16 since that's oto's interface.
-type speakerReader struct {
-	s       *Speaker
-	pending []int16
-}
-
-func (r *speakerReader) Read(buf []byte) (int, error) {
-	for len(r.pending) == 0 {
-		select {
-		case frame := <-r.s.samples:
-			r.pending = frame
-		case <-r.s.closed:
-			return 0, io.EOF
+	var pending []int16
+	data := func(out, _ []byte, _ uint32) {
+		n := 0
+		for n+1 < len(out) {
+			if len(pending) == 0 {
+				select {
+				case frame := <-s.samples:
+					pending = frame
+				default:
+					clear(out[n:])
+					return
+				}
+			}
+			binary.LittleEndian.PutUint16(out[n:], uint16(pending[0]))
+			pending = pending[1:]
+			n += 2
 		}
 	}
-	n := 0
-	for n+2 <= len(buf) && len(r.pending) > 0 {
-		binary.LittleEndian.PutUint16(buf[n:], uint16(r.pending[0]))
-		r.pending = r.pending[1:]
-		n += 2
+
+	ctx, dev, err := openDevice(malgo.Playback, device, data)
+	if err != nil {
+		return nil, fmt.Errorf("playback: %w", err)
 	}
-	return n, nil
+	s.ctx, s.device = ctx, dev
+	return s, nil
 }
 
 // Write queues one frame of mono 16-bit PCM samples for playback. It blocks
@@ -200,10 +256,13 @@ func (s *Speaker) Write(frame []int16) error {
 	}
 }
 
-// Close stops playback. Any Write in progress will unblock with an error.
-// The shared oto.Context itself is never closed - it's reused by the next
-// call's Speaker.
+// Close stops playback. Any Write in progress unblocks with an error.
 func (s *Speaker) Close() error {
-	close(s.closed)
-	return s.player.Close()
+	s.closeOnce.Do(func() {
+		close(s.closed)
+		s.device.Uninit()
+		s.ctx.Uninit()
+		s.ctx.Free()
+	})
+	return nil
 }

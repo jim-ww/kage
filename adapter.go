@@ -15,6 +15,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jim-ww/kage/call"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/aesgcm"
 	"github.com/jim-ww/kage/crypto/localstore"
@@ -1659,6 +1660,49 @@ func (a *adapter) ReopenVideo(accountIdx int) error {
 		return fmt.Errorf("unknown account %d", accountIdx)
 	}
 	return sess.reopenVideo()
+}
+
+// AudioDevices lists the devices a call can use and which ones are picked
+// ("" for the system default).
+func (a *adapter) AudioDevices() (audioDevicesResult, error) {
+	inputs, outputs, err := call.AudioDevices()
+	if err != nil {
+		return audioDevicesResult{}, err
+	}
+	input, output := currentAudioDevices()
+	return audioDevicesResult{Inputs: inputs, Outputs: outputs, Input: input, Output: output}, nil
+}
+
+// SetAudioDevice picks the call speaker (output) or microphone by device
+// name ("" for the system default), persists the choice to state.toml, and
+// moves any call in progress over to it right away.
+func (a *adapter) SetAudioDevice(output bool, name string) error {
+	input, out := currentAudioDevices()
+	if output {
+		out = name
+	} else {
+		input = name
+	}
+	setAudioDevices(input, out)
+
+	var errs []error
+	if err := config.SetAudioDevices(a.cfgPath, input, out); err != nil {
+		errs = append(errs, fmt.Errorf("saving audio device: %w", err))
+	}
+	a.mu.Lock()
+	sessions := append([]*accountSession(nil), a.sessions...)
+	a.mu.Unlock()
+	for _, sess := range sessions {
+		if sess == nil {
+			continue
+		}
+		if c := sess.currentCall(); c != nil {
+			if err := c.setAudioDevices(input, out, !output, output); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // peerDeviceSyncInterval is how long a peer's cached OMEMO device list is

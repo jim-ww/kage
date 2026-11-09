@@ -10,12 +10,15 @@ package call
 
 import "fmt"
 
+var errNoAudio = fmt.Errorf("audio not supported in this build")
+
+// AudioDevices always errors on non-cgo builds.
+func AudioDevices() (inputs, outputs []AudioDevice, err error) { return nil, nil, errNoAudio }
+
 // Mic is a stub on non-cgo builds; NewMic always errors.
 type Mic struct{}
 
-func NewMic() (*Mic, error) {
-	return nil, fmt.Errorf("microphone capture not supported in this build")
-}
+func NewMic(string) (*Mic, error) { return nil, errNoAudio }
 
 func (m *Mic) Frames() <-chan []int16 { return nil }
 func (m *Mic) Close() error           { return nil }
@@ -23,9 +26,7 @@ func (m *Mic) Close() error           { return nil }
 // Speaker is a stub on non-cgo builds; NewSpeaker always errors.
 type Speaker struct{}
 
-func NewSpeaker() (*Speaker, error) {
-	return nil, fmt.Errorf("audio playback not supported in this build")
-}
+func NewSpeaker(string) (*Speaker, error) { return nil, errNoAudio }
 
-func (s *Speaker) Write(frame []int16) error { return fmt.Errorf("audio playback not supported in this build") }
-func (s *Speaker) Close() error              { return nil }
+func (s *Speaker) Write([]int16) error { return errNoAudio }
+func (s *Speaker) Close() error        { return nil }

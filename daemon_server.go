@@ -416,6 +416,16 @@ func (d *daemonServer) handle(client ipc.ClientID, method string, params json.Ra
 		}
 		return nil, d.a.ReopenVideo(p.AccountIdx)
 
+	case rpcAudioDevices:
+		return d.a.AudioDevices()
+
+	case rpcSetAudioDevice:
+		p, err := unmarshalParams[setAudioDeviceParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.SetAudioDevice(p.Output, p.Name)
+
 	case rpcListAccounts:
 		return d.listAccounts(context.Background()), nil
 

@@ -12,7 +12,6 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/exp/golden v0.0.0-20250806222409-83e3a29d542f
 	github.com/dustin/go-humanize v1.0.1
-	github.com/ebitengine/oto/v3 v3.4.0
 	github.com/enescakir/emoji v1.0.0
 	github.com/gen2brain/malgo v0.11.25
 	github.com/jim-ww/omemo-go v0.1.4
@@ -46,7 +45,6 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
-	github.com/ebitengine/purego v0.9.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

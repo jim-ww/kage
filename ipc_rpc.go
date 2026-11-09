@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
+	"github.com/jim-ww/kage/call"
 	"github.com/jim-ww/kage/ui"
 )
 
@@ -54,6 +55,8 @@ const (
 	rpcMuteCall                 = "MuteCall"
 	rpcScreenShare              = "ScreenShare"
 	rpcReopenVideo              = "ReopenVideo"
+	rpcAudioDevices             = "AudioDevices"
+	rpcSetAudioDevice           = "SetAudioDevice"
 	rpcGetCallState             = "GetCallState"
 )
 
@@ -220,6 +223,17 @@ type screenShareParams struct {
 }
 type reopenVideoParams struct {
 	AccountIdx int
+}
+
+// audioDevicesResult lists every device a call can use, and which input/
+// output is picked ("" for the system default).
+type audioDevicesResult struct {
+	Inputs, Outputs []call.AudioDevice
+	Input, Output   string
+}
+type setAudioDeviceParams struct {
+	Output bool // false: the microphone
+	Name   string
 }
 
 // getCallStateResult reports whatever call is currently in progress on any

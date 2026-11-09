@@ -49,7 +49,7 @@
               pname = "kage";
               version = v;
               src = pkgs.lib.cleanSource ./.;
-              vendorHash = "sha256-sHCgerhTEp2k8Z6SlDV5M+gysS8QqcZa5cpQishwbgQ=";
+              vendorHash = "sha256-IHhWWdSB4fONAdhWVguPk0fBtAHekeEFagTB0jSkq2g=";
 
               env.CGO_ENABLED = 1;
 
@@ -61,12 +61,10 @@
                 pkgs.gnupg
               ];
 
-              # call/audio.go's Speaker links github.com/ebitengine/oto/v3 for
-              # playback - its Linux backend is `#cgo pkg-config: alsa`, gated
-              # behind !android/!darwin/!js/!windows, so it needs real ALSA dev
-              # headers at build time (unlike Mic's jfreymuth/pulse capture,
-              # which stays pure Go). alsa-lib provides both the headers and the
-              # pkg-config .pc file pkg-config needs to find them.
+              # call/alsa_linux.go links libasound (`#cgo pkg-config: alsa`)
+              # so miniaudio, which dlopens its audio backends, can always find
+              # ALSA through the binary's RUNPATH. alsa-lib provides both the
+              # headers and the .pc file pkg-config needs to find them.
               buildInputs = [ pkgs.alsa-lib ];
 
               # notify-send (libnotify) is what notifyd shells out to for desktop
@@ -84,7 +82,15 @@
                 cp ${desktopItem}/share/applications/*.desktop $out/share/applications/
               '';
 
+              # libpulse is put on the binary's RUNPATH rather than linked:
+              # miniaudio dlopens it when it can (proper device names for the
+              # call menu's audio device picker) and falls back to ALSA when it
+              # can't, so it mustn't become a hard dependency - and a RUNPATH
+              # entry, unlike LD_LIBRARY_PATH on the wrapper, doesn't leak into
+              # every process kage launches. Added here, after fixup's
+              # patchELF has shrunk the RUNPATH down to what's actually linked.
               postFixup = ''
+                patchelf --add-rpath ${pkgs.libpulseaudio}/lib $out/bin/kage
                 wrapProgram $out/bin/kage --prefix PATH : ${
                   pkgs.lib.makeBinPath [
                     pkgs.libnotify
@@ -115,6 +121,9 @@
               pkgs.wf-recorder
               pkgs.mpv
             ];
+            # Same RUNPATH entry the package adds in postFixup, for binaries
+            # built here (`go run .`): lets miniaudio dlopen libpulse.
+            CGO_LDFLAGS = "-O2 -g -Wl,-rpath,${pkgs.libpulseaudio}/lib";
           };
 
           # `nix run .#prosody-dev` / `.#turn-dev`: one-shot equivalents of the

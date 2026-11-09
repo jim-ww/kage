@@ -28,14 +28,15 @@ type pcmSink interface {
 	Close() error
 }
 
-// NewRingTone opens a dedicated Speaker and starts looping the given
+// NewRingTone opens a dedicated Speaker on device ("" for the system
+// default) and starts looping the given
 // pattern: segments alternate on/off starting with "on", each duration a
 // multiple of a frame (FrameMillis). During an "on" segment, all of freqsHz
 // play together as a soft chord (quieter and fading at each edge, rather
 // than a single flat-amplitude tone) - two or three close, consonant
 // frequencies read as a more pleasant "modern" tone than one raw sine wave.
-func NewRingTone(freqsHz []float64, pattern []time.Duration) (*RingTone, error) {
-	spk, err := NewSpeaker()
+func NewRingTone(device string, freqsHz []float64, pattern []time.Duration) (*RingTone, error) {
+	spk, err := NewSpeaker(device)
 	if err != nil {
 		return nil, err
 	}

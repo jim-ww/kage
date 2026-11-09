@@ -330,18 +330,22 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 	if ctrl == nil {
 		return "", nil
 	}
+	var devices []contextMenuItem
+	if m.audioDevices != nil {
+		devices = []contextMenuItem{{label: "Audio devices", key: 'd', run: (*Model).requestAudioDevices}}
+	}
 	c := m.call
 	if c == nil || !m.callInProgress() {
 		chat, ok := m.currentChat()
 		if !ok || chat.Address == "" || (m.selectedView != viewChat && m.selectedView != viewChats) {
-			return "", nil
+			return "Calls", devices
 		}
 		accountIdx, to := m.currentAccount, chat.Address
 		name := chat.Name
 		if name == "" {
 			name = to
 		}
-		return "Call " + name, []contextMenuItem{
+		return "Call " + name, append([]contextMenuItem{
 			{label: "Voice call", key: 'v', run: func(*Model) tea.Cmd {
 				return func() tea.Msg { return ctrl.StartCall(accountIdx, to) }
 			}},
@@ -351,7 +355,7 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 			{label: "Call and share screen", key: 's', run: func(*Model) tea.Cmd {
 				return func() tea.Msg { return ctrl.StartVideoCall(accountIdx, to, false) }
 			}},
-		}
+		}, devices...)
 	}
 
 	accountIdx, who := c.accountIdx, m.callPeerName()
@@ -360,13 +364,13 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 	}}
 	switch c.state {
 	case "ringing-local":
-		return who + " is calling", []contextMenuItem{
+		return who + " is calling", append([]contextMenuItem{
 			{label: "Answer", key: 'y', run: (*Model).answerRingingCall},
 			{label: "Reject", key: 'n', run: (*Model).rejectRingingCall},
-		}
+		}, devices...)
 	case "connected":
 	default:
-		return "Calling " + who, []contextMenuItem{hangup}
+		return "Calling " + who, append([]contextMenuItem{hangup}, devices...)
 	}
 
 	mute := "Mute"
@@ -383,7 +387,81 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 			return func() tea.Msg { return ctrl.ReopenVideo(accountIdx) }
 		}})
 	}
+	items = append(items, devices...)
 	return "Call with " + who, append(items, hangup)
+}
+
+// requestAudioDevices asks for the device listing the "Audio devices" menu
+// is built from - enumerating devices is a round trip to the daemon's audio
+// backend, so the menu opens once handleAudioDevicesMsg has the answer.
+func (m *Model) requestAudioDevices() tea.Cmd {
+	if m.audioDevices == nil {
+		return nil
+	}
+	m.audioDevicesPending = true
+	ctrl := m.audioDevices
+	return ctrl.ListAudioDevices
+}
+
+// handleAudioDevicesMsg opens the "Audio devices" menu from a listing
+// requestAudioDevices asked for: the microphone and speaker in use, each
+// opening a picker of every device that kind.
+func (m *Model) handleAudioDevicesMsg(msg AudioDevicesMsg) tea.Cmd {
+	if !m.audioDevicesPending {
+		return nil
+	}
+	m.audioDevicesPending = false
+	if msg.Err != nil {
+		return m.showNotification("audio devices: " + msg.Err.Error())
+	}
+	m.openContextMenu("Audio devices", []contextMenuItem{
+		{label: "Microphone: " + audioDeviceLabel(msg.Input), key: 'm', run: func(m *Model) tea.Cmd {
+			m.openAudioDevicePicker("Microphone", false, msg.Inputs, msg.Input)
+			return nil
+		}},
+		{label: "Speaker: " + audioDeviceLabel(msg.Output), key: 's', run: func(m *Model) tea.Cmd {
+			m.openAudioDevicePicker("Speaker", true, msg.Outputs, msg.Output)
+			return nil
+		}},
+	})
+	return nil
+}
+
+// openAudioDevicePicker lists "System default" plus every device, the
+// current choice checked - mirrors the account status picker. A chosen
+// device that isn't connected right now is still listed (calls fall back to
+// the default while it's gone) so it's clear why the default is playing.
+func (m *Model) openAudioDevicePicker(title string, output bool, devices []AudioDevice, current string) {
+	ctrl := m.audioDevices
+	pick := func(label, name string) contextMenuItem {
+		label = audioDeviceLabel(label)
+		if name == current {
+			label = "✓ " + label
+		}
+		return contextMenuItem{label: label, run: func(*Model) tea.Cmd {
+			return func() tea.Msg { return ctrl.SetAudioDevice(output, name) }
+		}}
+	}
+	items := []contextMenuItem{pick("System default", "")}
+	found := current == ""
+	for _, d := range devices {
+		items = append(items, pick(d.Name, d.Name))
+		found = found || d.Name == current
+	}
+	if !found {
+		items = append(items, pick(current+" (not connected)", current))
+	}
+	m.openContextMenu(title, items)
+}
+
+// audioDeviceLabel is how a device name is shown: as is, but with its
+// whitespace collapsed - ALSA's names span several lines and carry tabs,
+// which would break the menu's layout.
+func audioDeviceLabel(name string) string {
+	if name == "" {
+		return "System default"
+	}
+	return strings.Join(strings.Fields(name), " ")
 }
 
 // videoMenuItem is the call menu's toggle for one video source: start it,

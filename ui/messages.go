@@ -1014,6 +1014,29 @@ type CallController interface {
 	ReopenVideo(accountIdx int) tea.Msg
 }
 
+// AudioDeviceController lists and picks the microphone/speaker calls use,
+// implemented outside ui (ipcClient) like CallController. Picking one also
+// moves a call in progress over to it.
+type AudioDeviceController interface {
+	ListAudioDevices() tea.Msg // AudioDevicesMsg
+	SetAudioDevice(output bool, name string) tea.Msg
+}
+
+// AudioDevice is one microphone or speaker, by the audio backend's name.
+type AudioDevice struct {
+	Name    string
+	Default bool // the system's current default
+}
+
+// AudioDevicesMsg answers AudioDeviceController.ListAudioDevices: every
+// device available, and which input/output calls use ("" for the system
+// default).
+type AudioDevicesMsg struct {
+	Inputs, Outputs []AudioDevice
+	Input, Output   string
+	Err             error
+}
+
 // CallActionResultMsg reports the result of a CallController method call
 // (StartCall/AnswerCall/HangupCall/RejectCall) failing to even reach or be
 // accepted by the daemon — the call's actual state transitions arrive

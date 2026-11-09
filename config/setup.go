@@ -116,6 +116,16 @@ func SetSidebarWidth(path string, width int) error {
 	})
 }
 
+// SetAudioDevices sets (or updates) the call microphone/speaker in the
+// state file next to path, preserving everything else - called whenever
+// either is picked in the call menu ("" is the system default).
+func SetAudioDevices(path, input, output string) error {
+	return updateStateFile(path, func(st *State) error {
+		st.AudioInput, st.AudioOutput = input, output
+		return nil
+	})
+}
+
 // SetInputHeight sets (or updates) the input height in the state file next
 // to path, preserving everything else — called after the user finishes
 // dragging the compose box's top border (see ui.InputHeightSetter).

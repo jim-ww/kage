@@ -109,6 +109,11 @@ type callSession struct {
 	enc   *call.Encoder
 	dec   *call.Decoder
 
+	// micStop/micDone stop and await the current mic's pump goroutine (see
+	// switchMic) - nil while there's no mic.
+	micStop chan struct{}
+	micDone chan struct{}
+
 	// contentName/ufrag/pwd identify our half of the ICE session, repeated on
 	// every transport-info we trickle out.
 	contentName string
@@ -266,7 +271,8 @@ func (c *callSession) startRing(freqsHz []float64, pattern []time.Duration) {
 	}
 	c.mu.Unlock()
 
-	r, err := call.NewRingTone(freqsHz, pattern)
+	_, output := currentAudioDevices()
+	r, err := call.NewRingTone(output, freqsHz, pattern)
 	if err != nil {
 		slog.Warn("starting ring tone", "sid", c.sid, "err", err)
 		return
@@ -1442,50 +1448,127 @@ func (c *callSession) startMedia() error {
 	if err != nil {
 		return err
 	}
-	mic, err := call.NewMic()
+	input, output := currentAudioDevices()
+	spk, err := call.NewSpeaker(output)
 	if err != nil {
-		slog.Warn("opening capture device, proceeding without mic", "sid", c.sid, "err", err)
-		mic = nil
-	}
-	spk, err := call.NewSpeaker()
-	if err != nil {
-		if mic != nil {
-			mic.Close()
-		}
 		return err
 	}
 
 	c.mu.Lock()
-	c.enc, c.dec, c.mic, c.spk = enc, dec, mic, spk
-	pc := c.pc
+	c.enc, c.dec, c.spk = enc, dec, spk
 	c.mu.Unlock()
 
-	if mic != nil {
-		go recoverAndLog(c.sid, "micPump", func() {
-			const frameDuration = call.FrameMillis * time.Millisecond
-			for {
-				select {
-				case <-c.done:
-					return
-				case frame := <-mic.Frames():
-					c.mu.Lock()
-					muted := c.muted
-					c.mu.Unlock()
-					if muted {
-						continue // drop the frame rather than encode+send while muted
-					}
-					packet, err := enc.Encode(frame)
-					if err != nil {
-						slog.Warn("encoding call audio", "sid", c.sid, "err", err)
-						continue
-					}
-					if err := pc.WriteSample(packet, frameDuration); err != nil {
-						slog.Warn("writing call audio", "sid", c.sid, "err", err)
-						return
-					}
-				}
+	if err := c.switchMic(input); err != nil {
+		slog.Warn("opening capture device, proceeding without mic", "sid", c.sid, "err", err)
+	}
+	return nil
+}
+
+// switchMic opens the named capture device and makes it the call's mic,
+// stopping and closing the previous one (if any) - how a call starts its
+// mic, and how a different input picked mid-call takes over. The old pump
+// is awaited before the new one starts: both feed the same Opus encoder,
+// which isn't safe for concurrent use.
+func (c *callSession) switchMic(device string) error {
+	mic, err := call.NewMic(device)
+	if err != nil {
+		return err
+	}
+	stop, done := make(chan struct{}), make(chan struct{})
+	c.mu.Lock()
+	if c.state == callEnded {
+		c.mu.Unlock()
+		mic.Close()
+		return nil
+	}
+	old, oldStop, oldDone := c.mic, c.micStop, c.micDone
+	c.mic, c.micStop, c.micDone = mic, stop, done
+	pc, enc := c.pc, c.enc
+	c.mu.Unlock()
+
+	if oldStop != nil {
+		close(oldStop)
+		<-oldDone
+	}
+	if old != nil {
+		old.Close()
+	}
+	go recoverAndLog(c.sid, "micPump", func() {
+		defer close(done)
+		c.pumpMic(mic, stop, enc, pc)
+	})
+	return nil
+}
+
+// pumpMic encodes and sends mic's frames until stop or the call ends.
+func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Encoder, pc *call.PeerConnection) {
+	const frameDuration = call.FrameMillis * time.Millisecond
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-stop:
+			return
+		case frame := <-mic.Frames():
+			c.mu.Lock()
+			muted := c.muted
+			c.mu.Unlock()
+			if muted {
+				continue // drop the frame rather than encode+send while muted
 			}
-		})
+			packet, err := enc.Encode(frame)
+			if err != nil {
+				slog.Warn("encoding call audio", "sid", c.sid, "err", err)
+				continue
+			}
+			if err := pc.WriteSample(packet, frameDuration); err != nil {
+				slog.Warn("writing call audio", "sid", c.sid, "err", err)
+				return
+			}
+		}
+	}
+}
+
+// switchSpeaker moves the call's playback to the named output device.
+// playRemote picks the new speaker up on its next packet.
+func (c *callSession) switchSpeaker(device string) error {
+	spk, err := call.NewSpeaker(device)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	if c.state == callEnded || c.spk == nil {
+		c.mu.Unlock()
+		spk.Close()
+		return nil
+	}
+	old := c.spk
+	c.spk = spk
+	c.mu.Unlock()
+	old.Close()
+	return nil
+}
+
+// setAudioDevices moves a call whose media is already running over to the
+// given input/output devices, reopening only whichever changed. A call
+// whose media hasn't started yet needs nothing: startMedia opens whatever
+// is current when it runs.
+func (c *callSession) setAudioDevices(input, output string, inputChanged, outputChanged bool) error {
+	c.mu.Lock()
+	started := c.spk != nil
+	c.mu.Unlock()
+	if !started {
+		return nil
+	}
+	if outputChanged {
+		if err := c.switchSpeaker(output); err != nil {
+			return fmt.Errorf("switching speaker: %w", err)
+		}
+	}
+	if inputChanged {
+		if err := c.switchMic(input); err != nil {
+			return fmt.Errorf("switching microphone: %w", err)
+		}
 	}
 	return nil
 }
@@ -1528,6 +1611,12 @@ func (c *callSession) playRemote(track *webrtc.TrackRemote) {
 		frame := make([]int16, n*call.Channels)
 		copy(frame, pcm[:n*call.Channels])
 		if err := spk.Write(frame); err != nil {
+			c.mu.Lock()
+			replaced := c.spk != nil && c.spk != spk
+			c.mu.Unlock()
+			if replaced {
+				continue // switchSpeaker closed the old one under us
+			}
 			return
 		}
 	}
@@ -2268,6 +2357,7 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 		c.state = callEnded
 		pc, mic, spk, share := c.pc, c.mic, c.spk, c.videoSource
 		c.pc, c.mic, c.spk, c.enc, c.dec = nil, nil, nil, nil, nil
+		c.micStop, c.micDone = nil, nil
 		c.videoSource, c.sharing = nil, false
 		if c.disconnectTimer != nil {
 			c.disconnectTimer.Stop()
