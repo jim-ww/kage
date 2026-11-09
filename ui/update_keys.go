@@ -35,60 +35,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	if m.confirmTarget != confirmNone {
 		switch {
 		case matchesKey(msg, m.keys.ConfirmYes):
-			switch m.confirmTarget {
-			case confirmQuit:
-				return m, tea.Quit, true
-			case confirmDeleteMessage:
-				// A still-Pending or Failed message was never actually sent
-				// (both are backed by an outbox row - see
-				// account.go's enqueueOutbox/markOutboxFailed) - nothing to
-				// retract, and no server-side copy to preserve a record of,
-				// so it's removed outright instead of flagged. Everything
-				// else is never actually deleted, only flagged as retracted:
-				// own messages also get a XEP-0424 retraction sent over the
-				// network; someone else's message can only be flagged
-				// locally, since we can't retract their stanza.
-				if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
-					target := msgs[m.selectedMsg]
-					switch {
-					case target.Pending, target.Failed:
-						if m.sender != nil && target.LocalID != "" {
-							if err := m.sender.DeleteQueued(m.currentAccount, target.LocalID); err != nil {
-								cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
-							}
-						}
-						var newMsgs []Message
-						newMsgs, m.selectedMsg = removeMessageAt(msgs, m.selectedMsg, m.selectedMsg)
-						m.setCurrentMessages(newMsgs)
-					case target.ID != "":
-						if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
-							if target.IsMe {
-								if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{RetractID: target.ID}); err != nil {
-									cmds = append(cmds, m.showNotification("retract not delivered: "+err.Error()))
-								}
-							} else if err := m.sender.MarkRetracted(m.currentAccount, chat.Address, target.ID); err != nil {
-								cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
-							}
-						}
-						cmds = append(cmds, m.retractSelectedMsg())
-					default:
-						cmds = append(cmds, m.retractSelectedMsg())
-					}
-				}
-			case confirmPurgeMessage:
-				// Second delete on an already-retracted message: this one
-				// really erases it, here and in storage.
-				cmds = append(cmds, m.purgeSelectedMsg())
-			case confirmHideChat:
-				cmds = append(cmds, m.hideSelectedChat())
-			case confirmRemoveAccount:
-				cmds = append(cmds, m.removeCurrentAccount())
-			case confirmDisableStorageEncryption:
-				cmds = append(cmds, m.startStoragePasswordChange(""))
-			}
-			m.confirmTarget = confirmNone
-			m.refreshViewport()
-			return m, tea.Batch(cmds...), true
+			next, cmd := m.acceptConfirm()
+			return next, cmd, true
 		case matchesKey(msg, m.keys.ConfirmNo):
 			m.confirmTarget = confirmNone
 		}
@@ -833,4 +781,65 @@ func (m Model) updateAddAccountForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addAccountInputs[m.addAccountFocus], cmd = m.addAccountInputs[m.addAccountFocus].Update(msg)
 		return m, cmd
 	}
+}
+
+// acceptConfirm carries out whatever the confirmation popup (confirmTarget)
+// was asking about and closes it - its ConfirmYes key and its clickable
+// "yes" button both land here.
+func (m Model) acceptConfirm() (Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	switch m.confirmTarget {
+	case confirmQuit:
+		return m, tea.Quit
+	case confirmDeleteMessage:
+		// A still-Pending or Failed message was never actually sent
+		// (both are backed by an outbox row - see
+		// account.go's enqueueOutbox/markOutboxFailed) - nothing to
+		// retract, and no server-side copy to preserve a record of,
+		// so it's removed outright instead of flagged. Everything
+		// else is never actually deleted, only flagged as retracted:
+		// own messages also get a XEP-0424 retraction sent over the
+		// network; someone else's message can only be flagged
+		// locally, since we can't retract their stanza.
+		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
+			target := msgs[m.selectedMsg]
+			switch {
+			case target.Pending, target.Failed:
+				if m.sender != nil && target.LocalID != "" {
+					if err := m.sender.DeleteQueued(m.currentAccount, target.LocalID); err != nil {
+						cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
+					}
+				}
+				var newMsgs []Message
+				newMsgs, m.selectedMsg = removeMessageAt(msgs, m.selectedMsg, m.selectedMsg)
+				m.setCurrentMessages(newMsgs)
+			case target.ID != "":
+				if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
+					if target.IsMe {
+						if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{RetractID: target.ID}); err != nil {
+							cmds = append(cmds, m.showNotification("retract not delivered: "+err.Error()))
+						}
+					} else if err := m.sender.MarkRetracted(m.currentAccount, chat.Address, target.ID); err != nil {
+						cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
+					}
+				}
+				cmds = append(cmds, m.retractSelectedMsg())
+			default:
+				cmds = append(cmds, m.retractSelectedMsg())
+			}
+		}
+	case confirmPurgeMessage:
+		// Second delete on an already-retracted message: this one
+		// really erases it, here and in storage.
+		cmds = append(cmds, m.purgeSelectedMsg())
+	case confirmHideChat:
+		cmds = append(cmds, m.hideSelectedChat())
+	case confirmRemoveAccount:
+		cmds = append(cmds, m.removeCurrentAccount())
+	case confirmDisableStorageEncryption:
+		cmds = append(cmds, m.startStoragePasswordChange(""))
+	}
+	m.confirmTarget = confirmNone
+	m.refreshViewport()
+	return m, tea.Batch(cmds...)
 }

@@ -40,6 +40,8 @@ const (
 	zoneCallMute              = "call-mute-button"
 	zoneCallHangup            = "call-hangup-button"
 	zoneCallMenu              = "call-menu-button"
+	zoneConfirmYes            = "confirm-yes-button"
+	zoneConfirmNo             = "confirm-no-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
 	zoneFilePickerPopup       = "file-picker-popup"
 	zoneFilePickerBack        = "file-picker-back-button"
@@ -459,6 +461,14 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 // handleLeftClick/handleRightClick, but restricted to the context menu's
 // own items while one is open — nothing underneath it is reachable.
 func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
+	if _, _, ok := m.confirmActions(); ok {
+		for _, id := range []string{zoneConfirmYes, zoneConfirmNo} {
+			if m.zone.Get(id).InBounds(mouse) {
+				return id
+			}
+		}
+		return ""
+	}
 	if m.contextMenu != nil {
 		for i := range m.contextMenu.items {
 			if m.zone.Get(zoneContextMenuItem(i)).InBounds(mouse) {
@@ -596,6 +606,18 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 // otherwise dispatches by button: left click acts directly, right click
 // opens a context menu of actions for whatever was clicked.
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if accept, cancel, ok := m.confirmActions(); ok {
+		// Modal like its keys: only the two buttons do anything.
+		if msg.Mouse().Button == tea.MouseLeft {
+			switch {
+			case m.zone.Get(zoneConfirmYes).InBounds(msg):
+				return m, accept(&m)
+			case m.zone.Get(zoneConfirmNo).InBounds(msg):
+				return m, cancel(&m)
+			}
+		}
+		return m, nil
+	}
 	if m.contextMenu != nil {
 		return m.handleContextMenuClick(msg)
 	}
@@ -695,6 +717,34 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 		}
 	}
 	return m, nil
+}
+
+// confirmActions returns what the yes/no confirmation on screen does on
+// accept and on cancel, if one is: the main one (confirmTarget), or the
+// contact manager's or device list's own.
+func (m Model) confirmActions() (accept, cancel func(*Model) tea.Cmd, ok bool) {
+	switch {
+	case m.confirmTarget != confirmNone:
+		return func(m *Model) tea.Cmd {
+				next, cmd := m.acceptConfirm()
+				*m = next
+				return cmd
+			}, func(m *Model) tea.Cmd {
+				m.confirmTarget = confirmNone
+				return nil
+			}, true
+	case m.contactManagerState != nil && m.contactManagerState.pendingRemove != "" && !m.contactManagerState.busy:
+		return (*Model).acceptContactRemove, func(m *Model) tea.Cmd {
+			m.contactManagerState.pendingRemove = ""
+			return nil
+		}, true
+	case m.deviceList != nil && m.deviceList.confirming && !m.deviceList.busy:
+		return (*Model).acceptDevicePurge, func(m *Model) tea.Cmd {
+			m.deviceList.confirming = false
+			return nil
+		}, true
+	}
+	return nil, nil, false
 }
 
 // handleContextMenuClick is the only input the open context menu responds

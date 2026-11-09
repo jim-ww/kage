@@ -107,7 +107,7 @@ func (m Model) contactManagerPrompt() string {
 	contacts := cs.contacts(m)
 
 	if cs.pendingRemove != "" {
-		return m.styles.deletePrompt(m.deletePromptWidth(), "Remove "+cs.pendingRemove+"?", "This also unsubscribes from their presence.")
+		return m.styles.deletePrompt(m.deletePromptWidth(), "Remove "+cs.pendingRemove+"?", "This also unsubscribes from their presence.", m.confirmButtons())
 	}
 
 	start, end := cs.bounds(len(contacts))
@@ -137,6 +137,16 @@ func (m Model) contactManagerPrompt() string {
 	rows = append(rows, "", hint)
 
 	return m.styles.infoPopup("Contacts", rows, closeKey)
+}
+
+// acceptContactRemove removes the contact staged in pendingRemove - the
+// remove confirmation's ConfirmYes key and "yes" button.
+func (m *Model) acceptContactRemove() tea.Cmd {
+	cs := m.contactManagerState
+	accountIdx, addr, manager := cs.accountIdx, cs.pendingRemove, m.contactManager
+	cs.busy = true
+	cs.pendingRemove = ""
+	return func() tea.Msg { return manager.RemoveContact(accountIdx, addr) }
 }
 
 // updateContactManagerKey handles all input while the contact-manager popup
@@ -182,12 +192,7 @@ func (m Model) updateContactManagerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	if cs.pendingRemove != "" {
 		switch {
 		case matchesKey(msg, m.keys.ConfirmYes):
-			accountIdx := cs.accountIdx
-			addr := cs.pendingRemove
-			manager := m.contactManager
-			cs.busy = true
-			cs.pendingRemove = ""
-			return m, func() tea.Msg { return manager.RemoveContact(accountIdx, addr) }, true
+			return m, m.acceptContactRemove(), true
 		case matchesKey(msg, m.keys.ConfirmNo):
 			cs.pendingRemove = ""
 		}

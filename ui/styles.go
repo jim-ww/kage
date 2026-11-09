@@ -591,12 +591,20 @@ func (s *uiStyles) renderAccountRow(name string, selected, hovered bool) string 
 	return style.Render(name)
 }
 
-func (s *uiStyles) deletePrompt(width int, title, detail string) string {
+// deletePrompt lays out a yes/no confirmation: title, optional detail, and
+// buttons (see Model.confirmButtons).
+func (s *uiStyles) deletePrompt(width int, title, detail, buttons string) string {
 	body := s.popupDanger.Width(width).Render(title)
 	if detail != "" {
 		body += "\n" + s.messageReply.Width(width).Render(detail)
 	}
-	return body + "\n\n  [y] yes    [n] no"
+	return body + "\n\n  " + buttons
+}
+
+// renderConfirmButton is one of a confirmation's "[y] yes"/"[n] no"
+// buttons: plain text, reversed while hovered like the other popup buttons.
+func (s *uiStyles) renderConfirmButton(label string, hovered bool) string {
+	return lipgloss.NewStyle().Reverse(hovered).Render(label)
 }
 
 func (s *uiStyles) infoPopup(title string, rows []string, closeKey string) string {

@@ -149,7 +149,7 @@ func (m Model) deviceListPrompt() string {
 				n++
 			}
 		}
-		return m.styles.deletePrompt(m.deletePromptWidth(), fmt.Sprintf("Remove %d device(s) from account?", n), "This republishes the affected protocol's device list without them.")
+		return m.styles.deletePrompt(m.deletePromptWidth(), fmt.Sprintf("Remove %d device(s) from account?", n), "This republishes the affected protocol's device list without them.", m.confirmButtons())
 	}
 
 	start, end := dl.bounds(len(removable))
@@ -179,6 +179,22 @@ func (m Model) deviceListPrompt() string {
 
 // updateDeviceListKey handles all input while the device-list popup
 // (m.deviceList != nil) is open.
+// acceptDevicePurge removes the selected devices from the published device
+// list - the purge confirmation's ConfirmYes key and "yes" button.
+func (m *Model) acceptDevicePurge() tea.Cmd {
+	dl := m.deviceList
+	var keep []OmemoDevice
+	for _, d := range dl.devices {
+		if !dl.selected[d] {
+			keep = append(keep, d)
+		}
+	}
+	accountIdx, manager := dl.accountIdx, m.deviceManager
+	dl.busy = true
+	dl.confirming = false
+	return func() tea.Msg { return manager.PurgeOwnDeviceList(accountIdx, keep) }
+}
+
 func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	dl := m.deviceList
 
@@ -196,16 +212,7 @@ func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	if dl.confirming {
 		switch {
 		case matchesKey(msg, m.keys.ConfirmYes):
-			var keep []OmemoDevice
-			for _, d := range dl.devices {
-				if !dl.selected[d] {
-					keep = append(keep, d)
-				}
-			}
-			accountIdx := dl.accountIdx
-			dl.busy = true
-			dl.confirming = false
-			return m, func() tea.Msg { return m.deviceManager.PurgeOwnDeviceList(accountIdx, keep) }, true
+			return m, m.acceptDevicePurge(), true
 		case matchesKey(msg, m.keys.ConfirmNo):
 			dl.confirming = false
 		}
