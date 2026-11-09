@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,14 +36,50 @@ func SetKeyringPassword(jid, password string) error {
 	return keyring.Set(keyringService, jid, password)
 }
 
+// ErrAccountExists is WriteAccount's error for a JID that's already
+// configured.
+var ErrAccountExists = errors.New("account is already added")
+
 // WriteAccount appends acct to the [[accounts]] list in the config file at
 // path, preserving any existing keybinds/theme/accounts already there.
-// Creates the file if it doesn't exist.
+// Creates the file if it doesn't exist. Refuses (ErrAccountExists) a JID
+// that's already in the list - two accounts with one JID would fight over
+// the same session and storage rows.
 func WriteAccount(path string, acct Account) error {
 	return updateConfigFile(path, func(cfg *Config) error {
+		if hasAccount(cfg.Accounts, acct.JID) {
+			return ErrAccountExists
+		}
 		cfg.Accounts = append(cfg.Accounts, acct)
 		return nil
 	})
+}
+
+// AccountExists reports whether jid is already configured in the config
+// file at path - for refusing a duplicate before doing anything else about
+// it (like registering it on the server).
+func AccountExists(path, jid string) (bool, error) {
+	cfg, err := loadOrEmpty(path)
+	if err != nil {
+		return false, err
+	}
+	return hasAccount(cfg.Accounts, jid), nil
+}
+
+// hasAccount compares bare JIDs case-insensitively, the way the server does
+// (domains are case-insensitive, and localparts are case-folded by
+// nodeprep/PRECIS for practically every account).
+func hasAccount(accounts []Account, jid string) bool {
+	bare := func(j string) string {
+		j, _, _ = strings.Cut(strings.TrimSpace(j), "/")
+		return j
+	}
+	for _, a := range accounts {
+		if strings.EqualFold(bare(a.JID), bare(jid)) {
+			return true
+		}
+	}
+	return false
 }
 
 // RemoveAccount deletes the account matching jid from the [[accounts]] list

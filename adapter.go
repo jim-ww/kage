@@ -98,6 +98,13 @@ func (a *adapter) CancelUpload(path string) {
 // register is true, it first creates the account on the server via XEP-0077
 // in-band registration, then proceeds identically to logging in.
 func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) tea.Msg {
+	// Checked before registering too: that would create the account on the
+	// server only for saving it to fail afterwards.
+	if exists, err := config.AccountExists(a.cfgPath, jid); err != nil {
+		return ui.AccountAddErrorMsg{Err: fmt.Errorf("reading config: %w", err)}
+	} else if exists {
+		return ui.AccountAddErrorMsg{Err: config.ErrAccountExists}
+	}
 	if register {
 		if err := xmpp.Register(context.Background(), jid, password, nil); err != nil {
 			return ui.AccountAddErrorMsg{Err: fmt.Errorf("registering account: %w", err)}
