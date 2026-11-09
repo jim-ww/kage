@@ -80,7 +80,7 @@ func newTestDaemon(t *testing.T, aliceClient *xmpp.Client) (sockPath string, ses
 	}
 	aliceSess.client.Store(aliceClient)
 
-	a := &adapter{sessions: []*accountSession{aliceSess}, srv: srv}
+	a := &adapter{sessions: []*accountSession{aliceSess}, srv: srv, cfgPath: filepath.Join(dir, "config.toml")}
 	ds := &daemonServer{a: a, srv: srv}
 
 	sockPath = filepath.Join(dir, "kage.sock")
@@ -284,5 +284,42 @@ func TestOwnEditsReachOtherAttachedClients(t *testing.T) {
 	awaitEvent(t, eventsB, evMessageRetracted, &retracted, 10*time.Second)
 	if retracted.RetractID != "someone-elses-message" {
 		t.Fatalf("local delete seen by B: %+v", retracted)
+	}
+}
+
+// TestSettingsReachOtherAttachedClients: a chat's encryption mode, pin,
+// mute and hidden state, and the account's own status, changed from one
+// attached TUI must show in the others too.
+func TestSettingsReachOtherAttachedClients(t *testing.T) {
+	ctx := context.Background()
+	aliceClient, err := xmpp.Dial(ctx, "alice@localhost", "alicepw", devtestTLSConfig(t))
+	if err != nil {
+		t.Fatalf("dial alice: %v", err)
+	}
+	t.Cleanup(func() { aliceClient.Close() })
+	// SetAccountStatus signals "the" daemon to reload, found through the
+	// config dir's lock file - keep that away from any real one.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	sockPath, _ := newTestDaemon(t, aliceClient)
+
+	clientA, _ := attachTestIPCClient(t, sockPath)
+	_, eventsB := attachTestIPCClient(t, sockPath)
+
+	if err := clientA.SetChatEncryption(0, "bob@localhost", "none"); err != nil {
+		t.Fatal(err)
+	}
+	var setting ui.ChatSettingMsg
+	awaitEvent(t, eventsB, evChatSetting, &setting, 5*time.Second)
+	if setting.Setting != "encryption" || setting.Mode != "none" || setting.ChatAddress != "bob@localhost" {
+		t.Fatalf("encryption seen by B: %+v", setting)
+	}
+
+	if msg := clientA.SetAccountStatus(0, ui.PresenceAway).(ui.AccountStatusSetMsg); msg.Err != nil {
+		t.Fatalf("SetAccountStatus: %v", msg.Err)
+	}
+	var status wireAccountStatusChanged
+	awaitEvent(t, eventsB, evAccountStatus, &status, 5*time.Second)
+	if status.Status != ui.PresenceAway {
+		t.Fatalf("status seen by B: %+v", status)
 	}
 }

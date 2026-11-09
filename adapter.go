@@ -215,14 +215,14 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 				slog.Warn("closing while going offline", "jid", sess.account.JID, "err", err)
 			}
 		}
-		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status}
+		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, StateApplied: true}
 	}
 
 	if status == ui.PresenceInvisible && online {
 		if err := client.SetInvisible(ctx); err != nil {
 			return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: fmt.Errorf("updating presence: %w", err)}
 		}
-		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status}
+		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, StateApplied: true}
 	}
 
 	// presenceShow has no <show/> value for invisible - going invisible while
@@ -235,7 +235,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 		if err := client.SetPresence(ctx, show); err != nil {
 			return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: fmt.Errorf("updating presence: %w", err)}
 		}
-		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status}
+		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, StateApplied: true}
 	}
 
 	// Was offline (never dialed, or previously disconnected) - dial it now.
@@ -276,6 +276,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	return ui.AccountStatusSetMsg{
 		Index: accountIdx, Status: status,
 		NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore,
+		StateApplied: true,
 	}
 }
 
@@ -374,6 +375,7 @@ func (a *adapter) SetChatHidden(accountJID, chatAddress string, hidden bool) err
 		}
 	}
 	unreadBadge.set(accountJID, chatAddress, count)
+	broadcast(a.srv, evChatSetting, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "hidden", On: hidden})
 	return nil
 }
 
@@ -384,6 +386,7 @@ func (a *adapter) SetChatPinned(accountJID, chatAddress string, pinned bool) err
 		return err
 	}
 	pinnedChats.flag(accountJID, chatAddress, pinned)
+	broadcast(a.srv, evChatSetting, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "pinned", On: pinned})
 	return nil
 }
 
@@ -394,6 +397,7 @@ func (a *adapter) SetChatMuted(accountJID, chatAddress string, muted bool) error
 		return err
 	}
 	mutedChats.flag(accountJID, chatAddress, muted)
+	broadcast(a.srv, evChatSetting, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "muted", On: muted})
 	return nil
 }
 
@@ -1004,11 +1008,15 @@ func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error 
 	if !ok {
 		return fmt.Errorf("unknown account %d", accountIdx)
 	}
-	return s.db.SetChatEncryptionMode(context.Background(), storage.SetChatEncryptionModeParams{
+	if err := s.db.SetChatEncryptionMode(context.Background(), storage.SetChatEncryptionModeParams{
 		AccountJid: s.account.JID,
 		RosterJid:  peerJID,
 		Mode:       mode,
-	})
+	}); err != nil {
+		return err
+	}
+	broadcast(a.srv, evChatSetting, ui.ChatSettingMsg{AccountJID: s.account.JID, ChatAddress: peerJID, Setting: "encryption", Mode: mode})
+	return nil
 }
 
 func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {

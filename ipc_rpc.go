@@ -96,6 +96,8 @@ const (
 	evCallState            = "CallState"
 	evMissedCall           = "MissedCall"
 	evAvatar               = "Avatar"
+	evChatSetting          = "ChatSetting"
+	evAccountStatus        = "AccountStatus"
 )
 
 // --- RPC param/result structs. Kept plain and JSON-friendly on purpose:
@@ -196,7 +198,18 @@ type setAccountStatusParams struct {
 	AccountIdx int
 	Status     ui.Presence
 }
+
+// setAccountStatusResult is all the requesting TUI gets back: the state
+// change itself (with whatever chats coming online loaded) reaches every
+// attached TUI as wireAccountStatusChanged instead.
 type setAccountStatusResult struct {
+	Status ui.Presence
+}
+
+// wireAccountStatusChanged is evAccountStatus's payload, the wire form of
+// ui.AccountStatusChangedMsg (chats as []ui.Chat, like wireAccount).
+type wireAccountStatusChanged struct {
+	Index          int
 	Status         ui.Presence
 	NewChats       []ui.Chat
 	NewMessages    map[int][]ui.Message

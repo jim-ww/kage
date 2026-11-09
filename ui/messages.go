@@ -475,6 +475,30 @@ type ChatHiddenSetter interface {
 	SetChatHidden(accountJID, chatAddress string, hidden bool) error
 }
 
+// ChatSettingMsg reports one chat's setting changed - by any attached TUI,
+// this one included (for which it's a no-op, already applied) - so every
+// TUI shows the same thing. Setting is "encryption" (Mode carries it),
+// "hidden", "pinned" or "muted" (On carries it).
+type ChatSettingMsg struct {
+	AccountJID  string
+	ChatAddress string
+	Setting     string
+	Mode        string
+	On          bool
+}
+
+// AccountStatusChangedMsg reports an account's own status changed, by any
+// attached TUI - the state half of a status change, applied in every TUI
+// alike (AccountStatusSetMsg is only the requesting TUI's result). NewChats
+// etc. carry whatever coming back online loaded.
+type AccountStatusChangedMsg struct {
+	Index          int
+	Status         Presence
+	NewChats       []list.Item
+	NewMessages    map[int][]Message
+	NewHistoryMore map[int]bool
+}
+
 // ChatMutedSetter persists whether a chat's incoming messages raise desktop
 // notifications, per account — see Chat.Muted.
 type ChatMutedSetter interface {
@@ -871,6 +895,11 @@ type AccountStatusSetter interface {
 // NewChats/NewMessages/NewHistoryMore carry any contacts discovered while
 // bringing a previously-offline account online, indexed the same way as
 // AccountLiveMsg's — empty when no (re)connect was needed.
+//
+// Through the daemon, the state change itself arrives separately as an
+// AccountStatusChangedMsg to every attached TUI, and this only reports
+// success or failure to the one that asked (StateApplied false). In process
+// (tests, no daemon) it carries the state too, StateApplied true.
 type AccountStatusSetMsg struct {
 	Index          int
 	Status         Presence
@@ -878,6 +907,7 @@ type AccountStatusSetMsg struct {
 	NewMessages    map[int][]Message
 	NewHistoryMore map[int]bool
 	Err            error
+	StateApplied   bool
 }
 
 // DefaultAccountSetter persists which account should be selected on startup,

@@ -999,24 +999,21 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if msg.Err != nil {
 			return m, m.showNotification("setting status: " + msg.Err.Error()), true
 		}
-		m.accounts[msg.Index].Status = msg.Status
-		if len(msg.NewChats) > 0 {
-			m.accounts[msg.Index].Chats = append(m.accounts[msg.Index].Chats, msg.NewChats...)
-			if m.accounts[msg.Index].Messages == nil {
-				m.accounts[msg.Index].Messages = make(map[int][]Message)
-			}
-			maps.Copy(m.accounts[msg.Index].Messages, msg.NewMessages)
-			if m.accounts[msg.Index].HistoryMore == nil {
-				m.accounts[msg.Index].HistoryMore = make(map[int]bool)
-			}
-			maps.Copy(m.accounts[msg.Index].HistoryMore, msg.NewHistoryMore)
-			m.stripHiddenChats(msg.Index)
-		}
 		var cmd tea.Cmd
-		if msg.Index == m.currentAccount && len(msg.NewChats) > 0 {
-			cmd = m.chats.SetItems(m.accounts[msg.Index].Chats)
+		if msg.StateApplied {
+			cmd = m.applyAccountStatus(AccountStatusChangedMsg{Index: msg.Index, Status: msg.Status,
+				NewChats: msg.NewChats, NewMessages: msg.NewMessages, NewHistoryMore: msg.NewHistoryMore})
 		}
 		return m, tea.Batch(cmd, m.showNotification("status: "+presenceLabel(msg.Status))), true
+
+	case AccountStatusChangedMsg:
+		if msg.Index < 0 || msg.Index >= len(m.accounts) {
+			return m, nil, true
+		}
+		return m, m.applyAccountStatus(msg), true
+
+	case ChatSettingMsg:
+		return m, m.applyChatSetting(msg), true
 
 	case AccountRemovedMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {

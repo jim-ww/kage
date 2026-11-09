@@ -331,12 +331,14 @@ func (d *daemonServer) handle(client ipc.ClientID, method string, params json.Ra
 		if msg.Err != nil {
 			return nil, msg.Err
 		}
-		return setAccountStatusResult{
-			Status:         msg.Status,
-			NewChats:       chatsToWire(msg.NewChats),
-			NewMessages:    msg.NewMessages,
-			NewHistoryMore: msg.NewHistoryMore,
-		}, nil
+		// The change itself goes to every attached TUI - chats coming back
+		// online loaded included - not just the one that asked, which only
+		// gets told it worked.
+		broadcast(d.srv, evAccountStatus, wireAccountStatusChanged{
+			Index: p.AccountIdx, Status: msg.Status,
+			NewChats: chatsToWire(msg.NewChats), NewMessages: msg.NewMessages, NewHistoryMore: msg.NewHistoryMore,
+		})
+		return setAccountStatusResult{Status: msg.Status}, nil
 
 	case rpcFetchOwnDeviceList:
 		p, err := unmarshalParams[accountIdxParams](params)

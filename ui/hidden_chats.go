@@ -106,22 +106,11 @@ func (m Model) isChatHidden(accountIdx int, address string) bool {
 // chat hidden for this session rather than refusing the action, since the
 // user has already seen it go.
 func (m *Model) hideChat(accountIdx, chatIdx int) tea.Cmd {
-	if accountIdx < 0 || accountIdx >= len(m.accounts) {
-		return nil
-	}
-	items := m.accounts[accountIdx].Chats
-	if chatIdx < 0 || chatIdx >= len(items) {
-		return nil
-	}
-	chat, ok := items[chatIdx].(Chat)
+	chat, cmd, ok := m.applyHideChat(accountIdx, chatIdx)
 	if !ok {
 		return nil
 	}
-	chat.Hidden = true
-	m.accounts[accountIdx].Chats[chatIdx] = chat
-	m.stripHiddenChats(accountIdx)
-
-	cmds := []tea.Cmd{m.reselectAfterHide(accountIdx, chatIdx)}
+	cmds := []tea.Cmd{cmd}
 	if err := m.persistChatHidden(accountIdx, chat.Address, true); err != nil {
 		cmds = append(cmds, m.showNotification("hiding "+chat.Address+": "+err.Error()))
 	} else {
@@ -130,14 +119,48 @@ func (m *Model) hideChat(accountIdx, chatIdx int) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// applyHideChat is hideChat's state change alone, without persisting it -
+// also how a chat another attached TUI hid disappears from this one.
+func (m *Model) applyHideChat(accountIdx, chatIdx int) (Chat, tea.Cmd, bool) {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return Chat{}, nil, false
+	}
+	items := m.accounts[accountIdx].Chats
+	if chatIdx < 0 || chatIdx >= len(items) {
+		return Chat{}, nil, false
+	}
+	chat, ok := items[chatIdx].(Chat)
+	if !ok {
+		return Chat{}, nil, false
+	}
+	chat.Hidden = true
+	m.accounts[accountIdx].Chats[chatIdx] = chat
+	m.stripHiddenChats(accountIdx)
+	return chat, m.reselectAfterHide(accountIdx, chatIdx), true
+}
+
 // unhideChat puts a hidden chat back at the end of the list, with whatever
 // history was loaded when it was hidden.
 func (m *Model) unhideChat(accountIdx int, address string) tea.Cmd {
+	cmd, ok := m.applyUnhideChat(accountIdx, address)
+	if !ok {
+		return nil
+	}
+	cmds := []tea.Cmd{cmd}
+	if err := m.persistChatHidden(accountIdx, address, false); err != nil {
+		cmds = append(cmds, m.showNotification("unhiding "+address+": "+err.Error()))
+	}
+	return tea.Batch(cmds...)
+}
+
+// applyUnhideChat is unhideChat's state change alone, without persisting
+// it - see applyHideChat.
+func (m *Model) applyUnhideChat(accountIdx int, address string) (tea.Cmd, bool) {
 	stash := m.hiddenChats[accountIdx]
 	key := strings.ToLower(address)
 	h, ok := stash[key]
 	if !ok {
-		return nil
+		return nil, false
 	}
 	delete(stash, key)
 
@@ -157,11 +180,7 @@ func (m *Model) unhideChat(accountIdx int, address string) tea.Cmd {
 		m.accounts[accountIdx].HistoryMore[idx] = true
 	}
 
-	cmds := []tea.Cmd{m.sortChatsByActivity(accountIdx)}
-	if err := m.persistChatHidden(accountIdx, h.chat.Address, false); err != nil {
-		cmds = append(cmds, m.showNotification("unhiding "+h.chat.Address+": "+err.Error()))
-	}
-	return tea.Batch(cmds...)
+	return m.sortChatsByActivity(accountIdx), true
 }
 
 func (m Model) persistChatHidden(accountIdx int, address string, hidden bool) error {

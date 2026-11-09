@@ -286,10 +286,7 @@ func (c *ipcClient) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg
 	if err := c.conn.Call(rpcSetAccountStatus, setAccountStatusParams{AccountIdx: accountIdx, Status: status}, &res); err != nil {
 		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
 	}
-	return ui.AccountStatusSetMsg{
-		Index: accountIdx, Status: res.Status,
-		NewChats: chatsFromWire(res.NewChats), NewMessages: res.NewMessages, NewHistoryMore: res.NewHistoryMore,
-	}
+	return ui.AccountStatusSetMsg{Index: accountIdx, Status: res.Status}
 }
 
 func (c *ipcClient) FetchOwnDeviceList(accountIdx int) tea.Msg {
@@ -498,6 +495,18 @@ func (c *ipcClient) dispatch(ev ipc.Event) {
 		sendEvent[ui.CallStateMsg](c, ev.Data)
 	case evMissedCall:
 		sendEvent[ui.MissedCallMsg](c, ev.Data)
+	case evChatSetting:
+		sendEvent[ui.ChatSettingMsg](c, ev.Data)
+	case evAccountStatus:
+		var w wireAccountStatusChanged
+		if err := json.Unmarshal(ev.Data, &w); err != nil {
+			slog.Warn("unmarshaling AccountStatus event", "err", err)
+			return
+		}
+		c.program.Send(ui.AccountStatusChangedMsg{
+			Index: w.Index, Status: w.Status,
+			NewChats: chatsFromWire(w.NewChats), NewMessages: w.NewMessages, NewHistoryMore: w.NewHistoryMore,
+		})
 	case evAccountAdded:
 		var w wireAccountAddedMsg
 		if err := json.Unmarshal(ev.Data, &w); err != nil {
