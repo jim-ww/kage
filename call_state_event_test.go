@@ -113,3 +113,14 @@ func TestPeerWentOfflineEndsCall(t *testing.T) {
 		t.Fatal("the call's peer device going offline didn't end the call")
 	}
 }
+
+func TestOmemoFingerprintGroups(t *testing.T) {
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	want := "00010203 04050607 08090a0b 0c0d0e0f 10111213 14151617 18191a1b 1c1d1e1f"
+	if got := omemoFingerprint(key); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -528,7 +530,78 @@ func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 		}
 	}
 
+	// Our own devices are normally in the published list too: reuse those
+	// fingerprints rather than fetching the same bundles twice.
+	fingerprintDevices(ctx, s, devices)
+	var unlisted []int
+	for i, l := range local {
+		idx := slices.IndexFunc(devices, func(d ui.OmemoDevice) bool { return d.Protocol == l.Protocol && d.ID == l.ID })
+		if idx < 0 {
+			unlisted = append(unlisted, i)
+			continue
+		}
+		local[i].Fingerprint = devices[idx].Fingerprint
+	}
+	if len(unlisted) > 0 {
+		missing := make([]ui.OmemoDevice, len(unlisted))
+		for j, i := range unlisted {
+			missing[j] = local[i]
+		}
+		fingerprintDevices(ctx, s, missing)
+		for j, i := range unlisted {
+			local[i].Fingerprint = missing[j].Fingerprint
+		}
+	}
 	return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Local: local, Devices: devices}
+}
+
+// deviceFingerprintTimeout bounds fetching every listed device's bundle for
+// its fingerprint - one slow or dead device mustn't hold the list up.
+const deviceFingerprintTimeout = 5 * time.Second
+
+// fingerprintDevices fills in each of this account's devices' fingerprint
+// from its published bundle, fetched concurrently. A bundle that can't be
+// fetched leaves that fingerprint empty - the device is still listed.
+func fingerprintDevices(ctx context.Context, s *accountSession, devices []ui.OmemoDevice) {
+	client := s.client.Load()
+	if client == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, deviceFingerprintTimeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i := range devices {
+		d := &devices[i]
+		wg.Go(func() {
+			dev := omemolib.Device{JID: s.account.JID, ID: omemolib.DeviceID(d.ID)}
+			fetch := client.FetchOmemoBundle
+			if d.Protocol == "v1" {
+				fetch = client.FetchOmemoBundleV1
+			}
+			bundle, err := fetch(ctx, dev)
+			if err != nil {
+				slog.Debug("fetching own device bundle for its fingerprint", "jid", s.account.JID, "device", d.ID, "protocol", d.Protocol, "err", err)
+				return
+			}
+			d.Fingerprint = omemoFingerprint(bundle.IdentityKey)
+		})
+	}
+	wg.Wait()
+}
+
+// omemoFingerprint renders an OMEMO identity key the way other clients
+// show it for comparison: lowercase hex in groups of eight.
+func omemoFingerprint(identityKey []byte) string {
+	h := hex.EncodeToString(identityKey)
+	groups := make([]string, 0, (len(h)+7)/8)
+	for len(h) > 8 {
+		groups = append(groups, h[:8])
+		h = h[8:]
+	}
+	if h != "" {
+		groups = append(groups, h)
+	}
+	return strings.Join(groups, " ")
 }
 
 // PurgeOwnDeviceList implements ui.OmemoDeviceManager: republishes each

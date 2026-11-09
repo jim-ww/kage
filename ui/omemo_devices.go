@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -26,6 +27,10 @@ type OmemoDeviceManager interface {
 type OmemoDevice struct {
 	Protocol string // "v1" | "v2"
 	ID       uint32
+	// Fingerprint is the device's identity key as hex groups (see the
+	// daemon's omemoFingerprint), for comparing against what the device
+	// itself shows; "" if its bundle couldn't be fetched.
+	Fingerprint string
 }
 
 // OmemoDeviceListMsg reports the result of OmemoDeviceManager.FetchOwnDeviceList.
@@ -81,7 +86,7 @@ func (m Model) openDeviceList() (Model, tea.Cmd) {
 
 func (dl *deviceListState) isLocal(d OmemoDevice) bool {
 	for _, l := range dl.local {
-		if l == d {
+		if l.Protocol == d.Protocol && l.ID == d.ID {
 			return true
 		}
 	}
@@ -155,9 +160,10 @@ func (m Model) deviceListPrompt() string {
 	start, end := dl.bounds(len(removable))
 	page := removable[start:end]
 
-	rows := make([]string, 0, len(dl.local)+len(page)+2)
+	rows := make([]string, 0, 3*len(dl.local)+len(page)+6)
 	for _, l := range dl.local {
 		rows = append(rows, fmt.Sprintf("      Device %d (%s, this device)", l.ID, l.Protocol))
+		rows = append(rows, fingerprintLines("        ", l.Fingerprint)...)
 	}
 	for i, d := range page {
 		mark := "[ ]"
@@ -167,6 +173,14 @@ func (m Model) deviceListPrompt() string {
 		label := fmt.Sprintf("%d. %s Device %d (%s)", i+1, mark, d.ID, d.Protocol)
 		rows = append(rows, m.renderRow(zoneDeviceRow(i), i, dl.cursor, label))
 	}
+	// Only the highlighted device's fingerprint, below the list rather than
+	// under every row: two extra lines per device would push a full page
+	// past the popup on a short terminal.
+	if dl.cursor >= 0 && dl.cursor < len(page) {
+		d := page[dl.cursor]
+		rows = append(rows, "", fmt.Sprintf("  Device %d fingerprint:", d.ID))
+		rows = append(rows, fingerprintLines("    ", d.Fingerprint)...)
+	}
 
 	hint := "enter/digit: toggle · y: remove selected"
 	if pages := openPageCount(len(removable)); pages > 1 {
@@ -175,6 +189,18 @@ func (m Model) deviceListPrompt() string {
 	rows = append(rows, "", hint)
 
 	return m.styles.infoPopup("OMEMO devices", rows, closeKey)
+}
+
+// fingerprintLines splits a fingerprint's eight hex groups over two lines
+// of four, each prefixed by indent - one 71-column line wouldn't fit the
+// popup on most terminals.
+func fingerprintLines(indent, fingerprint string) []string {
+	if fingerprint == "" {
+		return []string{indent + "fingerprint unavailable"}
+	}
+	groups := strings.Fields(fingerprint)
+	half := (len(groups) + 1) / 2
+	return []string{indent + strings.Join(groups[:half], " "), indent + strings.Join(groups[half:], " ")}
 }
 
 // updateDeviceListKey handles all input while the device-list popup
