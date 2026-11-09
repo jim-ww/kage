@@ -332,6 +332,11 @@ type Chat struct {
 	Subscription        string
 	SubscriptionPending bool
 
+	// Muted marks a chat whose messages raise no desktop notification
+	// (they still count as unread). Local only, persisted via
+	// ChatMutedSetter; the daemon is what actually stays quiet.
+	Muted bool
+
 	// Resources lists this contact's currently online devices (full-JID
 	// resources), sorted by resource name. Populated from live
 	// xmpp.PresenceEvents (see PresenceMsg.Resource) — a resource is added
@@ -375,6 +380,9 @@ type Chat struct {
 // the delegate layers on top survives into them — see renderTintedName.
 func (c Chat) Title() string {
 	title := presenceGlyph(c.Presence) + " " + renderTintedName(c.Name, c.Address)
+	if c.Muted {
+		title += " " + mutedChatGlyph
+	}
 	if c.Pinned {
 		title = pinnedChatGlyph + " " + title
 	}

@@ -475,6 +475,12 @@ type ChatHiddenSetter interface {
 	SetChatHidden(accountJID, chatAddress string, hidden bool) error
 }
 
+// ChatMutedSetter persists whether a chat's incoming messages raise desktop
+// notifications, per account — see Chat.Muted.
+type ChatMutedSetter interface {
+	SetChatMuted(accountJID, chatAddress string, muted bool) error
+}
+
 // ChatPinnedSetter persists whether a chat is pinned to the top of the chat
 // list, per account — see Chat.Pinned.
 type ChatPinnedSetter interface {

@@ -37,6 +37,10 @@ var avatarsEnabled atomic.Bool
 var (
 	hiddenChats chatFlags
 	pinnedChats chatFlags
+	// mutedChats are chats whose messages raise no desktop notification
+	// (handleIncomingMessage) - read here, daemon-side, since that's where
+	// notifications fire.
+	mutedChats chatFlags
 )
 
 // chatFlags is a per-account set of flagged chat addresses, keyed by account
@@ -244,6 +248,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
 	hiddenChats.replace(cfg.State.HiddenChats)
 	pinnedChats.replace(cfg.State.PinnedChats)
+	mutedChats.replace(cfg.State.MutedChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
 	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)
@@ -349,6 +354,7 @@ func (b *backend) Reload(cfg config.Config) {
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
 	hiddenChats.replace(cfg.State.HiddenChats)
 	pinnedChats.replace(cfg.State.PinnedChats)
+	mutedChats.replace(cfg.State.MutedChats)
 	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
 	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
 	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)

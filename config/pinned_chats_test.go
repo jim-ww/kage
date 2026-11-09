@@ -70,3 +70,26 @@ func TestSetChatPinnedRejectsEmptyKeys(t *testing.T) {
 		t.Fatal("pinning without a chat address should fail")
 	}
 }
+
+func TestSetChatMuted(t *testing.T) {
+	path := hiddenChatsStatePath(t)
+	if err := SetChatMuted(path, "me@x", "b@x", true); err != nil {
+		t.Fatal(err)
+	}
+	st, err := loadState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.MutedChats["me@x"]; len(got) != 1 || got[0] != "b@x" {
+		t.Fatalf("muted = %v", got)
+	}
+	if err := SetChatMuted(path, "me@x", "B@X", false); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = loadState(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.MutedChats["me@x"]; ok {
+		t.Fatalf("muted entry kept after unmuting: %v", st.MutedChats)
+	}
+}

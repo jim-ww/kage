@@ -56,6 +56,10 @@ type State struct {
 	// ui.sortChatsByActivity). Persisted here rather than in config.toml
 	// for the same reason HiddenChats is.
 	PinnedChats map[string][]string `toml:"pinned_chats,omitempty"`
+	// MutedChats lists, per account JID, the bare JIDs of chats whose
+	// incoming messages don't raise a desktop notification. They still
+	// count as unread. Persisted here for the same reason HiddenChats is.
+	MutedChats map[string][]string `toml:"muted_chats,omitempty"`
 	// AccountStatuses is JID -> configured presence ("", "chat", "away",
 	// "xa", "dnd", "offline"), persisted immediately whenever changed from
 	// the UI so a restart comes back up in the same status. Keyed

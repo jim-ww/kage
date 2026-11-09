@@ -40,6 +40,10 @@ var presenceGlyphs = map[Presence]struct {
 // Chat.Title).
 const pinnedChatGlyph = "📌"
 
+// mutedChatGlyph follows a muted chat's name in the chat list (see
+// Chat.Title).
+const mutedChatGlyph = "🔕"
+
 // presenceGlyph renders a presence as a single colored symbol.
 func presenceGlyph(p Presence) string {
 	g, ok := presenceGlyphs[p]

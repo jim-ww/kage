@@ -144,6 +144,10 @@ func (c *ipcClient) SetChatHidden(accountJID, chatAddress string, hidden bool) e
 	return c.conn.Call(rpcSetChatHidden, setChatHiddenParams{AccountJID: accountJID, ChatAddress: chatAddress, Hidden: hidden}, nil)
 }
 
+func (c *ipcClient) SetChatMuted(accountJID, chatAddress string, muted bool) error {
+	return c.conn.Call(rpcSetChatMuted, setChatMutedParams{AccountJID: accountJID, ChatAddress: chatAddress, Muted: muted}, nil)
+}
+
 func (c *ipcClient) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
 	return c.conn.Call(rpcSetChatPinned, setChatPinnedParams{AccountJID: accountJID, ChatAddress: chatAddress, Pinned: pinned}, nil)
 }

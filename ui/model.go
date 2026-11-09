@@ -253,6 +253,7 @@ type Model struct {
 	avatarPublisher            AvatarPublisher
 	chatHiddenSetter           ChatHiddenSetter
 	chatPinnedSetter           ChatPinnedSetter
+	chatMutedSetter            ChatMutedSetter
 	// hiddenChats holds the chats kept out of each account's list, keyed
 	// by account index then lowercased bare JID — see ui/hidden_chats.go.
 	hiddenChats map[int]map[string]hiddenChat
@@ -497,6 +498,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	avatarPublisher, _ := sender.(AvatarPublisher)
 	chatHiddenSetter, _ := sender.(ChatHiddenSetter)
 	chatPinnedSetter, _ := sender.(ChatPinnedSetter)
+	chatMutedSetter, _ := sender.(ChatMutedSetter)
 	historyLoader, _ := sender.(HistoryLoader)
 	historySearcher, _ := sender.(HistorySearcher)
 	deviceManager, _ := sender.(OmemoDeviceManager)
@@ -568,6 +570,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		avatarPublisher:            avatarPublisher,
 		chatHiddenSetter:           chatHiddenSetter,
 		chatPinnedSetter:           chatPinnedSetter,
+		chatMutedSetter:            chatMutedSetter,
 		focusReporter:              focusReporter,
 		callController:             callController,
 		audioDevices:               audioDevices,

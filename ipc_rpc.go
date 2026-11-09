@@ -23,6 +23,7 @@ const (
 	rpcSetSidebarHidden         = "SetSidebarHidden"
 	rpcSetChatHidden            = "SetChatHidden"
 	rpcSetChatPinned            = "SetChatPinned"
+	rpcSetChatMuted             = "SetChatMuted"
 	rpcSetInputHeight           = "SetInputHeight"
 	rpcSetFilePickerSort        = "SetFilePickerSort"
 	rpcSetLastChat              = "SetLastChat"
@@ -391,6 +392,12 @@ type setChatHiddenParams struct {
 	AccountJID  string `json:"account_jid"`
 	ChatAddress string `json:"chat_address"`
 	Hidden      bool   `json:"hidden"`
+}
+
+type setChatMutedParams struct {
+	AccountJID  string `json:"accountJID"`
+	ChatAddress string `json:"chatAddress"`
+	Muted       bool   `json:"muted"`
 }
 
 type setChatPinnedParams struct {

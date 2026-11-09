@@ -50,6 +50,50 @@ func (m Model) persistChatPinned(accountIdx int, address string, pinned bool) er
 	return m.chatPinnedSetter.SetChatPinned(m.accounts[accountIdx].Name, address, pinned)
 }
 
+// toggleMuteChat flips whether accountIdx's chat at chatIdx raises desktop
+// notifications. Like pinning, a failed persist leaves the flag flipped for
+// the session - but here that's only what the row shows: the daemon, which
+// does the notifying, didn't take it, so the notice says so.
+func (m *Model) toggleMuteChat(accountIdx, chatIdx int) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return nil
+	}
+	items := m.accounts[accountIdx].Chats
+	if chatIdx < 0 || chatIdx >= len(items) {
+		return nil
+	}
+	chat, ok := items[chatIdx].(Chat)
+	if !ok {
+		return nil
+	}
+	chat.Muted = !chat.Muted
+	m.accounts[accountIdx].Chats[chatIdx] = chat
+	var cmd tea.Cmd
+	if accountIdx == m.currentAccount {
+		cmd = m.chats.SetItem(chatIdx, chat)
+	}
+	if m.chatMutedSetter != nil {
+		if err := m.chatMutedSetter.SetChatMuted(m.accounts[accountIdx].Name, chat.Address, chat.Muted); err != nil {
+			return tea.Batch(cmd, m.showNotification("muting "+chat.Address+": "+err.Error()))
+		}
+	}
+	if chat.Muted {
+		return tea.Batch(cmd, m.showNotification("muted notifications from "+chat.Address))
+	}
+	return tea.Batch(cmd, m.showNotification("unmuted "+chat.Address))
+}
+
+// actionToggleMuteChat mutes or unmutes the selected chat's notifications
+// (viewChats' MuteChat keybind / a chat-item context menu's "Mute
+// notifications").
+func (m *Model) actionToggleMuteChat() tea.Cmd {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return m.showNotification("no chat selected")
+	}
+	return m.toggleMuteChat(m.currentAccount, chatIdx)
+}
+
 // actionTogglePinChat pins or unpins the selected chat (viewChats' PinChat
 // keybind / a chat-item context menu's "Pin chat").
 func (m *Model) actionTogglePinChat() tea.Cmd {

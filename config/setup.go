@@ -300,8 +300,17 @@ func SetChatPinned(path, accountJID, chatAddress string, pinned bool) error {
 		func(st *State, m map[string][]string) { st.PinnedChats = m })
 }
 
+// SetChatMuted adds or removes one chat from the muted list for an account
+// in the state file next to path (see ui.ChatMutedSetter). Muting only
+// silences desktop notifications for the chat.
+func SetChatMuted(path, accountJID, chatAddress string, muted bool) error {
+	return setChatListFlag(path, accountJID, chatAddress, muted, "muting",
+		func(st *State) map[string][]string { return st.MutedChats },
+		func(st *State, m map[string][]string) { st.MutedChats = m })
+}
+
 // setChatListFlag is the shared per-account chat-address set edit behind
-// SetChatHidden/SetChatPinned: both keep a sorted, case-insensitively
+// SetChatHidden/SetChatPinned/SetChatMuted: both keep a sorted, case-insensitively
 // deduped list of bare JIDs under an account key in state.toml.
 func setChatListFlag(path, accountJID, chatAddress string, on bool, verb string, get func(*State) map[string][]string, set func(*State, map[string][]string)) error {
 	if accountJID == "" || chatAddress == "" {

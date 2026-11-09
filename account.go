@@ -830,7 +830,7 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		// after everything already delivered - flushOutbox will actually
 		// attempt them again once this account reconnects.
 		hist = append(hist, pendingByPeer[r.Jid]...)
-		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid], Hidden: hiddenChats.has(acct.JID, r.Jid), Pinned: pinnedChats.has(acct.JID, r.Jid),
+		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid], Hidden: hiddenChats.has(acct.JID, r.Jid), Pinned: pinnedChats.has(acct.JID, r.Jid), Muted: mutedChats.has(acct.JID, r.Jid),
 			Subscription: r.Subs}
 		if len(hist) > 0 {
 			messages[i] = hist
@@ -971,7 +971,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 		idx := existingChatCount + len(newChats)
 		hist, hasMore, _ := loadHistoryWindow(ctx, sess, c.JID, name, nil, historyPageSize)
-		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources, Hidden: hiddenChats.has(sess.account.JID, c.JID), Pinned: pinnedChats.has(sess.account.JID, c.JID),
+		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources, Hidden: hiddenChats.has(sess.account.JID, c.JID), Pinned: pinnedChats.has(sess.account.JID, c.JID), Muted: mutedChats.has(sess.account.JID, c.JID),
 			Subscription: c.Subscription, SubscriptionPending: c.Ask}
 		if len(hist) > 0 {
 			newMessages[idx] = hist
@@ -2118,6 +2118,7 @@ func (s *accountSession) broadcastChat(ctx context.Context, srv *ipc.Server, acc
 			Resources:      entry.Resources,
 			Unread:         int(unread),
 			Pinned:         pinnedChats.has(s.account.JID, peer),
+			Muted:          mutedChats.has(s.account.JID, peer),
 
 			Subscription:        entry.Subs,
 			SubscriptionPending: entry.Ask,

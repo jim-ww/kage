@@ -300,6 +300,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionRenameChat(), true
 		}
 
+	case matchesKey(msg, m.keys.MuteChat):
+		if m.selectedView == viewChats {
+			return m, m.actionToggleMuteChat(), true
+		}
+
 	case matchesKey(msg, m.keys.PinChat):
 		if m.selectedView == viewChats {
 			return m, m.actionTogglePinChat(), true

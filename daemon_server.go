@@ -128,6 +128,13 @@ func (d *daemonServer) handle(client ipc.ClientID, method string, params json.Ra
 		}
 		return nil, d.a.SetChatHidden(p.AccountJID, p.ChatAddress, p.Hidden)
 
+	case rpcSetChatMuted:
+		p, err := unmarshalParams[setChatMutedParams](params)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.a.SetChatMuted(p.AccountJID, p.ChatAddress, p.Muted)
+
 	case rpcSetChatPinned:
 		p, err := unmarshalParams[setChatPinnedParams](params)
 		if err != nil {

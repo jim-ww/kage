@@ -323,12 +323,21 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	})
 	countUnread(ctx, srv, s, from, []ui.Message{newMsg})
 
-	incomingKey := focusedChatKey(s.account.JID, from)
-	chatIsFocused := clientFocus.chatVisible(incomingKey)
-	slog.Debug("notify decision", "incomingKey", incomingKey, "clients", clientFocus.describe(), "chatIsFocused", chatIsFocused, "notifyEnabled", notifyEnabled.Load(), "decryptFailed", decryptFailed, "outgoing", msgEv.Outgoing)
-	if notifyEnabled.Load() && !decryptFailed && !chatIsFocused && !msgEv.Outgoing {
+	if shouldNotify(s.account.JID, from, decryptFailed, msgEv.Outgoing) {
 		daemon.Notify(s.rosterName(from), notifyPreview(body, oobURLs))
 	}
+}
+
+// shouldNotify decides whether an incoming message from `from` raises a
+// desktop notification: not when notifications are off, not for our own
+// message or one we couldn't decrypt, not for a chat someone has on screen,
+// and not for a chat the user muted.
+func shouldNotify(accountJID, from string, decryptFailed, outgoing bool) bool {
+	incomingKey := focusedChatKey(accountJID, from)
+	chatIsFocused := clientFocus.chatVisible(incomingKey)
+	muted := mutedChats.has(accountJID, from)
+	slog.Debug("notify decision", "incomingKey", incomingKey, "clients", clientFocus.describe(), "chatIsFocused", chatIsFocused, "muted", muted, "notifyEnabled", notifyEnabled.Load(), "decryptFailed", decryptFailed, "outgoing", outgoing)
+	return notifyEnabled.Load() && !decryptFailed && !chatIsFocused && !muted && !outgoing
 }
 
 // healBrokenSession recovers from an OMEMO decrypt failure caused by a

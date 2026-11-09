@@ -385,6 +385,16 @@ func (a *adapter) SetChatPinned(accountJID, chatAddress string, pinned bool) err
 	return nil
 }
 
+// SetChatMuted implements ui.ChatMutedSetter: persists whether a chat's
+// messages raise desktop notifications, and applies it right away.
+func (a *adapter) SetChatMuted(accountJID, chatAddress string, muted bool) error {
+	if err := config.SetChatMuted(a.cfgPath, accountJID, chatAddress, muted); err != nil {
+		return err
+	}
+	mutedChats.flag(accountJID, chatAddress, muted)
+	return nil
+}
+
 // SetInputHeight implements ui.InputHeightSetter: persists the user-dragged
 // compose box height so it's restored on the next launch.
 func (a *adapter) SetInputHeight(height int) error {

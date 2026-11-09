@@ -41,6 +41,7 @@ type KeyMap struct {
 	PasteImage          key.Binding // Ctrl+P — stage whatever image is on the system clipboard as an attachment
 	RenameChat          key.Binding // r — open the rename-contact prompt for the selected chat
 	PinChat             key.Binding // p — pin/unpin the selected chat to the top of the chat list
+	MuteChat            key.Binding // m — mute/unmute the selected chat's desktop notifications
 	ToggleSidebar       key.Binding // Ctrl+\ — show/hide the chat list sidebar
 	DeviceList          key.Binding // u (accounts panel) — view/purge the current account's published OMEMO device list
 	ContactManager      key.Binding // c — add/remove roster contacts for the current account (accounts panel)
@@ -135,6 +136,7 @@ var DefaultKeyMap = KeyMap{
 	PasteImage:     NewBinding([]string{"ctrl+p"}, "paste image"),
 	RenameChat:     NewBinding([]string{"r"}, "rename chat"),
 	PinChat:        NewBinding([]string{"p"}, "pin chat"),
+	MuteChat:       NewBinding([]string{"m"}, "mute chat"),
 	ToggleSidebar:  NewBinding([]string{"ctrl+shift+\\"}, "toggle chat list"),
 	DeviceList:     NewBinding([]string{"u"}, "omemo devices"),
 	AvatarMenu:     NewBinding([]string{"v"}, "avatar"),
@@ -267,6 +269,7 @@ func (k *KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []he
 			{k.ChatOpen, "open"},
 			{k.RenameChat, "rename"},
 			{k.PinChat, "pin"},
+			{k.MuteChat, "mute"},
 			{k.DeleteMsg, "hide chat"},
 			{k.ListKeys.Filter, "filter"},
 			{k.ToggleSidebar, "hide chats"},
