@@ -770,11 +770,9 @@ func (m *Model) actionOpenMessage() tea.Cmd {
 		isAttachment := len(msgs[m.selectedMsg].Attachments) > 0
 		return m.startOpen(items[0], isAttachment)
 	default:
-		m.openItems = items
-		m.openItemsAttachCount = len(msgs[m.selectedMsg].Attachments)
-		m.openPage = 0
-		m.openMode = pickerModeOpen
-		return nil
+		return m.openItemMenu("Open which?", items, len(msgs[m.selectedMsg].Attachments), func(m *Model, target string, isAttachment bool) tea.Cmd {
+			return m.startOpen(target, isAttachment)
+		})
 	}
 }
 
@@ -790,11 +788,9 @@ func (m *Model) actionSaveMessage() tea.Cmd {
 	case 1:
 		return m.startSave(items[0])
 	default:
-		m.openItems = items
-		m.openItemsAttachCount = len(msgs[m.selectedMsg].Attachments)
-		m.openPage = 0
-		m.openMode = pickerModeSave
-		return nil
+		return m.openItemMenu("Save which?", items, len(msgs[m.selectedMsg].Attachments), func(m *Model, target string, _ bool) tea.Cmd {
+			return m.startSave(target)
+		})
 	}
 }
 
@@ -802,7 +798,7 @@ func (m *Model) actionSaveMessage() tea.Cmd {
 // instead of downloading straight to the default downloads directory, it
 // prompts for a destination path first (openSaveAsPrompt). With multiple
 // links/attachments on the message, the item picker opens first (in
-// pickerModeSaveAs) so the user chooses which one before being prompted for
+// "save as" mode) so the user chooses which one before being prompted for
 // where to put it.
 func (m *Model) actionSaveMessageAs() tea.Cmd {
 	msgs := m.currentMessages()
@@ -816,11 +812,9 @@ func (m *Model) actionSaveMessageAs() tea.Cmd {
 	case 1:
 		return m.openSaveAsPrompt(items[0])
 	default:
-		m.openItems = items
-		m.openItemsAttachCount = len(msgs[m.selectedMsg].Attachments)
-		m.openPage = 0
-		m.openMode = pickerModeSaveAs
-		return nil
+		return m.openItemMenu("Save which as?", items, len(msgs[m.selectedMsg].Attachments), func(m *Model, target string, _ bool) tea.Cmd {
+			return m.openSaveAsPrompt(target)
+		})
 	}
 }
 

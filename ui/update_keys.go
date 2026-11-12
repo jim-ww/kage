@@ -126,30 +126,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, tea.Batch(append(cmds, pickerCmd)...), true
 	}
 
-	// ── Open-item picker intercepts all input until a choice is made ───
-	if len(m.openItems) > 0 {
-		start, end := openPageBounds(len(m.openItems), m.openPage)
-		if i, ok := digitKey(msg); ok && i >= 1 && i <= end-start {
-			m, cmd := m.selectOpenItem(start + i - 1)
-			return m, cmd, true
-		}
-		switch msg.String() {
-		case "left", "h":
-			m.openPage = max(0, m.openPage-1)
-		case "right", "l":
-			if m.openPage < openPageCount(len(m.openItems))-1 {
-				m.openPage++
-			}
-		default:
-			switch {
-			case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
-				m.openItems = nil
-				m.openPage = 0
-			}
-		}
-		return m, nil, true
-	}
-
 	switch {
 
 	// ── Global ────────────────────────────────────────────────────────

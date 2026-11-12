@@ -359,8 +359,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderAddAccountPopup()
 	case m.searchResults != nil:
 		viewportArea = m.renderSearchResultsPopup()
-	case len(m.openItems) > 0:
-		viewportArea = m.renderOpenPopup()
 	case m.avatarPreview != nil:
 		viewportArea = m.renderAvatarPreviewPopup()
 	case m.pickingFile:
@@ -689,55 +687,6 @@ func (m *Model) openHelp() tea.Cmd {
 		}
 	}
 	return m.openModal(&modal.Modal[*Model]{Title: "Help", Body: modal.TextLines(rows...)})
-}
-
-// renderOpenPopup lists the pending link/attachment choices, numbered within
-// the current page; left/right page through when there are more than
-// openItemsPerPage items.
-func (m Model) renderOpenPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	start, end := openPageBounds(len(m.openItems), m.openPage)
-	page := m.openItems[start:end]
-	rows := make([]string, len(page))
-	for i, item := range page {
-		// openableItems puts every real attachment before any plain link
-		// found in Content (see m.openItemsAttachCount) - show attachments
-		// by their decoded filename, not the raw URL (which for aesgcm://
-		// also embeds the file's decryption key in its fragment). A plain
-		// link is shown as-is: the URL itself is the meaningful thing there.
-		label := item
-		if start+i < m.openItemsAttachCount {
-			label = attachmentDisplayName(item)
-		}
-		row := fmt.Sprintf("%d. %s", i+1, previewText(label, previewLen))
-		if m.isHovered(zoneOpenPickerRow(i)) {
-			row = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan).Render(row)
-		}
-		rows[i] = m.zone.Mark(zoneOpenPickerRow(i), row)
-	}
-
-	verb := "open"
-	title := "Open — pick one"
-	switch m.openMode {
-	case pickerModeSave:
-		verb = "save"
-		title = "Save — pick one"
-	case pickerModeSaveAs:
-		verb = "save as"
-		title = "Save as — pick one"
-	}
-	footer := "[1-9] " + verb + " · [esc] cancel"
-	if pages := openPageCount(len(m.openItems)); pages > 1 {
-		title = fmt.Sprintf("%s (page %d/%d)", title, m.openPage+1, pages)
-		footer = "[1-9] " + verb + " · [←/→] page · [esc] cancel"
-	}
-
-	body := m.styles.listPopup(title, rows, footer)
-	popup := m.zone.Mark(zoneOpenPickerPopup, m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body))
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
 // renderFilePickerPopup marks each rendered row of the file picker with its

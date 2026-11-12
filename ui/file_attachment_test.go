@@ -10,6 +10,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type sendCall struct {
@@ -813,14 +814,13 @@ func TestActionOpenMessageMarksAttachmentVsPlainLink(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected actionOpenMessage to open the picker (2 items), not return a direct-open Cmd")
 	}
-	if len(m.openItems) != 2 {
-		t.Fatalf("openItems = %v, want 2 entries", m.openItems)
+	menu := menuOf(m)
+	if menu == nil || len(menu.items) != 2 {
+		t.Fatalf("menu = %+v, want 2 entries", menu)
 	}
-	if m.openItemsAttachCount != 1 {
-		t.Fatalf("openItemsAttachCount = %d, want 1 (only the real attachment)", m.openItemsAttachCount)
-	}
-	if m.openItems[0] != "https://upload.example.test/report.pdf" {
-		t.Fatalf("openItems[0] = %q, want the attachment first", m.openItems[0])
+	// The attachment first, by its file name; the plain link as-is.
+	if menu.items[0].label != "report.pdf" || menu.items[1].label != "https://example.com/info" {
+		t.Fatalf("menu = %q, %q; want the attachment's name first, then the link", menu.items[0].label, menu.items[1].label)
 	}
 }
 
@@ -887,14 +887,14 @@ func TestDeletePromptShowsFilenameNotRawURLForAttachment(t *testing.T) {
 
 func TestOpenPopupShowsFilenameForAttachmentAndRawURLForPlainLink(t *testing.T) {
 	m := newTestModel(nil)
-	m.openItems = []string{
+	m.width, m.termHeight = 120, 30
+	m.updateSizes()
+	m.openItemMenu("Open which?", []string{
 		"https://upload.example.test/files/x/photo.jpg",
 		"https://example.com/some/page",
-	}
-	m.openItemsAttachCount = 1 // only the first entry is a real attachment
-	m.openMode = pickerModeOpen
+	}, 1, nil) // only the first entry is a real attachment
 
-	popup := m.renderOpenPopup()
+	popup := ansi.Strip(m.modals.View())
 	if strings.Contains(popup, "https://upload.example.test") {
 		t.Fatalf("open popup leaked raw attachment URL: %q", popup)
 	}

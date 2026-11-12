@@ -76,9 +76,6 @@ func openableItems(msg Message) []string {
 	return items
 }
 
-// pickerMode distinguishes what digit-selecting an item in the open/save
-// popup actually does — both share the same numbered-list UI (m.openItems),
-// just with a different action and result phrasing.
 // attachmentDownloadURL returns the plain http(s) URL data is fetched from
 // for target, unwrapping aesgcm:// (XEP-0454) URLs. Returns "" if target
 // isn't a recognized attachment scheme.
@@ -305,31 +302,30 @@ func renderAttachmentLine(target string, icons bool, jid string) string {
 	return line
 }
 
-// selectOpenItem resolves a pick of m.openItems[idx] — shared by the 1-9
-// digit-key handler (update_keys.go) and the mouse row-click handler
-// (mouse.go's handleOpenPickerClick) so the two input paths can't drift.
-func (m Model) selectOpenItem(idx int) (Model, tea.Cmd) {
-	target := m.openItems[idx]
-	isAttachment := idx < m.openItemsAttachCount
-	m.openItems = nil
-	m.openItemsAttachCount = 0
-	m.openPage = 0
-	switch m.openMode {
-	case pickerModeSave:
-		return m, m.startSave(target)
-	case pickerModeSaveAs:
-		return m, m.openSaveAsPrompt(target)
+// openItemMenu asks which of a message's links/attachments to act on - open,
+// save, save as - the first nine numbered. items is openableItems' list:
+// its first attachCount entries are real attachments, shown by their file
+// name rather than the raw URL (which for aesgcm:// also embeds the file's
+// decryption key); a plain link is shown as-is.
+func (m *Model) openItemMenu(title string, items []string, attachCount int, act func(m *Model, target string, isAttachment bool) tea.Cmd) tea.Cmd {
+	menu := make([]contextMenuItem, len(items))
+	for i, target := range items {
+		isAttachment := i < attachCount
+		label := target
+		if isAttachment {
+			label = attachmentDisplayName(target)
+		}
+		var key rune
+		if i < 9 {
+			key = rune('1' + i)
+		}
+		menu[i] = contextMenuItem{label: previewText(label, previewLen), key: key, run: func(m *Model) tea.Cmd {
+			return act(m, target, isAttachment)
+		}}
 	}
-	return m, m.startOpen(target, isAttachment)
+	m.openContextMenu(title, menu)
+	return nil
 }
-
-type pickerMode int
-
-const (
-	pickerModeOpen pickerMode = iota
-	pickerModeSave
-	pickerModeSaveAs
-)
 
 type openResultMsg struct {
 	target       string
