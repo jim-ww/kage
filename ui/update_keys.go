@@ -648,6 +648,15 @@ func (m Model) updateSearchChatForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchingChat = false
 		return m, nil
 
+	case matchesKey(msg, m.keys.Switch):
+		m.setSearchTab(1 - m.searchTab)
+		return m, nil
+
+	case m.searchTab == searchTabDate:
+		var cmd tea.Cmd
+		*m.searchDate, cmd = m.searchDate.Update(msg)
+		return m, cmd
+
 	case matchesKey(msg, m.keys.SelectSend):
 		return m, m.submitSearchChat()
 

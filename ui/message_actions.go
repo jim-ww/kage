@@ -531,6 +531,8 @@ func (m *Model) actionSearchChat() tea.Cmd {
 
 	m.searchInput = &ti
 	m.searchingChat = true
+	m.searchTab = searchTabText
+	m.searchDate = m.newSearchDatePicker()
 	return textinput.Blink
 }
 

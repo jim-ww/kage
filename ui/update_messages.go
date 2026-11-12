@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jim-ww/kage/ui/datepicker"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -507,9 +509,21 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			} else {
 				m.selectedMsg = len(newMessages) - 1
 			}
+			if j := m.pendingDateJump; j != nil && j.accountIdx == msg.AccountIdx && j.chatAddress == msg.From {
+				m.pendingDateJump = nil
+				m.landOnDate(newMessages, j.day)
+				return m, nil, true
+			}
 			m.refreshViewportFullScrollToCentered(m.selectedMsg)
 		}
 		return m, nil, true
+
+	case datepicker.PickedMsg:
+		if !m.searchingChat || msg.ID != searchDateID {
+			return m, nil, true
+		}
+		m.searchingChat = false
+		return m, m.jumpToDate(msg.Date), true
 
 	case HistorySearchResultMsg:
 		sr := m.searchResults

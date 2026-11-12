@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/jim-ww/kage/ui/datepicker"
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
 	"github.com/jim-ww/kage/ui/viewport"
@@ -326,6 +327,15 @@ type Model struct {
 	// in memory — see searchResultsState.
 	searchingChat bool
 	searchInput   *textinput.Model
+	// searchTab is which of the search popup's tabs is showing: the text
+	// query, or searchDate - a calendar that jumps the chat to the start of
+	// the picked day (see jumpToDate).
+	searchTab  searchTab
+	searchDate *datepicker.Model
+	// pendingDateJump is the day jumpToDate is loading a history window
+	// for; the HistoryWindowMsg answering it scrolls to that day's first
+	// message.
+	pendingDateJump *dateJump
 
 	// searchResults is non-nil while the search-results popup (opened once a
 	// search-in-chat query completes) is showing. See searchResultsState.

@@ -35,6 +35,9 @@ const (
 	zoneEmojiPickerPopup      = "emoji-picker-popup"
 	zoneDeviceListPopup       = "device-list-popup"
 	zoneSearchResultsPopup    = "search-results-popup"
+	zoneSearchChatPopup       = "search-chat-popup"
+	zoneSearchTabText         = "search-tab-text"
+	zoneSearchTabDate         = "search-tab-date"
 	zoneCallAnswer            = "call-answer-button"
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
@@ -327,6 +330,10 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 		m.filePicker.SelectRow(row)
 		return m, nil
+	}
+
+	if m.searchingChat {
+		return m.handleSearchChatMouse(msg)
 	}
 
 	if m.emojiPicker != nil {
@@ -660,6 +667,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+
+	if m.searchingChat {
+		return m.handleSearchChatMouse(msg)
 	}
 
 	if m.emojiPicker != nil {
@@ -1250,6 +1261,10 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 	if m.avatarPreview != nil {
 		return m, nil
+	}
+
+	if m.searchingChat {
+		return m.handleSearchChatMouse(msg)
 	}
 
 	if m.pickingFile {

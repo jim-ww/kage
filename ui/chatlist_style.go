@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jim-ww/kage/ui/datepicker"
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
 	zone "github.com/lrstanley/bubblezone/v2"
@@ -251,4 +252,16 @@ func applyFilePickerStyles(p *filepicker.Model, colors uiColors) {
 	p.Styles.Permission = p.Styles.Permission.Foreground(colors.time)
 	p.Styles.FileSize = p.Styles.FileSize.Foreground(colors.time)
 	p.Styles.EmptyDirectory = p.Styles.EmptyDirectory.Foreground(colors.time)
+}
+
+func applyDatePickerStyles(p *datepicker.Model, colors uiColors) {
+	p.Styles.Header = p.Styles.Header.Foreground(colors.borderA)
+	p.Styles.Nav = p.Styles.Nav.Foreground(colors.time)
+	p.Styles.NavHover = lipgloss.NewStyle().Foreground(colors.accentCyan).Background(colors.rowHoverBg)
+	p.Styles.Weekday = p.Styles.Weekday.Foreground(colors.time)
+	p.Styles.Day = p.Styles.Day.Foreground(colors.themFg)
+	p.Styles.Today = lipgloss.NewStyle().Foreground(colors.accentCyan).Bold(true)
+	p.Styles.Cursor = lipgloss.NewStyle().Foreground(colors.appBg).Background(colors.accentCyan).Bold(true)
+	p.Styles.Hover = lipgloss.NewStyle().Foreground(colors.themFg).Background(colors.rowHoverBg)
+	p.Styles.Disabled = p.Styles.Disabled.Foreground(colors.textMuted)
 }
