@@ -1637,80 +1637,33 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 // gathering, DTLS, audio) happen on the call's own goroutines and report
 // back via CallStateMsg broadcasts.
 
-// StartCall places an outgoing voice call from accountIdx to "to".
-func (a *adapter) StartCall(accountIdx int, to string) error {
+// CallAction does action to accountIdx's call.
+func (a *adapter) CallAction(accountIdx int, action ui.CallAction) error {
 	sess, ok := a.session(accountIdx)
 	if !ok {
 		return fmt.Errorf("unknown account %d", accountIdx)
 	}
-	return sess.startCall(context.Background(), a.srv, accountIdx, to)
-}
-
-// StartVideoCall places a call and starts sending our own video (camera or
-// screen, see useCamera) the moment it connects.
-func (a *adapter) StartVideoCall(accountIdx int, to string, useCamera bool) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
+	ctx := context.Background()
+	switch c := action.(type) {
+	case ui.CallStart:
+		if c.Video {
+			return sess.startVideoCall(ctx, a.srv, accountIdx, c.To, c.UseCamera)
+		}
+		return sess.startCall(ctx, a.srv, accountIdx, c.To)
+	case ui.CallAnswer:
+		return sess.answerCall(ctx)
+	case ui.CallReject:
+		return sess.rejectCall(ctx)
+	case ui.CallHangup:
+		return sess.hangupCall(ctx)
+	case ui.CallMute:
+		return sess.muteCall(c.Muted)
+	case ui.CallShareVideo:
+		return sess.setScreenShare(c.Sharing, c.UseCamera)
+	case ui.CallReopenVideo:
+		return sess.reopenVideo()
 	}
-	return sess.startVideoCall(context.Background(), a.srv, accountIdx, to, useCamera)
-}
-
-// AnswerCall accepts the call currently ringing on accountIdx.
-func (a *adapter) AnswerCall(accountIdx int) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	return sess.answerCall(context.Background())
-}
-
-// HangupCall ends accountIdx's current call from our side.
-func (a *adapter) HangupCall(accountIdx int) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	return sess.hangupCall(context.Background())
-}
-
-// RejectCall declines the call currently ringing on accountIdx.
-func (a *adapter) RejectCall(accountIdx int) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	return sess.rejectCall(context.Background())
-}
-
-// MuteCall sets or clears the local mic mute on accountIdx's current call.
-func (a *adapter) MuteCall(accountIdx int, muted bool) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	return sess.muteCall(muted)
-}
-
-// ScreenShare starts or stops sending our own video (screen or camera, see
-// useCamera) on accountIdx's current call.
-func (a *adapter) ScreenShare(accountIdx int, sharing, useCamera bool) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	return sess.setScreenShare(sharing, useCamera)
-}
-
-// ReopenVideo re-requests a keyframe for accountIdx's current call's
-// incoming video, reopening the mpv viewer if the peer closed it by
-// accident (see callSession.reopenRemoteVideo).
-func (a *adapter) ReopenVideo(accountIdx int) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	return sess.reopenVideo()
+	return fmt.Errorf("unknown call action %T", action)
 }
 
 // AudioDevices lists the devices a call can use and which ones are picked
@@ -1731,84 +1684,56 @@ func (a *adapter) AudioDevices() (ui.AudioDevicesMsg, error) {
 	return msg, nil
 }
 
-// SetAudioDevice picks the call speaker (output) or microphone by device
-// name ("" for the system default), persists the choice to state.toml, and
-// moves any call in progress over to it right away.
-func (a *adapter) SetAudioDevice(output bool, name string) error {
-	input, out := currentAudioDevices()
-	if output {
-		out = name
-	} else {
-		input = name
+// SaveState saves change for the next start, applying the call settings
+// among them right away.
+func (a *adapter) SaveState(change ui.StateChange) error {
+	if v, ok := change.(ui.DesktopAudioVolume); ok {
+		change = ui.DesktopAudioVolume(clampDesktopAudioVolume(int(v)))
 	}
-	setAudioDevices(input, out)
-
-	var errs []error
-	if err := config.SetAudioDevices(a.cfgPath, input, out); err != nil {
-		errs = append(errs, fmt.Errorf("saving audio device: %w", err))
-	}
-	a.mu.Lock()
-	sessions := append([]*accountSession(nil), a.sessions...)
-	a.mu.Unlock()
-	for _, sess := range sessions {
-		if sess == nil {
-			continue
+	err := config.SaveState(a.cfgPath, change)
+	switch c := change.(type) {
+	case ui.DesktopAudio:
+		desktopAudioEnabled.Store(bool(c))
+		for _, call := range a.calls() {
+			call.syncDesktopAudio()
+			call.broadcastUpdate()
 		}
-		if c := sess.currentCall(); c != nil {
-			if err := c.setAudioDevices(input, out, !output, output); err != nil {
-				errs = append(errs, err)
-			}
+	case ui.DesktopAudioVolume:
+		// A share in progress picks it up on its next frame.
+		desktopAudioVolume.Store(int32(c))
+		for _, call := range a.calls() {
+			call.broadcastUpdate()
+		}
+	case ui.AudioDeviceChoice:
+		input, output := currentAudioDevices()
+		if c.Output {
+			output = c.Name
+		} else {
+			input = c.Name
+		}
+		setAudioDevices(input, output)
+		for _, call := range a.calls() {
+			err = errors.Join(err, call.setAudioDevices(input, output, !c.Output, c.Output))
 		}
 	}
-	return errors.Join(errs...)
+	return err
 }
 
-// SetDesktopAudio sets whether sharing the screen also sends what other
-// applications are playing, persists it to state.toml, and applies it to a
-// screen share already in progress.
-func (a *adapter) SetDesktopAudio(enabled bool) error {
-	desktopAudioEnabled.Store(enabled)
-	err := config.SetScreenShareAudio(a.cfgPath, enabled)
+// calls is every call in progress.
+func (a *adapter) calls() []*callSession {
 	a.mu.Lock()
-	sessions := append([]*accountSession(nil), a.sessions...)
+	sessions := slices.Clone(a.sessions)
 	a.mu.Unlock()
+	var calls []*callSession
 	for _, sess := range sessions {
 		if sess == nil {
 			continue
 		}
 		if c := sess.currentCall(); c != nil {
-			c.syncDesktopAudio()
-			c.broadcastUpdate()
+			calls = append(calls, c)
 		}
 	}
-	if err != nil {
-		return fmt.Errorf("saving desktop audio setting: %w", err)
-	}
-	return nil
-}
-
-// SetDesktopAudioVolume sets the desktop audio's volume in percent
-// (clamped to 10-200), persists it to state.toml, and lets attached TUIs
-// know - a share in progress picks it up on its next frame.
-func (a *adapter) SetDesktopAudioVolume(percent int) error {
-	percent = clampDesktopAudioVolume(percent)
-	desktopAudioVolume.Store(int32(percent))
-	err := config.SetScreenShareAudioVolume(a.cfgPath, percent)
-	a.mu.Lock()
-	sessions := append([]*accountSession(nil), a.sessions...)
-	a.mu.Unlock()
-	for _, sess := range sessions {
-		if sess == nil {
-			continue
-		}
-		if c := sess.currentCall(); c != nil {
-			c.broadcastUpdate()
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("saving desktop audio volume: %w", err)
-	}
-	return nil
+	return calls
 }
 
 // shutdownHangupTimeout bounds how long daemon shutdown waits on hanging up

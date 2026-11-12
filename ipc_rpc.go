@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/version"
@@ -85,9 +84,15 @@ func init() {
 	gob.Register(ui.Chat{}) // list.Item, in Account.Chats and friends
 	gob.Register(wireError(""))
 	for _, ch := range []ui.StateChange{ui.SidebarWidth(0), ui.SidebarHidden(false), ui.InputHeight(0),
-		ui.FilePickerSort{}, ui.LastChat{}, ui.DefaultAccount(""), ui.ReactionsSent(nil)} {
+		ui.FilePickerSort{}, ui.LastChat{}, ui.DefaultAccount(""), ui.ReactionsSent(nil),
+		ui.DesktopAudio(false), ui.DesktopAudioVolume(0), ui.AudioDeviceChoice{}} {
 		gob.Register(ch)
 		wireTypes = append(wireTypes, reflect.TypeOf(ch))
+	}
+	for _, a := range []ui.CallAction{ui.CallStart{}, ui.CallAnswer{}, ui.CallReject{},
+		ui.CallHangup{}, ui.CallMute{}, ui.CallShareVideo{}, ui.CallReopenVideo{}} {
+		gob.Register(a)
+		wireTypes = append(wireTypes, reflect.TypeOf(a))
 	}
 	for _, ev := range events {
 		gob.Register(ev)
@@ -127,17 +132,8 @@ func init() {
 	handle(saveStateReq{})
 	handle(setFocusStateReq{})
 	handle(callStateReq{})
-	handle(startCallReq{})
-	handle(answerCallReq{})
-	handle(hangupCallReq{})
-	handle(rejectCallReq{})
-	handle(muteCallReq{})
-	handle(screenShareReq{})
-	handle(reopenVideoReq{})
-	handle(setDesktopAudioReq{})
-	handle(setDesktopAudioVolumeReq{})
+	handle(callActionReq{})
 	handle(listAudioDevicesReq{})
-	handle(setAudioDeviceReq{})
 
 	thisBuild = buildVersion{Version: version.Version, Protocol: protocolHash()}
 }
@@ -468,7 +464,7 @@ func (c changeStoragePasswordReq) run(d *daemonServer, _ ipc.ClientID) (none, er
 type saveStateReq struct{ Change ui.StateChange }
 
 func (c saveStateReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, config.SaveState(d.a.cfgPath, c.Change)
+	return none{}, d.a.SaveState(c.Change)
 }
 
 type setFocusStateReq struct {
@@ -490,86 +486,17 @@ func (callStateReq) run(d *daemonServer, _ ipc.ClientID) (ui.CallStateMsg, error
 	return d.callState(), nil
 }
 
-type startCallReq struct {
+type callActionReq struct {
 	AccountIdx int
-	To         string
-	Video      bool
-	UseCamera  bool // with Video: the camera rather than the screen
+	Action     ui.CallAction
 }
 
-func (c startCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	if c.Video {
-		return none{}, d.a.StartVideoCall(c.AccountIdx, c.To, c.UseCamera)
-	}
-	return none{}, d.a.StartCall(c.AccountIdx, c.To)
-}
-
-type answerCallReq struct{ AccountIdx int }
-
-func (c answerCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.AnswerCall(c.AccountIdx)
-}
-
-type hangupCallReq struct{ AccountIdx int }
-
-func (c hangupCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.HangupCall(c.AccountIdx)
-}
-
-type rejectCallReq struct{ AccountIdx int }
-
-func (c rejectCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.RejectCall(c.AccountIdx)
-}
-
-type muteCallReq struct {
-	AccountIdx int
-	Muted      bool
-}
-
-func (c muteCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.MuteCall(c.AccountIdx, c.Muted)
-}
-
-type screenShareReq struct {
-	AccountIdx int
-	Sharing    bool
-	UseCamera  bool // ignored when Sharing is false
-}
-
-func (c screenShareReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.ScreenShare(c.AccountIdx, c.Sharing, c.UseCamera)
-}
-
-type reopenVideoReq struct{ AccountIdx int }
-
-func (c reopenVideoReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.ReopenVideo(c.AccountIdx)
-}
-
-type setDesktopAudioReq struct{ Enabled bool }
-
-func (c setDesktopAudioReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetDesktopAudio(c.Enabled)
-}
-
-type setDesktopAudioVolumeReq struct{ Percent int }
-
-func (c setDesktopAudioVolumeReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetDesktopAudioVolume(c.Percent)
+func (c callActionReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.CallAction(c.AccountIdx, c.Action)
 }
 
 type listAudioDevicesReq struct{}
 
 func (listAudioDevicesReq) run(d *daemonServer, _ ipc.ClientID) (ui.AudioDevicesMsg, error) {
 	return d.a.AudioDevices()
-}
-
-type setAudioDeviceReq struct {
-	Output bool // false: the microphone
-	Name   string
-}
-
-func (c setAudioDeviceReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetAudioDevice(c.Output, c.Name)
 }

@@ -15,8 +15,10 @@ type fakeAudioDevices struct {
 }
 
 func (f *fakeAudioDevices) ListAudioDevices() tea.Msg { return f.list }
-func (f *fakeAudioDevices) SetAudioDevice(output bool, name string) tea.Msg {
-	f.set = append(f.set, fmt.Sprintf("output=%v %q", output, name))
+func (f *fakeAudioDevices) SaveState(change StateChange) error {
+	if a, ok := change.(AudioDeviceChoice); ok {
+		f.set = append(f.set, fmt.Sprintf("output=%v %q", a.Output, a.Name))
+	}
 	return nil
 }
 

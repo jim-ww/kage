@@ -136,39 +136,6 @@ func SetAccountStatus(path, jid, status string) error {
 	})
 }
 
-// SetAudioDevices sets (or updates) the call microphone/speaker in the
-// state file next to path, preserving everything else - called whenever
-// either is picked in the call menu ("" is the system default).
-func SetAudioDevices(path, input, output string) error {
-	return updateStateFile(path, func(st *State) error {
-		st.AudioInput, st.AudioOutput = input, output
-		return nil
-	})
-}
-
-// SetScreenShareAudio sets (or updates) whether sharing the screen also
-// sends desktop audio, in the state file next to path - called whenever
-// it's toggled in the call menu.
-func SetScreenShareAudio(path string, enabled bool) error {
-	return updateStateFile(path, func(st *State) error {
-		st.ScreenShareAudioDisabled = !enabled
-		return nil
-	})
-}
-
-// SetScreenShareAudioVolume sets (or updates) the desktop audio's volume
-// in percent in the state file next to path - 100, the default, is
-// written as unset.
-func SetScreenShareAudioVolume(path string, percent int) error {
-	return updateStateFile(path, func(st *State) error {
-		st.ScreenShareAudioVolume = percent
-		if percent == 100 {
-			st.ScreenShareAudioVolume = 0
-		}
-		return nil
-	})
-}
-
 // SetStoragePlaintextPassword sets (or updates) the [storage] password field
 // in the config file at path, preserving everything else — the plaintext
 // fallback used when the OS keyring is unavailable/disabled (see

@@ -395,21 +395,19 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 		}
 		return "Call " + name, append([]contextMenuItem{
 			{label: "Voice call", key: callKeyVoice, run: func(*Model) tea.Cmd {
-				return func() tea.Msg { return ctrl.StartCall(accountIdx, to) }
+				return func() tea.Msg { return ctrl.CallAction(accountIdx, CallStart{To: to}) }
 			}},
 			{label: "Video call", key: callKeyCamera, run: func(*Model) tea.Cmd {
-				return func() tea.Msg { return ctrl.StartVideoCall(accountIdx, to, true) }
+				return func() tea.Msg { return ctrl.CallAction(accountIdx, CallStart{To: to, Video: true, UseCamera: true}) }
 			}},
 			{label: "Call and share screen", key: callKeyScreen, run: func(*Model) tea.Cmd {
-				return func() tea.Msg { return ctrl.StartVideoCall(accountIdx, to, false) }
+				return func() tea.Msg { return ctrl.CallAction(accountIdx, CallStart{To: to, Video: true}) }
 			}},
 		}, devices...)
 	}
 
-	accountIdx, who := c.accountIdx, m.callPeerName()
-	hangup := contextMenuItem{label: "Hang up", key: callKeyHangup, run: func(*Model) tea.Cmd {
-		return func() tea.Msg { return ctrl.HangupCall(accountIdx) }
-	}}
+	who := m.callPeerName()
+	hangup := contextMenuItem{label: "Hang up", key: callKeyHangup, run: (*Model).hangupCurrentCall}
 	switch c.state {
 	case "ringing-local":
 		return who + " is calling", append([]contextMenuItem{
@@ -427,21 +425,19 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 	}
 	items := []contextMenuItem{{label: mute, key: callKeyMute, run: (*Model).toggleMuteCall}}
 	items = append(items,
-		videoMenuItem(ctrl, accountIdx, c.video, "camera", "Start camera", "Stop camera", "Switch to camera", callKeyCamera),
-		videoMenuItem(ctrl, accountIdx, c.video, "screen", "Share screen", "Stop sharing screen", "Switch to screen", callKeyScreen),
+		videoMenuItem(c.video, "camera", "Start camera", "Stop camera", "Switch to camera", callKeyCamera),
+		videoMenuItem(c.video, "screen", "Share screen", "Stop sharing screen", "Switch to screen", callKeyScreen),
 	)
 	if c.video == "screen" {
-		label, enable := "Share desktop audio", true
+		label := "Share desktop audio"
 		if c.desktopAudioEnabled {
-			label, enable = "Stop desktop audio", false
+			label = "Stop desktop audio"
 		}
-		items = append(items, contextMenuItem{label: label, key: callKeyDesktop, run: func(*Model) tea.Cmd {
-			return func() tea.Msg { return ctrl.SetDesktopAudio(enable) }
-		}}, contextMenuItem{label: fmt.Sprintf("Desktop audio volume (%d%%)", c.desktopVolume), key: callKeyVolume, run: (*Model).openDesktopVolume})
+		items = append(items, contextMenuItem{label: label, key: callKeyDesktop, run: (*Model).toggleDesktopAudio}, contextMenuItem{label: fmt.Sprintf("Desktop audio volume (%d%%)", c.desktopVolume), key: callKeyVolume, run: (*Model).openDesktopVolume})
 	}
 	if c.remoteVideo && !c.viewerOpen {
-		items = append(items, contextMenuItem{label: "Show their video", key: callKeyVideo, run: func(*Model) tea.Cmd {
-			return func() tea.Msg { return ctrl.ReopenVideo(accountIdx) }
+		items = append(items, contextMenuItem{label: "Show their video", key: callKeyVideo, run: func(m *Model) tea.Cmd {
+			return m.callCmd(CallReopenVideo{})
 		}})
 	}
 	items = append(items, devices...)
@@ -493,7 +489,7 @@ func (m *Model) openAudioDevicePicker(title string, output bool, devices []Audio
 			label = "✓ " + label
 		}
 		return contextMenuItem{label: label, run: func(*Model) tea.Cmd {
-			return func() tea.Msg { return ctrl.SetAudioDevice(output, name) }
+			return saveStateCmd(ctrl, AudioDeviceChoice{Output: output, Name: name}, "audio device")
 		}}
 	}
 	items := []contextMenuItem{pick("System default", "")}
@@ -522,7 +518,7 @@ func audioDeviceLabel(name string) string {
 // stop it if it's what we're already sending, or switch to it from the
 // other one (the daemon swaps the capture in place - see
 // callSession.switchVideoSource).
-func videoMenuItem(ctrl Daemon, accountIdx int, current, source, start, stop, switchTo string, key rune) contextMenuItem {
+func videoMenuItem(current, source, start, stop, switchTo string, key rune) contextMenuItem {
 	useCamera := source == "camera"
 	label, sharing := start, true
 	switch current {
@@ -532,8 +528,8 @@ func videoMenuItem(ctrl Daemon, accountIdx int, current, source, start, stop, sw
 	default:
 		label = switchTo
 	}
-	return contextMenuItem{label: label, key: key, run: func(*Model) tea.Cmd {
-		return func() tea.Msg { return ctrl.ScreenShare(accountIdx, sharing, useCamera) }
+	return contextMenuItem{label: label, key: key, run: func(m *Model) tea.Cmd {
+		return m.callCmd(CallShareVideo{Sharing: sharing, UseCamera: useCamera})
 	}}
 }
 
@@ -542,37 +538,13 @@ func videoMenuItem(ctrl Daemon, accountIdx int, current, source, start, stop, sw
 // no-op (returning nil) if there's no call controller wired or no call to
 // act on.
 
-func (m *Model) answerRingingCall() tea.Cmd {
-	if m.call == nil {
-		return nil
-	}
-	ctrl, accountIdx := m.daemon, m.call.accountIdx
-	return func() tea.Msg { return ctrl.AnswerCall(accountIdx) }
-}
-
-func (m *Model) rejectRingingCall() tea.Cmd {
-	if m.call == nil {
-		return nil
-	}
-	ctrl, accountIdx := m.daemon, m.call.accountIdx
-	return func() tea.Msg { return ctrl.RejectCall(accountIdx) }
-}
-
-func (m *Model) hangupCurrentCall() tea.Cmd {
-	if m.call == nil {
-		return nil
-	}
-	ctrl, accountIdx := m.daemon, m.call.accountIdx
-	return func() tea.Msg { return ctrl.HangupCall(accountIdx) }
-}
+func (m *Model) answerRingingCall() tea.Cmd { return m.callCmd(CallAnswer{}) }
+func (m *Model) rejectRingingCall() tea.Cmd { return m.callCmd(CallReject{}) }
+func (m *Model) hangupCurrentCall() tea.Cmd { return m.callCmd(CallHangup{}) }
 
 // stopSendingVideo stops sending our camera (or screen) on the current call.
 func (m *Model) stopSendingVideo(camera bool) tea.Cmd {
-	if m.call == nil {
-		return nil
-	}
-	ctrl, accountIdx := m.daemon, m.call.accountIdx
-	return func() tea.Msg { return ctrl.ScreenShare(accountIdx, false, camera) }
+	return m.callCmd(CallShareVideo{UseCamera: camera})
 }
 
 // toggleDesktopAudio flips whether sharing the screen also sends desktop
@@ -581,8 +553,7 @@ func (m *Model) toggleDesktopAudio() tea.Cmd {
 	if m.call == nil {
 		return nil
 	}
-	ctrl, enable := m.daemon, !m.call.desktopAudioEnabled
-	return func() tea.Msg { return ctrl.SetDesktopAudio(enable) }
+	return saveStateCmd(m.daemon, DesktopAudio(!m.call.desktopAudioEnabled), "desktop audio")
 }
 
 // toggleMuteCall flips the mic mute on the current (connected) call.
@@ -590,6 +561,14 @@ func (m *Model) toggleMuteCall() tea.Cmd {
 	if m.call == nil {
 		return nil
 	}
-	ctrl, accountIdx, muted := m.daemon, m.call.accountIdx, !m.call.muted
-	return func() tea.Msg { return ctrl.MuteCall(accountIdx, muted) }
+	return m.callCmd(CallMute{Muted: !m.call.muted})
+}
+
+// callCmd does action to the current call, if any.
+func (m *Model) callCmd(action CallAction) tea.Cmd {
+	if m.call == nil {
+		return nil
+	}
+	ctrl, accountIdx := m.daemon, m.call.accountIdx
+	return func() tea.Msg { return ctrl.CallAction(accountIdx, action) }
 }

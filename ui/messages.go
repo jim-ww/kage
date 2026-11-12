@@ -777,21 +777,16 @@ type AudioDevicesMsg struct {
 	Err             error
 }
 
-// CallActionResultMsg reports the result of a Daemon method call
-// (StartCall/AnswerCall/HangupCall/RejectCall) failing to even reach or be
-// accepted by the daemon — the call's actual state transitions arrive
-// separately via CallStateMsg/IncomingCallMsg, broadcast from the daemon's
-// own call state machine regardless of which side is driving it.
+// CallActionResultMsg reports whether the daemon took a Daemon.CallAction.
 type CallActionResultMsg struct {
-	Action     string // "start", "answer", "hangup", "reject" — which method produced this
-	AccountIdx int
-	Err        error
+	Action CallAction
+	Err    error
 }
 
 // IncomingCallMsg is sent into the Bubble Tea loop when a peer proposes a
 // voice call (XEP-0353) to one of the configured accounts. The daemon has
 // already answered <ringing/>; nothing further happens until the UI drives
-// Daemon.AnswerCall or RejectCall.
+// Daemon.CallAction.
 type IncomingCallMsg struct {
 	AccountIdx int
 	From       string // bare JID
@@ -820,7 +815,7 @@ type CallStateMsg struct {
 	Video        string
 	VideoPending bool
 	// RemoteVideo is true while the peer streams video to us; ViewerOpen is
-	// whether its window is currently up (closed by hand until ReopenVideo).
+	// whether its window is currently up (closed by hand until CallReopenVideo).
 	RemoteVideo bool
 	ViewerOpen  bool
 	// DesktopAudio is true while other applications' audio is mixed into

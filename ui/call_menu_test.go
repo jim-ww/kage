@@ -22,23 +22,31 @@ func (f *fakeCallController) record(format string, args ...any) tea.Msg {
 	return nil
 }
 
-func (f *fakeCallController) StartCall(_ int, to string) tea.Msg { return f.record("start %s", to) }
-func (f *fakeCallController) StartVideoCall(_ int, to string, camera bool) tea.Msg {
-	return f.record("startvideo %s camera=%v", to, camera)
+func (f *fakeCallController) SaveState(change StateChange) error {
+	switch c := change.(type) {
+	case DesktopAudioVolume:
+		f.record("volume %d", int(c))
+	case DesktopAudio:
+		f.record("desktopaudio %v", bool(c))
+	}
+	return nil
 }
-func (f *fakeCallController) AnswerCall(int) tea.Msg         { return f.record("answer") }
-func (f *fakeCallController) HangupCall(int) tea.Msg         { return f.record("hangup") }
-func (f *fakeCallController) RejectCall(int) tea.Msg         { return f.record("reject") }
-func (f *fakeCallController) MuteCall(_ int, m bool) tea.Msg { return f.record("mute %v", m) }
-func (f *fakeCallController) ReopenVideo(int) tea.Msg        { return f.record("reopen") }
-func (f *fakeCallController) SetDesktopAudioVolume(percent int) tea.Msg {
-	return f.record("volume %d", percent)
-}
-func (f *fakeCallController) SetDesktopAudio(on bool) tea.Msg {
-	return f.record("desktopaudio %v", on)
-}
-func (f *fakeCallController) ScreenShare(_ int, sharing, camera bool) tea.Msg {
-	return f.record("share %v camera=%v", sharing, camera)
+
+func (f *fakeCallController) CallAction(_ int, action CallAction) tea.Msg {
+	switch a := action.(type) {
+	case CallStart:
+		if a.Video {
+			return f.record("startvideo %s camera=%v", a.To, a.UseCamera)
+		}
+		return f.record("start %s", a.To)
+	case CallMute:
+		return f.record("mute %v", a.Muted)
+	case CallShareVideo:
+		return f.record("share %v camera=%v", a.Sharing, a.UseCamera)
+	case CallReopenVideo:
+		return f.record("reopen")
+	}
+	return f.record("%s", action.callAction())
 }
 
 // callTestModel is a model with one open chat with bob and ctrl wired up.

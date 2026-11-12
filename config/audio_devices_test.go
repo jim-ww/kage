@@ -1,10 +1,17 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/jim-ww/kage/ui"
+)
 
 func TestSetAudioDevices(t *testing.T) {
 	path := hiddenChatsStatePath(t)
-	if err := SetAudioDevices(path, "USB Mic", "Headphones"); err != nil {
+	if err := SaveState(path, ui.AudioDeviceChoice{Name: "USB Mic"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveState(path, ui.AudioDeviceChoice{Output: true, Name: "Headphones"}); err != nil {
 		t.Fatal(err)
 	}
 	st, err := loadState(path)
@@ -16,7 +23,10 @@ func TestSetAudioDevices(t *testing.T) {
 	}
 
 	// Back to the system default clears them.
-	if err := SetAudioDevices(path, "", ""); err != nil {
+	if err := SaveState(path, ui.AudioDeviceChoice{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveState(path, ui.AudioDeviceChoice{Output: true}); err != nil {
 		t.Fatal(err)
 	}
 	if st, err = loadState(path); err != nil {
@@ -29,7 +39,7 @@ func TestSetAudioDevices(t *testing.T) {
 
 func TestSetScreenShareAudio(t *testing.T) {
 	path := hiddenChatsStatePath(t)
-	if err := SetScreenShareAudio(path, false); err != nil {
+	if err := SaveState(path, ui.DesktopAudio(false)); err != nil {
 		t.Fatal(err)
 	}
 	st, err := loadState(path)
@@ -39,7 +49,7 @@ func TestSetScreenShareAudio(t *testing.T) {
 	if !st.ScreenShareAudioDisabled {
 		t.Fatal("disabling desktop audio wasn't saved")
 	}
-	if err := SetScreenShareAudio(path, true); err != nil {
+	if err := SaveState(path, ui.DesktopAudio(true)); err != nil {
 		t.Fatal(err)
 	}
 	if st, err = loadState(path); err != nil || st.ScreenShareAudioDisabled {
@@ -49,14 +59,14 @@ func TestSetScreenShareAudio(t *testing.T) {
 
 func TestSetScreenShareAudioVolume(t *testing.T) {
 	path := hiddenChatsStatePath(t)
-	if err := SetScreenShareAudioVolume(path, 70); err != nil {
+	if err := SaveState(path, ui.DesktopAudioVolume(70)); err != nil {
 		t.Fatal(err)
 	}
 	st, err := loadState(path)
 	if err != nil || st.ScreenShareAudioVolume != 70 {
 		t.Fatalf("volume %d err %v", st.ScreenShareAudioVolume, err)
 	}
-	if err := SetScreenShareAudioVolume(path, 100); err != nil {
+	if err := SaveState(path, ui.DesktopAudioVolume(100)); err != nil {
 		t.Fatal(err)
 	}
 	if st, err = loadState(path); err != nil || st.ScreenShareAudioVolume != 0 {

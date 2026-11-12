@@ -284,57 +284,9 @@ func (c *ipcClient) callState() (*ui.CallStateMsg, error) {
 	return &msg, nil
 }
 
-// The call actions only report whether the daemon took them: the call's
-// state transitions arrive as CallStateMsg/IncomingCallMsg events.
-
-func (c *ipcClient) StartCall(accountIdx int, to string) tea.Msg {
-	_, err := do(c.conn, startCallReq{AccountIdx: accountIdx, To: to})
-	return ui.CallActionResultMsg{Action: "start", AccountIdx: accountIdx, Err: err}
-}
-
-func (c *ipcClient) StartVideoCall(accountIdx int, to string, useCamera bool) tea.Msg {
-	_, err := do(c.conn, startCallReq{AccountIdx: accountIdx, To: to, Video: true, UseCamera: useCamera})
-	return ui.CallActionResultMsg{Action: "start", AccountIdx: accountIdx, Err: err}
-}
-
-func (c *ipcClient) AnswerCall(accountIdx int) tea.Msg {
-	_, err := do(c.conn, answerCallReq{AccountIdx: accountIdx})
-	return ui.CallActionResultMsg{Action: "answer", AccountIdx: accountIdx, Err: err}
-}
-
-func (c *ipcClient) HangupCall(accountIdx int) tea.Msg {
-	_, err := do(c.conn, hangupCallReq{AccountIdx: accountIdx})
-	return ui.CallActionResultMsg{Action: "hangup", AccountIdx: accountIdx, Err: err}
-}
-
-func (c *ipcClient) RejectCall(accountIdx int) tea.Msg {
-	_, err := do(c.conn, rejectCallReq{AccountIdx: accountIdx})
-	return ui.CallActionResultMsg{Action: "reject", AccountIdx: accountIdx, Err: err}
-}
-
-func (c *ipcClient) MuteCall(accountIdx int, muted bool) tea.Msg {
-	_, err := do(c.conn, muteCallReq{AccountIdx: accountIdx, Muted: muted})
-	return ui.CallActionResultMsg{Action: "mute", AccountIdx: accountIdx, Err: err}
-}
-
-func (c *ipcClient) ScreenShare(accountIdx int, sharing, useCamera bool) tea.Msg {
-	_, err := do(c.conn, screenShareReq{AccountIdx: accountIdx, Sharing: sharing, UseCamera: useCamera})
-	return ui.CallActionResultMsg{Action: "screenshare", AccountIdx: accountIdx, Err: err}
-}
-
-func (c *ipcClient) ReopenVideo(accountIdx int) tea.Msg {
-	_, err := do(c.conn, reopenVideoReq{AccountIdx: accountIdx})
-	return ui.CallActionResultMsg{Action: "reopenvideo", AccountIdx: accountIdx, Err: err}
-}
-
-func (c *ipcClient) SetDesktopAudio(enabled bool) tea.Msg {
-	_, err := do(c.conn, setDesktopAudioReq{Enabled: enabled})
-	return ui.CallActionResultMsg{Action: "desktop audio switch", Err: err}
-}
-
-func (c *ipcClient) SetDesktopAudioVolume(percent int) tea.Msg {
-	_, err := do(c.conn, setDesktopAudioVolumeReq{Percent: percent})
-	return ui.CallActionResultMsg{Action: "desktop audio volume change", Err: err}
+func (c *ipcClient) CallAction(accountIdx int, action ui.CallAction) tea.Msg {
+	_, err := do(c.conn, callActionReq{AccountIdx: accountIdx, Action: action})
+	return ui.CallActionResultMsg{Action: action, Err: err}
 }
 
 func (c *ipcClient) ListAudioDevices() tea.Msg {
@@ -343,11 +295,6 @@ func (c *ipcClient) ListAudioDevices() tea.Msg {
 		return ui.AudioDevicesMsg{Err: err}
 	}
 	return msg
-}
-
-func (c *ipcClient) SetAudioDevice(output bool, name string) tea.Msg {
-	_, err := do(c.conn, setAudioDeviceReq{Output: output, Name: name})
-	return ui.CallActionResultMsg{Action: "audio device switch", Err: err}
 }
 
 // handleEvent is passed to ipc.Dial as the onEvent callback: it runs on the

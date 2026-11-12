@@ -171,6 +171,19 @@ func SaveState(path string, change ui.StateChange) error {
 			for _, e := range c {
 				st.ReactionEmojiUsage[e]++
 			}
+		case ui.DesktopAudio:
+			st.ScreenShareAudioDisabled = !bool(c)
+		case ui.DesktopAudioVolume:
+			st.ScreenShareAudioVolume = int(c)
+			if c == 100 {
+				st.ScreenShareAudioVolume = 0 // the default
+			}
+		case ui.AudioDeviceChoice:
+			if c.Output {
+				st.AudioOutput = c.Name
+			} else {
+				st.AudioInput = c.Name
+			}
 		default:
 			return fmt.Errorf("unknown state change %T", change)
 		}

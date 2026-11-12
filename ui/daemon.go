@@ -110,26 +110,12 @@ type Daemon interface {
 
 	// ── Calls ───────────────────────────────────────────────────────────
 
-	StartCall(accountIdx int, to string) tea.Msg
-	// StartVideoCall places a call that sends our video (camera or screen)
-	// from the moment it connects.
-	StartVideoCall(accountIdx int, to string, useCamera bool) tea.Msg
-	AnswerCall(accountIdx int) tea.Msg
-	HangupCall(accountIdx int) tea.Msg
-	RejectCall(accountIdx int) tea.Msg
-	MuteCall(accountIdx int, muted bool) tea.Msg
-	ScreenShare(accountIdx int, sharing, useCamera bool) tea.Msg
-	// ReopenVideo asks for a fresh keyframe of the call's incoming video,
-	// reopening its viewer if it was closed.
-	ReopenVideo(accountIdx int) tea.Msg
-	// SetDesktopAudio sets whether a screen share also sends what other
-	// applications play; SetDesktopAudioVolume its volume, in percent.
-	SetDesktopAudio(enabled bool) tea.Msg
-	SetDesktopAudioVolume(percent int) tea.Msg
-	// ListAudioDevices lists the microphones and speakers (AudioDevicesMsg);
-	// SetAudioDevice picks one, moving a call in progress over to it.
+	// CallAction does something to accountIdx's call. The result only says
+	// whether the daemon took it (CallActionResultMsg); the call's state
+	// transitions arrive as CallStateMsg/IncomingCallMsg events.
+	CallAction(accountIdx int, action CallAction) tea.Msg
+	// ListAudioDevices lists the microphones and speakers (AudioDevicesMsg).
 	ListAudioDevices() tea.Msg
-	SetAudioDevice(output bool, name string) tea.Msg
 }
 
 // StateChange is one piece of UI state the daemon saves for the next start.
@@ -150,12 +136,68 @@ type (
 	// ReactionsSent counts reactions sent, which rank the emoji picker's
 	// suggestions (see rankReactionUsage).
 	ReactionsSent []string
+	// DesktopAudio is whether a screen share also sends what other
+	// applications play.
+	DesktopAudio bool
+	// DesktopAudioVolume is the desktop audio's volume, in percent.
+	DesktopAudioVolume int
+	// AudioDeviceChoice picks the microphone or speaker (Output) calls use,
+	// moving a call in progress over to it.
+	AudioDeviceChoice struct {
+		Output bool
+		Name   string
+	}
 )
 
-func (SidebarWidth) stateChange()   {}
-func (SidebarHidden) stateChange()  {}
-func (InputHeight) stateChange()    {}
-func (FilePickerSort) stateChange() {}
-func (LastChat) stateChange()       {}
-func (DefaultAccount) stateChange() {}
-func (ReactionsSent) stateChange()  {}
+func (SidebarWidth) stateChange()       {}
+func (SidebarHidden) stateChange()      {}
+func (InputHeight) stateChange()        {}
+func (FilePickerSort) stateChange()     {}
+func (LastChat) stateChange()           {}
+func (DefaultAccount) stateChange()     {}
+func (ReactionsSent) stateChange()      {}
+func (DesktopAudio) stateChange()       {}
+func (DesktopAudioVolume) stateChange() {}
+func (AudioDeviceChoice) stateChange()  {}
+
+// saveStateCmd saves change off the UI goroutine - applying it can take a
+// while, like moving a call over to another audio device - reporting a
+// failure to save what as a notice.
+func saveStateCmd(d Daemon, change StateChange, what string) tea.Cmd {
+	return func() tea.Msg {
+		if err := d.SaveState(change); err != nil {
+			return NoticeMsg{Text: "saving " + what + ": " + err.Error()}
+		}
+		return nil
+	}
+}
+
+// CallAction is one thing done to a call.
+type CallAction interface{ callAction() string }
+
+type (
+	// CallStart places a call to To - sending our video from the moment it
+	// connects with Video, the camera's with UseCamera, else the screen's.
+	CallStart struct {
+		To               string
+		Video, UseCamera bool
+	}
+	CallAnswer struct{}
+	CallReject struct{}
+	CallHangup struct{}
+	CallMute   struct{ Muted bool }
+	// CallShareVideo starts or stops sending our camera (UseCamera) or
+	// screen.
+	CallShareVideo struct{ Sharing, UseCamera bool }
+	// CallReopenVideo asks for a fresh keyframe of the call's incoming
+	// video, reopening its viewer if it was closed.
+	CallReopenVideo struct{}
+)
+
+func (CallStart) callAction() string       { return "start" }
+func (CallAnswer) callAction() string      { return "answer" }
+func (CallReject) callAction() string      { return "reject" }
+func (CallHangup) callAction() string      { return "hangup" }
+func (CallMute) callAction() string        { return "mute" }
+func (CallShareVideo) callAction() string  { return "video" }
+func (CallReopenVideo) callAction() string { return "reopen video" }

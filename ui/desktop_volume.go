@@ -197,5 +197,5 @@ func (m *Model) setDesktopVolume(percent int) tea.Cmd {
 	m.call.desktopVolume = percent
 	m.refreshDesktopVolume()
 	ctrl := m.daemon
-	return func() tea.Msg { return ctrl.SetDesktopAudioVolume(percent) }
+	return saveStateCmd(ctrl, DesktopAudioVolume(percent), "desktop audio volume")
 }

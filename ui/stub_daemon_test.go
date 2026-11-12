@@ -37,15 +37,5 @@ func (stubDaemon) PurgeOwnDeviceList(int, []OmemoDevice) tea.Msg               {
 func (stubDaemon) ChangeStoragePassword(string) error                          { return nil }
 func (stubDaemon) SaveState(StateChange) error                                 { return nil }
 func (stubDaemon) SetFocusState(string, string, bool) error                    { return nil }
-func (stubDaemon) StartCall(int, string) tea.Msg                               { return nil }
-func (stubDaemon) StartVideoCall(int, string, bool) tea.Msg                    { return nil }
-func (stubDaemon) AnswerCall(int) tea.Msg                                      { return nil }
-func (stubDaemon) HangupCall(int) tea.Msg                                      { return nil }
-func (stubDaemon) RejectCall(int) tea.Msg                                      { return nil }
-func (stubDaemon) MuteCall(int, bool) tea.Msg                                  { return nil }
-func (stubDaemon) ScreenShare(int, bool, bool) tea.Msg                         { return nil }
-func (stubDaemon) ReopenVideo(int) tea.Msg                                     { return nil }
-func (stubDaemon) SetDesktopAudio(bool) tea.Msg                                { return nil }
-func (stubDaemon) SetDesktopAudioVolume(int) tea.Msg                           { return nil }
 func (stubDaemon) ListAudioDevices() tea.Msg                                   { return nil }
-func (stubDaemon) SetAudioDevice(bool, string) tea.Msg                         { return nil }
+func (stubDaemon) CallAction(int, CallAction) tea.Msg                          { return nil }

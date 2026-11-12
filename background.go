@@ -112,7 +112,7 @@ func currentScreenRecorder() call.ScreenRecorder {
 
 // audioDevices mirrors state.toml's audio_input/audio_output for the call
 // code: the devices every new call (and ring tone) opens, "" for the
-// system default. Changed at runtime by adapter.SetAudioDevice, which also
+// system default. Changed at runtime by adapter.SaveState, which also
 // moves any call in progress over.
 var audioDevices struct {
 	sync.Mutex
@@ -134,12 +134,12 @@ func setAudioDevices(input, output string) {
 // desktopAudioEnabled mirrors !state.toml's screen_share_audio_disabled:
 // whether sharing the screen also sends other applications' audio (see
 // callSession.syncDesktopAudio). Changed at runtime by
-// adapter.SetDesktopAudio.
+// adapter.SaveState.
 var desktopAudioEnabled atomic.Bool
 
 // desktopAudioVolume mirrors state.toml's screen_share_audio_volume: the
 // gain, in percent, applied to desktop audio before it's mixed in (see
-// callSession.pumpMic). Changed at runtime by adapter.SetDesktopAudioVolume.
+// callSession.pumpMic). Changed at runtime by adapter.SaveState.
 var desktopAudioVolume atomic.Int32
 
 // Desktop audio volume bounds, in percent. No 0: silencing it is what

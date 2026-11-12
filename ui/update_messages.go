@@ -1175,7 +1175,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 
 	case CallActionResultMsg:
 		if msg.Err != nil {
-			return m, m.showNotification("call " + msg.Action + " failed: " + msg.Err.Error()), true
+			return m, m.showNotification("call " + msg.Action.callAction() + " failed: " + msg.Err.Error()), true
 		}
 		return m, nil, true
 

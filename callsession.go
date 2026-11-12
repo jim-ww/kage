@@ -47,7 +47,7 @@ const (
 	callIdle          callState = iota
 	callProposing               // outgoing: XEP-0353 propose sent, nothing back yet
 	callRingingRemote           // outgoing: peer's device is alerting them
-	callRingingLocal            // incoming: we're alerting the user, awaiting AnswerCall/RejectCall
+	callRingingLocal            // incoming: we're alerting the user, awaiting CallAnswer/CallReject
 	callNegotiating             // either direction: Jingle IQ/ICE exchange under way
 	callConnected               // media flowing
 	callEnded
@@ -724,7 +724,7 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 
 // handlePropose surfaces an incoming call to the TUI. It never auto-answers:
 // it only sends <ringing/> (so the caller sees us alerting) and waits for an
-// AnswerCall/RejectCall RPC.
+// CallAnswer/CallReject action.
 func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.JingleMessageEvent) {
 	client, err := s.liveClient()
 	if err != nil {
