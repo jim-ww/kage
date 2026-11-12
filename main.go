@@ -306,11 +306,11 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		// the status bar shows up a moment later, via the next live
 		// transition, rather than the snapshot not arriving at all.
 		callStart := time.Now()
-		initialCallState, err := client.getCallState()
+		initialCallState, err := client.callState()
 		if err != nil {
 			initialCallState = nil
 		}
-		slog.Debug("runTUI: getCallState done", "elapsed", time.Since(callStart))
+		slog.Debug("runTUI: callState done", "elapsed", time.Since(callStart))
 		p.Send(ui.AccountsSnapshotMsg{
 			Accounts:     uiAccounts,
 			StartAccount: startAccountIdx,

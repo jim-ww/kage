@@ -1,8 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
+	"fmt"
 	"log/slog"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,9 +9,8 @@ import (
 	"github.com/jim-ww/kage/ui"
 )
 
-// ipcClient implements every ui interface the daemon's adapter used to, by
-// making an RPC over conn instead of touching xmpp/storage/crypto directly
-// - the TUI process never does either anymore, the daemon does.
+// ipcClient is the TUI's ui.Daemon: every method is a call to the daemon
+// over conn (see ipc_rpc.go).
 type ipcClient struct {
 	conn *ipc.Conn
 	// program is only ever read/written from dispatchLoop's own goroutine
@@ -29,7 +27,7 @@ type ipcClient struct {
 	// deliver its Response - calling program.Send directly from the read
 	// loop (as handleEvent used to) deadlocks in that window. The
 	// dispatcher goroutine is the only thing allowed to call program.Send.
-	events chan ipc.Event
+	events chan any
 
 	// programReady hands off the freshly constructed *tea.Program from main
 	// once it exists. Buffered 1: main sends exactly once and never blocks
@@ -45,13 +43,13 @@ type ipcClient struct {
 	// a contact could show offline indefinitely, until its presence
 	// happened to change again. Only ever touched by dispatchLoop's
 	// goroutine.
-	pending []ipc.Event
+	pending []any
 }
 
 // newIPCClient creates a client with its event-dispatch goroutine already
 // running, so it's ready to be passed to ipc.Dial as the onEvent callback.
 func newIPCClient() *ipcClient {
-	c := &ipcClient{events: make(chan ipc.Event, 256), programReady: make(chan *tea.Program, 1)}
+	c := &ipcClient{events: make(chan any, 256), programReady: make(chan *tea.Program, 1)}
 	go c.dispatchLoop()
 	return c
 }
@@ -90,138 +88,59 @@ func (c *ipcClient) setProgram(p *tea.Program) {
 }
 
 func (c *ipcClient) Send(accountIdx int, to, body string, opts ui.SendOptions) (string, error) {
-	var res sendResult
-	if err := c.conn.Call(rpcSend, sendParams{AccountIdx: accountIdx, To: to, Body: body, Opts: opts}, &res); err != nil {
-		return "", err
-	}
+	res, err := do(c.conn, sendReq{AccountIdx: accountIdx, To: to, Body: body, Opts: opts})
 	if res.Queued {
 		return "", ui.ErrQueued
 	}
-	return res.ID, nil
+	return res.ID, err
 }
 
 func (c *ipcClient) MarkRetracted(accountIdx int, to, id string) error {
-	return c.conn.Call(rpcMarkRetracted, markRetractedParams{AccountIdx: accountIdx, To: to, ID: id}, nil)
+	_, err := do(c.conn, markRetractedReq{AccountIdx: accountIdx, To: to, ID: id})
+	return err
 }
 
 func (c *ipcClient) PurgeMessage(accountIdx int, to, id string) error {
-	return c.conn.Call(rpcPurgeMessage, purgeMessageParams{AccountIdx: accountIdx, To: to, ID: id}, nil)
+	_, err := do(c.conn, purgeMessageReq{AccountIdx: accountIdx, To: to, ID: id})
+	return err
 }
 
 func (c *ipcClient) DeleteQueued(accountIdx int, localID string) error {
-	return c.conn.Call(rpcDeleteQueued, deleteQueuedParams{AccountIdx: accountIdx, LocalID: localID}, nil)
+	_, err := do(c.conn, deleteQueuedReq{AccountIdx: accountIdx, LocalID: localID})
+	return err
 }
 
 func (c *ipcClient) SetTyping(accountIdx int, to string, composing bool) error {
-	return c.conn.Call(rpcSetTyping, setTypingParams{AccountIdx: accountIdx, To: to, Composing: composing}, nil)
-}
-
-func (c *ipcClient) RenameContact(accountIdx int, address, name string) error {
-	return c.conn.Call(rpcRenameContact, renameContactParams{AccountIdx: accountIdx, Address: address, Name: name}, nil)
-}
-
-func (c *ipcClient) SetDefaultAccount(jid string) error {
-	return c.conn.Call(rpcSetDefaultAccount, setDefaultAccountParams{JID: jid}, nil)
-}
-
-func (c *ipcClient) SetChatEncryption(accountIdx int, peerJID, mode string) error {
-	return c.conn.Call(rpcSetChatEncryption, setChatEncryptionParams{AccountIdx: accountIdx, PeerJID: peerJID, Mode: mode}, nil)
-}
-
-func (c *ipcClient) SetSidebarWidth(width int) error {
-	return c.conn.Call(rpcSetSidebarWidth, widthParams{Width: width}, nil)
-}
-
-func (c *ipcClient) RecordReactionEmojiUsage(emojis []string) error {
-	return c.conn.Call(rpcRecordReactionEmojiUsage, reactionEmojiUsageParams{Emojis: emojis}, nil)
-}
-
-func (c *ipcClient) SetSidebarHidden(hidden bool) error {
-	return c.conn.Call(rpcSetSidebarHidden, hiddenParams{Hidden: hidden}, nil)
-}
-
-func (c *ipcClient) SetChatHidden(accountJID, chatAddress string, hidden bool) error {
-	return c.conn.Call(rpcSetChatHidden, setChatHiddenParams{AccountJID: accountJID, ChatAddress: chatAddress, Hidden: hidden}, nil)
-}
-
-func (c *ipcClient) SetChatMuted(accountJID, chatAddress string, muted bool) error {
-	return c.conn.Call(rpcSetChatMuted, setChatMutedParams{AccountJID: accountJID, ChatAddress: chatAddress, Muted: muted}, nil)
-}
-
-func (c *ipcClient) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
-	return c.conn.Call(rpcSetChatPinned, setChatPinnedParams{AccountJID: accountJID, ChatAddress: chatAddress, Pinned: pinned}, nil)
-}
-
-func (c *ipcClient) SetInputHeight(height int) error {
-	return c.conn.Call(rpcSetInputHeight, heightParams{Height: height}, nil)
-}
-
-func (c *ipcClient) SetFilePickerSort(field string, ascending bool) error {
-	return c.conn.Call(rpcSetFilePickerSort, filePickerSortParams{Field: field, Ascending: ascending}, nil)
-}
-
-func (c *ipcClient) SetLastChat(accountJID, chatAddress string) error {
-	return c.conn.Call(rpcSetLastChat, setLastChatParams{AccountJID: accountJID, ChatAddress: chatAddress}, nil)
-}
-
-func (c *ipcClient) ResetChatUnread(accountJID, chatAddress string) error {
-	return c.conn.Call(rpcResetChatUnread, setLastChatParams{AccountJID: accountJID, ChatAddress: chatAddress}, nil)
-}
-
-func (c *ipcClient) SetFocusState(accountJID, chatAddress string, focused bool) error {
-	return c.conn.Call(rpcSetFocusState, setFocusStateParams{AccountJID: accountJID, ChatAddress: chatAddress, Focused: focused}, nil)
-}
-
-func (c *ipcClient) ChatUnreadCounts(accountJID string) (map[string]int, error) {
-	var res chatUnreadCountsResult
-	if err := c.conn.Call(rpcChatUnreadCounts, accountJIDParams{AccountJID: accountJID}, &res); err != nil {
-		return nil, err
-	}
-	return res.Counts, nil
-}
-
-func (c *ipcClient) SaveDraft(accountJID, chatAddress, text string) error {
-	return c.conn.Call(rpcSaveDraft, saveDraftParams{AccountJID: accountJID, ChatAddress: chatAddress, Text: text}, nil)
-}
-
-func (c *ipcClient) ChangeStoragePassword(newPassword string) error {
-	return c.conn.Call(rpcChangeStoragePassword, changeStoragePasswordParams{NewPassword: newPassword}, nil)
-}
-
-func (c *ipcClient) SetOwnAvatar(accountIdx int, path string) error {
-	return c.conn.Call(rpcSetOwnAvatar, setOwnAvatarParams{AccountIdx: accountIdx, Path: path}, nil)
-}
-
-func (c *ipcClient) RemoveOwnAvatar(accountIdx int) error {
-	return c.conn.Call(rpcRemoveOwnAvatar, accountIdxParams{AccountIdx: accountIdx}, nil)
+	_, err := do(c.conn, setTypingReq{AccountIdx: accountIdx, To: to, Composing: composing})
+	return err
 }
 
 func (c *ipcClient) SendFile(accountIdx int, to, path string, opts ui.SendOptions) tea.Msg {
-	var msg ui.FileSendResultMsg
-	if err := c.conn.Call(rpcSendFile, sendFileParams{AccountIdx: accountIdx, To: to, Path: path, Opts: opts}, &msg); err != nil {
+	msg, err := do(c.conn, sendFileReq{AccountIdx: accountIdx, To: to, Path: path, Opts: opts})
+	if err != nil {
 		return ui.FileSendResultMsg{AccountIdx: accountIdx, To: to, Path: path, ReplyToID: opts.ReplyToID, Err: err}
 	}
 	return msg
 }
 
 func (c *ipcClient) UploadFile(accountIdx int, to, path, text string, opts ui.SendOptions) tea.Msg {
-	var msg ui.FileUploadResultMsg
-	if err := c.conn.Call(rpcUploadFile, uploadFileParams{AccountIdx: accountIdx, To: to, Path: path, Text: text, Opts: opts}, &msg); err != nil {
+	msg, err := do(c.conn, uploadFileReq{AccountIdx: accountIdx, To: to, Path: path, Text: text, Opts: opts})
+	if err != nil {
 		return ui.FileUploadResultMsg{Path: path, Err: err}
 	}
 	return msg
 }
 
 func (c *ipcClient) CancelUpload(path string) {
-	if err := c.conn.Call(rpcCancelUpload, cancelUploadParams{Path: path}, nil); err != nil {
+	if _, err := do(c.conn, cancelUploadReq{Path: path}); err != nil {
 		slog.Warn("canceling upload", "path", path, "err", err)
 	}
 }
 
 func (c *ipcClient) LoadHistoryWindow(accountIdx int, to string, anchor *ui.HistoryAnchor) tea.Cmd {
 	return func() tea.Msg {
-		var msg ui.HistoryWindowMsg
-		if err := c.conn.Call(rpcLoadHistoryWindow, loadHistoryWindowParams{AccountIdx: accountIdx, To: to, Anchor: anchor}, &msg); err != nil {
+		msg, err := do(c.conn, loadHistoryWindowReq{AccountIdx: accountIdx, To: to, Anchor: anchor})
+		if err != nil {
 			slog.Warn("loading history window", "err", err)
 			// Err, not a zero-valued window: the latter reads as "this chat
 			// has no messages and no more history in either direction",
@@ -234,339 +153,265 @@ func (c *ipcClient) LoadHistoryWindow(accountIdx int, to string, anchor *ui.Hist
 
 func (c *ipcClient) SearchHistory(accountIdx int, to, query string) tea.Cmd {
 	return func() tea.Msg {
-		var msg ui.HistorySearchResultMsg
-		if err := c.conn.Call(rpcSearchHistory, searchHistoryParams{AccountIdx: accountIdx, To: to, Query: query}, &msg); err != nil {
+		msg, err := do(c.conn, searchHistoryReq{AccountIdx: accountIdx, To: to, Query: query})
+		if err != nil {
 			return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Err: err}
 		}
 		return msg
 	}
 }
 
+func (c *ipcClient) RenameContact(accountIdx int, address, name string) error {
+	_, err := do(c.conn, renameContactReq{AccountIdx: accountIdx, Address: address, Name: name})
+	return err
+}
+
 func (c *ipcClient) AddContact(accountIdx int, address string) tea.Msg {
-	var msg ui.ContactAddedMsg
-	if err := c.conn.Call(rpcAddContact, contactParams{AccountIdx: accountIdx, Address: address}, &msg); err != nil {
-		return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: err}
-	}
-	return msg
+	_, err := do(c.conn, addContactReq{AccountIdx: accountIdx, Address: address})
+	return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: err}
 }
 
 func (c *ipcClient) RemoveContact(accountIdx int, address string) tea.Msg {
-	var msg ui.ContactRemovedMsg
-	if err := c.conn.Call(rpcRemoveContact, contactParams{AccountIdx: accountIdx, Address: address}, &msg); err != nil {
-		return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: err}
-	}
-	return msg
+	_, err := do(c.conn, removeContactReq{AccountIdx: accountIdx, Address: address})
+	return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: err}
 }
 
 func (c *ipcClient) ResubscribeContact(accountIdx int, address string) tea.Msg {
-	var msg ui.ContactResubscribedMsg
-	if err := c.conn.Call(rpcResubscribeContact, contactParams{AccountIdx: accountIdx, Address: address}, &msg); err != nil {
-		return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
-	}
-	return msg
+	_, err := do(c.conn, resubscribeContactReq{AccountIdx: accountIdx, Address: address})
+	return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+}
+
+func (c *ipcClient) SetChatHidden(accountJID, chatAddress string, hidden bool) error {
+	_, err := do(c.conn, setChatHiddenReq{AccountJID: accountJID, ChatAddress: chatAddress, Hidden: hidden})
+	return err
+}
+
+func (c *ipcClient) SetChatMuted(accountJID, chatAddress string, muted bool) error {
+	_, err := do(c.conn, setChatMutedReq{AccountJID: accountJID, ChatAddress: chatAddress, Muted: muted})
+	return err
+}
+
+func (c *ipcClient) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
+	_, err := do(c.conn, setChatPinnedReq{AccountJID: accountJID, ChatAddress: chatAddress, Pinned: pinned})
+	return err
+}
+
+func (c *ipcClient) SetChatEncryption(accountIdx int, peerJID, mode string) error {
+	_, err := do(c.conn, setChatEncryptionReq{AccountIdx: accountIdx, PeerJID: peerJID, Mode: mode})
+	return err
+}
+
+func (c *ipcClient) ResetChatUnread(accountJID, chatAddress string) error {
+	_, err := do(c.conn, resetChatUnreadReq{AccountJID: accountJID, ChatAddress: chatAddress})
+	return err
+}
+
+func (c *ipcClient) ChatUnreadCounts(accountJID string) (map[string]int, error) {
+	return do(c.conn, chatUnreadCountsReq{AccountJID: accountJID})
+}
+
+func (c *ipcClient) SaveDraft(accountJID, chatAddress, text string) error {
+	_, err := do(c.conn, saveDraftReq{AccountJID: accountJID, ChatAddress: chatAddress, Text: text})
+	return err
+}
+
+// listAccounts is the snapshot a TUI starts from (not part of ui.Daemon -
+// main calls it directly).
+func (c *ipcClient) listAccounts() ([]ui.Account, error) {
+	return do(c.conn, listAccountsReq{})
 }
 
 func (c *ipcClient) AddAccount(jid, password, gpgKeyID string, register bool) tea.Msg {
-	var w wireAccount
-	if err := c.conn.Call(rpcAddAccount, addAccountParams{JID: jid, Password: password, GPGKeyID: gpgKeyID, Register: register}, &w); err != nil {
+	acct, err := do(c.conn, addAccountReq{JID: jid, Password: password, GPGKeyID: gpgKeyID, Register: register})
+	if err != nil {
 		return ui.AccountAddErrorMsg{Err: err}
 	}
-	return ui.AccountAddedMsg{Account: w.toAccount()}
+	return ui.AccountAddedMsg{Account: acct}
 }
 
 func (c *ipcClient) RemoveAccount(accountIdx int) tea.Msg {
-	if err := c.conn.Call(rpcRemoveAccount, accountIdxParams{AccountIdx: accountIdx}, nil); err != nil {
+	if _, err := do(c.conn, removeAccountReq{AccountIdx: accountIdx}); err != nil {
 		return ui.AccountRemoveErrorMsg{Index: accountIdx, Err: err}
 	}
 	return ui.AccountRemovedMsg{Index: accountIdx}
 }
 
+// SetAccountStatus only reports success or failure: the change itself
+// reaches every attached TUI as an AccountStatusChangedMsg.
 func (c *ipcClient) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
-	var res setAccountStatusResult
-	if err := c.conn.Call(rpcSetAccountStatus, setAccountStatusParams{AccountIdx: accountIdx, Status: status}, &res); err != nil {
-		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
-	}
-	return ui.AccountStatusSetMsg{Index: accountIdx, Status: res.Status}
+	_, err := do(c.conn, setAccountStatusReq{AccountIdx: accountIdx, Status: status})
+	return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
+}
+
+func (c *ipcClient) SetDefaultAccount(jid string) error {
+	_, err := do(c.conn, setDefaultAccountReq{JID: jid})
+	return err
+}
+
+func (c *ipcClient) SetOwnAvatar(accountIdx int, path string) error {
+	_, err := do(c.conn, setOwnAvatarReq{AccountIdx: accountIdx, Path: path})
+	return err
+}
+
+func (c *ipcClient) RemoveOwnAvatar(accountIdx int) error {
+	_, err := do(c.conn, removeOwnAvatarReq{AccountIdx: accountIdx})
+	return err
 }
 
 func (c *ipcClient) FetchOwnDeviceList(accountIdx int) tea.Msg {
-	var msg ui.OmemoDeviceListMsg
-	if err := c.conn.Call(rpcFetchOwnDeviceList, accountIdxParams{AccountIdx: accountIdx}, &msg); err != nil {
+	msg, err := do(c.conn, fetchOwnDeviceListReq{AccountIdx: accountIdx})
+	if err != nil {
 		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: err}
 	}
 	return msg
 }
 
 func (c *ipcClient) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.Msg {
-	var msg ui.OmemoDevicePurgedMsg
-	if err := c.conn.Call(rpcPurgeOwnDeviceList, purgeOwnDeviceListParams{AccountIdx: accountIdx, Keep: keep}, &msg); err != nil {
+	msg, err := do(c.conn, purgeOwnDeviceListReq{AccountIdx: accountIdx, Keep: keep})
+	if err != nil {
 		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: err}
 	}
 	return msg
 }
 
-// StartCall/AnswerCall/HangupCall/RejectCall drive the daemon's voice call
-// state machine (callsession.go), implementing ui.Daemon. The RPC
-// only reports whether the request reached/was accepted by the daemon - the
-// call's actual state transitions arrive separately via evCallState/
-// evIncomingCall broadcasts, handled in dispatch below.
+func (c *ipcClient) ChangeStoragePassword(newPassword string) error {
+	_, err := do(c.conn, changeStoragePasswordReq{NewPassword: newPassword})
+	return err
+}
+
+func (c *ipcClient) SetSidebarWidth(width int) error {
+	_, err := do(c.conn, setSidebarWidthReq{Width: width})
+	return err
+}
+
+func (c *ipcClient) SetSidebarHidden(hidden bool) error {
+	_, err := do(c.conn, setSidebarHiddenReq{Hidden: hidden})
+	return err
+}
+
+func (c *ipcClient) SetInputHeight(height int) error {
+	_, err := do(c.conn, setInputHeightReq{Height: height})
+	return err
+}
+
+func (c *ipcClient) SetFilePickerSort(field string, ascending bool) error {
+	_, err := do(c.conn, setFilePickerSortReq{Field: field, Ascending: ascending})
+	return err
+}
+
+func (c *ipcClient) SetLastChat(accountJID, chatAddress string) error {
+	_, err := do(c.conn, setLastChatReq{AccountJID: accountJID, ChatAddress: chatAddress})
+	return err
+}
+
+func (c *ipcClient) RecordReactionEmojiUsage(emojis []string) error {
+	_, err := do(c.conn, recordReactionEmojiUsageReq{Emojis: emojis})
+	return err
+}
+
+func (c *ipcClient) SetFocusState(accountJID, chatAddress string, focused bool) error {
+	_, err := do(c.conn, setFocusStateReq{AccountJID: accountJID, ChatAddress: chatAddress, Focused: focused})
+	return err
+}
+
+// callState is the call in progress when this TUI attached, if any, so the
+// call bar shows right away instead of at the next transition.
+func (c *ipcClient) callState() (*ui.CallStateMsg, error) {
+	msg, err := do(c.conn, callStateReq{})
+	if err != nil || msg.State == "" {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+// The call actions only report whether the daemon took them: the call's
+// state transitions arrive as CallStateMsg/IncomingCallMsg events.
+
 func (c *ipcClient) StartCall(accountIdx int, to string) tea.Msg {
-	err := c.conn.Call(rpcStartCall, startCallParams{AccountIdx: accountIdx, To: to}, nil)
+	_, err := do(c.conn, startCallReq{AccountIdx: accountIdx, To: to})
 	return ui.CallActionResultMsg{Action: "start", AccountIdx: accountIdx, Err: err}
 }
 
 func (c *ipcClient) StartVideoCall(accountIdx int, to string, useCamera bool) tea.Msg {
-	err := c.conn.Call(rpcStartVideoCall, startVideoCallParams{AccountIdx: accountIdx, To: to, UseCamera: useCamera}, nil)
+	_, err := do(c.conn, startCallReq{AccountIdx: accountIdx, To: to, Video: true, UseCamera: useCamera})
 	return ui.CallActionResultMsg{Action: "start", AccountIdx: accountIdx, Err: err}
 }
 
 func (c *ipcClient) AnswerCall(accountIdx int) tea.Msg {
-	err := c.conn.Call(rpcAnswerCall, accountIdxParams{AccountIdx: accountIdx}, nil)
+	_, err := do(c.conn, answerCallReq{AccountIdx: accountIdx})
 	return ui.CallActionResultMsg{Action: "answer", AccountIdx: accountIdx, Err: err}
 }
 
 func (c *ipcClient) HangupCall(accountIdx int) tea.Msg {
-	err := c.conn.Call(rpcHangupCall, accountIdxParams{AccountIdx: accountIdx}, nil)
+	_, err := do(c.conn, hangupCallReq{AccountIdx: accountIdx})
 	return ui.CallActionResultMsg{Action: "hangup", AccountIdx: accountIdx, Err: err}
 }
 
 func (c *ipcClient) RejectCall(accountIdx int) tea.Msg {
-	err := c.conn.Call(rpcRejectCall, accountIdxParams{AccountIdx: accountIdx}, nil)
+	_, err := do(c.conn, rejectCallReq{AccountIdx: accountIdx})
 	return ui.CallActionResultMsg{Action: "reject", AccountIdx: accountIdx, Err: err}
 }
 
 func (c *ipcClient) MuteCall(accountIdx int, muted bool) tea.Msg {
-	err := c.conn.Call(rpcMuteCall, muteCallParams{AccountIdx: accountIdx, Muted: muted}, nil)
+	_, err := do(c.conn, muteCallReq{AccountIdx: accountIdx, Muted: muted})
 	return ui.CallActionResultMsg{Action: "mute", AccountIdx: accountIdx, Err: err}
 }
 
 func (c *ipcClient) ScreenShare(accountIdx int, sharing, useCamera bool) tea.Msg {
-	err := c.conn.Call(rpcScreenShare, screenShareParams{AccountIdx: accountIdx, Sharing: sharing, UseCamera: useCamera}, nil)
+	_, err := do(c.conn, screenShareReq{AccountIdx: accountIdx, Sharing: sharing, UseCamera: useCamera})
 	return ui.CallActionResultMsg{Action: "screenshare", AccountIdx: accountIdx, Err: err}
 }
 
 func (c *ipcClient) ReopenVideo(accountIdx int) tea.Msg {
-	err := c.conn.Call(rpcReopenVideo, reopenVideoParams{AccountIdx: accountIdx}, nil)
+	_, err := do(c.conn, reopenVideoReq{AccountIdx: accountIdx})
 	return ui.CallActionResultMsg{Action: "reopenvideo", AccountIdx: accountIdx, Err: err}
 }
 
-// ListAudioDevices/SetAudioDevice implement ui.Daemon.
-func (c *ipcClient) ListAudioDevices() tea.Msg {
-	var res audioDevicesResult
-	if err := c.conn.Call(rpcAudioDevices, nil, &res); err != nil {
-		return ui.AudioDevicesMsg{Err: err}
-	}
-	msg := ui.AudioDevicesMsg{Input: res.Input, Output: res.Output}
-	for _, d := range res.Inputs {
-		msg.Inputs = append(msg.Inputs, ui.AudioDevice{Name: d.Name, Default: d.Default})
-	}
-	for _, d := range res.Outputs {
-		msg.Outputs = append(msg.Outputs, ui.AudioDevice{Name: d.Name, Default: d.Default})
-	}
-	return msg
-}
-
 func (c *ipcClient) SetDesktopAudio(enabled bool) tea.Msg {
-	err := c.conn.Call(rpcSetDesktopAudio, setDesktopAudioParams{Enabled: enabled}, nil)
+	_, err := do(c.conn, setDesktopAudioReq{Enabled: enabled})
 	return ui.CallActionResultMsg{Action: "desktop audio switch", Err: err}
 }
 
 func (c *ipcClient) SetDesktopAudioVolume(percent int) tea.Msg {
-	err := c.conn.Call(rpcSetDesktopAudioVolume, setDesktopAudioVolumeParams{Percent: percent}, nil)
+	_, err := do(c.conn, setDesktopAudioVolumeReq{Percent: percent})
 	return ui.CallActionResultMsg{Action: "desktop audio volume change", Err: err}
 }
 
+func (c *ipcClient) ListAudioDevices() tea.Msg {
+	msg, err := do(c.conn, listAudioDevicesReq{})
+	if err != nil {
+		return ui.AudioDevicesMsg{Err: err}
+	}
+	return msg
+}
+
 func (c *ipcClient) SetAudioDevice(output bool, name string) tea.Msg {
-	err := c.conn.Call(rpcSetAudioDevice, setAudioDeviceParams{Output: output, Name: name}, nil)
+	_, err := do(c.conn, setAudioDeviceReq{Output: output, Name: name})
 	return ui.CallActionResultMsg{Action: "audio device switch", Err: err}
-}
-
-// listAccounts is the bootstrap call used once at startup, before ui.New,
-// to get every configured account's current state (not part of any ui
-// interface - main calls it directly).
-func (c *ipcClient) listAccounts() ([]ui.Account, error) {
-	var wires []wireAccount
-	if err := c.conn.Call(rpcListAccounts, nil, &wires); err != nil {
-		return nil, err
-	}
-	out := make([]ui.Account, len(wires))
-	for i, w := range wires {
-		out[i] = w.toAccount()
-	}
-	return out, nil
-}
-
-// getCallState queries whatever call is currently in progress on any
-// account, if any - called once right after connecting so a (re)launched TUI
-// can show the persistent call bar immediately instead of waiting for the
-// next live transition. Returns nil, nil when no call is up.
-func (c *ipcClient) getCallState() (*ui.CallStateMsg, error) {
-	var res getCallStateResult
-	if err := c.conn.Call(rpcGetCallState, nil, &res); err != nil {
-		return nil, err
-	}
-	if !res.Active {
-		return nil, nil
-	}
-	return &ui.CallStateMsg{
-		AccountIdx: res.AccountIdx, Peer: res.Peer, SID: res.SID, State: res.State,
-		Reason: res.Reason, Muted: res.Muted, Quality: res.Quality, Sharing: res.Sharing, StartedAt: res.StartedAt,
-		Video: res.Video, VideoPending: res.VideoPending, RemoteVideo: res.RemoteVideo, ViewerOpen: res.ViewerOpen,
-		DesktopAudio: res.DesktopAudio, DesktopAudioEnabled: res.DesktopAudioEnabled, DesktopAudioVolume: res.DesktopAudioVolume,
-		SAS: res.SAS, FingerprintChanged: res.FingerprintChanged,
-	}, nil
-}
-
-// sendEvent unmarshals ev's payload as T and forwards it to the program
-// unchanged - the direct replacement for every p.Send(ui.SomeMsg{...}) call
-// that used to live in this process when it dialed xmpp itself.
-func sendEvent[T any](c *ipcClient, data json.RawMessage) {
-	var m T
-	if err := json.Unmarshal(data, &m); err != nil {
-		slog.Warn("unmarshaling event", "err", err)
-		return
-	}
-	c.program.Send(m)
 }
 
 // handleEvent is passed to ipc.Dial as the onEvent callback: it runs on the
 // Conn's own read loop, so it must never block - it only enqueues onto
 // events, which dispatchLoop drains on its own goroutine.
-func (c *ipcClient) handleEvent(ev ipc.Event) {
+func (c *ipcClient) handleEvent(ev any) {
 	select {
 	case c.events <- ev:
 	default:
-		slog.Warn("ipc event queue full, dropping event", "kind", ev.Kind)
+		slog.Warn("ipc event queue full, dropping event", "event", fmt.Sprintf("%T", ev))
 	}
 }
 
-// dispatch unmarshals and forwards one event to the program. Runs only on
-// dispatchLoop's goroutine, never on the read loop, and only ever once
-// c.program is known to be set - see pending.
-func (c *ipcClient) dispatch(ev ipc.Event) {
-	switch ev.Kind {
-	case evIncomingMessage:
-		sendEvent[ui.IncomingMessageMsg](c, ev.Data)
-	case evMessageCorrected:
-		sendEvent[ui.MessageCorrectedMsg](c, ev.Data)
-	case evMessageRetracted:
-		sendEvent[ui.MessageRetractedMsg](c, ev.Data)
-	case evMessageDelivered:
-		sendEvent[ui.MessageDeliveredMsg](c, ev.Data)
-	case evMessageServerAcked:
-		sendEvent[ui.MessageServerAckedMsg](c, ev.Data)
-	case evMessageSendFailed:
-		sendEvent[ui.MessageSendFailedMsg](c, ev.Data)
-	case evMessageSendResolved:
-		sendEvent[ui.MessageSendResolvedMsg](c, ev.Data)
-	case evOutboxDeleted:
-		sendEvent[ui.OutboxDeletedMsg](c, ev.Data)
-	case evMessagePurged:
-		sendEvent[ui.MessagePurgedMsg](c, ev.Data)
-	case evMessageReactions:
-		sendEvent[ui.MessageReactionsMsg](c, ev.Data)
-	case evChatAdded:
-		sendEvent[ui.ChatAddedMsg](c, ev.Data)
-	case evChatRemoved:
-		sendEvent[ui.ChatRemovedMsg](c, ev.Data)
-	case evAvatar:
-		c.dispatchAvatar(ev.Data)
-	case evPresence:
-		sendEvent[ui.PresenceMsg](c, ev.Data)
-	case evDeviceName:
-		sendEvent[ui.DeviceNameMsg](c, ev.Data)
-	case evTyping:
-		sendEvent[ui.TypingMsg](c, ev.Data)
-	case evFileTransferProgress:
-		sendEvent[ui.FileTransferProgressMsg](c, ev.Data)
-	case evFileTransferDone:
-		sendEvent[ui.FileTransferDoneMsg](c, ev.Data)
-	case evHistorySynced:
-		sendEvent[ui.HistorySyncedMsg](c, ev.Data)
-	case evChatUnread:
-		sendEvent[ui.ChatUnreadMsg](c, ev.Data)
-	case evHistorySyncStarted:
-		sendEvent[ui.HistorySyncStartedMsg](c, ev.Data)
-	case evHistorySyncFinished:
-		sendEvent[ui.HistorySyncFinishedMsg](c, ev.Data)
-	case evIncomingCall:
-		sendEvent[ui.IncomingCallMsg](c, ev.Data)
-	case evCallState:
-		sendEvent[ui.CallStateMsg](c, ev.Data)
-	case evMissedCall:
-		sendEvent[ui.MissedCallMsg](c, ev.Data)
-	case evChatSetting:
-		sendEvent[ui.ChatSettingMsg](c, ev.Data)
-	case evAccountStatus:
-		var w wireAccountStatusChanged
-		if err := json.Unmarshal(ev.Data, &w); err != nil {
-			slog.Warn("unmarshaling AccountStatus event", "err", err)
+// dispatch forwards one event to the program. Runs only on dispatchLoop's
+// goroutine, and only once c.program is set - see pending.
+func (c *ipcClient) dispatch(ev any) {
+	if msg, ok := ev.(ui.AvatarUpdatedMsg); ok {
+		// Decoded here rather than inside Update on the UI's goroutine.
+		if msg.Path == "" {
+			ui.RemoveAvatarImage(msg.JID)
+		} else if err := ui.LoadAvatarFile(msg.JID, msg.Path); err != nil {
+			slog.Debug("loading cached avatar", "jid", msg.JID, "path", msg.Path, "err", err)
 			return
 		}
-		c.program.Send(ui.AccountStatusChangedMsg{
-			Index: w.Index, Status: w.Status,
-			NewChats: chatsFromWire(w.NewChats), NewMessages: w.NewMessages, NewHistoryMore: w.NewHistoryMore,
-		})
-	case evAccountAdded:
-		var w wireAccountAddedMsg
-		if err := json.Unmarshal(ev.Data, &w); err != nil {
-			slog.Warn("unmarshaling AccountAdded event", "err", err)
-			return
-		}
-		c.program.Send(ui.AccountAppearedMsg{Index: w.Index, Account: w.Account.toAccount()})
-	case evAccountRemoved:
-		var w accountIdxParams
-		if err := json.Unmarshal(ev.Data, &w); err != nil {
-			slog.Warn("unmarshaling AccountRemoved event", "err", err)
-			return
-		}
-		c.program.Send(ui.AccountRemovedMsg{Index: w.AccountIdx})
-	case evAccountConnected:
-		var w wireAccountConnectedMsg
-		if err := json.Unmarshal(ev.Data, &w); err != nil {
-			slog.Warn("unmarshaling AccountConnected event", "err", err)
-			return
-		}
-		c.program.Send(ui.AccountConnectedMsg{Index: w.Index, Account: w.Account.toAccount()})
-	case evAccountLive:
-		var w wireAccountLiveMsg
-		if err := json.Unmarshal(ev.Data, &w); err != nil {
-			slog.Warn("unmarshaling AccountLive event", "err", err)
-			return
-		}
-		c.program.Send(ui.AccountLiveMsg{Index: w.Index, NewChats: chatsFromWire(w.NewChats), NewMessages: w.NewMessages, NewHistoryMore: w.NewHistoryMore})
-	case evAccountConnectError:
-		var w wireAccountConnectErrorMsg
-		if err := json.Unmarshal(ev.Data, &w); err != nil {
-			slog.Warn("unmarshaling AccountConnectError event", "err", err)
-			return
-		}
-		var err error
-		if w.Err != "" {
-			err = errors.New(w.Err)
-		}
-		c.program.Send(ui.AccountConnectErrorMsg{Index: w.Index, Err: err})
 	}
-}
-
-// dispatchAvatar loads a freshly cached avatar into the ui avatar store
-// before handing the message on, so the PNG/JPEG decode happens here on the
-// dispatcher's goroutine rather than inside Update on the UI's.
-func (c *ipcClient) dispatchAvatar(data []byte) {
-	var msg ui.AvatarUpdatedMsg
-	if err := json.Unmarshal(data, &msg); err != nil {
-		slog.Warn("unmarshaling Avatar event", "err", err)
-		return
-	}
-	if msg.Path == "" {
-		// An avatar was removed rather than changed.
-		ui.RemoveAvatarImage(msg.JID)
-		c.program.Send(msg)
-		return
-	}
-	if err := ui.LoadAvatarFile(msg.JID, msg.Path); err != nil {
-		slog.Debug("loading cached avatar", "jid", msg.JID, "path", msg.Path, "err", err)
-		return
-	}
-	c.program.Send(msg)
+	c.program.Send(ev)
 }

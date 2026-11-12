@@ -170,7 +170,7 @@ func currentDefaultEncryptionMode() string {
 }
 
 // clientFocus mirrors each attached TUI client's window focus and
-// currently-open chat (see ui.Daemon / adapter.SetFocusState), read by
+// currently-open chat (see adapter.SetFocusState), read by
 // handleIncomingMessage (events.go) to suppress a desktop notification for a
 // message that's already visible on screen. Per client, not one global pair:
 // with several TUIs attached, whichever reported last would otherwise speak
@@ -353,7 +353,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	b.mu.Unlock()
 
 	go func() {
-		if err := srv.Accept(ln, ds.handle); err != nil {
+		if err := srv.Accept(ln, ds.serve); err != nil {
 			slog.Debug("background: socket accept loop ended", "err", err)
 		}
 	}()

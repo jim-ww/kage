@@ -1,23 +1,21 @@
 package main
 
 import (
-	"encoding/json"
 	"log/slog"
+	"reflect"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/ipc"
 )
 
-// broadcast marshals data and pushes it to every attached TUI client as kind
-// — the daemon-side replacement for the old p.Send(ui.SomeMsg{...}) calls
-// that talked to a single in-process tea.Program.
-func broadcast(srv *ipc.Server, kind string, data any) {
+// broadcast pushes ev to every attached TUI. ev must be one of events.
+func broadcast(srv *ipc.Server, ev tea.Msg) {
 	if srv == nil {
 		return
 	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		slog.Warn("marshaling event", "kind", kind, "err", err)
+	if !isEvent[reflect.TypeOf(ev)] {
+		slog.Error("broadcasting an unregistered event, dropped", "type", reflect.TypeOf(ev))
 		return
 	}
-	srv.Broadcast(ipc.Event{Kind: kind, Data: b})
+	srv.Broadcast(ev)
 }

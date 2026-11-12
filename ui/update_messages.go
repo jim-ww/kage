@@ -1000,12 +1000,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if msg.Err != nil {
 			return m, m.showNotification("setting status: " + msg.Err.Error()), true
 		}
-		var cmd tea.Cmd
-		if msg.StateApplied {
-			cmd = m.applyAccountStatus(AccountStatusChangedMsg{Index: msg.Index, Status: msg.Status,
-				NewChats: msg.NewChats, NewMessages: msg.NewMessages, NewHistoryMore: msg.NewHistoryMore})
-		}
-		return m, tea.Batch(cmd, m.showNotification("status: "+presenceLabel(msg.Status))), true
+		return m, m.showNotification("status: " + presenceLabel(msg.Status)), true
 
 	case AccountStatusChangedMsg:
 		if msg.Index < 0 || msg.Index >= len(m.accounts) {

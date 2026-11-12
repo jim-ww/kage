@@ -23,7 +23,7 @@ import (
 // Contact avatars (XEP-0084), daemon side. The daemon owns the fetching,
 // as it owns every other network-facing thing, and drops the image into a
 // cache directory both processes can read — so the TUI never receives image
-// bytes over the socket, only a "this file changed" push (see evAvatar).
+// bytes over the socket, only a "this file changed" push (see AvatarUpdatedMsg).
 //
 // The cached file's own SHA-1 is the cache key: XEP-0084 makes the data
 // node's item id the hash of its content, so comparing the two is the whole
@@ -127,7 +127,7 @@ func (s *accountSession) syncAvatar(ctx context.Context, srv *ipc.Server, accoun
 		if cachedAvatarHash(dir, bare) != "" {
 			removeCachedAvatar(bare)
 			slog.Debug("dropped avatar the contact no longer publishes", "jid", s.account.JID, "from", bare)
-			broadcast(srv, evAvatar, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: ""})
+			broadcast(srv, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: ""})
 		}
 		return
 	}
@@ -180,7 +180,7 @@ func (s *accountSession) syncAvatar(ctx context.Context, srv *ipc.Server, accoun
 	}
 
 	slog.Debug("cached avatar", "jid", s.account.JID, "from", bare, "id", info.ID, "bytes", len(data))
-	broadcast(srv, evAvatar, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: path})
+	broadcast(srv, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: path})
 }
 
 // writeFileAtomic writes via a temp file in the same directory and renames,
@@ -282,7 +282,7 @@ func (a *adapter) SetOwnAvatar(accountIdx int, path string) error {
 	}
 	slog.Debug("published own avatar", "jid", bare, "id", id, "bytes", len(data))
 	if path, ok := cachedAvatarPath(bare); ok {
-		broadcast(a.srv, evAvatar, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: path})
+		broadcast(a.srv, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: path})
 	}
 	return nil
 }
@@ -304,7 +304,7 @@ func (a *adapter) RemoveOwnAvatar(accountIdx int) error {
 
 	bare := bareJID(s.account.JID)
 	removeCachedAvatar(bare)
-	broadcast(a.srv, evAvatar, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: ""})
+	broadcast(a.srv, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: ""})
 	return nil
 }
 

@@ -1,7 +1,7 @@
 package ipc
 
 import (
-	"encoding/json"
+	"encoding/gob"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -14,13 +14,18 @@ func testSocket(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "kage.sock")
 }
 
-type echoParams struct{ Text string }
-type echoResult struct{ Text string }
+type echoCall struct{ Text string }
+type echoReply struct{ Text string }
+type ping struct{ N int }
 
-func echoHandler(_ ClientID, method string, params json.RawMessage) (any, error) {
-	var p echoParams
-	json.Unmarshal(params, &p)
-	return echoResult{Text: p.Text}, nil
+func init() {
+	gob.Register(echoCall{})
+	gob.Register(echoReply{})
+	gob.Register(ping{})
+}
+
+func echoHandler(_ ClientID, call any) (any, error) {
+	return echoReply{Text: call.(echoCall).Text}, nil
 }
 
 func TestClientServerRoundTrip(t *testing.T) {
@@ -40,12 +45,12 @@ func TestClientServerRoundTrip(t *testing.T) {
 	}
 	defer conn.Close()
 
-	var result echoResult
-	if err := conn.Call("Echo", echoParams{Text: "hello"}, &result); err != nil {
+	reply, err := conn.Call(echoCall{Text: "hello"})
+	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
-	if result.Text != "hello" {
-		t.Fatalf("got %q, want %q", result.Text, "hello")
+	if got := reply.(echoReply).Text; got != "hello" {
+		t.Fatalf("got %q, want %q", got, "hello")
 	}
 }
 
@@ -69,20 +74,14 @@ func TestClientConcurrentCallsCorrelateByID(t *testing.T) {
 	const n = 50
 	var wg sync.WaitGroup
 	var failures atomic.Int64
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			var result echoResult
+	for i := range n {
+		wg.Go(func() {
 			text := string(rune('a' + i%26))
-			if err := conn.Call("Echo", echoParams{Text: text}, &result); err != nil {
-				failures.Add(1)
-				return
-			}
-			if result.Text != text {
+			reply, err := conn.Call(echoCall{Text: text})
+			if err != nil || reply.(echoReply).Text != text {
 				failures.Add(1)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 	if failures.Load() != 0 {
@@ -102,12 +101,12 @@ func TestServerBroadcastReachesAllClients(t *testing.T) {
 	go srv.Accept(ln, echoHandler)
 
 	const n = 3
-	events := make([]chan Event, n)
+	events := make([]chan any, n)
 	conns := make([]*Conn, n)
-	for i := 0; i < n; i++ {
-		ch := make(chan Event, 1)
+	for i := range n {
+		ch := make(chan any, 1)
 		events[i] = ch
-		c, err := Dial(sock, func(ev Event) { ch <- ev })
+		c, err := Dial(sock, func(ev any) { ch <- ev })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -118,13 +117,13 @@ func TestServerBroadcastReachesAllClients(t *testing.T) {
 	// give the server a moment to register all accepted connections before
 	// broadcasting, since Accept's registration races with Dial returning.
 	time.Sleep(50 * time.Millisecond)
-	srv.Broadcast(Event{Kind: "Ping"})
+	srv.Broadcast(ping{N: 7})
 
 	for i, ch := range events {
 		select {
 		case ev := <-ch:
-			if ev.Kind != "Ping" {
-				t.Fatalf("client %d: got kind %q", i, ev.Kind)
+			if ev != (ping{N: 7}) {
+				t.Fatalf("client %d: got %#v", i, ev)
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatalf("client %d: did not receive broadcast event", i)
@@ -140,9 +139,9 @@ func TestCallAfterDisconnectDoesNotHang(t *testing.T) {
 	}
 
 	srv := NewServer()
-	go srv.Accept(ln, func(_ ClientID, method string, params json.RawMessage) (any, error) {
+	go srv.Accept(ln, func(ClientID, any) (any, error) {
 		time.Sleep(200 * time.Millisecond)
-		return echoResult{}, nil
+		return echoReply{}, nil
 	})
 
 	conn, err := Dial(sock, nil)
@@ -153,8 +152,8 @@ func TestCallAfterDisconnectDoesNotHang(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		var r echoResult
-		done <- conn.Call("Echo", echoParams{Text: "x"}, &r)
+		_, err := conn.Call(echoCall{Text: "x"})
+		done <- err
 	}()
 
 	time.Sleep(20 * time.Millisecond)
@@ -168,5 +167,31 @@ func TestCallAfterDisconnectDoesNotHang(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Call did not return after disconnect — pending response channel leaked")
+	}
+}
+
+func TestCallError(t *testing.T) {
+	sock := testSocket(t)
+	ln, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	srv := NewServer()
+	go srv.Accept(ln, func(ClientID, any) (any, error) { panic("boom") })
+
+	conn, err := Dial(sock, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Call(echoCall{}); err == nil {
+		t.Fatal("a panicking handler's call succeeded")
+	}
+	// The connection survives a failed call.
+	if _, err := conn.Call(echoCall{}); err == nil {
+		t.Fatal("second call succeeded too")
 	}
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -45,24 +44,6 @@ func TestStartVideoShareWhilePendingSwitchesSource(t *testing.T) {
 	}
 	if !c.videoUseCamera || !c.pendingShare {
 		t.Fatalf("videoUseCamera=%v pendingShare=%v, want true/true", c.videoUseCamera, c.pendingShare)
-	}
-}
-
-// TestGetCallStateResultWireShape checks the embedded callStateEvent's
-// fields are promoted on the wire, where ipcClient.getCallState reads them
-// back by name.
-func TestGetCallStateResultWireShape(t *testing.T) {
-	in := getCallStateResult{Active: true, callStateEvent: callStateEvent{Peer: "bob@localhost", Video: videoSourceScreen, RemoteVideo: true}}
-	b, err := json.Marshal(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(b, &out); err != nil {
-		t.Fatal(err)
-	}
-	if out["Peer"] != "bob@localhost" || out["Video"] != videoSourceScreen || out["RemoteVideo"] != true || out["Active"] != true {
-		t.Fatalf("unexpected wire shape: %s", b)
 	}
 }
 

@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/call"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/aesgcm"
@@ -83,7 +82,7 @@ func (a *adapter) beginUpload(path string) (ctx context.Context, done func()) {
 // CancelUpload aborts the in-flight upload for path, if any (a no-op
 // otherwise — the upload may have already finished by the time the RPC
 // arrives). Implements the daemon side of the UI's cancel-on-backspace
-// action; see rpcCancelUpload.
+// action; see cancelUploadReq.
 func (a *adapter) CancelUpload(path string) {
 	a.uploadCancelsMu.Lock()
 	cancel := a.uploadCancels[path]
@@ -93,23 +92,23 @@ func (a *adapter) CancelUpload(path string) {
 	}
 }
 
-// AddAccount implements ui.Daemon: resolves and stores the password in
+// AddAccount resolves and stores the password in
 // the OS keyring, persists the account to config.toml, connects it live, and
 // starts its supervisor goroutine — mirroring what main does for accounts
 // configured at startup, just for one account added mid-session. When
 // register is true, it first creates the account on the server via XEP-0077
 // in-band registration, then proceeds identically to logging in.
-func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) tea.Msg {
+func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) (ui.Account, error) {
 	// Checked before registering too: that would create the account on the
 	// server only for saving it to fail afterwards.
 	if exists, err := config.AccountExists(a.cfgPath, jid); err != nil {
-		return ui.AccountAddErrorMsg{Err: fmt.Errorf("reading config: %w", err)}
+		return ui.Account{}, fmt.Errorf("reading config: %w", err)
 	} else if exists {
-		return ui.AccountAddErrorMsg{Err: config.ErrAccountExists}
+		return ui.Account{}, config.ErrAccountExists
 	}
 	if register {
 		if err := xmpp.Register(context.Background(), jid, password, nil); err != nil {
-			return ui.AccountAddErrorMsg{Err: fmt.Errorf("registering account: %w", err)}
+			return ui.Account{}, fmt.Errorf("registering account: %w", err)
 		}
 	}
 
@@ -129,13 +128,13 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) tea.
 		}
 	}
 	if err := config.WriteAccount(a.cfgPath, acct); err != nil {
-		return ui.AccountAddErrorMsg{Err: fmt.Errorf("saving account to config: %w", err)}
+		return ui.Account{}, fmt.Errorf("saving account to config: %w", err)
 	}
 
 	ctx := context.Background()
 	sess, uiAcct, err := connectAccount(ctx, acct, a.queries, a.localKey, a.useGPG, a.useKeyring)
 	if err != nil {
-		return ui.AccountAddErrorMsg{Err: err}
+		return ui.Account{}, err
 	}
 
 	a.mu.Lock()
@@ -151,9 +150,9 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) tea.
 	// asked: account indices are positional, so a client still on the old,
 	// shorter list would place its own next added account at an index the
 	// daemon has already given to this one.
-	broadcast(a.srv, evAccountAdded, wireAccountAddedMsg{Index: accountIdx, Account: toWireAccount(uiAcct)})
+	broadcast(a.srv, ui.AccountAppearedMsg{Index: accountIdx, Account: uiAcct})
 
-	return ui.AccountAddedMsg{Account: uiAcct}
+	return uiAcct, nil
 }
 
 // statusConfigValue is the inverse of accountStatus: the config.toml value to
@@ -177,19 +176,19 @@ func statusConfigValue(status ui.Presence) string {
 	}
 }
 
-// SetAccountStatus implements ui.Daemon: persists the chosen
+// SetAccountStatus persists the chosen
 // status to config.toml (so a restart comes back up the same way), then
 // applies it live - closing the connection outright for PresenceOffline (no
 // further traffic to that account's server at all), dialing a currently
 // offline account back up for PresenceOnline/PresenceAway, or just updating
 // the advertised <show/> in place when already connected.
-func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
+func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 	sess, ok := a.session(accountIdx)
 	if !ok {
-		return ui.AccountStatusSetMsg{Index: accountIdx, Err: fmt.Errorf("unknown account %d", accountIdx)}
+		return fmt.Errorf("unknown account %d", accountIdx)
 	}
 	if err := config.SetAccountStatus(a.cfgPath, sess.account.JID, statusConfigValue(status)); err != nil {
-		return ui.AccountStatusSetMsg{Index: accountIdx, Err: fmt.Errorf("persisting status: %w", err)}
+		return fmt.Errorf("persisting status: %w", err)
 	}
 	sess.account.Status = statusConfigValue(status)
 	// Best-effort: this SIGHUPs the daemon's own process to re-read
@@ -215,14 +214,16 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 				slog.Warn("closing while going offline", "jid", sess.account.JID, "err", err)
 			}
 		}
-		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, StateApplied: true}
+		broadcast(a.srv, ui.AccountStatusChangedMsg{Index: accountIdx, Status: status})
+		return nil
 	}
 
 	if status == ui.PresenceInvisible && online {
 		if err := client.SetInvisible(ctx); err != nil {
-			return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: fmt.Errorf("updating presence: %w", err)}
+			return fmt.Errorf("updating presence: %w", err)
 		}
-		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, StateApplied: true}
+		broadcast(a.srv, ui.AccountStatusChangedMsg{Index: accountIdx, Status: status})
+		return nil
 	}
 
 	// presenceShow has no <show/> value for invisible - going invisible while
@@ -233,9 +234,10 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	show := presenceShow(status)
 	if online {
 		if err := client.SetPresence(ctx, show); err != nil {
-			return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: fmt.Errorf("updating presence: %w", err)}
+			return fmt.Errorf("updating presence: %w", err)
 		}
-		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, StateApplied: true}
+		broadcast(a.srv, ui.AccountStatusChangedMsg{Index: accountIdx, Status: status})
+		return nil
 	}
 
 	// Was offline (never dialed, or previously disconnected) - dial it now.
@@ -250,7 +252,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 		// backoff until it actually gets online, same as a failed initial
 		// connect at startup.
 		go retryInitialConnect(ctx, a.srv, a, accountIdx, sess, existing, show)
-		return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
+		return err
 	}
 	if status == ui.PresenceInvisible {
 		if newClient, err := sess.liveClient(); err == nil {
@@ -273,11 +275,11 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg {
 	// the TUI is blocked on, and a backfill can take tens of seconds.
 	go triggerArchiveSync(ctx, a.srv, accountIdx, sess)
 
-	return ui.AccountStatusSetMsg{
+	broadcast(a.srv, ui.AccountStatusChangedMsg{
 		Index: accountIdx, Status: status,
 		NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore,
-		StateApplied: true,
-	}
+	})
+	return nil
 }
 
 // session returns the accountSession at accountIdx, guarded by mu since
@@ -291,65 +293,60 @@ func (a *adapter) session(accountIdx int) (*accountSession, bool) {
 	return a.sessions[accountIdx], true
 }
 
-// LoadHistoryWindow implements ui.Daemon: fetches a fresh window of
+// LoadHistoryWindow fetches a fresh window of
 // to's persisted history around anchor (see loadHistoryWindow) as a
 // tea.Cmd, off the main goroutine, since it's a disk read plus decrypt of up
 // to a window's worth of messages.
-func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.HistoryAnchor) tea.Cmd {
+func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.HistoryAnchor) (ui.HistoryWindowMsg, error) {
 	sess, ok := a.session(accountIdx)
 	if !ok {
-		return nil
+		return ui.HistoryWindowMsg{}, fmt.Errorf("unknown account %d", accountIdx)
 	}
-	return func() tea.Msg {
-		msgs, hasOlder, hasNewer := loadHistoryWindow(context.Background(), sess, to, sess.rosterName(to), anchor, historyPageSize)
-		return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasOlder: hasOlder, HasNewer: hasNewer}
-	}
+	msgs, hasOlder, hasNewer := loadHistoryWindow(context.Background(), sess, to, sess.rosterName(to), anchor, historyPageSize)
+	return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasOlder: hasOlder, HasNewer: hasNewer}, nil
 }
 
-// SearchHistory implements ui.Daemon: decrypts and scans to's
+// SearchHistory decrypts and scans to's
 // entire persisted history (see loadHistory) as a tea.Cmd, off the main
 // goroutine, and returns every message whose content contains query
 // (case-insensitive) alongside the whole decrypted history — the caller
 // loads that wholesale rather than making a second round trip once a result
 // is picked.
-func (a *adapter) SearchHistory(accountIdx int, to, query string) tea.Cmd {
+func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySearchResultMsg, error) {
 	sess, ok := a.session(accountIdx)
 	if !ok {
-		return nil
+		return ui.HistorySearchResultMsg{}, fmt.Errorf("unknown account %d", accountIdx)
 	}
-	return func() tea.Msg {
-		msgs := loadHistory(context.Background(), sess, to, sess.rosterName(to))
-		needle := strings.ToLower(query)
-		var matches []int
-		for i, msg := range msgs {
-			if strings.Contains(strings.ToLower(msg.Content), needle) {
-				matches = append(matches, i)
-			}
+	msgs := loadHistory(context.Background(), sess, to, sess.rosterName(to))
+	needle := strings.ToLower(query)
+	var matches []int
+	for i, msg := range msgs {
+		if strings.Contains(strings.ToLower(msg.Content), needle) {
+			matches = append(matches, i)
 		}
-		return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Messages: msgs, Matches: matches}
 	}
+	return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Messages: msgs, Matches: matches}, nil
 }
 
-// SetDefaultAccount implements ui.Daemon: persists jid as the
+// SetDefaultAccount persists jid as the
 // account selected on startup.
 func (a *adapter) SetDefaultAccount(jid string) error {
 	return config.SetDefaultAccount(a.cfgPath, jid)
 }
 
-// SetSidebarWidth implements ui.Daemon: persists the
+// SetSidebarWidth persists the
 // user-dragged sidebar width so it's restored on the next launch.
 func (a *adapter) SetSidebarWidth(width int) error {
 	return config.SetSidebarWidth(a.cfgPath, width)
 }
 
-// RecordReactionEmojiUsage implements ui.Daemon:
-// persists per-emoji reaction send counts so the quick-pick suggestions
+// RecordReactionEmojiUsage persists per-emoji reaction send counts so the quick-pick suggestions
 // converge on what this user actually reaches for.
 func (a *adapter) RecordReactionEmojiUsage(emojis []string) error {
 	return config.RecordReactionEmojiUsage(a.cfgPath, emojis)
 }
 
-// SetSidebarHidden implements ui.Daemon: persists the chat
+// SetSidebarHidden persists the chat
 // list's visibility so it's restored on the next launch.
 func (a *adapter) SetSidebarHidden(hidden bool) error {
 	return config.SetSidebarHidden(a.cfgPath, hidden)
@@ -375,52 +372,52 @@ func (a *adapter) SetChatHidden(accountJID, chatAddress string, hidden bool) err
 		}
 	}
 	unreadBadge.set(accountJID, chatAddress, count)
-	broadcast(a.srv, evChatSetting, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "hidden", On: hidden})
+	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "hidden", On: hidden})
 	return nil
 }
 
-// SetChatPinned implements ui.Daemon: persists whether a chat is
+// SetChatPinned persists whether a chat is
 // pinned to the top of the chat list.
 func (a *adapter) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
 	if err := config.SetChatPinned(a.cfgPath, accountJID, chatAddress, pinned); err != nil {
 		return err
 	}
 	pinnedChats.flag(accountJID, chatAddress, pinned)
-	broadcast(a.srv, evChatSetting, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "pinned", On: pinned})
+	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "pinned", On: pinned})
 	return nil
 }
 
-// SetChatMuted implements ui.Daemon: persists whether a chat's
+// SetChatMuted persists whether a chat's
 // messages raise desktop notifications, and applies it right away.
 func (a *adapter) SetChatMuted(accountJID, chatAddress string, muted bool) error {
 	if err := config.SetChatMuted(a.cfgPath, accountJID, chatAddress, muted); err != nil {
 		return err
 	}
 	mutedChats.flag(accountJID, chatAddress, muted)
-	broadcast(a.srv, evChatSetting, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "muted", On: muted})
+	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "muted", On: muted})
 	return nil
 }
 
-// SetInputHeight implements ui.Daemon: persists the user-dragged
+// SetInputHeight persists the user-dragged
 // compose box height so it's restored on the next launch.
 func (a *adapter) SetInputHeight(height int) error {
 	return config.SetInputHeight(a.cfgPath, height)
 }
 
-// SetFilePickerSort implements ui.Daemon: persists the
+// SetFilePickerSort persists the
 // attach-file picker's sort field/direction so it's restored on the next
 // launch.
 func (a *adapter) SetFilePickerSort(field string, ascending bool) error {
 	return config.SetFilePickerSort(a.cfgPath, field, ascending)
 }
 
-// SetLastChat implements ui.Daemon: persists which chat was last
+// SetLastChat persists which chat was last
 // opened so it can be reopened on startup when open_last_chat is set.
 func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
 }
 
-// SetFocusState implements ui.Daemon: records whether the calling
+// SetFocusState records whether the calling
 // TUI's terminal has OS focus and which chat (if any) it currently has
 // open, so handleIncomingMessage (events.go) can skip a desktop
 // notification for a message that's already visible on screen.
@@ -431,7 +428,7 @@ func (a *adapter) SetFocusState(tuiClient ipc.ClientID, accountJID, chatAddress 
 	return nil
 }
 
-// ResetChatUnread implements ui.Daemon: zeroes the persisted
+// ResetChatUnread zeroes the persisted
 // unread counter for a chat, called when it's opened in the UI, and tells
 // every attached TUI so the chat reads as read in all of them.
 func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
@@ -442,11 +439,11 @@ func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
 		return err
 	}
 	unreadBadge.set(accountJID, chatAddress, 0)
-	broadcast(a.srv, evChatUnread, ui.ChatUnreadMsg{AccountJID: accountJID, ChatAddress: chatAddress})
+	broadcast(a.srv, ui.ChatUnreadMsg{AccountJID: accountJID, ChatAddress: chatAddress})
 	return nil
 }
 
-// ChatUnreadCounts implements ui.Daemon: loads every chat with a
+// ChatUnreadCounts loads every chat with a
 // nonzero persisted unread count for an account, keyed by chat address, so
 // the UI can seed Chat.Unread when (re)connecting.
 func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
@@ -461,7 +458,7 @@ func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
 	return counts, nil
 }
 
-// SaveDraft implements ui.Daemon: persists chatAddress's compose-box
+// SaveDraft persists chatAddress's compose-box
 // text, sealed under the local storage key (crypto/localstore) same as a
 // message body when one is configured, or clears the persisted draft
 // entirely when text is empty (rather than storing an empty row).
@@ -496,17 +493,17 @@ func omemoProtocolLabel(p omemolib.Protocol) string {
 	return "v2"
 }
 
-// FetchOwnDeviceList implements ui.Daemon: fetches the
+// FetchOwnDeviceList fetches the
 // account's currently-published device list for both OMEMO protocols (each
 // runs its own separate device pool - see account.go), tagging every entry
 // with which protocol it belongs to.
-func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
+func (a *adapter) FetchOwnDeviceList(accountIdx int) (ui.OmemoDeviceListMsg, error) {
 	s, ok := a.session(accountIdx)
 	if !ok {
-		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("account is still connecting")}
+		return ui.OmemoDeviceListMsg{}, fmt.Errorf("account is still connecting")
 	}
 	if s.omemoV2() == nil && s.omemoV1() == nil {
-		return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
+		return ui.OmemoDeviceListMsg{}, fmt.Errorf("omemo isn't ready for this account")
 	}
 
 	ctx := context.Background()
@@ -517,7 +514,7 @@ func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 		local = append(local, ui.OmemoDevice{Protocol: "v2", ID: uint32(v2.LocalDevice().ID)})
 		list, err := client.FetchOmemoDeviceList(ctx, s.account.JID)
 		if err != nil {
-			return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("fetching omemo-v2 device list: %w", err)}
+			return ui.OmemoDeviceListMsg{}, fmt.Errorf("fetching omemo-v2 device list: %w", err)
 		}
 		for _, d := range list.Devices {
 			devices = append(devices, ui.OmemoDevice{Protocol: "v2", ID: uint32(d)})
@@ -527,7 +524,7 @@ func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 		local = append(local, ui.OmemoDevice{Protocol: "v1", ID: uint32(v1.LocalDevice().ID)})
 		list, err := client.FetchOmemoDeviceListV1(ctx, s.account.JID)
 		if err != nil {
-			return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Err: fmt.Errorf("fetching omemo-v1 device list: %w", err)}
+			return ui.OmemoDeviceListMsg{}, fmt.Errorf("fetching omemo-v1 device list: %w", err)
 		}
 		for _, d := range list.Devices {
 			devices = append(devices, ui.OmemoDevice{Protocol: "v1", ID: uint32(d)})
@@ -556,7 +553,7 @@ func (a *adapter) FetchOwnDeviceList(accountIdx int) tea.Msg {
 			local[i].Fingerprint = missing[j].Fingerprint
 		}
 	}
-	return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Local: local, Devices: devices}
+	return ui.OmemoDeviceListMsg{AccountIdx: accountIdx, Local: local, Devices: devices}, nil
 }
 
 // deviceFingerprintTimeout bounds fetching every listed device's bundle for
@@ -608,19 +605,19 @@ func omemoFingerprint(identityKey []byte) string {
 	return strings.Join(groups, " ")
 }
 
-// PurgeOwnDeviceList implements ui.Daemon: republishes each
+// PurgeOwnDeviceList republishes each
 // affected protocol's device list containing only the entries in keep for
 // that protocol (this instance's own devices are always included
 // regardless, so it can never accidentally remove itself). A protocol whose
 // device list is unchanged (no entries in keep or removed for it) isn't
 // republished.
-func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.Msg {
+func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) (ui.OmemoDevicePurgedMsg, error) {
 	s, ok := a.session(accountIdx)
 	if !ok {
-		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("account is still connecting")}
+		return ui.OmemoDevicePurgedMsg{}, fmt.Errorf("account is still connecting")
 	}
 	if s.omemoV2() == nil && s.omemoV1() == nil {
-		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: fmt.Errorf("omemo isn't ready for this account")}
+		return ui.OmemoDevicePurgedMsg{}, fmt.Errorf("omemo isn't ready for this account")
 	}
 
 	ctx := context.Background()
@@ -660,26 +657,26 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.
 	}
 
 	if err := purge(omemolib.ProtocolV2, s.omemoV2(), client.PublishOmemoDeviceList); err != nil {
-		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: err}
+		return ui.OmemoDevicePurgedMsg{}, err
 	}
 	if err := purge(omemolib.ProtocolV1, s.omemoV1(), client.PublishOmemoDeviceListV1); err != nil {
-		return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Err: err}
+		return ui.OmemoDevicePurgedMsg{}, err
 	}
 
-	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: devices}
+	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: devices}, nil
 }
 
-// RemoveAccount implements ui.Daemon: purges this account's own
+// RemoveAccount purges this account's own
 // device from each OMEMO protocol's published device list (so peers stop
 // treating it as a valid encryption target), disconnects it, and drops it
 // from config.toml. Local storage (history, roster cache, OMEMO
 // identity/session state) is never touched — sessions keeps the slot (see
 // ui.AccountRemovedMsg for why indices must stay stable), just closed, so
 // its reconnect supervisor goroutine exits instead of retrying.
-func (a *adapter) RemoveAccount(accountIdx int) tea.Msg {
+func (a *adapter) RemoveAccount(accountIdx int) error {
 	s, ok := a.session(accountIdx)
 	if !ok {
-		return ui.AccountRemoveErrorMsg{Index: accountIdx, Err: fmt.Errorf("account is still connecting")}
+		return fmt.Errorf("account is still connecting")
 	}
 
 	ctx := context.Background()
@@ -717,16 +714,16 @@ func (a *adapter) RemoveAccount(accountIdx int) tea.Msg {
 		slog.Warn("closing connection on account removal", "jid", s.account.JID, "err", err)
 	}
 	if err := config.RemoveAccount(a.cfgPath, s.account.JID); err != nil {
-		return ui.AccountRemoveErrorMsg{Index: accountIdx, Err: fmt.Errorf("removing account from config: %w", err)}
+		return fmt.Errorf("removing account from config: %w", err)
 	}
 
 	unreadBadge.forgetAccount(s.account.JID)
-	broadcast(a.srv, evAccountRemoved, accountIdxParams{AccountIdx: accountIdx})
+	broadcast(a.srv, ui.AccountRemovedMsg{Index: accountIdx})
 
-	return ui.AccountRemovedMsg{Index: accountIdx}
+	return nil
 }
 
-// MarkRetracted implements ui.Daemon: flags a message as locally
+// MarkRetracted flags a message as locally
 // deleted in storage without sending anything over the network. Used when
 // deleting someone else's message, since XEP-0424 retraction only applies to
 // messages we sent ourselves.
@@ -742,12 +739,12 @@ func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 	}); err != nil {
 		return err
 	}
-	broadcast(a.srv, evMessageRetracted, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: to, RetractID: id})
+	broadcast(a.srv, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: to, RetractID: id})
 	return nil
 }
 
-// PurgeMessage implements ui.Daemon: erases a message outright from
-// local storage, reactions included, and broadcasts evMessagePurged so every
+// PurgeMessage erases a message outright from
+// local storage, reactions included, and broadcasts a MessagePurgedMsg so every
 // attached client drops it too. The second half of the two-step delete - only
 // reached for a message already flagged retracted (see MarkRetracted and
 // Send's RetractID branch), since the first delete is the one that preserves
@@ -777,15 +774,15 @@ func (a *adapter) PurgeMessage(accountIdx int, to, id string) error {
 	// Same reasoning as DeleteQueued: broadcast only when a row really went
 	// away, so a repeated purge doesn't make every client re-run the removal.
 	if rows > 0 {
-		broadcast(a.srv, evMessagePurged, ui.MessagePurgedMsg{AccountIdx: accountIdx, Peer: to, MessageID: id})
+		broadcast(a.srv, ui.MessagePurgedMsg{AccountIdx: accountIdx, Peer: to, MessageID: id})
 	}
 	return nil
 }
 
-// DeleteQueued implements ui.Daemon: permanently discards a
+// DeleteQueued permanently discards a
 // still-Pending message from the outbox table without ever sending it. Not
 // an error if localID no longer matches anything queued - broadcasting
-// evOutboxDeleted (so every attached client removes the same placeholder,
+// an OutboxDeletedMsg (so every attached client removes the same placeholder,
 // not just the one that asked) only happens when a row actually existed to
 // delete.
 func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
@@ -798,12 +795,12 @@ func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
 		return err
 	}
 	if found {
-		broadcast(a.srv, evOutboxDeleted, ui.OutboxDeletedMsg{AccountIdx: accountIdx, To: to, LocalID: localID})
+		broadcast(a.srv, ui.OutboxDeletedMsg{AccountIdx: accountIdx, To: to, LocalID: localID})
 	}
 	return nil
 }
 
-// SetTyping implements ui.Daemon: sends a XEP-0085 chat state
+// SetTyping sends a XEP-0085 chat state
 // notification to "to" — no persistence, no encryption, it's ephemeral.
 // A sent "composing" is remembered per calling client so clearTyping can take
 // it back if that TUI goes away before clearing it itself.
@@ -883,7 +880,7 @@ func (a *adapter) clearTyping(tuiClient ipc.ClientID) {
 	}
 }
 
-// RenameContact implements ui.Daemon: pushes name as a roster set
+// RenameContact pushes name as a roster set
 // (RFC 6121) to the server, and mirrors it into local storage and the
 // in-memory roster cache used by rosterName. An empty name clears the
 // contact's nickname there too, matching what a fresh roster fetch would
@@ -920,22 +917,22 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 	return nil
 }
 
-// AddContact implements ui.Daemon: adds address to the roster and
+// AddContact adds address to the roster and
 // sends a subscription request, then mirrors it into local storage and the
 // in-memory roster cache used by rosterName.
-func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
+func (a *adapter) AddContact(accountIdx int, address string) error {
 	s, ok := a.session(accountIdx)
 	if !ok {
-		return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: fmt.Errorf("unknown account %d", accountIdx)}
+		return fmt.Errorf("unknown account %d", accountIdx)
 	}
 
 	ctx := context.Background()
 	client, err := s.liveClient()
 	if err != nil {
-		return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+		return err
 	}
 	if err := client.AddContact(ctx, address, ""); err != nil {
-		return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+		return err
 	}
 
 	if err := s.db.UpsertRoster(ctx, storage.UpsertRosterParams{
@@ -949,44 +946,44 @@ func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
 		}
 	})
 
-	return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address}
+	return nil
 }
 
-// ResubscribeContact implements ui.Daemon: re-sends a subscription
+// ResubscribeContact re-sends a subscription
 // request for an existing contact, without touching its roster item.
-func (a *adapter) ResubscribeContact(accountIdx int, address string) tea.Msg {
+func (a *adapter) ResubscribeContact(accountIdx int, address string) error {
 	s, ok := a.session(accountIdx)
 	if !ok {
-		return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: fmt.Errorf("unknown account %d", accountIdx)}
+		return fmt.Errorf("unknown account %d", accountIdx)
 	}
 
 	ctx := context.Background()
 	client, err := s.liveClient()
 	if err != nil {
-		return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+		return err
 	}
 	if err := client.ResubscribeContact(ctx, address); err != nil {
-		return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+		return err
 	}
-	return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address}
+	return nil
 }
 
-// RemoveContact implements ui.Daemon: removes address from the
+// RemoveContact removes address from the
 // roster and unsubscribes, then mirrors the removal into local storage and
 // the in-memory roster cache.
-func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
+func (a *adapter) RemoveContact(accountIdx int, address string) error {
 	s, ok := a.session(accountIdx)
 	if !ok {
-		return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: fmt.Errorf("unknown account %d", accountIdx)}
+		return fmt.Errorf("unknown account %d", accountIdx)
 	}
 
 	ctx := context.Background()
 	client, err := s.liveClient()
 	if err != nil {
-		return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+		return err
 	}
 	if err := client.RemoveContact(ctx, address); err != nil {
-		return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: err}
+		return err
 	}
 
 	if err := s.db.DeleteRosterByJID(ctx, storage.DeleteRosterByJIDParams{
@@ -997,10 +994,10 @@ func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
 	forgetChat(ctx, s.db, s.account.JID, address)
 	s.mutateRoster(func(entries map[string]rosterEntry) { delete(entries, address) })
 
-	return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address}
+	return nil
 }
 
-// SetChatEncryption implements ui.Daemon: persists the chosen
+// SetChatEncryption persists the chosen
 // outgoing message encryption ("omemo-v1", "omemo-v2", "gpg", or "none") for
 // one chat.
 func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error {
@@ -1015,7 +1012,7 @@ func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error 
 	}); err != nil {
 		return err
 	}
-	broadcast(a.srv, evChatSetting, ui.ChatSettingMsg{AccountJID: s.account.JID, ChatAddress: peerJID, Setting: "encryption", Mode: mode})
+	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: s.account.JID, ChatAddress: peerJID, Setting: "encryption", Mode: mode})
 	return nil
 }
 
@@ -1070,7 +1067,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 			case err != nil:
 				slog.Warn("sending queued message failed", "jid", s.account.JID, "to", q.to, "err", err)
 				if q.opts.LocalID != "" {
-					broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+					broadcast(a.srv, ui.MessageSendResolvedMsg{
 						AccountIdx: s.accountIdx,
 						To:         q.to,
 						LocalID:    q.opts.LocalID,
@@ -1089,7 +1086,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 					encrypted, method = true, "omemo"
 				}
 				if q.opts.LocalID != "" {
-					broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+					broadcast(a.srv, ui.MessageSendResolvedMsg{
 						AccountIdx: s.accountIdx,
 						To:         q.to,
 						LocalID:    q.opts.LocalID,
@@ -1126,7 +1123,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 				slog.Warn("persisting failed attachment send", "jid", s.account.JID, "to", q.to, "err", pErr)
 			}
 			if q.opts.LocalID != "" {
-				broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+				broadcast(a.srv, ui.MessageSendResolvedMsg{
 					AccountIdx: s.accountIdx, To: q.to, LocalID: q.opts.LocalID, Err: err.Error(),
 				})
 			}
@@ -1151,7 +1148,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 		case sendErr != nil:
 			slog.Warn("sending queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", sendErr)
 			if q.opts.LocalID != "" {
-				broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+				broadcast(a.srv, ui.MessageSendResolvedMsg{
 					AccountIdx: s.accountIdx, To: q.to, LocalID: q.opts.LocalID, Err: sendErr.Error(),
 				})
 			}
@@ -1173,7 +1170,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 				default:
 					encrypted, method = true, "omemo"
 				}
-				broadcast(a.srv, evMessageSendResolved, ui.MessageSendResolvedMsg{
+				broadcast(a.srv, ui.MessageSendResolvedMsg{
 					AccountIdx: s.accountIdx, To: q.to, LocalID: q.opts.LocalID,
 					ID: id, Encrypted: encrypted, EncMethod: method,
 					Content: body, Attachments: []string{url},
@@ -1248,7 +1245,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}
 		// Every other attached TUI only learns of our own reaction from this
 		// (see the plain-send broadcast below for why).
-		broadcast(a.srv, evMessageReactions, ui.MessageReactionsMsg{
+		broadcast(a.srv, ui.MessageReactionsMsg{
 			AccountIdx: accountIdx,
 			From:       to,
 			MessageID:  opts.ReactionTargetID,
@@ -1272,7 +1269,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}); err != nil {
 			slog.Warn("marking retracted message in storage", "err", err)
 		}
-		broadcast(a.srv, evMessageRetracted, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: to, RetractID: opts.RetractID})
+		broadcast(a.srv, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: to, RetractID: opts.RetractID})
 		return id, nil
 	}
 
@@ -1400,7 +1397,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		// The editing TUI already shows the new text; every other attached
 		// one only learns of it from this - same reason as the plain-send
 		// broadcast below.
-		broadcast(a.srv, evMessageCorrected, ui.MessageCorrectedMsg{
+		broadcast(a.srv, ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,
 			From:       to,
 			ReplaceID:  opts.ReplaceID,
@@ -1477,13 +1474,13 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	// already rendered its own local optimistic echo, see
 	// ui/message_actions.go's sendCurrentInput) needs to learn about this
 	// message some other way, the same way it learns about a message a peer
-	// sent. Reusing evIncomingMessage (rather than inventing a "just sent by
+	// sent. Reusing IncomingMessageMsg (rather than inventing a "just sent by
 	// another instance" event) means every attached client, including the
 	// sender's own, goes through the exact same handling as a real incoming
 	// message - the sender's own copy is a harmless duplicate broadcast of
 	// something it already rendered, deduped there by matching message ID
 	// (see IncomingMessageMsg's handler in ui/update_messages.go).
-	broadcast(a.srv, evIncomingMessage, ui.IncomingMessageMsg{
+	broadcast(a.srv, ui.IncomingMessageMsg{
 		AccountIdx: accountIdx,
 		From:       to,
 		ReplyToID:  opts.ReplyToID,
@@ -1606,24 +1603,20 @@ func (a *adapter) progressCallback(id, label string) func(sent, total int64) {
 			return
 		}
 		lastPercent = percent
-		broadcast(a.srv, evFileTransferProgress, ui.FileTransferProgressMsg{ID: id, Label: label, Sent: sent, Total: total})
+		broadcast(a.srv, ui.FileTransferProgressMsg{ID: id, Label: label, Sent: sent, Total: total})
 	}
 }
 
-// SendFile implements ui.Daemon. Uploading and the follow-up message send
-// run as a Bubble Tea command, so the terminal remains responsive while a
-// slot is discovered and the file is transferred.
-func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions) tea.Msg {
+// SendFile uploads path (XEP-0363) and sends its URL to "to".
+func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions) (ui.FileSendResultMsg, error) {
 	result := ui.FileSendResultMsg{AccountIdx: accountIdx, To: to, Path: path, ReplyToID: opts.ReplyToID}
 	s, ok := a.session(accountIdx)
 	if !ok {
-		result.Err = fmt.Errorf("unknown account %d", accountIdx)
-		return result
+		return result, fmt.Errorf("unknown account %d", accountIdx)
 	}
 	client, err := s.liveClient()
 	if err != nil {
-		result.Err = err
-		return result
+		return result, err
 	}
 	uploadCtx, doneUpload := a.beginUpload(path)
 	defer doneUpload()
@@ -1631,40 +1624,37 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	defer cancel()
 
 	label := "uploading " + filepath.Base(path)
-	broadcast(a.srv, evFileTransferProgress, ui.FileTransferProgressMsg{ID: path, Label: label})
+	broadcast(a.srv, ui.FileTransferProgressMsg{ID: path, Label: label})
 	url, err := a.uploadFile(ctx, s, client, to, path, a.progressCallback(path, label))
-	broadcast(a.srv, evFileTransferDone, ui.FileTransferDoneMsg{ID: path})
+	broadcast(a.srv, ui.FileTransferDoneMsg{ID: path})
 	if err != nil {
 		if errors.Is(uploadCtx.Err(), context.Canceled) {
 			err = errUploadCanceled
 		}
-		result.Err = err
-		return result
+		return result, err
 	}
 
 	opts.OOBURLs = []string{url}
 	id, err := a.send(ctx, accountIdx, to, url, opts)
 	if err != nil {
-		result.Err = err
-		return result
+		return result, err
 	}
 	result.URL = url
 	result.ID = id
-	return result
+	return result, nil
 }
 
-// UploadFile implements ui.Daemon. Unlike SendFile it only uploads —
+// UploadFile uploads path. Unlike SendFile it only uploads —
 // used by startAttachedSend to upload+send each staged attachment as its own
 // message. text/opts are only consulted when the account is offline: rather
 // than fail (upload needs a live connection, unlike a plain text send),
 // upload+send is queued as one unit and replayed together by
 // adapter.flushOutbox once reconnected.
-func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.SendOptions) tea.Msg {
+func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.SendOptions) (ui.FileUploadResultMsg, error) {
 	result := ui.FileUploadResultMsg{Path: path}
 	s, ok := a.session(accountIdx)
 	if !ok {
-		result.Err = fmt.Errorf("unknown account %d", accountIdx)
-		return result
+		return result, fmt.Errorf("unknown account %d", accountIdx)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -1672,12 +1662,11 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 	client, err := s.liveClient()
 	if err != nil {
 		if qErr := s.enqueueOutboxFile(ctx, to, text, path, opts); qErr != nil {
-			result.Err = fmt.Errorf("account offline and queuing failed: %w", qErr)
-			return result
+			return result, fmt.Errorf("account offline and queuing failed: %w", qErr)
 		}
 		slog.Debug("account offline; attachment queued", "jid", s.account.JID, "to", to, "path", path)
 		result.Queued = true
-		return result
+		return result, nil
 	}
 
 	uploadCtx, doneUpload := a.beginUpload(path)
@@ -1686,18 +1675,17 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 	defer cancelUpload()
 
 	label := "uploading " + filepath.Base(path)
-	broadcast(a.srv, evFileTransferProgress, ui.FileTransferProgressMsg{ID: path, Label: label})
+	broadcast(a.srv, ui.FileTransferProgressMsg{ID: path, Label: label})
 	url, err := a.uploadFile(uploadCtx, s, client, to, path, a.progressCallback(path, label))
-	broadcast(a.srv, evFileTransferDone, ui.FileTransferDoneMsg{ID: path})
+	broadcast(a.srv, ui.FileTransferDoneMsg{ID: path})
 	if err != nil {
 		if errors.Is(uploadCtx.Err(), context.Canceled) {
 			err = errUploadCanceled
 		}
-		result.Err = err
-		return result
+		return result, err
 	}
 	result.URL = url
-	return result
+	return result, nil
 }
 
 // --- voice calls (XEP-0166/0167/0176/0353, see callsession.go) ---
@@ -1705,7 +1693,7 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 // Blocking-in-the-RPC-handler is fine here for the same reason SetTyping is:
 // each of these only builds and writes one stanza. The slow parts (ICE
 // gathering, DTLS, audio) happen on the call's own goroutines and report
-// back via evCallState broadcasts.
+// back via CallStateMsg broadcasts.
 
 // StartCall places an outgoing voice call from accountIdx to "to".
 func (a *adapter) StartCall(accountIdx int, to string) error {
@@ -1785,13 +1773,20 @@ func (a *adapter) ReopenVideo(accountIdx int) error {
 
 // AudioDevices lists the devices a call can use and which ones are picked
 // ("" for the system default).
-func (a *adapter) AudioDevices() (audioDevicesResult, error) {
+func (a *adapter) AudioDevices() (ui.AudioDevicesMsg, error) {
 	inputs, outputs, err := call.AudioDevices()
 	if err != nil {
-		return audioDevicesResult{}, err
+		return ui.AudioDevicesMsg{}, err
 	}
-	input, output := currentAudioDevices()
-	return audioDevicesResult{Inputs: inputs, Outputs: outputs, Input: input, Output: output}, nil
+	msg := ui.AudioDevicesMsg{}
+	msg.Input, msg.Output = currentAudioDevices()
+	for _, d := range inputs {
+		msg.Inputs = append(msg.Inputs, ui.AudioDevice{Name: d.Name, Default: d.Default})
+	}
+	for _, d := range outputs {
+		msg.Outputs = append(msg.Outputs, ui.AudioDevice{Name: d.Name, Default: d.Default})
+	}
+	return msg, nil
 }
 
 // SetAudioDevice picks the call speaker (output) or microphone by device

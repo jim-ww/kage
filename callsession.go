@@ -759,7 +759,7 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 				slog.Warn("notifying own device of busy decline", "sid", ev.SID, "resource", res, "err", err)
 			}
 		}
-		broadcast(srv, evMissedCall, missedCallEvent{AccountIdx: accountIdx, From: from, SID: ev.SID})
+		broadcast(srv, ui.MissedCallMsg{AccountIdx: accountIdx, From: from, SID: ev.SID})
 		return
 	}
 	c := &callSession{
@@ -774,7 +774,7 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 		slog.Warn("sending ringing", "sid", ev.SID, "err", err)
 	}
 	slog.Debug("incoming call proposed", "sid", ev.SID, "from", from, "accountIdx", accountIdx)
-	broadcast(srv, evIncomingCall, incomingCallEvent{
+	broadcast(srv, ui.IncomingCallMsg{
 		AccountIdx: accountIdx, From: from, SID: ev.SID, Media: ev.Media,
 	})
 	c.startRing(ringtoneFreqsHz, ringtonePattern)
@@ -2015,7 +2015,7 @@ func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.Jingle
 	}
 }
 
-// videoSourceCamera/videoSourceScreen are callStateEvent.Video's values.
+// videoSourceCamera/videoSourceScreen are ui.CallStateMsg.Video's values.
 const (
 	videoSourceCamera = "camera"
 	videoSourceScreen = "screen"
@@ -2536,7 +2536,7 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 		}
 
 		c.sess.clearCall(c)
-		broadcast(c.srv, evCallState, callStateEvent{
+		broadcast(c.srv, ui.CallStateMsg{
 			AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid, State: state, Reason: reason,
 		})
 
@@ -2613,7 +2613,7 @@ func (c *callSession) logCall(state, reason string) {
 		return
 	}
 
-	broadcast(c.srv, evIncomingMessage, ui.IncomingMessageMsg{
+	broadcast(c.srv, ui.IncomingMessageMsg{
 		AccountIdx: c.accountIdx,
 		From:       c.peer,
 		Message: ui.Message{
@@ -2635,12 +2635,12 @@ func (c *callSession) broadcastState(state callState, reason string) {
 	ev := c.stateEventLocked(state, reason)
 	c.mu.Unlock()
 	slog.Debug("call state broadcast", "sid", c.sid, "state", state.String(), "reason", reason, "incoming", c.incoming)
-	broadcast(c.srv, evCallState, ev)
+	broadcast(c.srv, ev)
 }
 
-// stateEventLocked builds the callStateEvent for state from everything else
+// stateEventLocked builds the ui.CallStateMsg for state from everything else
 // currently known about the call. c.mu must be held.
-func (c *callSession) stateEventLocked(state callState, reason string) callStateEvent {
+func (c *callSession) stateEventLocked(state callState, reason string) ui.CallStateMsg {
 	video := ""
 	if c.sharing || c.pendingShare {
 		video = videoSourceScreen
@@ -2648,7 +2648,7 @@ func (c *callSession) stateEventLocked(state callState, reason string) callState
 			video = videoSourceCamera
 		}
 	}
-	return callStateEvent{
+	return ui.CallStateMsg{
 		AccountIdx: c.accountIdx, Peer: c.peer, SID: c.sid, State: state.String(), Reason: reason,
 		Muted: c.muted, Quality: c.quality, Sharing: c.sharing,
 		Video: video, VideoPending: c.pendingShare,
@@ -2681,7 +2681,7 @@ func (c *callSession) broadcastNotice(notice string) {
 		return
 	}
 	ev.Notice = notice
-	broadcast(c.srv, evCallState, ev)
+	broadcast(c.srv, ev)
 }
 
 // setMuted flips the mic-gate checked by startMedia's capture loop and

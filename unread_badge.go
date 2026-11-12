@@ -131,7 +131,7 @@ func countUnread(ctx context.Context, srv *ipc.Server, s *accountSession, chatAd
 		return
 	}
 	unreadBadge.set(s.account.JID, chatAddress, int(count))
-	broadcast(srv, evChatUnread, ui.ChatUnreadMsg{AccountJID: s.account.JID, ChatAddress: chatAddress, Count: int(count)})
+	broadcast(srv, ui.ChatUnreadMsg{AccountJID: s.account.JID, ChatAddress: chatAddress, Count: int(count)})
 }
 
 func (t *unreadTracker) applyLocked() {

@@ -1,14 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/ui"
 )
 
@@ -47,11 +45,7 @@ func TestIPCClientDoesNotDropEventsBeforeProgramReady(t *testing.T) {
 	// process has gotten around to constructing tea.Program - exactly the
 	// window between newIPCClient()/ipc.Dial and client.setProgram(p) in
 	// main().
-	data, err := json.Marshal(ui.PresenceMsg{AccountIdx: 1, From: "alice@localhost", Presence: ui.PresenceOnline})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	c.handleEvent(ipc.Event{Kind: evPresence, Data: data})
+	c.handleEvent(ui.PresenceMsg{AccountIdx: 1, From: "alice@localhost", Presence: ui.PresenceOnline})
 
 	// Give dispatchLoop a moment to have pulled it off c.events and (before
 	// the fix) dropped it.

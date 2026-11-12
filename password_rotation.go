@@ -13,7 +13,7 @@ import (
 	"github.com/jim-ww/kage/storage"
 )
 
-// ChangeStoragePassword implements ui.Daemon: re-encrypts
+// ChangeStoragePassword re-encrypts
 // every locally-encrypted message body and draft under a new password,
 // derived from a freshly generated salt, then persists the new password
 // (keyring if configured, else plaintext in config.toml). An empty

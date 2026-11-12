@@ -13,7 +13,6 @@ import (
 
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/storage"
-	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
 )
 
@@ -129,8 +128,8 @@ func TestSubscriptionIsReciprocatedAndRosterPushApplied(t *testing.T) {
 	// bob adds alice: roster set plus <presence type="subscribe">. From here
 	// on everything is the production event path on both sides.
 	bobAdapter := &adapter{sessions: []*accountSession{bob}}
-	if msg := bobAdapter.AddContact(0, aliceJID); msg.(ui.ContactAddedMsg).Err != nil {
-		t.Fatalf("bob AddContact(alice): %v", msg.(ui.ContactAddedMsg).Err)
+	if err := bobAdapter.AddContact(0, aliceJID); err != nil {
+		t.Fatalf("bob AddContact(alice): %v", err)
 	}
 
 	// "from" is the lopsided state the whole fix is about - bob can see

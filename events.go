@@ -36,7 +36,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		if err := replaceReactions(ctx, s, from, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {
 			slog.Warn("persisting reactions", "from", from, "err", err)
 		}
-		broadcast(srv, evMessageReactions, ui.MessageReactionsMsg{
+		broadcast(srv, ui.MessageReactionsMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			MessageID:  msgEv.ReactionTargetID,
@@ -54,7 +54,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		}); err != nil {
 			slog.Warn("persisting retraction flag", "err", err)
 		}
-		broadcast(srv, evMessageRetracted, ui.MessageRetractedMsg{
+		broadcast(srv, ui.MessageRetractedMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			RetractID:  msgEv.RetractID,
@@ -239,7 +239,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 				slog.Warn("recording applied correction", "err", err)
 			}
 		}
-		broadcast(srv, evMessageCorrected, ui.MessageCorrectedMsg{
+		broadcast(srv, ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			ReplaceID:  msgEv.ReplaceID,
@@ -315,7 +315,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		QuotedAuthor:  quotedAuthor,
 		QuotedPreview: quotedPreview,
 	}
-	broadcast(srv, evIncomingMessage, ui.IncomingMessageMsg{
+	broadcast(srv, ui.IncomingMessageMsg{
 		AccountIdx: accountIdx,
 		From:       from,
 		ReplyToID:  msgEv.ReplyToID,

@@ -142,9 +142,9 @@ func triggerArchiveSync(ctx context.Context, srv *ipc.Server, accountIdx int, s 
 	}
 	defer s.archiveSyncing.Store(false)
 
-	broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
+	broadcast(srv, ui.HistorySyncStartedMsg{AccountIdx: accountIdx})
 	syncArchive(ctx, srv, accountIdx, s)
-	broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
+	broadcast(srv, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
 }
 
 // pendingAck is one send queued in accountSession.ackPending, waiting on
@@ -246,7 +246,7 @@ func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server
 			}); err != nil {
 				slog.Warn("persisting send failure", "jid", s.account.JID, "to", p.to, "err", err)
 			}
-			broadcast(srv, evMessageSendFailed, ui.MessageSendFailedMsg{
+			broadcast(srv, ui.MessageSendFailedMsg{
 				AccountIdx: accountIdx,
 				To:         p.to,
 				MessageID:  p.id,
@@ -267,7 +267,7 @@ func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server
 			slog.Warn("persisting server ack", "jid", s.account.JID, "to", p.to, "err", err)
 			continue
 		}
-		broadcast(srv, evMessageServerAcked, ui.MessageServerAckedMsg{
+		broadcast(srv, ui.MessageServerAckedMsg{
 			AccountIdx: accountIdx,
 			To:         p.to,
 			MessageID:  p.id,
@@ -520,7 +520,7 @@ func (s *accountSession) resolveDeviceName(ctx context.Context, srv *ipc.Server,
 		entries[bareJID] = e
 	})
 
-	broadcast(srv, evDeviceName, ui.DeviceNameMsg{
+	broadcast(srv, ui.DeviceNameMsg{
 		AccountIdx: accountIdx,
 		From:       bareJID,
 		Resource:   resource,
@@ -646,7 +646,7 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
 	if err != nil {
 		slog.Debug("connectAccountLocal failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
-		broadcast(srv, evAccountConnectError, wireAccountConnectErrorMsg{Index: idx, Err: err.Error()})
+		broadcast(srv, ui.AccountConnectErrorMsg{Index: idx, Err: wireError(err.Error())})
 		return
 	}
 	sess.accountIdx = idx
@@ -669,17 +669,17 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 		// roster - so nothing about this account touches the network until
 		// Daemon switches it back on.
 		uiAcct.Connecting = false
-		broadcast(srv, evAccountConnected, wireAccountConnectedMsg{Index: idx, Account: toWireAccount(uiAcct)})
+		broadcast(srv, ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
 		return
 	}
-	broadcast(srv, evAccountConnected, wireAccountConnectedMsg{Index: idx, Account: toWireAccount(uiAcct)})
+	broadcast(srv, ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
 
 	slog.Debug("connectAccountLive starting", "jid", acct.JID)
 	start = time.Now()
 	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, len(uiAcct.Chats), presenceShow(uiAcct.Status))
 	if err != nil {
 		slog.Debug("connectAccountLive failed", "jid", acct.JID, "elapsed", time.Since(start), "err", err)
-		broadcast(srv, evAccountConnectError, wireAccountConnectErrorMsg{Index: idx, Err: err.Error()})
+		broadcast(srv, ui.AccountConnectErrorMsg{Index: idx, Err: wireError(err.Error())})
 		go retryInitialConnect(ctx, srv, a, idx, sess, len(uiAcct.Chats), presenceShow(uiAcct.Status))
 		return
 	}
@@ -693,7 +693,7 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	// went out.
 	a.flushOutbox(ctx, sess)
 
-	broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
+	broadcast(srv, ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
 
 	// Start listening (and reconnecting on drop) right away, concurrently
 	// with syncArchive below - not after it. c.serve() has been reading the
@@ -706,9 +706,9 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 
 	slog.Debug("syncArchive starting", "jid", acct.JID)
 	start = time.Now()
-	broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: idx})
+	broadcast(srv, ui.HistorySyncStartedMsg{AccountIdx: idx})
 	syncArchive(ctx, srv, idx, sess)
-	broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: idx})
+	broadcast(srv, ui.HistorySyncFinishedMsg{AccountIdx: idx})
 	slog.Debug("syncArchive done", "jid", acct.JID, "elapsed", time.Since(start))
 }
 
@@ -742,13 +742,13 @@ func retryInitialConnect(ctx context.Context, srv *ipc.Server, a *adapter, idx i
 		}
 
 		slog.Debug("initial connect succeeded on retry", "jid", sess.account.JID)
-		broadcast(srv, evAccountLive, wireAccountLiveMsg{Index: idx, NewChats: chatsToWire(newChats), NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
+		broadcast(srv, ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
 		go superviseAccount(ctx, srv, a, idx, sess)
 		a.flushOutbox(ctx, sess)
 
-		broadcast(srv, evHistorySyncStarted, ui.HistorySyncStartedMsg{AccountIdx: idx})
+		broadcast(srv, ui.HistorySyncStartedMsg{AccountIdx: idx})
 		syncArchive(ctx, srv, idx, sess)
-		broadcast(srv, evHistorySyncFinished, ui.HistorySyncFinishedMsg{AccountIdx: idx})
+		broadcast(srv, ui.HistorySyncFinishedMsg{AccountIdx: idx})
 		return
 	}
 }
@@ -1313,7 +1313,7 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		if !ev.Available && resource != "" {
 			s.peerWentOffline(ctx, ev.From)
 		}
-		broadcast(srv, evPresence, ui.PresenceMsg{
+		broadcast(srv, ui.PresenceMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			Presence:   presence,
@@ -1340,7 +1340,7 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 	case xmpp.MessageBouncedEvent:
 		s.handleBounce(ctx, srv, accountIdx, ev)
 	case xmpp.ChatStateEvent:
-		broadcast(srv, evTyping, ui.TypingMsg{
+		broadcast(srv, ui.TypingMsg{
 			AccountIdx: accountIdx,
 			From:       bareJID(ev.From),
 			Typing:     ev.State == xmpp.ChatStateComposing,
@@ -1354,7 +1354,7 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		}); err != nil {
 			slog.Warn("persisting delivery receipt", "err", err)
 		}
-		broadcast(srv, evMessageDelivered, ui.MessageDeliveredMsg{
+		broadcast(srv, ui.MessageDeliveredMsg{
 			AccountIdx: accountIdx,
 			From:       from,
 			MessageID:  ev.ID,
@@ -1578,7 +1578,7 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 			}
 		}
 		if len(newMsgs) > 0 {
-			broadcast(srv, evHistorySynced, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
+			broadcast(srv, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
 			// MAM catch-up delivers messages that arrived while we were
 			// offline, not just a replay of what was already seen, so these
 			// count as unread exactly like a live one would - see
@@ -1753,14 +1753,14 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		}); err != nil {
 			slog.Warn("persisting mam retraction", "peer", peerJID, "err", err)
 		}
-		broadcast(srv, evMessageRetracted, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peerJID, RetractID: am.RetractID})
+		broadcast(srv, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peerJID, RetractID: am.RetractID})
 		return mamItemOutcome{}
 	}
 	if am.ReactionTargetID != "" {
 		if err := replaceReactions(ctx, s, peerJID, am.ReactionTargetID, bareJID(am.From), am.Reactions); err != nil {
 			slog.Warn("persisting mam reactions", "peer", peerJID, "err", err)
 		}
-		broadcast(srv, evMessageReactions, ui.MessageReactionsMsg{
+		broadcast(srv, ui.MessageReactionsMsg{
 			AccountIdx: accountIdx,
 			From:       peerJID,
 			MessageID:  am.ReactionTargetID,
@@ -1887,7 +1887,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 				slog.Warn("recording applied mam correction", "peer", peerJID, "err", err)
 			}
 		}
-		broadcast(srv, evMessageCorrected, ui.MessageCorrectedMsg{
+		broadcast(srv, ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,
 			From:       peerJID,
 			ReplaceID:  am.ReplaceID,
@@ -2007,7 +2007,7 @@ func (s *accountSession) handleBounce(ctx context.Context, srv *ipc.Server, acco
 		return
 	}
 	slog.Warn("message not delivered", "jid", s.account.JID, "to", ev.From, "id", ev.ID, "reason", ev.Reason)
-	broadcast(srv, evMessageSendFailed, ui.MessageSendFailedMsg{
+	broadcast(srv, ui.MessageSendFailedMsg{
 		AccountIdx: accountIdx,
 		To:         peer,
 		MessageID:  ev.ID,
@@ -2080,7 +2080,7 @@ func (s *accountSession) handleRosterPush(ctx context.Context, srv *ipc.Server, 
 			slog.Warn("deleting roster entry after roster push", "contact", peer, "err", err)
 		}
 		forgetChat(ctx, s.db, s.account.JID, peer)
-		broadcast(srv, evChatRemoved, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: peer})
+		broadcast(srv, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: peer})
 		return
 	}
 
@@ -2138,7 +2138,7 @@ func (s *accountSession) broadcastChat(ctx context.Context, srv *ipc.Server, acc
 		unread = 0 // no row yet simply means nothing unread
 	}
 	hist, _, _ := loadHistoryWindow(ctx, s, peer, display, nil, historyPageSize)
-	broadcast(srv, evChatAdded, ui.ChatAddedMsg{
+	broadcast(srv, ui.ChatAddedMsg{
 		AccountIdx: accountIdx,
 		Chat: ui.Chat{
 			Name:           display,
@@ -2276,7 +2276,7 @@ func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 			slog.Warn("deleting roster entry after roster refresh", "contact", jid, "err", err)
 		}
 		forgetChat(ctx, s.db, s.account.JID, jid)
-		broadcast(srv, evChatRemoved, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: jid})
+		broadcast(srv, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: jid})
 	}
 }
 

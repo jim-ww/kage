@@ -164,16 +164,12 @@ func TestUploadFileQueuesWhileOffline(t *testing.T) {
 	sess := newTestAccountSession(t)
 	a := &adapter{sessions: []*accountSession{sess}}
 
-	msg := a.UploadFile(0, "bob@example.com", "/tmp/report.pdf", "here you go", ui.SendOptions{ReplyToID: "msg1"})
-	result, ok := msg.(ui.FileUploadResultMsg)
-	if !ok {
-		t.Fatalf("UploadFile returned %T, want ui.FileUploadResultMsg", msg)
+	result, err := a.UploadFile(0, "bob@example.com", "/tmp/report.pdf", "here you go", ui.SendOptions{ReplyToID: "msg1"})
+	if err != nil {
+		t.Fatalf("UploadFile while offline: %v, want it queued", err)
 	}
 	if !result.Queued {
 		t.Fatal("UploadFile while offline: Queued = false, want true")
-	}
-	if result.Err != nil {
-		t.Fatalf("UploadFile while offline: Err = %v, want nil", result.Err)
 	}
 
 	queued, err := sess.loadOutbox(context.Background())

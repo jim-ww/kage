@@ -1,425 +1,554 @@
 package main
 
 import (
-	"time"
+	"encoding/gob"
+	"errors"
+	"fmt"
+	"reflect"
 
-	"charm.land/bubbles/v2/list"
-	"github.com/jim-ww/kage/call"
+	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/ui"
 )
 
-// RPC method names (client -> daemon, see daemon_server.go/ipc_client.go).
-const (
-	rpcSend                     = "Send"
-	rpcMarkRetracted            = "MarkRetracted"
-	rpcDeleteQueued             = "DeleteQueued"
-	rpcPurgeMessage             = "PurgeMessage"
-	rpcSetTyping                = "SetTyping"
-	rpcRenameContact            = "RenameContact"
-	rpcSetDefaultAccount        = "SetDefaultAccount"
-	rpcSetChatEncryption        = "SetChatEncryption"
-	rpcSetSidebarWidth          = "SetSidebarWidth"
-	rpcRecordReactionEmojiUsage = "RecordReactionEmojiUsage"
-	rpcSetSidebarHidden         = "SetSidebarHidden"
-	rpcSetChatHidden            = "SetChatHidden"
-	rpcSetChatPinned            = "SetChatPinned"
-	rpcSetChatMuted             = "SetChatMuted"
-	rpcSetInputHeight           = "SetInputHeight"
-	rpcSetFilePickerSort        = "SetFilePickerSort"
-	rpcSetLastChat              = "SetLastChat"
-	rpcResetChatUnread          = "ResetChatUnread"
-	rpcChatUnreadCounts         = "ChatUnreadCounts"
-	rpcSaveDraft                = "SaveDraft"
-	rpcChangeStoragePassword    = "ChangeStoragePassword"
-	rpcSetOwnAvatar             = "SetOwnAvatar"
-	rpcRemoveOwnAvatar          = "RemoveOwnAvatar"
-	rpcSendFile                 = "SendFile"
-	rpcUploadFile               = "UploadFile"
-	rpcCancelUpload             = "CancelUpload"
-	rpcLoadHistoryWindow        = "LoadHistoryWindow"
-	rpcSearchHistory            = "SearchHistory"
-	rpcAddContact               = "AddContact"
-	rpcRemoveContact            = "RemoveContact"
-	rpcResubscribeContact       = "ResubscribeContact"
-	rpcAddAccount               = "AddAccount"
-	rpcRemoveAccount            = "RemoveAccount"
-	rpcSetAccountStatus         = "SetAccountStatus"
-	rpcFetchOwnDeviceList       = "FetchOwnDeviceList"
-	rpcPurgeOwnDeviceList       = "PurgeOwnDeviceList"
-	rpcListAccounts             = "ListAccounts"
-	rpcSetFocusState            = "SetFocusState"
-	rpcStartCall                = "StartCall"
-	rpcStartVideoCall           = "StartVideoCall"
-	rpcAnswerCall               = "AnswerCall"
-	rpcHangupCall               = "HangupCall"
-	rpcRejectCall               = "RejectCall"
-	rpcMuteCall                 = "MuteCall"
-	rpcScreenShare              = "ScreenShare"
-	rpcReopenVideo              = "ReopenVideo"
-	rpcAudioDevices             = "AudioDevices"
-	rpcSetAudioDevice           = "SetAudioDevice"
-	rpcSetDesktopAudio          = "SetDesktopAudio"
-	rpcSetDesktopAudioVolume    = "SetDesktopAudioVolume"
-	rpcGetCallState             = "GetCallState"
-)
+// request is one call the TUI makes to the daemon, answered with an R. Each
+// is a struct of its arguments; run is the daemon side of it.
+type request[R any] interface {
+	run(d *daemonServer, client ipc.ClientID) (R, error)
+}
 
-// Event kinds (daemon -> client broadcast, see account.go/events.go/adapter.go's
-// broadcast() call sites and ipc_client.go's handleEvent).
-const (
-	evIncomingMessage      = "IncomingMessage"
-	evMessageCorrected     = "MessageCorrected"
-	evMessageRetracted     = "MessageRetracted"
-	evMessageDelivered     = "MessageDelivered"
-	evMessageServerAcked   = "MessageServerAcked"
-	evMessageSendFailed    = "MessageSendFailed"
-	evMessageSendResolved  = "MessageSendResolved"
-	evOutboxDeleted        = "OutboxDeleted"
-	evMessagePurged        = "MessagePurged"
-	evMessageReactions     = "MessageReactions"
-	evPresence             = "Presence"
-	evDeviceName           = "DeviceName"
-	evTyping               = "Typing"
-	evFileTransferProgress = "FileTransferProgress"
-	evFileTransferDone     = "FileTransferDone"
-	evChatAdded            = "ChatAdded"
-	evChatRemoved          = "ChatRemoved"
-	evAccountAdded         = "AccountAdded"
-	evAccountRemoved       = "AccountRemoved"
-	evAccountConnected     = "AccountConnected"
-	evAccountLive          = "AccountLive"
-	evAccountConnectError  = "AccountConnectError"
-	evHistorySynced        = "HistorySynced"
-	evChatUnread           = "ChatUnread"
-	evHistorySyncStarted   = "HistorySyncStarted"
-	evHistorySyncFinished  = "HistorySyncFinished"
-	evIncomingCall         = "IncomingCall"
-	evCallState            = "CallState"
-	evMissedCall           = "MissedCall"
-	evAvatar               = "Avatar"
-	evChatSetting          = "ChatSetting"
-	evAccountStatus        = "AccountStatus"
-)
+// none is the reply of a call that only succeeds or fails.
+type none struct{}
 
-// --- RPC param/result structs. Kept plain and JSON-friendly on purpose:
-// most ui.*Msg result types round-trip as-is (a nil error field just
-// marshals as null), so only methods whose real result needs extra fields
-// the caller doesn't already know get one of these. ---
+// wireError carries an error inside an event across the socket; gob can only
+// send registered concrete types.
+type wireError string
 
-type sendParams struct {
+func (e wireError) Error() string { return string(e) }
+
+// handlers maps each call's type to its daemon side.
+var handlers = map[reflect.Type]func(d *daemonServer, client ipc.ClientID, c any) (any, error){}
+
+// handle registers c's type as a request and its reply type for gob.
+func handle[R any](c request[R]) {
+	var r R
+	gob.Register(c)
+	gob.Register(r)
+	handlers[reflect.TypeOf(c)] = func(d *daemonServer, client ipc.ClientID, c any) (any, error) {
+		return c.(request[R]).run(d, client)
+	}
+}
+
+// serve is the ipc.Handler passed to ipc.Server.Accept.
+func (d *daemonServer) serve(client ipc.ClientID, c any) (any, error) {
+	h, ok := handlers[reflect.TypeOf(c)]
+	if !ok {
+		return nil, fmt.Errorf("unknown call %T", c)
+	}
+	return h(d, client, c)
+}
+
+// do makes request c over the TUI's connection to the daemon.
+func do[R any](conn *ipc.Conn, c request[R]) (R, error) {
+	reply, err := conn.Call(c)
+	r, _ := reply.(R)
+	return r, err
+}
+
+// events are the messages the daemon broadcasts to every attached TUI.
+var events = []any{
+	ui.IncomingMessageMsg{}, ui.MessageCorrectedMsg{}, ui.MessageRetractedMsg{},
+	ui.MessageDeliveredMsg{}, ui.MessageServerAckedMsg{}, ui.MessageSendFailedMsg{},
+	ui.MessageSendResolvedMsg{}, ui.OutboxDeletedMsg{}, ui.MessagePurgedMsg{},
+	ui.MessageReactionsMsg{}, ui.PresenceMsg{}, ui.DeviceNameMsg{}, ui.TypingMsg{},
+	ui.FileTransferProgressMsg{}, ui.FileTransferDoneMsg{}, ui.ChatAddedMsg{},
+	ui.ChatRemovedMsg{}, ui.ChatSettingMsg{}, ui.ChatUnreadMsg{}, ui.AvatarUpdatedMsg{},
+	ui.AccountAppearedMsg{}, ui.AccountRemovedMsg{}, ui.AccountConnectedMsg{},
+	ui.AccountLiveMsg{}, ui.AccountConnectErrorMsg{}, ui.AccountStatusChangedMsg{},
+	ui.HistorySyncedMsg{}, ui.HistorySyncStartedMsg{}, ui.HistorySyncFinishedMsg{},
+	ui.IncomingCallMsg{}, ui.CallStateMsg{}, ui.MissedCallMsg{},
+}
+
+// isEvent reports whether ev's type is registered as an event.
+var isEvent = map[reflect.Type]bool{}
+
+func init() {
+	gob.Register(ui.Chat{}) // list.Item, in Account.Chats and friends
+	gob.Register(wireError(""))
+	for _, ev := range events {
+		gob.Register(ev)
+		isEvent[reflect.TypeOf(ev)] = true
+	}
+
+	handle(sendReq{})
+	handle(markRetractedReq{})
+	handle(deleteQueuedReq{})
+	handle(purgeMessageReq{})
+	handle(setTypingReq{})
+	handle(sendFileReq{})
+	handle(uploadFileReq{})
+	handle(cancelUploadReq{})
+	handle(loadHistoryWindowReq{})
+	handle(searchHistoryReq{})
+	handle(renameContactReq{})
+	handle(addContactReq{})
+	handle(removeContactReq{})
+	handle(resubscribeContactReq{})
+	handle(setChatHiddenReq{})
+	handle(setChatMutedReq{})
+	handle(setChatPinnedReq{})
+	handle(setChatEncryptionReq{})
+	handle(resetChatUnreadReq{})
+	handle(chatUnreadCountsReq{})
+	handle(saveDraftReq{})
+	handle(listAccountsReq{})
+	handle(addAccountReq{})
+	handle(removeAccountReq{})
+	handle(setAccountStatusReq{})
+	handle(setDefaultAccountReq{})
+	handle(setOwnAvatarReq{})
+	handle(removeOwnAvatarReq{})
+	handle(fetchOwnDeviceListReq{})
+	handle(purgeOwnDeviceListReq{})
+	handle(changeStoragePasswordReq{})
+	handle(setSidebarWidthReq{})
+	handle(setSidebarHiddenReq{})
+	handle(setInputHeightReq{})
+	handle(setFilePickerSortReq{})
+	handle(setLastChatReq{})
+	handle(recordReactionEmojiUsageReq{})
+	handle(setFocusStateReq{})
+	handle(callStateReq{})
+	handle(startCallReq{})
+	handle(answerCallReq{})
+	handle(hangupCallReq{})
+	handle(rejectCallReq{})
+	handle(muteCallReq{})
+	handle(screenShareReq{})
+	handle(reopenVideoReq{})
+	handle(setDesktopAudioReq{})
+	handle(setDesktopAudioVolumeReq{})
+	handle(listAudioDevicesReq{})
+	handle(setAudioDeviceReq{})
+}
+
+// ── Messages ────────────────────────────────────────────────────────────
+
+type sendReq struct {
 	AccountIdx int
 	To, Body   string
 	Opts       ui.SendOptions
 }
 
-// sendResult's Queued flag carries ui.ErrQueued's meaning ("not sent yet,
-// but will be automatically") across the RPC boundary as data rather than as
-// an error - an *ipc.Conn.Call error only round-trips as a message string,
-// which would lose the sentinel identity ipcClient.Send needs to reconstruct
-// ui.ErrQueued on the client side.
+// sendResult's Queued carries ui.ErrQueued across the socket, where errors
+// travel only as their text.
 type sendResult struct {
 	ID     string
 	Queued bool
 }
 
-type markRetractedParams struct {
+func (c sendReq) run(d *daemonServer, _ ipc.ClientID) (sendResult, error) {
+	id, err := d.a.Send(c.AccountIdx, c.To, c.Body, c.Opts)
+	if errors.Is(err, ui.ErrQueued) {
+		return sendResult{Queued: true}, nil
+	}
+	return sendResult{ID: id}, err
+}
+
+type markRetractedReq struct {
 	AccountIdx int
 	To, ID     string
 }
 
-type purgeMessageParams struct {
-	AccountIdx int
-	To, ID     string
+func (c markRetractedReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.MarkRetracted(c.AccountIdx, c.To, c.ID)
 }
 
-type deleteQueuedParams struct {
+type deleteQueuedReq struct {
 	AccountIdx int
 	LocalID    string
 }
-type setTypingParams struct {
+
+func (c deleteQueuedReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.DeleteQueued(c.AccountIdx, c.LocalID)
+}
+
+type purgeMessageReq struct {
+	AccountIdx int
+	To, ID     string
+}
+
+func (c purgeMessageReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.PurgeMessage(c.AccountIdx, c.To, c.ID)
+}
+
+type setTypingReq struct {
 	AccountIdx int
 	To         string
 	Composing  bool
 }
-type renameContactParams struct {
-	AccountIdx    int
-	Address, Name string
-}
-type setDefaultAccountParams struct{ JID string }
-type setChatEncryptionParams struct {
-	AccountIdx    int
-	PeerJID, Mode string
-}
-type widthParams struct{ Width int }
-type reactionEmojiUsageParams struct{ Emojis []string }
-type hiddenParams struct{ Hidden bool }
-type heightParams struct{ Height int }
-type filePickerSortParams struct {
-	Field     string
-	Ascending bool
-}
-type setLastChatParams struct{ AccountJID, ChatAddress string }
-type accountJIDParams struct{ AccountJID string }
-type chatUnreadCountsResult struct{ Counts map[string]int }
-type saveDraftParams struct{ AccountJID, ChatAddress, Text string }
-type changeStoragePasswordParams struct{ NewPassword string }
 
-type sendFileParams struct {
+func (c setTypingReq) run(d *daemonServer, client ipc.ClientID) (none, error) {
+	return none{}, d.a.SetTyping(client, c.AccountIdx, c.To, c.Composing)
+}
+
+// ── Files ───────────────────────────────────────────────────────────────
+
+type sendFileReq struct {
 	AccountIdx int
 	To, Path   string
 	Opts       ui.SendOptions
 }
-type uploadFileParams struct {
-	AccountIdx int
-	To, Path   string
-	Text       string
-	Opts       ui.SendOptions
+
+func (c sendFileReq) run(d *daemonServer, _ ipc.ClientID) (ui.FileSendResultMsg, error) {
+	return d.a.SendFile(c.AccountIdx, c.To, c.Path, c.Opts)
 }
-type cancelUploadParams struct{ Path string }
-type loadHistoryWindowParams struct {
+
+type uploadFileReq struct {
+	AccountIdx     int
+	To, Path, Text string
+	Opts           ui.SendOptions
+}
+
+func (c uploadFileReq) run(d *daemonServer, _ ipc.ClientID) (ui.FileUploadResultMsg, error) {
+	return d.a.UploadFile(c.AccountIdx, c.To, c.Path, c.Text, c.Opts)
+}
+
+type cancelUploadReq struct{ Path string }
+
+func (c cancelUploadReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	d.a.CancelUpload(c.Path)
+	return none{}, nil
+}
+
+// ── History ─────────────────────────────────────────────────────────────
+
+type loadHistoryWindowReq struct {
 	AccountIdx int
 	To         string
 	Anchor     *ui.HistoryAnchor
 }
-type searchHistoryParams struct {
-	AccountIdx int
-	To         string
-	Query      string
+
+func (c loadHistoryWindowReq) run(d *daemonServer, _ ipc.ClientID) (ui.HistoryWindowMsg, error) {
+	return d.a.LoadHistoryWindow(c.AccountIdx, c.To, c.Anchor)
 }
-type contactParams struct {
+
+type searchHistoryReq struct {
+	AccountIdx int
+	To, Query  string
+}
+
+func (c searchHistoryReq) run(d *daemonServer, _ ipc.ClientID) (ui.HistorySearchResultMsg, error) {
+	return d.a.SearchHistory(c.AccountIdx, c.To, c.Query)
+}
+
+// ── Contacts and chats ──────────────────────────────────────────────────
+
+type renameContactReq struct {
+	AccountIdx    int
+	Address, Name string
+}
+
+func (c renameContactReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.RenameContact(c.AccountIdx, c.Address, c.Name)
+}
+
+type addContactReq struct {
 	AccountIdx int
 	Address    string
 }
-type addAccountParams struct {
+
+func (c addContactReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.AddContact(c.AccountIdx, c.Address)
+}
+
+type removeContactReq struct {
+	AccountIdx int
+	Address    string
+}
+
+func (c removeContactReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.RemoveContact(c.AccountIdx, c.Address)
+}
+
+type resubscribeContactReq struct {
+	AccountIdx int
+	Address    string
+}
+
+func (c resubscribeContactReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.ResubscribeContact(c.AccountIdx, c.Address)
+}
+
+type setChatHiddenReq struct {
+	AccountJID, ChatAddress string
+	Hidden                  bool
+}
+
+func (c setChatHiddenReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetChatHidden(c.AccountJID, c.ChatAddress, c.Hidden)
+}
+
+type setChatMutedReq struct {
+	AccountJID, ChatAddress string
+	Muted                   bool
+}
+
+func (c setChatMutedReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetChatMuted(c.AccountJID, c.ChatAddress, c.Muted)
+}
+
+type setChatPinnedReq struct {
+	AccountJID, ChatAddress string
+	Pinned                  bool
+}
+
+func (c setChatPinnedReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetChatPinned(c.AccountJID, c.ChatAddress, c.Pinned)
+}
+
+type setChatEncryptionReq struct {
+	AccountIdx    int
+	PeerJID, Mode string
+}
+
+func (c setChatEncryptionReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetChatEncryption(c.AccountIdx, c.PeerJID, c.Mode)
+}
+
+type resetChatUnreadReq struct{ AccountJID, ChatAddress string }
+
+func (c resetChatUnreadReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.ResetChatUnread(c.AccountJID, c.ChatAddress)
+}
+
+type chatUnreadCountsReq struct{ AccountJID string }
+
+func (c chatUnreadCountsReq) run(d *daemonServer, _ ipc.ClientID) (map[string]int, error) {
+	return d.a.ChatUnreadCounts(c.AccountJID)
+}
+
+type saveDraftReq struct{ AccountJID, ChatAddress, Text string }
+
+func (c saveDraftReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SaveDraft(c.AccountJID, c.ChatAddress, c.Text)
+}
+
+// ── Accounts ────────────────────────────────────────────────────────────
+
+// listAccountsReq is the snapshot of every configured account a TUI starts
+// from.
+type listAccountsReq struct{}
+
+func (listAccountsReq) run(d *daemonServer, _ ipc.ClientID) ([]ui.Account, error) {
+	return d.listAccounts(), nil
+}
+
+type addAccountReq struct {
 	JID, Password, GPGKeyID string
 	Register                bool
 }
-type accountIdxParams struct{ AccountIdx int }
-type setAccountStatusParams struct {
+
+func (c addAccountReq) run(d *daemonServer, _ ipc.ClientID) (ui.Account, error) {
+	return d.a.AddAccount(c.JID, c.Password, c.GPGKeyID, c.Register)
+}
+
+type removeAccountReq struct{ AccountIdx int }
+
+func (c removeAccountReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.RemoveAccount(c.AccountIdx)
+}
+
+type setAccountStatusReq struct {
 	AccountIdx int
 	Status     ui.Presence
 }
 
-// setAccountStatusResult is all the requesting TUI gets back: the state
-// change itself (with whatever chats coming online loaded) reaches every
-// attached TUI as wireAccountStatusChanged instead.
-type setAccountStatusResult struct {
-	Status ui.Presence
+func (c setAccountStatusReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetAccountStatus(c.AccountIdx, c.Status)
 }
 
-// wireAccountStatusChanged is evAccountStatus's payload, the wire form of
-// ui.AccountStatusChangedMsg (chats as []ui.Chat, like wireAccount).
-type wireAccountStatusChanged struct {
-	Index          int
-	Status         ui.Presence
-	NewChats       []ui.Chat
-	NewMessages    map[int][]ui.Message
-	NewHistoryMore map[int]bool
-}
-type setFocusStateParams struct {
-	AccountJID, ChatAddress string
-	Focused                 bool
-}
-type startCallParams struct {
-	AccountIdx int
-	To         string
-}
-type startVideoCallParams struct {
-	AccountIdx int
-	To         string
-	UseCamera  bool
-}
-type muteCallParams struct {
-	AccountIdx int
-	Muted      bool
-}
-type screenShareParams struct {
-	AccountIdx int
-	Sharing    bool
-	UseCamera  bool // ignored when Sharing is false
-}
-type reopenVideoParams struct {
-	AccountIdx int
+type setDefaultAccountReq struct{ JID string }
+
+func (c setDefaultAccountReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetDefaultAccount(c.JID)
 }
 
-// audioDevicesResult lists every device a call can use, and which input/
-// output is picked ("" for the system default).
-type audioDevicesResult struct {
-	Inputs, Outputs []call.AudioDevice
-	Input, Output   string
-}
-type setDesktopAudioParams struct {
-	Enabled bool
-}
-type setDesktopAudioVolumeParams struct {
-	Percent int
-}
-type setAudioDeviceParams struct {
-	Output bool // false: the microphone
-	Name   string
-}
-
-// getCallStateResult reports whatever call is currently in progress on any
-// account, if any - queried once by a freshly-(re)attached client so it can
-// show the persistent call bar immediately instead of waiting for the next
-// live transition (see daemonServer.getCallState/ipcClient.GetCallState).
-// Active is false and the rest of the fields are zero when no call is up.
-type getCallStateResult struct {
-	Active    bool
-	StartedAt time.Time
-	callStateEvent
-}
-
-// incomingCallEvent tells attached clients that a peer is ringing us
-// (XEP-0353 propose). The daemon has already answered <ringing/>; nothing
-// further happens until an AnswerCall or RejectCall RPC comes back.
-type incomingCallEvent struct {
+type setOwnAvatarReq struct {
 	AccountIdx int
-	From       string // bare JID
-	SID        string
-	Media      string // "audio"
+	Path       string
 }
 
-// callStateEvent reports every transition of the account's current call. See
-// callState.String in callsession.go for the State values, plus "failed" for
-// an error teardown; Reason is free text for the UI to show. Muted/Quality
-// ride along on every broadcast (not just ones that changed them) so the UI
-// never has to remember them across a msg that reset the rest of the state -
-// see callSession.broadcastState.
-type callStateEvent struct {
-	AccountIdx int
-	Peer       string // bare JID
-	SID        string
-	State      string
-	Reason     string
-	Muted      bool
-	Quality    string // "", "good", "fair", "poor" - "" until the first sample lands
-	Sharing    bool   // true while we're actively sending our own video
-	// Video is the source of the video we're sending ("camera"/"screen"),
-	// set from the moment it's requested - VideoPending is true until the
-	// peer has accepted it and capture actually started. "" when not sending.
-	Video        string
-	VideoPending bool
-	// RemoteVideo is true while the peer is streaming video to us;
-	// ViewerOpen is whether its mpv window is currently up (false after it
-	// was closed by hand, until ReopenVideo).
-	RemoteVideo bool
-	ViewerOpen  bool
-	// DesktopAudio is true while other applications' audio is being mixed
-	// into what we send (sharing the screen with desktop audio enabled);
-	// DesktopAudioEnabled is that setting itself.
-	DesktopAudio        bool
-	DesktopAudioEnabled bool
-	DesktopAudioVolume  int // percent
-	// Notice is a one-off message for the UI to show (e.g. a camera that
-	// failed to open), not part of the call's persistent state.
-	Notice string
-	// SAS is the short authentication string derived from both ends' DTLS
-	// fingerprints (see computeSAS) - "" until negotiation completes.
-	SAS string
-	// FingerprintChanged is true if the peer's DTLS fingerprint on this call
-	// doesn't match the one pinned from a previous call with them (see
-	// checkAndPinCallFingerprint) - a signal worth surfacing loudly, since it
-	// can mean a signaling server is swapping fingerprints to MITM the call.
-	FingerprintChanged bool
+func (c setOwnAvatarReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetOwnAvatar(c.AccountIdx, c.Path)
 }
 
-// missedCallEvent tells attached clients that a peer proposed a call while
-// this account already had one in progress - the daemon auto-rejected it
-// (see handlePropose's busy branch) rather than offering call waiting.
-type missedCallEvent struct {
-	AccountIdx int
-	From       string // bare JID
-	SID        string
+type removeOwnAvatarReq struct{ AccountIdx int }
+
+func (c removeOwnAvatarReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.RemoveOwnAvatar(c.AccountIdx)
 }
 
-type purgeOwnDeviceListParams struct {
+type fetchOwnDeviceListReq struct{ AccountIdx int }
+
+func (c fetchOwnDeviceListReq) run(d *daemonServer, _ ipc.ClientID) (ui.OmemoDeviceListMsg, error) {
+	return d.a.FetchOwnDeviceList(c.AccountIdx)
+}
+
+type purgeOwnDeviceListReq struct {
 	AccountIdx int
 	Keep       []ui.OmemoDevice
 }
 
-// --- list.Item can't be unmarshaled directly (it's an interface) - every
-// ui.Account/ui.Chat crossing the wire goes through these instead. ---
+func (c purgeOwnDeviceListReq) run(d *daemonServer, _ ipc.ClientID) (ui.OmemoDevicePurgedMsg, error) {
+	return d.a.PurgeOwnDeviceList(c.AccountIdx, c.Keep)
+}
 
-func chatsToWire(items []list.Item) []ui.Chat {
-	if items == nil {
-		return nil
+type changeStoragePasswordReq struct{ NewPassword string }
+
+func (c changeStoragePasswordReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.ChangeStoragePassword(c.NewPassword)
+}
+
+// ── UI state ────────────────────────────────────────────────────────────
+
+type setSidebarWidthReq struct{ Width int }
+
+func (c setSidebarWidthReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetSidebarWidth(c.Width)
+}
+
+type setSidebarHiddenReq struct{ Hidden bool }
+
+func (c setSidebarHiddenReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetSidebarHidden(c.Hidden)
+}
+
+type setInputHeightReq struct{ Height int }
+
+func (c setInputHeightReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetInputHeight(c.Height)
+}
+
+type setFilePickerSortReq struct {
+	Field     string
+	Ascending bool
+}
+
+func (c setFilePickerSortReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetFilePickerSort(c.Field, c.Ascending)
+}
+
+type setLastChatReq struct{ AccountJID, ChatAddress string }
+
+func (c setLastChatReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetLastChat(c.AccountJID, c.ChatAddress)
+}
+
+type recordReactionEmojiUsageReq struct{ Emojis []string }
+
+func (c recordReactionEmojiUsageReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.RecordReactionEmojiUsage(c.Emojis)
+}
+
+type setFocusStateReq struct {
+	AccountJID, ChatAddress string
+	Focused                 bool
+}
+
+func (c setFocusStateReq) run(d *daemonServer, client ipc.ClientID) (none, error) {
+	return none{}, d.a.SetFocusState(client, c.AccountJID, c.ChatAddress, c.Focused)
+}
+
+// ── Calls ───────────────────────────────────────────────────────────────
+
+// callStateReq asks for the call in progress, if any (State "" if none), so
+// a TUI attaching mid-call shows it right away.
+type callStateReq struct{}
+
+func (callStateReq) run(d *daemonServer, _ ipc.ClientID) (ui.CallStateMsg, error) {
+	return d.callState(), nil
+}
+
+type startCallReq struct {
+	AccountIdx int
+	To         string
+	Video      bool
+	UseCamera  bool // with Video: the camera rather than the screen
+}
+
+func (c startCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	if c.Video {
+		return none{}, d.a.StartVideoCall(c.AccountIdx, c.To, c.UseCamera)
 	}
-	out := make([]ui.Chat, len(items))
-	for i, it := range items {
-		out[i] = it.(ui.Chat)
-	}
-	return out
+	return none{}, d.a.StartCall(c.AccountIdx, c.To)
 }
 
-func chatsFromWire(chats []ui.Chat) []list.Item {
-	if chats == nil {
-		return nil
-	}
-	out := make([]list.Item, len(chats))
-	for i, c := range chats {
-		out[i] = c
-	}
-	return out
+type answerCallReq struct{ AccountIdx int }
+
+func (c answerCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.AnswerCall(c.AccountIdx)
 }
 
-type wireAccount struct {
-	ui.Account
-	Chats []ui.Chat // shadows the embedded Account.Chats field for JSON (Go's shallower-field-wins rule applies to both)
+type hangupCallReq struct{ AccountIdx int }
+
+func (c hangupCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.HangupCall(c.AccountIdx)
 }
 
-func toWireAccount(a ui.Account) wireAccount {
-	return wireAccount{Account: a, Chats: chatsToWire(a.Chats)}
+type rejectCallReq struct{ AccountIdx int }
+
+func (c rejectCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.RejectCall(c.AccountIdx)
 }
 
-func (w wireAccount) toAccount() ui.Account {
-	a := w.Account
-	a.Chats = chatsFromWire(w.Chats)
-	return a
+type muteCallReq struct {
+	AccountIdx int
+	Muted      bool
 }
 
-type wireAccountConnectedMsg struct {
-	Index   int
-	Account wireAccount
+func (c muteCallReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.MuteCall(c.AccountIdx, c.Muted)
 }
 
-// wireAccountAddedMsg announces an account another client just added, so every
-// attached client mirrors the daemon's account order - see
-// ui.AccountAppearedMsg.
-type wireAccountAddedMsg struct {
-	Index   int
-	Account wireAccount
-}
-type wireAccountLiveMsg struct {
-	Index             int
-	NewChats          []ui.Chat
-	NewMessages       map[int][]ui.Message
-	NewHistoryMore    map[int]bool
-	SupportsInvisible bool
-}
-type wireAccountConnectErrorMsg struct {
-	Index int
-	Err   string
+type screenShareReq struct {
+	AccountIdx int
+	Sharing    bool
+	UseCamera  bool // ignored when Sharing is false
 }
 
-type setOwnAvatarParams struct {
-	AccountIdx int    `json:"account_idx"`
-	Path       string `json:"path"`
+func (c screenShareReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.ScreenShare(c.AccountIdx, c.Sharing, c.UseCamera)
 }
 
-type setChatHiddenParams struct {
-	AccountJID  string `json:"account_jid"`
-	ChatAddress string `json:"chat_address"`
-	Hidden      bool   `json:"hidden"`
+type reopenVideoReq struct{ AccountIdx int }
+
+func (c reopenVideoReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.ReopenVideo(c.AccountIdx)
 }
 
-type setChatMutedParams struct {
-	AccountJID  string `json:"accountJID"`
-	ChatAddress string `json:"chatAddress"`
-	Muted       bool   `json:"muted"`
+type setDesktopAudioReq struct{ Enabled bool }
+
+func (c setDesktopAudioReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetDesktopAudio(c.Enabled)
 }
 
-type setChatPinnedParams struct {
-	AccountJID  string `json:"account_jid"`
-	ChatAddress string `json:"chat_address"`
-	Pinned      bool   `json:"pinned"`
+type setDesktopAudioVolumeReq struct{ Percent int }
+
+func (c setDesktopAudioVolumeReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetDesktopAudioVolume(c.Percent)
+}
+
+type listAudioDevicesReq struct{}
+
+func (listAudioDevicesReq) run(d *daemonServer, _ ipc.ClientID) (ui.AudioDevicesMsg, error) {
+	return d.a.AudioDevices()
+}
+
+type setAudioDeviceReq struct {
+	Output bool // false: the microphone
+	Name   string
+}
+
+func (c setAudioDeviceReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetAudioDevice(c.Output, c.Name)
 }

@@ -5,20 +5,20 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"charm.land/bubbles/v2/list"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/ui"
 )
 
-// TestDaemonIPCRoundTrip is a regression guard on daemon_server.go's
-// dispatch table: it spins up the same adapter+daemonServer+ipc.Server the
-// real --background mode builds (minus any XMPP dialing, which these two
-// RPCs don't touch), talks to it over a real Unix socket via ipcClient
-// exactly like the TUI does, and checks a write (persists to config.toml)
-// and a read (persists to storage) both round-trip correctly. If a future
-// change to daemon_server.go's dispatch table or ipc_client.go's RPC
-// wrappers breaks the wire format for either, this fails.
+// TestDaemonIPCRoundTrip spins up the same adapter+daemonServer+ipc.Server
+// the real daemon builds (minus any XMPP dialing, which these calls don't
+// touch), talks to it over a real Unix socket via ipcClient exactly like
+// the TUI does, and checks writes, reads, errors and events all make it
+// across.
 func TestDaemonIPCRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 
@@ -48,9 +48,10 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 		t.Fatalf("listening on socket: %v", err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	go srv.Accept(ln, ds.handle)
+	go srv.Accept(ln, ds.serve)
 
-	client := &ipcClient{}
+	events := make(chan any, 8)
+	client := &ipcClient{events: events}
 	conn, err := ipc.Dial(sockPath, client.handleEvent)
 	if err != nil {
 		t.Fatalf("dialing socket: %v", err)
@@ -112,5 +113,27 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 	}
 	if len(drafts) != 0 {
 		t.Errorf("ListChatDrafts after clearing = %+v, want none", drafts)
+
+	}
+
+	// A failed call comes back as an error, with the connection still usable.
+	if msg := client.AddContact(7, "you@example.com").(ui.ContactAddedMsg); msg.Err == nil || msg.Address != "you@example.com" {
+		t.Errorf("AddContact on an unknown account = %+v, want an error", msg)
+	}
+
+	// Events arrive as the ui messages they were sent as, chats and errors
+	// included.
+	waitForClients(t, srv, 1)
+	broadcast(srv, ui.AccountConnectedMsg{Index: 1, Account: ui.Account{Name: "me@example.com", Chats: []list.Item{ui.Chat{Address: "you@example.com"}}}})
+	broadcast(srv, ui.AccountConnectErrorMsg{Index: 1, Err: wireError("no route")})
+	var connected ui.AccountConnectedMsg
+	awaitEvent(t, events, &connected, 2*time.Second)
+	if chats := connected.Account.Chats; len(chats) != 1 || chats[0].(ui.Chat).Address != "you@example.com" {
+		t.Errorf("AccountConnectedMsg chats = %+v", chats)
+	}
+	var failed ui.AccountConnectErrorMsg
+	awaitEvent(t, events, &failed, 2*time.Second)
+	if failed.Err == nil || failed.Err.Error() != "no route" {
+		t.Errorf("AccountConnectErrorMsg.Err = %v, want no route", failed.Err)
 	}
 }

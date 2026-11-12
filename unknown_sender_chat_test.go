@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ import (
 // Unix socket and collects every event the daemon broadcasts, so a test can
 // assert on what an attached TUI would actually receive rather than on
 // daemon-internal state.
-func attachedClient(t *testing.T) (*ipc.Server, chan ipc.Event) {
+func attachedClient(t *testing.T) (*ipc.Server, chan any) {
 	t.Helper()
 
 	srv := ipc.NewServer()
@@ -28,10 +27,10 @@ func attachedClient(t *testing.T) (*ipc.Server, chan ipc.Event) {
 		t.Fatalf("listening on socket: %v", err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	go srv.Accept(ln, func(ipc.ClientID, string, json.RawMessage) (any, error) { return nil, nil })
+	go srv.Accept(ln, func(ipc.ClientID, any) (any, error) { return nil, nil })
 
-	events := make(chan ipc.Event, 32)
-	conn, err := ipc.Dial(sockPath, func(ev ipc.Event) {
+	events := make(chan any, 32)
+	conn, err := ipc.Dial(sockPath, func(ev any) {
 		select {
 		case events <- ev:
 		default:
@@ -82,7 +81,7 @@ func TestUnknownSenderChatReachesAttachedClient(t *testing.T) {
 	})
 
 	var added ui.ChatAddedMsg
-	awaitEventOn(t, events, evChatAdded, &added, 5*time.Second)
+	awaitEvent(t, events, &added, 5*time.Second)
 	if added.Chat.Address != "stranger@example.com" {
 		t.Errorf("ChatAdded for %q, want the stranger's bare JID", added.Chat.Address)
 	}
@@ -93,7 +92,7 @@ func TestUnknownSenderChatReachesAttachedClient(t *testing.T) {
 	// The message itself follows as an ordinary incoming message, which the
 	// UI can now append because the row exists.
 	var incoming ui.IncomingMessageMsg
-	awaitEventOn(t, events, evIncomingMessage, &incoming, 5*time.Second)
+	awaitEvent(t, events, &incoming, 5*time.Second)
 	if incoming.From != "stranger@example.com" {
 		t.Errorf("IncomingMessage From = %q", incoming.From)
 	}
@@ -137,15 +136,15 @@ func TestUnknownSenderChatAnnouncedOnce(t *testing.T) {
 
 	// Drain long enough for both messages' events to have arrived.
 	var added ui.ChatAddedMsg
-	awaitEventOn(t, events, evChatAdded, &added, 5*time.Second)
+	awaitEvent(t, events, &added, 5*time.Second)
 	var second ui.IncomingMessageMsg
-	awaitEventOn(t, events, evIncomingMessage, &second, 5*time.Second)
-	awaitEventOn(t, events, evIncomingMessage, &second, 5*time.Second)
+	awaitEvent(t, events, &second, 5*time.Second)
+	awaitEvent(t, events, &second, 5*time.Second)
 
 	for {
 		select {
 		case ev := <-events:
-			if ev.Kind == evChatAdded {
+			if _, ok := ev.(ui.ChatAddedMsg); ok {
 				t.Fatal("chat was announced twice; the second message re-created it")
 			}
 		default:
@@ -154,23 +153,21 @@ func TestUnknownSenderChatAnnouncedOnce(t *testing.T) {
 	}
 }
 
-// awaitEventOn is awaitEvent without the integration build tag (see
-// multi_instance_live_test.go), so the plain unit suite can use it too.
-func awaitEventOn(t *testing.T, events chan ipc.Event, kind string, out any, timeout time.Duration) {
+// awaitEvent reads from events until one is a T, storing it in out - or
+// fails the test after timeout. Other events (e.g. this same message's own
+// broadcasts arriving in an order the test doesn't care about) are skipped.
+func awaitEvent[T any](t *testing.T, events chan any, out *T, timeout time.Duration) {
 	t.Helper()
 	deadline := time.After(timeout)
 	for {
 		select {
 		case ev := <-events:
-			if ev.Kind != kind {
-				continue
+			if v, ok := ev.(T); ok {
+				*out = v
+				return
 			}
-			if err := json.Unmarshal(ev.Data, out); err != nil {
-				t.Fatalf("unmarshaling %s event: %v", kind, err)
-			}
-			return
 		case <-deadline:
-			t.Fatalf("timed out waiting for a %s event", kind)
+			t.Fatalf("timed out waiting for a %T event", *out)
 		}
 	}
 }

@@ -1,7 +1,8 @@
 package ipc
 
 import (
-	"encoding/json"
+	"bufio"
+	"encoding/gob"
 	"fmt"
 	"log/slog"
 	"net"
@@ -10,12 +11,9 @@ import (
 	"time"
 )
 
-// writeTimeout bounds every write to a client connection. Without it, a
-// client whose reader has stalled (e.g. its own process wedged) never errors
-// the write - net.Conn.Write just blocks forever - and since Broadcast used
-// to write to every connection sequentially on one goroutine, one stuck
-// client silently starved every other connected client of all events
-// indefinitely.
+// writeTimeout bounds every write to a client connection: a client whose
+// reader has stalled (e.g. its own process wedged) never errors the write,
+// net.Conn.Write just blocks forever.
 const writeTimeout = 5 * time.Second
 
 // ClientID identifies one attached client connection, unique for the life of
@@ -26,13 +24,12 @@ const writeTimeout = 5 * time.Second
 // attached client" is never a safe assumption.
 type ClientID uint64
 
-// Handler answers one RPC call from client: method identifies which one,
-// params is its raw JSON args. Returning a non-nil error sends it back as
-// Response.Err (stringified); result is marshaled into Response.Result.
-type Handler func(client ClientID, method string, params json.RawMessage) (result any, err error)
+// Handler answers one call from client. A non-nil error goes back
+// stringified, alongside reply.
+type Handler func(client ClientID, call any) (reply any, err error)
 
 // Server accepts client connections on a Unix socket, dispatches incoming
-// Requests to a Handler, and lets the daemon Broadcast Events to every
+// calls to a Handler, and lets the daemon Broadcast Events to every
 // currently-connected client.
 type Server struct {
 	mu     sync.Mutex
@@ -46,12 +43,29 @@ type Server struct {
 	OnDisconnect func(client ClientID)
 }
 
-// serverConn is one accepted client connection; writeMu serializes
-// Responses and Broadcast Events, since both share the same net.Conn.
+// serverConn is one accepted client connection; writeMu serializes replies
+// and events, since both share the same gob stream.
 type serverConn struct {
 	id      ClientID
 	nc      net.Conn
 	writeMu sync.Mutex
+	enc     *gob.Encoder
+}
+
+// write sends f within writeTimeout. Any failure closes the connection: a
+// gob stream that failed mid-message (or whose encoder recorded a type it
+// never managed to send) can't be written to again.
+func (sc *serverConn) write(f frame) error {
+	sc.writeMu.Lock()
+	defer sc.writeMu.Unlock()
+	sc.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
+	err := sc.enc.Encode(f)
+	sc.nc.SetWriteDeadline(time.Time{})
+	if err != nil {
+		slog.Error("ipc: writing to client, dropping it", "client", sc.id, "err", err)
+		sc.nc.Close()
+	}
+	return err
 }
 
 // NewServer returns a new Server.
@@ -71,7 +85,7 @@ func (s *Server) Accept(ln net.Listener, handler Handler) error {
 		}
 		s.mu.Lock()
 		s.nextID++
-		sc := &serverConn{id: s.nextID, nc: nc}
+		sc := &serverConn{id: s.nextID, nc: nc, enc: gob.NewEncoder(nc)}
 		s.conns[sc] = struct{}{}
 		s.mu.Unlock()
 		go s.serve(sc, handler)
@@ -99,72 +113,48 @@ func (s *Server) serve(sc *serverConn, handler Handler) {
 		}
 	}()
 
+	dec := gob.NewDecoder(bufio.NewReader(sc.nc))
 	for {
-		t, body, err := readFrame(sc.nc)
-		if err != nil {
+		var f frame
+		if err := dec.Decode(&f); err != nil {
 			return
 		}
-		if t != tagRequest {
-			continue
-		}
-		var req Request
-		if err := json.Unmarshal(body, &req); err != nil {
-			continue
-		}
-		go s.handle(sc, req, handler)
+		go s.handle(sc, f, handler)
 	}
 }
 
-func (s *Server) handle(sc *serverConn, req Request, handler Handler) {
-	result, err := s.callHandler(sc.id, req, handler)
-	resp := Response{ID: req.ID}
+func (s *Server) handle(sc *serverConn, call frame, handler Handler) {
+	reply, err := callHandler(sc.id, call.Call, handler)
+	f := frame{ID: call.ID, Reply: reply}
 	if err != nil {
 		// The requesting TUI shows the error; this is its only trace in the
-		// log, which the TUI process (whose own log is the same file but
-		// whose notifications vanish) never writes for it.
-		slog.Warn("ipc: request failed", "method", req.Method, "client", sc.id, "err", err)
-		resp.Err = err.Error()
-	} else if result != nil {
-		b, merr := json.Marshal(result)
-		if merr != nil {
-			resp.Err = fmt.Errorf("ipc: marshaling result of %s: %w", req.Method, merr).Error()
-		} else {
-			resp.Result = b
-		}
+		// log.
+		slog.Warn("ipc: call failed", "call", callName(call.Call), "client", sc.id, "err", err)
+		f.Err = err.Error()
 	}
-
-	sc.writeMu.Lock()
-	sc.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
-	writeResponse(sc.nc, resp)
-	sc.nc.SetWriteDeadline(time.Time{})
-	sc.writeMu.Unlock()
+	sc.write(f)
 }
 
-// callHandler runs handler with a recover, so a panic deep in a single RPC
-// (e.g. a bug in a new call/screen-share code path) logs a full stack trace
-// and fails that one request instead of taking down the whole daemon - each
-// request already runs on its own goroutine (see serve), and an unrecovered
-// panic in any goroutine kills the entire process, not just that goroutine.
-func (s *Server) callHandler(client ClientID, req Request, handler Handler) (result any, err error) {
+// callHandler runs handler with a recover, so a panic deep in a single call
+// logs a full stack trace and fails that one call instead of taking down
+// the whole daemon - each call runs on its own goroutine (see serve), and an
+// unrecovered panic in any goroutine kills the entire process.
+func callHandler(client ClientID, call any, handler Handler) (reply any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("ipc: panic handling request", "method", req.Method, "panic", r, "stack", string(debug.Stack()))
-			err = fmt.Errorf("internal error handling %s: %v", req.Method, r)
+			slog.Error("ipc: panic handling call", "call", callName(call), "panic", r, "stack", string(debug.Stack()))
+			err = fmt.Errorf("internal error handling %s: %v", callName(call), r)
 		}
 	}()
-	return handler(client, req.Method, req.Params)
+	return handler(client, call)
 }
 
 // Broadcast sends ev to every currently-connected client. Each connection is
 // written to on its own goroutine with a bounded write deadline, so a client
-// whose reader has stalled (blocking Write indefinitely, since a stalled
-// reader doesn't itself make Write return an error) can't hold up delivery
-// to every other connected client — Broadcast used to write sequentially on
-// one goroutine, so one wedged client silently starved everyone else's
-// events forever. A client that times out or errors is closed outright;
-// its own read side observing the close will drop it from conns via serve's
-// deferred cleanup.
-func (s *Server) Broadcast(ev Event) {
+// whose reader has stalled can't hold up delivery to every other one. A
+// client that times out or errors is closed outright; serve's deferred
+// cleanup then drops it from conns.
+func (s *Server) Broadcast(ev any) {
 	s.mu.Lock()
 	conns := make([]*serverConn, 0, len(s.conns))
 	for sc := range s.conns {
@@ -174,18 +164,7 @@ func (s *Server) Broadcast(ev Event) {
 
 	var wg sync.WaitGroup
 	for _, sc := range conns {
-		wg.Add(1)
-		go func(sc *serverConn) {
-			defer wg.Done()
-			sc.writeMu.Lock()
-			sc.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
-			err := writeEvent(sc.nc, ev)
-			sc.nc.SetWriteDeadline(time.Time{})
-			sc.writeMu.Unlock()
-			if err != nil {
-				sc.nc.Close()
-			}
-		}(sc)
+		wg.Go(func() { sc.write(frame{Event: ev}) })
 	}
 	wg.Wait()
 }

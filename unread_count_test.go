@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -53,19 +52,13 @@ func TestCountUnreadSkipsChatAnyClientIsReading(t *testing.T) {
 		t.Fatalf("listening on socket: %v", err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	go srv.Accept(ln, func(ipc.ClientID, string, json.RawMessage) (any, error) { return nil, nil })
+	go srv.Accept(ln, func(ipc.ClientID, any) (any, error) { return nil, nil })
 
 	events := make(chan ui.ChatUnreadMsg, 8)
-	conn, err := ipc.Dial(sockPath, func(ev ipc.Event) {
-		if ev.Kind != evChatUnread {
-			return
+	conn, err := ipc.Dial(sockPath, func(ev any) {
+		if m, ok := ev.(ui.ChatUnreadMsg); ok {
+			events <- m
 		}
-		var m ui.ChatUnreadMsg
-		if err := json.Unmarshal(ev.Data, &m); err != nil {
-			t.Errorf("unmarshaling ChatUnread event: %v", err)
-			return
-		}
-		events <- m
 	})
 	if err != nil {
 		t.Fatalf("dialing socket: %v", err)

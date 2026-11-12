@@ -729,23 +729,13 @@ type HistorySyncFinishedMsg struct {
 	AccountIdx int
 }
 
-// AccountStatusSetMsg reports the result of Daemon.SetAccountStatus.
-// NewChats/NewMessages/NewHistoryMore carry any contacts discovered while
-// bringing a previously-offline account online, indexed the same way as
-// AccountLiveMsg's — empty when no (re)connect was needed.
-//
-// Through the daemon, the state change itself arrives separately as an
-// AccountStatusChangedMsg to every attached TUI, and this only reports
-// success or failure to the one that asked (StateApplied false). In process
-// (tests, no daemon) it carries the state too, StateApplied true.
+// AccountStatusSetMsg reports the result of Daemon.SetAccountStatus to the
+// TUI that asked; the change itself reaches every attached TUI as an
+// AccountStatusChangedMsg.
 type AccountStatusSetMsg struct {
-	Index          int
-	Status         Presence
-	NewChats       []list.Item
-	NewMessages    map[int][]Message
-	NewHistoryMore map[int]bool
-	Err            error
-	StateApplied   bool
+	Index  int
+	Status Presence
+	Err    error
 }
 
 // StoragePasswordChangedMsg reports the result of a Daemon

@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,9 +20,9 @@ import (
 // capture every broadcast Event verbatim on the returned channel, bypassing
 // the real dispatchLoop/tea.Program plumbing (see ipc_client.go) - this test
 // only needs to inspect what the daemon broadcasts, not run a real TUI.
-func attachTestIPCClient(t *testing.T, sockPath string) (*ipcClient, chan ipc.Event) {
+func attachTestIPCClient(t *testing.T, sockPath string) (*ipcClient, chan any) {
 	t.Helper()
-	events := make(chan ipc.Event, 32)
+	events := make(chan any, 32)
 	client := &ipcClient{events: events}
 	conn, err := ipc.Dial(sockPath, client.handleEvent)
 	if err != nil {
@@ -32,29 +31,6 @@ func attachTestIPCClient(t *testing.T, sockPath string) (*ipcClient, chan ipc.Ev
 	t.Cleanup(func() { conn.Close() })
 	client.conn = conn
 	return client, events
-}
-
-// awaitEvent reads from events until it finds one of kind, decoding its Data
-// into out - or fails the test after timeout. Events of other kinds (e.g.
-// this same message's own broadcasts arriving in an order the test doesn't
-// care about) are skipped rather than treated as a mismatch.
-func awaitEvent(t *testing.T, events chan ipc.Event, kind string, out any, timeout time.Duration) {
-	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		select {
-		case ev := <-events:
-			if ev.Kind != kind {
-				continue
-			}
-			if err := json.Unmarshal(ev.Data, out); err != nil {
-				t.Fatalf("unmarshaling %s event: %v", kind, err)
-			}
-			return
-		case <-deadline:
-			t.Fatalf("timed out waiting for a %s event", kind)
-		}
-	}
 }
 
 // newTestDaemon spins up a real adapter+daemonServer+ipc.Server (the same
@@ -97,7 +73,7 @@ func newTestDaemonWithServer(t *testing.T, aliceClient *xmpp.Client) (sockPath s
 		t.Fatalf("listening on socket: %v", err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	go srv.Accept(ln, ds.handle)
+	go srv.Accept(ln, ds.serve)
 	t.Cleanup(srv.Close)
 
 	return sockPath, aliceSess, srv
@@ -148,19 +124,17 @@ func TestSendNotifiesOtherAttachedClients(t *testing.T) {
 	clientA, eventsA := attachTestIPCClient(t, sockPath)
 	_, eventsB := attachTestIPCClient(t, sockPath)
 
-	var res sendResult
-	if err := clientA.conn.Call(rpcSend, sendParams{
-		AccountIdx: 0, To: "bob@localhost", Body: "hello from instance A",
-	}, &res); err != nil {
+	res, err := do(clientA.conn, sendReq{AccountIdx: 0, To: "bob@localhost", Body: "hello from instance A"})
+	if err != nil {
 		t.Fatalf("Send RPC: %v", err)
 	}
 	if res.Queued || res.ID == "" {
 		t.Fatalf("send result = %+v, want a real (non-queued) message ID", res)
 	}
 
-	for name, events := range map[string]chan ipc.Event{"B (sibling)": eventsB, "A (sender)": eventsA} {
+	for name, events := range map[string]chan any{"B (sibling)": eventsB, "A (sender)": eventsA} {
 		var got ui.IncomingMessageMsg
-		awaitEvent(t, events, evIncomingMessage, &got, 10*time.Second)
+		awaitEvent(t, events, &got, 10*time.Second)
 		if got.AccountIdx != 0 || got.From != "bob@localhost" {
 			t.Errorf("client %s: AccountIdx/From = %d/%q, want 0/bob@localhost", name, got.AccountIdx, got.From)
 		}
@@ -216,13 +190,10 @@ func TestFileTransferDoneReachesOtherAttachedClients(t *testing.T) {
 
 	// Expected to fail (no upload service on devtest/prosody) - what matters
 	// is client B still hears about it.
-	var res ui.FileUploadResultMsg
-	_ = clientA.conn.Call(rpcUploadFile, uploadFileParams{
-		AccountIdx: 0, To: "bob@localhost", Path: path,
-	}, &res)
+	do(clientA.conn, uploadFileReq{AccountIdx: 0, To: "bob@localhost", Path: path})
 
 	var done ui.FileTransferDoneMsg
-	awaitEvent(t, eventsB, evFileTransferDone, &done, 15*time.Second)
+	awaitEvent(t, eventsB, &done, 15*time.Second)
 	if done.ID != path {
 		t.Errorf("client B: FileTransferDoneMsg.ID = %q, want %q", done.ID, path)
 	}
@@ -251,37 +222,37 @@ func TestOwnEditsReachOtherAttachedClients(t *testing.T) {
 	clientA, _ := attachTestIPCClient(t, sockPath)
 	_, eventsB := attachTestIPCClient(t, sockPath)
 
-	var sent sendResult
-	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: "bob@localhost", Body: "typo"}, &sent); err != nil || sent.ID == "" {
+	sent, err := do(clientA.conn, sendReq{AccountIdx: 0, To: "bob@localhost", Body: "typo"})
+	if err != nil || sent.ID == "" {
 		t.Fatalf("Send: %+v %v", sent, err)
 	}
 
-	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: "bob@localhost", Body: "fixed",
-		Opts: ui.SendOptions{ReplaceID: sent.ID}}, &sendResult{}); err != nil {
+	if _, err := do(clientA.conn, sendReq{AccountIdx: 0, To: "bob@localhost", Body: "fixed",
+		Opts: ui.SendOptions{ReplaceID: sent.ID}}); err != nil {
 		t.Fatalf("correction: %v", err)
 	}
 	var corrected ui.MessageCorrectedMsg
-	awaitEvent(t, eventsB, evMessageCorrected, &corrected, 10*time.Second)
+	awaitEvent(t, eventsB, &corrected, 10*time.Second)
 	if corrected.ReplaceID != sent.ID || corrected.NewContent != "fixed" || corrected.From != "bob@localhost" {
 		t.Fatalf("correction seen by B: %+v", corrected)
 	}
 
-	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: "bob@localhost",
-		Opts: ui.SendOptions{ReactionTargetID: sent.ID, Reactions: []string{"👍"}}}, &sendResult{}); err != nil {
+	if _, err := do(clientA.conn, sendReq{AccountIdx: 0, To: "bob@localhost",
+		Opts: ui.SendOptions{ReactionTargetID: sent.ID, Reactions: []string{"👍"}}}); err != nil {
 		t.Fatalf("reaction: %v", err)
 	}
 	var reactions ui.MessageReactionsMsg
-	awaitEvent(t, eventsB, evMessageReactions, &reactions, 10*time.Second)
+	awaitEvent(t, eventsB, &reactions, 10*time.Second)
 	if reactions.MessageID != sent.ID || len(reactions.Reactions) == 0 {
 		t.Fatalf("reaction seen by B: %+v", reactions)
 	}
 
-	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: "bob@localhost",
-		Opts: ui.SendOptions{RetractID: sent.ID}}, &sendResult{}); err != nil {
+	if _, err := do(clientA.conn, sendReq{AccountIdx: 0, To: "bob@localhost",
+		Opts: ui.SendOptions{RetractID: sent.ID}}); err != nil {
 		t.Fatalf("retraction: %v", err)
 	}
 	var retracted ui.MessageRetractedMsg
-	awaitEvent(t, eventsB, evMessageRetracted, &retracted, 10*time.Second)
+	awaitEvent(t, eventsB, &retracted, 10*time.Second)
 	if retracted.RetractID != sent.ID {
 		t.Fatalf("retraction seen by B: %+v", retracted)
 	}
@@ -289,7 +260,7 @@ func TestOwnEditsReachOtherAttachedClients(t *testing.T) {
 	if err := clientA.MarkRetracted(0, "bob@localhost", "someone-elses-message"); err != nil {
 		t.Fatalf("MarkRetracted: %v", err)
 	}
-	awaitEvent(t, eventsB, evMessageRetracted, &retracted, 10*time.Second)
+	awaitEvent(t, eventsB, &retracted, 10*time.Second)
 	if retracted.RetractID != "someone-elses-message" {
 		t.Fatalf("local delete seen by B: %+v", retracted)
 	}
@@ -317,7 +288,7 @@ func TestSettingsReachOtherAttachedClients(t *testing.T) {
 		t.Fatal(err)
 	}
 	var setting ui.ChatSettingMsg
-	awaitEvent(t, eventsB, evChatSetting, &setting, 5*time.Second)
+	awaitEvent(t, eventsB, &setting, 5*time.Second)
 	if setting.Setting != "encryption" || setting.Mode != "none" || setting.ChatAddress != "bob@localhost" {
 		t.Fatalf("encryption seen by B: %+v", setting)
 	}
@@ -325,8 +296,8 @@ func TestSettingsReachOtherAttachedClients(t *testing.T) {
 	if msg := clientA.SetAccountStatus(0, ui.PresenceAway).(ui.AccountStatusSetMsg); msg.Err != nil {
 		t.Fatalf("SetAccountStatus: %v", msg.Err)
 	}
-	var status wireAccountStatusChanged
-	awaitEvent(t, eventsB, evAccountStatus, &status, 5*time.Second)
+	var status ui.AccountStatusChangedMsg
+	awaitEvent(t, eventsB, &status, 5*time.Second)
 	if status.Status != ui.PresenceAway {
 		t.Fatalf("status seen by B: %+v", status)
 	}
@@ -355,12 +326,12 @@ func TestBouncedMessageMarkedFailed(t *testing.T) {
 	clientA, _ := attachTestIPCClient(t, sockPath)
 	_, eventsB := attachTestIPCClient(t, sockPath)
 
-	var sent sendResult
-	if err := clientA.conn.Call(rpcSend, sendParams{AccountIdx: 0, To: to, Body: "anyone there?"}, &sent); err != nil {
+	sent, err := do(clientA.conn, sendReq{AccountIdx: 0, To: to, Body: "anyone there?"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	var failed ui.MessageSendFailedMsg
-	awaitEvent(t, eventsB, evMessageSendFailed, &failed, 10*time.Second)
+	awaitEvent(t, eventsB, &failed, 10*time.Second)
 	if failed.MessageID != sent.ID || failed.Reason == "" {
 		t.Fatalf("failure seen by B: %+v (sent %s)", failed, sent.ID)
 	}
