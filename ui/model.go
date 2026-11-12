@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	zone "github.com/lrstanley/bubblezone/v2"
 
 	"github.com/jim-ww/kage/ui/filepicker"
@@ -402,7 +403,14 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 
 	ti := textarea.New()
 	ti.Placeholder = "message..."
-	ti.Prompt = inputPrompt
+	// On the first line only: repeated down every line of a multi-line
+	// message it reads as a column of bullets.
+	ti.SetPromptFunc(lipgloss.Width(inputPrompt), func(p textarea.PromptInfo) string {
+		if p.LineNumber == 0 {
+			return inputPrompt
+		}
+		return ""
+	})
 	ti.ShowLineNumbers = false
 	ti.KeyMap = keys.InputAreaKeys
 	ti.DynamicHeight = true
