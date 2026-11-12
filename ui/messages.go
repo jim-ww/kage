@@ -8,39 +8,25 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// ErrQueued is the sentinel Send returns when the account is offline and the
-// message was queued for later delivery instead of actually sent -
-// distinguishing "not sent yet, but will be" from both success and a real
-// failure, so the caller can mark the message Pending rather than either
-// showing it as delivered (a lie) or discarding it/showing "send failed" (it
-// wasn't a failure). See Message.Pending and MessageSendResolvedMsg, which
-// reports what eventually happens to a queued send.
+// ErrQueued is Send's error when the account is offline and the message was
+// queued: not sent, not failed (see Message.Pending and
+// MessageSendResolvedMsg).
 var ErrQueued = errors.New("account offline; message queued for delivery")
 
-// uploadCanceledMsg is the exact text adapter.errUploadCanceled formats to
-// (see kage's adapter.go) - errors cross the daemon/TUI IPC boundary as
-// plain strings, so this is how FileSendResultMsg/FileUploadResultMsg.Err
-// is recognized as "the user canceled this" rather than a real failure, to
-// show a quieter notification for it. Matched by exact string rather than
-// errors.Is since the RPC layer doesn't preserve error identity.
+// uploadCanceledMsg is the daemon's errUploadCanceled text: errors cross the
+// socket as strings, so a canceled upload is recognised by it.
 const uploadCanceledMsg = "upload canceled"
 
-// HistoryAnchor pins a Daemon.LoadHistoryWindow request to a specific
-// message — Delay/StoreID are exactly Message.SentAt.Unix()/Message.StoreID
-// of whichever currently-loaded message triggered the fetch (the one at the
-// edge of the window that was reached). A nil anchor means "no message to
-// anchor on, give me the chat's most recent window" — the initial chat open,
-// or jumping to the true latest message.
+// HistoryAnchor is the message a Daemon.LoadHistoryWindow window is loaded
+// around: its SentAt.Unix() and StoreID.
 type HistoryAnchor struct {
 	Delay   int64
 	StoreID int64
 }
 
-// HistoryWindowMsg reports the result of Daemon.LoadHistoryWindow:
-// Messages (chronological order) entirely replaces whatever was loaded for
-// the chat matching AccountIdx/From — this is a fresh window, not a page to
-// merge with the old one. HasOlder/HasNewer report whether more history
-// exists in storage beyond either edge of Messages.
+// HistoryWindowMsg reports Daemon.LoadHistoryWindow's result: Messages,
+// oldest first, replaces what was loaded for the chat. HasOlder/HasNewer
+// report whether storage has more beyond either end.
 type HistoryWindowMsg struct {
 	AccountIdx int
 	From       string
@@ -48,25 +34,14 @@ type HistoryWindowMsg struct {
 	HasOlder   bool
 	HasNewer   bool
 
-	// Err is set when the fetch failed, in which case every other field
-	// carries no information. It must be distinguishable from a successful
-	// empty window: a failure used to be reported as Messages=nil with
-	// HasOlder/HasNewer false, which replaced the chat's loaded history with
-	// nothing AND declared storage exhausted in both directions - so the
-	// chat went blank and could never be paged again for the rest of the
-	// session.
+	// Err is set when the fetch failed, as opposed to an empty window, which
+	// would replace the loaded history with nothing.
 	Err error `json:"-"`
 }
 
-// HistorySearchResultMsg reports the result of Daemon.SearchHistory.
-// Messages is the chat's entire persisted history, already decrypted and in
-// chronological order, and Matches indexes into it for every message whose
-// content contains Query (case-insensitive) — used only to list/preview
-// matches in the results popup. Selecting one fires a fresh
-// Daemon.LoadHistoryWindow anchored on that message rather than using
-// Messages/Matches directly, so the loaded window stays consistent with how
-// every other window load works (and paging up/down from it afterward is
-// ordinary storage-backed paging, not a special in-memory case).
+// HistorySearchResultMsg reports Daemon.SearchHistory's result: the chat's
+// whole history, and Matches indexing the messages containing Query. Only
+// for listing matches: picking one loads a window around it like any other.
 type HistorySearchResultMsg struct {
 	AccountIdx int
 	From       string
@@ -90,30 +65,18 @@ type ContactRemovedMsg struct {
 	Err        error
 }
 
-// ChatAddedMsg is broadcast by the daemon when a chat comes into existence
-// (or changes its roster nickname) while clients are already attached:
-// someone not in the roster writes to us for the first time, another of our
-// own clients adds a contact, or our server auto-creates a roster item
-// because we approved an inbound subscription request. It is an upsert - a
-// chat already in the list has its Name refreshed rather than being
-// duplicated.
-//
-// Without this, such a chat is only ever discovered by the initial
-// listAccounts snapshot, so it stays invisible until the app is restarted
-// even though the daemon has already stored its messages.
+// ChatAddedMsg reports a chat that came to be, or was renamed, while TUIs are
+// attached: a stranger writing, a contact added elsewhere, a subscription
+// approved. An upsert.
 type ChatAddedMsg struct {
 	AccountIdx int
 	Chat       Chat
 
-	// Messages is the chat's history as the daemon has it, so a chat
-	// created by an incoming message arrives with that message already in
-	// it rather than empty.
+	// Messages is the chat's history.
 	Messages []Message
 }
 
-// ChatRemovedMsg is broadcast by the daemon when a roster item is deleted
-// somewhere else (another client, or the server) - the counterpart to
-// ChatAddedMsg. Local history is untouched; only the list row goes away.
+// ChatRemovedMsg reports a contact removed elsewhere. History stays.
 type ChatRemovedMsg struct {
 	AccountIdx int
 	Address    string
@@ -126,12 +89,9 @@ type ContactResubscribedMsg struct {
 	Err        error
 }
 
-// FileTransferProgressMsg reports incremental progress for one file upload
-// or download, keyed by ID - an opaque per-transfer identifier chosen by the
-// sender (the local path for an upload, the attachment URL for a download)
-// so the UI can track several concurrent transfers separately. Label is the
-// human-readable line prefix (e.g. "uploading photo.jpg"). Total is 0 when
-// not yet known (e.g. a download before the response headers arrive).
+// FileTransferProgressMsg reports one transfer's progress. ID tells
+// transfers apart (an upload's path, a download's URL). Total is 0 while
+// unknown.
 type FileTransferProgressMsg struct {
 	ID    string
 	Label string
@@ -139,13 +99,8 @@ type FileTransferProgressMsg struct {
 	Total int64
 }
 
-// FileTransferDoneMsg reports that the transfer keyed by ID (see
-// FileTransferProgressMsg) reached a terminal outcome (success or failure)
-// on whichever attached client actually drove it - broadcast to every
-// attached client so one that only ever saw FileTransferProgressMsg
-// broadcasts (i.e. every client except the one that initiated the transfer,
-// which learns this instead from its own direct RPC return) still clears the
-// progress line instead of leaving it stuck at its last reported percentage.
+// FileTransferDoneMsg reports a transfer finished, so TUIs that only saw its
+// progress clear it.
 type FileTransferDoneMsg struct {
 	ID string
 }
@@ -161,10 +116,8 @@ type FileSendResultMsg struct {
 	Err        error
 }
 
-// FileUploadResultMsg reports completion of Daemon.UploadFile — a file
-// staged as a pending attachment, not yet sent as a message. AttachID
-// correlates it back to the pendingAttachment it was started for, since the
-// same path can be staged more than once.
+// FileUploadResultMsg reports Daemon.UploadFile's result. AttachID is the
+// pendingAttachment it's for: one path can be staged twice.
 type FileUploadResultMsg struct {
 	AttachID int
 	Path     string
@@ -173,16 +126,8 @@ type FileUploadResultMsg struct {
 	Err      error
 }
 
-// ComposedSendResultMsg reports completion of startAttachedSend: uploading
-// every staged attachment and sending each as its own single-attachment
-// message (see startAttachedSend for why - multi-attachment-per-message
-// isn't reliably understood by other clients), all sharing ReplyToID.
-// Messages holds every one that made it out before Err (if any) aborted the
-// rest - a failure partway through still leaves whatever already sent
-// reflected in the chat, matching what's actually on the wire. On total
-// failure (nothing sent) nothing is added, same tradeoff FileSendResultMsg
-// already makes rather than trying to restore compose state after an async
-// round trip.
+// ComposedSendResultMsg reports startAttachedSend's result. Messages is every
+// attachment sent before Err, if any, stopped the rest.
 type ComposedSendResultMsg struct {
 	AccountIdx int
 	To         string
@@ -191,29 +136,16 @@ type ComposedSendResultMsg struct {
 	Messages   []SentMessage
 	Queued     bool // true: account was offline, every not-yet-sent file in this batch was queued rather than attempted
 
-	// QueuedLocalID/QueuedPath are set alongside Queued: the file that got
-	// queued, so the handler can show a local Pending placeholder for it —
-	// the same local-echo treatment a plain-text queued send already gets
-	// in sendCurrentInput — instead of just a toast. QueuedLocalID also
-	// carries through to the outbox row (Daemon.UploadFile passes it
-	// on), so adapter.flushOutbox can resolve this exact placeholder by
-	// LocalID once the queued upload+send actually happens.
+	// QueuedLocalID/QueuedPath are the queued file, shown as a pending
+	// placeholder that the outbox replay resolves by LocalID.
 	QueuedLocalID string
 	QueuedPath    string
 
-	// RetryOfLocalID is set when this batch is actionRetryMessage retrying an
-	// existing Failed attachment placeholder rather than a fresh send: the
-	// first outcome (success or a new failure) updates that placeholder by
-	// LocalID in place instead of appending a new message; any further files
-	// in the batch still append as usual.
+	// RetryOfLocalID is the failed placeholder a retry updates in place.
 	RetryOfLocalID string
 
-	// FailedLocalID/FailedPaths mirror QueuedLocalID/QueuedPath for a
-	// genuine failure (Err set, Queued false): the local file path(s) that
-	// never made it out - including whichever one actually failed, plus any
-	// after it in the batch that were never attempted - so the handler can
-	// leave behind a Failed, retryable placeholder
-	// (Message.PendingAttachmentPaths) instead of only a toast.
+	// FailedLocalID/FailedPaths are the files not sent after a failure, kept
+	// as a retryable failed placeholder.
 	FailedLocalID string
 	FailedPaths   []string
 
@@ -237,9 +169,7 @@ type IncomingMessageMsg struct {
 	Message    Message
 }
 
-// MessageCorrectedMsg is sent into the Bubble Tea loop when a XEP-0308
-// correction arrives for a message already shown for one of the configured
-// accounts.
+// MessageCorrectedMsg reports a XEP-0308 correction.
 type MessageCorrectedMsg struct {
 	AccountIdx int
 	From       string // bare JID (chat)
@@ -249,26 +179,16 @@ type MessageCorrectedMsg struct {
 	EncMethod  string // "omemo-v1", "omemo-v2", "omemo", or "gpg", matching Message.EncMethod; empty when Encrypted is false
 }
 
-// MessageRetractedMsg is sent into the Bubble Tea loop when the other party
-// attempts to retract (XEP-0424) a message already shown for one of the
-// configured accounts. The message is flagged, never removed — see
-// Message.Retracted.
+// MessageRetractedMsg reports a XEP-0424 retraction; the message is only
+// flagged (see Message.Retracted).
 type MessageRetractedMsg struct {
 	AccountIdx int
 	From       string // bare JID (chat)
 	RetractID  string // ID of the message being retracted
 }
 
-// MessageSendResolvedMsg is sent into the Bubble Tea loop when a queued
-// (Message.Pending) send is actually attempted - i.e. adapter.flushOutbox
-// replaying it after the account reconnects. LocalID finds the placeholder
-// Message to patch in place (its ID was never known at compose time, so it
-// can't be used for this lookup the way MessageCorrectedMsg's ReplaceID is).
-// Exactly one of ID or Err is meaningful: a successful send clears Pending
-// and fills in ID/Encrypted/EncMethod, matching what a normal successful
-// Send() call would have set; a failed one clears Pending and sets Failed
-// instead, with Err as the notification text - the same two outcomes
-// sendCurrentInput handles for a live send, just arriving later.
+// MessageSendResolvedMsg reports a queued send's outcome, for its
+// placeholder, found by LocalID: ID and encryption once sent, or Err.
 type MessageSendResolvedMsg struct {
 	AccountIdx int
 	To         string // bare/full JID this was addressed to (chat key)
@@ -278,33 +198,21 @@ type MessageSendResolvedMsg struct {
 	EncMethod  string
 	Err        string // non-empty means the queued send ultimately failed
 
-	// Attachments/Content, when Attachments is non-nil, replace the
-	// placeholder's — used only for a resolved staged-attachment send,
-	// whose real URL wasn't known until the upload actually happened (a
-	// plain-text placeholder already shows its final content from the
-	// moment it was composed, so this is left nil there and the placeholder's
-	// existing Content/Attachments are kept as-is).
+	// Attachments/Content, when Attachments is set, replace the
+	// placeholder's: a queued attachment's URL is only known now.
 	Content     string
 	Attachments []string
 }
 
-// OutboxDeletedMsg is sent into the Bubble Tea loop when a still-Pending
-// message is permanently discarded (Daemon.DeleteQueued) - by this
-// client or, since more than one TUI can attach to the same daemon, another
-// one. The Pending placeholder (found by LocalID, same as
-// MessageSendResolvedMsg) is removed from the chat outright rather than
-// flagged, since it was never actually sent.
+// OutboxDeletedMsg reports a queued message discarded (Daemon.DeleteQueued);
+// its placeholder is removed.
 type OutboxDeletedMsg struct {
 	AccountIdx int
 	To         string // bare/full JID this was addressed to (chat key)
 	LocalID    string
 }
 
-// MessagePurgedMsg is sent into the Bubble Tea loop when an already-retracted
-// message is erased from storage outright (Daemon.PurgeMessage) - by
-// this client or another TUI attached to the same daemon. Unlike
-// MessageRetractedMsg, the message is removed from the chat entirely; there
-// is nothing left to show.
+// MessagePurgedMsg reports a retracted message erased (Daemon.PurgeMessage).
 type MessagePurgedMsg struct {
 	AccountIdx int
 	Peer       string // bare JID (chat)
@@ -319,22 +227,16 @@ type MessageDeliveredMsg struct {
 	MessageID  string // ID of the message the peer acknowledged
 }
 
-// MessageServerAckedMsg is sent into the Bubble Tea loop when a debounced
-// server-confirmation ping (see account.go's
-// trackForServerAck/confirmPendingAcks) succeeds for a message we sent -
-// see Message.ServerAcked's doc comment.
+// MessageServerAckedMsg reports our server has a message we sent (see
+// Message.ServerAcked).
 type MessageServerAckedMsg struct {
 	AccountIdx int
 	To         string // bare/full JID this was addressed to (chat key)
 	MessageID  string
 }
 
-// MessageSendFailedMsg is sent into the Bubble Tea loop when confirmPendingAcks's
-// server-confirmation ping times out and the connection is declared dead (see
-// account.go) - unlike MessageServerAckedMsg's happy path, this is a real,
-// already-sent message (it has an ID, unlike a still-Pending queued send)
-// that we now have positive evidence never reached the server. Rendered the
-// same as Message.Failed - see its doc comment.
+// MessageSendFailedMsg reports a sent message that never arrived: the server
+// didn't confirm it, or the recipient's side bounced it.
 type MessageSendFailedMsg struct {
 	AccountIdx int
 	To         string // bare/full JID this was addressed to (chat key)
@@ -402,31 +304,23 @@ type AccountStatusChangedMsg struct {
 	NewHistoryMore map[int]bool
 }
 
-// AvatarPublishedMsg reports the result of an Daemon call.
-// Removed distinguishes the two operations so the notice can say which one
-// failed.
+// AvatarPublishedMsg reports setting (or, Removed, removing) our avatar.
 type AvatarPublishedMsg struct {
 	AccountIdx int
 	Removed    bool
 	Err        error
 }
 
-// AvatarUpdatedMsg reports that a contact's avatar image changed and has
-// been cached at Path by the daemon (see XEP-0084 fetching in the daemon's
-// avatars.go). The image itself never crosses the socket — the TUI reads
-// the file, which is why this carries a path rather than bytes.
-//
-// The TUI-side handler decodes it into the avatar store before this reaches
-// Update, so Update's only job is to let the frame redraw.
+// AvatarUpdatedMsg reports a contact's avatar cached at Path ("" removed).
+// The TUI reads the file, decoding it before this reaches Update.
 type AvatarUpdatedMsg struct {
 	AccountIdx int
 	JID        string // bare JID
 	Path       string
 }
 
-// DeviceNameMsg reports a contact resource's disco#info-resolved client
-// name (see xmpp.Client.DeviceName), arriving asynchronously sometime after
-// the PresenceMsg that first reported that resource online.
+// DeviceNameMsg reports a contact resource's client name (see
+// xmpp.Client.DeviceName), some time after its presence.
 type DeviceNameMsg struct {
 	AccountIdx int
 	From       string // bare JID
@@ -442,16 +336,12 @@ type TypingMsg struct {
 	Typing     bool
 }
 
-// typingPauseTimeout is how long the compose input can sit idle (no
-// keystrokes, but not cleared either) before we tell the peer we've stopped
-// composing — matching XEP-0085's convention that "composing" shouldn't
-// stick forever just because the draft is still in the box.
+// typingPauseTimeout is how long after the last keystroke we stop
+// "composing" (XEP-0085), even with text still in the box.
 const typingPauseTimeout = 5 * time.Second
 
-// typingPauseMsg fires typingPauseTimeout after a keystroke that left the
-// compose input non-empty. Gen must still match Model.typingGen when it
-// arrives — otherwise a later keystroke already rearmed the timer (or
-// stopped composing outright) and this one is stale and ignored.
+// typingPauseMsg fires typingPauseTimeout after a keystroke; stale unless Gen
+// is still Model.typingGen.
 type typingPauseMsg struct {
 	addr string
 	gen  int
@@ -463,20 +353,13 @@ func typingPauseTimer(addr string, gen int) tea.Cmd {
 	})
 }
 
-// peerTypingTimeout is how long a contact's "composing" is believed before
-// the indicator clears itself. XEP-0085's own advice, and the only defense
-// against an indicator that never goes away: the contradicting "active" is
-// just another stanza, so a peer that quits mid-keystroke, crashes, or drops
-// off the network never sends it and the row would otherwise claim they're
-// still typing for the rest of the session. Generous compared to our own
-// typingPauseTimeout — other clients pick their own pause interval, and a
-// peer that really is still typing re-sends "composing".
+// peerTypingTimeout is how long a contact's "composing" is believed, as
+// XEP-0085 advises: a peer that drops off never sends "active". One still
+// typing sends "composing" again.
 const peerTypingTimeout = 30 * time.Second
 
-// peerTypingExpiredMsg fires peerTypingTimeout after a contact's "composing"
-// arrived. Gen must still match the chat's peerTypingGen when it lands —
-// otherwise a newer "composing" rearmed the timer (or something already
-// cleared the indicator) and this one is stale.
+// peerTypingExpiredMsg fires peerTypingTimeout after a "composing"; stale
+// unless Gen is still the chat's peerTypingGen.
 type peerTypingExpiredMsg struct {
 	accountIdx int
 	from       string
@@ -493,9 +376,8 @@ func peerTypingTimer(accountIdx int, from string, gen int) tea.Cmd {
 // (e.g. clicking a reply quote) before the highlight clears itself.
 const flashDuration = 600 * time.Millisecond
 
-// flashClearMsg fires flashDuration after a message was flashed. Gen must
-// still match Model.flashGen when it arrives — otherwise a later flash
-// already superseded this one and clearing here would cut it short.
+// flashClearMsg fires flashDuration after a flash; stale unless Gen is still
+// Model.flashGen.
 type flashClearMsg struct {
 	gen int
 }
@@ -507,19 +389,12 @@ func flashTimer(gen int) tea.Cmd {
 }
 
 // chatSwitchDebounce is how long the chat-list selection must sit still
-// before the message panel actually re-renders the newly selected chat.
-// Rendering a chat's full message list (renderMessagesWithOffsets, up to
-// maxMessagesPerChat messages of ansi-wrapping/styling) isn't free, and
-// holding the up/down key repeats it once per intermediate row skipped
-// through on the way to wherever the key repeat actually lands — visibly
-// lagging the list cursor itself, since Update() is synchronous. Short
-// enough that a single deliberate move still feels instant.
+// before the selected chat renders: rendering every chat a held key passes
+// would lag the cursor.
 const chatSwitchDebounce = 40 * time.Millisecond
 
-// chatSwitchSettledMsg fires chatSwitchDebounce after the chat-list
-// selection last moved. gen must still match Model.chatSwitchGen when it
-// arrives — otherwise the selection moved again since this timer was
-// scheduled, and this message is stale.
+// chatSwitchSettledMsg fires chatSwitchDebounce after the selection moved;
+// stale unless gen is still Model.chatSwitchGen.
 type chatSwitchSettledMsg struct {
 	gen int
 }
@@ -530,17 +405,12 @@ func chatSwitchTimer(gen int) tea.Cmd {
 	})
 }
 
-// hoverDevicesDelay is how long the mouse must sit still over a chat-list
-// row before that contact's online devices are shown in place of its
-// normal description — long enough that a mouse just passing over the list
-// on its way elsewhere doesn't flash the device list on every row it
-// crosses.
+// hoverDevicesDelay is how long the mouse must rest on a chat row before its
+// contact's devices show, so passing over rows doesn't flash them.
 const hoverDevicesDelay = time.Second
 
-// hoverDevicesRevealMsg fires hoverDevicesDelay after a chat row became the
-// hovered one. gen must still match Model.hoverGen when it arrives —
-// otherwise the hover already moved to a different row (or off the list
-// entirely) since this timer was scheduled, and this message is stale.
+// hoverDevicesRevealMsg fires hoverDevicesDelay after a row was hovered;
+// stale unless gen is still Model.hoverGen.
 type hoverDevicesRevealMsg struct {
 	id  string
 	gen int
@@ -552,22 +422,12 @@ func hoverDevicesTimer(id string, gen int) tea.Cmd {
 	})
 }
 
-// draftSaveDebounce is how long the compose input can sit idle (mid-typing,
-// not yet sent or navigated away from) before the draft is persisted to
-// storage — long enough that a fast typist doesn't trigger a write per
-// keystroke, short enough that a crash/kill loses at most a few seconds of
-// unsaved text. Chat-switch and send/clear also persist immediately,
-// independent of this timer (see swapComposeDraft/saveChatDraft call sites);
-// this only covers the case where the user just keeps typing in the same
-// chat for a while.
+// draftSaveDebounce is how long typing must pause before the draft is saved.
+// Switching chats and sending save it right away.
 const draftSaveDebounce = 3 * time.Second
 
-// draftSaveMsg fires draftSaveDebounce after a keystroke that changed the
-// compose input. gen must still match Model.draftSaveGen and addr must still
-// be the chat currently loaded into the input when it arrives — otherwise a
-// later keystroke already re-armed the timer, or the user switched/sent/
-// cleared in the meantime (which already persisted the draft itself), and
-// this one is stale and ignored.
+// draftSaveMsg fires draftSaveDebounce after a keystroke; stale unless gen is
+// still Model.draftSaveGen and addr the chat in the input.
 type draftSaveMsg struct {
 	accountIdx int
 	addr       string
@@ -580,15 +440,12 @@ func draftSaveTimer(accountIdx int, addr string, gen int) tea.Cmd {
 	})
 }
 
-// notifyIdleTimeout is how long the UI can sit with no keyboard/mouse
-// activity before we tell the daemon the user probably isn't actually
-// looking anymore, even if the terminal still has OS focus and a chat is
-// still open — see Model.idle.
+// notifyIdleTimeout is how long without input before the user is taken as
+// not looking, focus or not (see Model.idle).
 const notifyIdleTimeout = 10 * time.Minute
 
-// idleMsg fires notifyIdleTimeout after the last detected activity. gen
-// must still match Model.idleGen when it arrives — otherwise activity since
-// then already rearmed the timer and this one is stale.
+// idleMsg fires notifyIdleTimeout after the last input; stale unless gen is
+// still Model.idleGen.
 type idleMsg struct {
 	gen int
 }
@@ -605,13 +462,8 @@ type AccountAddedMsg struct {
 	Account Account
 }
 
-// AccountAppearedMsg is sent into the Bubble Tea loop when an account was
-// added by someone else — another TUI attached to the same daemon. Index is
-// the account's position daemon-side, which every client has to mirror
-// exactly: indices address accounts on every subsequent RPC, so a client that
-// ignored this would send that account's traffic from the wrong one as soon as
-// it added an account of its own. Carries no add-account-form state, unlike
-// AccountAddedMsg — the form belongs to the client that actually did the add.
+// AccountAppearedMsg reports an account added, by any TUI, at Index: every
+// TUI must mirror the daemon's indices, which address accounts in calls.
 type AccountAppearedMsg struct {
 	Index   int
 	Account Account
@@ -623,12 +475,8 @@ type AccountAddErrorMsg struct {
 	Err error
 }
 
-// AccountRemovedMsg is sent into the Bubble Tea loop once
-// Daemon.RemoveAccount has disconnected accountIdx and dropped it
-// from config.toml. The account stays in the sidebar for the rest of this
-// run (indices must stay stable — see AccountConnectedMsg) but shows as
-// offline/removed and is excluded from switching; it's gone for good only
-// after a restart.
+// AccountRemovedMsg reports an account removed (Daemon.RemoveAccount). It
+// stays listed as removed until restart: indices must stay stable.
 type AccountRemovedMsg struct {
 	Index int
 }
@@ -645,15 +493,8 @@ type NoticeMsg struct {
 	Text string
 }
 
-// AccountsSnapshotMsg delivers the daemon's initial account snapshot after
-// the program is already running.
-//
-// Building that snapshot is a round trip to the daemon, which reads and
-// decrypts a page of history per chat and can queue behind the daemon's own
-// account connects - so waiting for it before the first frame meant the
-// terminal sat blank for however long that took (seconds, against a slow
-// server). The UI starts on whatever is known from config alone and takes
-// this when it arrives.
+// AccountsSnapshotMsg delivers the daemon's account snapshot once the TUI is
+// running: it can take seconds, so the TUI doesn't wait for it to draw.
 type AccountsSnapshotMsg struct {
 	Accounts []Account
 
@@ -665,61 +506,40 @@ type AccountsSnapshotMsg struct {
 	// when this client attached.
 	CallState *CallStateMsg
 
-	// Err is set instead of Accounts when the snapshot couldn't be fetched
-	// at all. Reported rather than dropped: the TUI starts with no accounts
-	// (see above), so a silently lost snapshot is indistinguishable from a
-	// user with no configured accounts - an empty sidebar and no clue why.
+	// Err is set when the snapshot couldn't be fetched, which would otherwise
+	// look like having no accounts.
 	Err string
 }
 
-// AccountConnectedMsg is sent into the Bubble Tea loop once a configured
-// account's *local* storage has been opened and its cached roster/history
-// loaded from disk — no network involved, so this is fast and lets local
-// chats/messages appear instantly instead of waiting on a live connection.
-// Index addresses the placeholder Account passed to New() at the same
-// position — it never changes, unlike AddAccount's accounts which are always
-// appended. The account is still marked Connecting until AccountLiveMsg
-// arrives.
+// AccountConnectedMsg delivers an account's stored chats, before it's
+// online; it stays Connecting until AccountLiveMsg.
 type AccountConnectedMsg struct {
 	Index   int
 	Account Account
 }
 
-// AccountLiveMsg is sent into the Bubble Tea loop once a configured account
-// has finished dialing and fetching its live roster (in the background,
-// after AccountConnectedMsg already showed local data) — clearing
-// Connecting. NewChats/NewMessages carry only contacts the local snapshot
-// didn't already know about (freshly added on another device); existing
-// chats/history are left untouched rather than re-fetched, since they're
-// already showing.
+// AccountLiveMsg reports an account online. NewChats are contacts the stored
+// roster didn't have.
 type AccountLiveMsg struct {
 	Index          int
 	NewChats       []list.Item
 	NewMessages    map[int][]Message // indices are relative to Chats *after* NewChats is appended
 	NewHistoryMore map[int]bool      // same indexing as NewMessages; whether older history exists beyond what's loaded
 
-	// SupportsInvisible carries the XEP-0186 disco result, resolved as part
-	// of going live. It rides along here because the snapshot a TUI gets on
-	// attach deliberately doesn't wait for that round trip (see
-	// daemonServer.listAccounts), so a client that attached while this
-	// account was still connecting learns the answer from this message.
+	// SupportsInvisible is whether the server offers XEP-0186, which the
+	// snapshot doesn't wait for.
 	SupportsInvisible bool
 }
 
-// AccountConnectErrorMsg is sent into the Bubble Tea loop when a configured
-// account's background connect (local load or live dial — see
-// AccountConnectedMsg/AccountLiveMsg) fails. The account stays in the
-// sidebar, marked with the error, rather than disappearing — any local data
-// already shown is left in place.
+// AccountConnectErrorMsg reports an account failed to load or connect; it
+// stays listed, with the error.
 type AccountConnectErrorMsg struct {
 	Index int
 	Err   error
 }
 
-// HistorySyncedMsg is sent into the Bubble Tea loop with a batch of XEP-0313
-// (MAM) archive messages that were missed while offline, backfilled after an
-// account finishes connecting. Handled identically to a batch of
-// IncomingMessageMsg for the same chat.
+// HistorySyncedMsg delivers messages backfilled from the archive (XEP-0313),
+// handled like incoming ones.
 type HistorySyncedMsg struct {
 	AccountIdx int
 	From       string
@@ -735,9 +555,8 @@ type ChatUnreadMsg struct {
 	Count       int
 }
 
-// HistorySyncStartedMsg marks an account entering the post-connect MAM
-// backfill (see syncArchive) so the UI can show a "syncing…" indicator
-// instead of leaving the user guessing why history keeps growing.
+// HistorySyncStartedMsg marks an account's archive backfill starting (see
+// syncArchive), for a "syncing" indicator.
 type HistorySyncStartedMsg struct {
 	AccountIdx int
 }
@@ -783,10 +602,7 @@ type CallActionResultMsg struct {
 	Err    error
 }
 
-// IncomingCallMsg is sent into the Bubble Tea loop when a peer proposes a
-// voice call (XEP-0353) to one of the configured accounts. The daemon has
-// already answered <ringing/>; nothing further happens until the UI drives
-// Daemon.CallAction.
+// IncomingCallMsg reports an incoming call (XEP-0353), already ringing.
 type IncomingCallMsg struct {
 	AccountIdx int
 	From       string // bare JID
@@ -794,13 +610,10 @@ type IncomingCallMsg struct {
 	Media      string // "audio"
 }
 
-// CallStateMsg is sent into the Bubble Tea loop on every transition of an
-// account's current call (see callState.String in callsession.go for the
-// State values: "proposing", "ringing-remote", "ringing-local",
-// "negotiating", "connected", "ended", plus "failed" for an error teardown).
-// Reason is free text to show alongside a terminal state. Muted/Quality ride
-// along on every broadcast (not just ones that changed them), so they're
-// always current regardless of what else transitioned.
+// CallStateMsg reports an account's call, on every change. State is
+// "proposing", "ringing-remote", "ringing-local", "negotiating",
+// "connected", "ended" or "failed"; "" for no call. Reason goes with an
+// ending.
 type CallStateMsg struct {
 	AccountIdx int
 	Peer       string // bare JID
@@ -827,26 +640,18 @@ type CallStateMsg struct {
 	// Notice is a one-off message to surface as a toast (e.g. a camera that
 	// failed to open) - not call state.
 	Notice string
-	// StartedAt is normally left zero - handleCallStateMsg fills it in the
-	// moment State first becomes "connected". A daemon-provided sync (a TUI
-	// attaching to a call already in progress) sets it explicitly so the
-	// duration displayed doesn't reset to 00:00.
+	// StartedAt is set for a TUI attaching mid-call; otherwise the TUI
+	// stamps the first "connected".
 	StartedAt time.Time
-	// SAS is the short authentication string derived from both ends' DTLS
-	// fingerprints - "" until negotiation completes. Meant to be read aloud
-	// and compared over a trusted channel; matches iff neither fingerprint
-	// was tampered with in transit.
+	// SAS is the short authentication string of both ends' DTLS fingerprints,
+	// to compare aloud; "" until negotiated.
 	SAS string
-	// FingerprintChanged is true if the peer's DTLS fingerprint differs from
-	// the one pinned from a previous call with them (trust-on-first-use) -
-	// worth a loud warning, since it can mean a signaling server is
-	// swapping fingerprints to sit in the middle of the call.
+	// FingerprintChanged is set if the peer's DTLS fingerprint differs from
+	// the one pinned at an earlier call: possibly an interception.
 	FingerprintChanged bool
 }
 
-// MissedCallMsg is sent when a peer proposed a call while this account
-// already had one in progress — the daemon auto-rejected it (no call waiting
-// in this slice) and this is the UI's only signal that it happened.
+// MissedCallMsg reports a call declined because one was in progress.
 type MissedCallMsg struct {
 	AccountIdx int
 	From       string // bare JID
@@ -857,8 +662,6 @@ type noticeClearMsg struct {
 	id int
 }
 
-// openPendingChatMsg triggers openPendingChat on startup, once, via Init's
-// returned tea.Cmd — needed because the account owning the last-opened chat
-// may already be fully connected when the TUI attaches to a running daemon,
-// so no AccountConnectedMsg/AccountLiveMsg ever arrives to trigger it.
+// openPendingChatMsg runs openPendingChat at startup: the last chat's account
+// may be connected already, so no account message would.
 type openPendingChatMsg struct{}
