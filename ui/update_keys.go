@@ -584,6 +584,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionInfoMessage(), true
 		}
 
+	case matchesKey(msg, m.keys.ExpandMsg):
+		if m.selectedView == viewChat {
+			return m, m.actionToggleExpandMessage(), true
+		}
+
 	case matchesKey(msg, m.keys.OpenMsg):
 		if m.selectedView == viewChat {
 			// A staged-but-unsent attachment takes priority over whatever

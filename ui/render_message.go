@@ -439,7 +439,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 
 	if needsExpandButton {
 		expandHovered := m.isExpandButtonHovered(msgIdx)
-		lines = append(lines, pad+m.zone.Mark(zoneMessageExpand(msgIdx), m.styles.renderMsgExpandButton(expanded, expandHovered)))
+		lines = append(lines, pad+m.zone.Mark(zoneMessageExpand(msgIdx), m.styles.renderMsgExpandButton(expanded, expandHovered, caretKey(shortestKey(m.keys.ExpandMsg)))))
 	}
 
 	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, rowHovered))

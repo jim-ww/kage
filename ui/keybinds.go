@@ -29,6 +29,7 @@ type KeyMap struct {
 	ReplyMsg            key.Binding // Ctrl+R — reply to selected message
 	RetryMsg            key.Binding // Ctrl+Shift+T — retry a failed send
 	InfoMsg             key.Binding // Ctrl+I — show message info popup
+	ExpandMsg           key.Binding // Ctrl+X — expand/collapse a long message
 	OpenMsg             key.Binding // Ctrl+O — open links/attachments in selected message
 	SaveMsg             key.Binding // Ctrl+S — save links/attachments in selected message to disk
 	SaveMsgAs           key.Binding // Ctrl+Shift+S — save links/attachments, prompting for a destination path first
@@ -117,6 +118,7 @@ var DefaultKeyMap = KeyMap{
 	ReplyMsg:     NewBinding([]string{"ctrl+r"}, "reply"),
 	RetryMsg:     NewBinding([]string{"ctrl+shift+t"}, "retry"),
 	InfoMsg:      NewBinding([]string{"ctrl+i"}, "message info"),
+	ExpandMsg:    NewBinding([]string{"ctrl+x"}, "expand/collapse message"),
 	OpenMsg:      NewBinding([]string{"ctrl+o"}, "open links/attachments"),
 	SaveMsg:      NewBinding([]string{"ctrl+s"}, "save links/attachments"),
 	SaveMsgAs:    NewBinding([]string{"ctrl+shift+s"}, "save links/attachments as"),
@@ -288,6 +290,7 @@ func (k *KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []he
 			{k.SearchChat, "search"},
 			{k.YankMsg, "yank"},
 			{k.InfoMsg, "info"},
+			{k.ExpandMsg, "expand"},
 			{k.OpenMsg, "open"},
 			{k.SaveMsg, "save"},
 			{k.SaveMsgAs, "save as"},

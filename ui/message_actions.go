@@ -665,6 +665,39 @@ func (m *Model) actionReplyMessage() tea.Cmd {
 	return m.input.Focus()
 }
 
+// actionToggleExpandMessage expands the selected message if it's a long
+// one shown collapsed, or collapses it back - what clicking its expand
+// button does.
+func (m *Model) actionToggleExpandMessage() tea.Cmd {
+	idx := m.selectedMsg
+	expanded, ok := m.messageCollapsible(idx)
+	if !ok {
+		return m.showNotification("message is shown in full")
+	}
+	m.expandedMsgs[msgKey(m.currentMessages()[idx], idx)] = !expanded
+	m.refreshViewportFullScrollTo(idx)
+	return nil
+}
+
+// messageCollapsible reports whether message idx is long enough to be
+// shown collapsed (ok), and whether it's currently expanded. Long is a
+// matter of how it wraps at the chat's width, so it's asked of the
+// renderer: the message drawn expanded and collapsed, compared.
+func (m Model) messageCollapsible(idx int) (expanded, ok bool) {
+	msgs := m.currentMessages()
+	if idx < 0 || idx >= len(msgs) {
+		return false, false
+	}
+	key := msgKey(msgs[idx], idx)
+	nameWidth := maxSenderNameWidth(msgs)
+	probe := m
+	probe.expandedMsgs = map[string]bool{key: true}
+	full := strings.Count(probe.renderMessage(msgs[idx], idx, m.chatAreaWidth(), msgs, nameWidth), "\n")
+	probe.expandedMsgs = map[string]bool{}
+	short := strings.Count(probe.renderMessage(msgs[idx], idx, m.chatAreaWidth(), msgs, nameWidth), "\n")
+	return m.expandedMsgs[key], full != short
+}
+
 func (m *Model) actionInfoMessage() tea.Cmd {
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {

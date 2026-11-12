@@ -327,10 +327,15 @@ func (s *uiStyles) renderMsgActionKey(key string, hovered bool) string {
 
 // renderMsgExpandButton renders the "show more"/"show less" toggle appended
 // under a message body that was collapsed for exceeding maxCollapsedBodyLines.
-func (s *uiStyles) renderMsgExpandButton(expanded, hovered bool) string {
+// renderMsgExpandButton is a long message's show more/less button, with
+// keyLabel - the key doing the same for the selected message - after it.
+func (s *uiStyles) renderMsgExpandButton(expanded, hovered bool, keyLabel string) string {
 	label := "▾ show more"
 	if expanded {
 		label = "▴ show less"
+	}
+	if keyLabel != "" {
+		label += " " + keyLabel
 	}
 	st := s.dimButton
 	if hovered {

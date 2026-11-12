@@ -148,6 +148,13 @@ func (m *Model) messageContextMenuItems(idx int) []contextMenuItem {
 	if msgs[idx].Retracted {
 		deleteLabel = "Erase for good"
 	}
+	if expanded, ok := m.messageCollapsible(idx); ok {
+		label := "Expand"
+		if expanded {
+			label = "Collapse"
+		}
+		items = append(items, contextMenuItem{label: label, run: (*Model).actionToggleExpandMessage})
+	}
 	items = append(items,
 		contextMenuItem{label: "React", run: (*Model).actionReactMessage},
 		contextMenuItem{label: "Info", run: (*Model).actionInfoMessage},
