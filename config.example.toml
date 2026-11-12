@@ -72,14 +72,16 @@ password_cmd = "pass show xmpp/user"
 # add_account = ["a"]
 # call_menu = ["ctrl+g"]
 
-# theme: values shown are kage's actual default (Tokyo Night); uncomment and
-# edit only the colors you want to change.
+# theme: by default kage uses the terminal's own colors - its foreground,
+# background and 16-color palette - so a terminal theme (Stylix, base16, ...)
+# carries over. preset = "tokyonight" uses fixed Tokyo Night colors instead.
+# Any color below overrides the preset's: a "#rrggbb" hex value, or a
+# terminal palette number ("0"-"15" are the terminal's own colors). Values
+# shown are the tokyonight preset's.
 # [theme]
+# preset = "tokyonight"
 # app_bg = "#1a1b26"
-# panel_bg = "#1f2335"
-# panel_alt_bg = "#24283b"
 # panel_edge = "#292e42"
-# log_bg = "#1b1f2f"
 # them_fg = "#c0caf5"
 # text_muted = "#a9b1d6"
 # time = "#565f89"
@@ -87,7 +89,6 @@ password_cmd = "pass show xmpp/user"
 # border_a = "#f7768e"
 # accent_cyan = "#7dcfff"
 # reply_fg = "#73daca"
-# popup_bg = "#1f2335"
 # popup_danger = "#f7768e"
 # filter_match = "#e0af68"
 # nick_me = "#7dcfff"

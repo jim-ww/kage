@@ -13,8 +13,11 @@ import (
 // color: it relied on an outer Foreground style wrapping the whole viewport
 // content, which only takes effect up to the header's own embedded ANSI
 // reset. Each body line must now carry its own foreground code directly.
+//
+// Tested with a hex theme: the terminal theme's body text is the terminal's
+// own foreground, which an embedded reset already goes back to.
 func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
-	styles := newUIStyles(DefaultTheme())
+	styles := newUIStyles(TokyoNightTheme())
 	m := Model{styles: styles, flashMsgIdx: -1, selectedMsg: -1}
 	msg := Message{
 		Author:  "bob",
@@ -53,7 +56,7 @@ func TestRenderMessagePlainBodyHasOwnColor(t *testing.T) {
 // chroma-highlighted code lines in another Foreground style, which would
 // only survive up to the highlighter's own embedded resets.
 func TestPlainTextLineSkipsAlreadyColoredText(t *testing.T) {
-	styles := newUIStyles(DefaultTheme())
+	styles := newUIStyles(TokyoNightTheme())
 	colored := "\x1b[38;5;81mfunc\x1b[0m main()"
 
 	if got := styles.plainTextLine(colored); got != colored {

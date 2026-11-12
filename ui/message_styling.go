@@ -24,8 +24,9 @@ var (
 	// Bold(true) alone renders inconsistently across terminals - some just
 	// tint the existing color instead of using a heavier glyph - so bold
 	// text also gets a color to stay visually distinct everywhere. Matches
-	// the theme's default PopupDanger red (theme.go) rather than a one-off.
-	boldStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f7768e"))
+	// the terminal palette's red, which the default theme's PopupDanger is
+	// too (theme.go), rather than a one-off.
+	boldStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
 	italicStyle = lipgloss.NewStyle().Italic(true)
 	strikeStyle = lipgloss.NewStyle().Strikethrough(true)
 	// urlStyle is a fixed ANSI blue rather than a theme color - links should

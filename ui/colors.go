@@ -111,8 +111,20 @@ type uiColors struct {
 }
 
 func newUIColors(theme Theme) uiColors {
+	// appBg is drawn as text on accent-colored backgrounds (a highlighted
+	// button, the calendar cursor), so it needs a real color: the terminal's
+	// background, filled in by the caller when it could ask (see
+	// TerminalTheme), else black as the likeliest.
+	appBg := theme.AppBg
+	if appBg == "" {
+		appBg = "0"
+	}
+	noticeBg := theme.NoticeBg
+	if noticeBg == "" {
+		noticeBg = tint(theme, 0.5)
+	}
 	return uiColors{
-		appBg: lipgloss.Color(theme.AppBg),
+		appBg: lipgloss.Color(appBg),
 		// panelBg:    lipgloss.Color(theme.PanelBg),
 		// panelAltBg: lipgloss.Color(theme.PanelAltBg),
 		panelEdge: lipgloss.Color(theme.PanelEdge),
@@ -130,18 +142,44 @@ func newUIColors(theme Theme) uiColors {
 		nickMe:      lipgloss.Color(theme.NickMe),
 		nickThem:    lipgloss.Color(theme.NickThem),
 		statusFg:    lipgloss.Color(theme.StatusFg),
-		noticeBg:    lipgloss.Color(theme.NoticeBg),
+		noticeBg:    lipgloss.Color(noticeBg),
 		noticeFg:    lipgloss.Color(theme.NoticeFg),
 		// rowHoverBg is a hover highlight barely a shade off the app
 		// background - blending most of the way toward it rather than using
 		// borderD outright, which reads as a jarringly bright box around the
 		// row instead of a subtle "this one's highlighted" cue.
-		rowHoverBg: lipgloss.Color(blendHex(theme.AppBg, theme.BorderD, 0.22)),
+		rowHoverBg: lipgloss.Color(tint(theme, 0.22)),
 		// dimButtonBg is a subtler button background than attachButton's
 		// borderD - just enough to read as "this is a button" without
 		// competing with the message text around it.
-		dimButtonBg: lipgloss.Color(blendHex(theme.AppBg, theme.BorderD, 0.45)),
+		dimButtonBg: lipgloss.Color(tint(theme, 0.45)),
 	}
+}
+
+// tint is a background a shade off the app's own, t (0-1) of the way from
+// it toward BorderD - or, when BorderD is a palette color whose real value
+// isn't known, toward white on a dark background and black on a light one,
+// by a similarly small step. Without a known background at all it's
+// BorderD itself, the closest thing that still reads as a highlight.
+func tint(theme Theme, t float64) string {
+	if _, _, _, ok := parseHexRGB(theme.AppBg); !ok {
+		return theme.BorderD
+	}
+	if _, _, _, ok := parseHexRGB(theme.BorderD); ok {
+		return blendHex(theme.AppBg, theme.BorderD, t)
+	}
+	toward := "#ffffff"
+	if !isDarkHex(theme.AppBg) {
+		toward = "#000000"
+	}
+	return blendHex(theme.AppBg, toward, t*0.2)
+}
+
+// isDarkHex reports whether the "#rrggbb" color hex is dark, by perceived
+// luminance.
+func isDarkHex(hex string) bool {
+	r, g, b, _ := parseHexRGB(hex)
+	return 0.299*float64(r)+0.587*float64(g)+0.114*float64(b) < 128
 }
 
 // blendHex linearly interpolates between two "#rrggbb" hex colors, t=0

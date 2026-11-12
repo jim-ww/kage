@@ -207,10 +207,15 @@ func (c Config) NoticeDurationValue() time.Duration {
 	return time.Duration(c.NoticeDuration) * time.Second
 }
 
-// ResolvedTheme returns the theme to render with: DefaultTheme with any
-// fields c.Theme sets overlaid on top.
+// ResolvedTheme returns the theme to render with: the preset c.Theme names
+// (the terminal's own colors by default) with any colors c.Theme sets
+// overlaid on top.
 func (c Config) ResolvedTheme() ui.Theme {
-	return mergeTheme(ui.DefaultTheme(), c.Theme)
+	base, ok := ui.ThemePreset(c.Theme.Preset)
+	if !ok {
+		base = ui.DefaultTheme() // rejected at load; see loadConfigFile
+	}
+	return mergeTheme(base, c.Theme)
 }
 
 // ResolvedKeyMap returns the keymap to use: DefaultKeyMap with any bindings
@@ -315,6 +320,9 @@ func loadConfigFile(path string) (cfg Config, found bool, err error) {
 	}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return cfg, false, fmt.Errorf("parse config %q: %w", path, err)
+	}
+	if _, ok := ui.ThemePreset(cfg.Theme.Preset); !ok {
+		return cfg, false, fmt.Errorf("config %q: theme preset = %q, want %q or %q", path, cfg.Theme.Preset, ui.ThemeTerminal, ui.ThemeTokyoNight)
 	}
 	if !cfg.Autofocus.Valid() {
 		return cfg, false, fmt.Errorf("config %q: autofocus = %q, want \"own\", \"others\" or \"all\"", path, cfg.Autofocus)

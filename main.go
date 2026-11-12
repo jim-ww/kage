@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/gpg"
 	"github.com/jim-ww/kage/crypto/localstore"
@@ -252,7 +253,17 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	// can be drawn until tea.Program starts. Waiting for it here left the
 	// terminal blank for as long as that took - seconds against a slow
 	// server. The snapshot arrives as ui.AccountsSnapshotMsg below.
-	model := ui.New(nil, startAccountIdx, keyMap, cfg.ResolvedTheme(), client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, nil)
+	theme := cfg.ResolvedTheme()
+	if theme.AppBg == "" {
+		// The terminal's background, for the shades a theme of its own
+		// colors can't name (see ui.TerminalTheme) - asked before bubbletea
+		// takes over the terminal and its replies.
+		if bg, err := lipgloss.BackgroundColor(os.Stdin, os.Stdout); err == nil && bg != nil {
+			r, g, b, _ := bg.RGBA()
+			theme.AppBg = fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+		}
+	}
+	model := ui.New(nil, startAccountIdx, keyMap, theme, client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, nil)
 	if len(cfg.Accounts) == 0 {
 		// First run, or every account was removed: open straight into the
 		// add-account modal (defaults to login mode; ctrl+r switches to

@@ -14,7 +14,7 @@
 - Voice/video calls (Jingle signaling, WebRTC via pion) and screen sharing
 - File transfer/attachments, message editing, replies, reactions, read receipts
 - Message Archive Management (MAM) history sync, carbons, chat states
-- Mouse support, themeable UI (Tokyo Night by default), configurable keybinds
+- Mouse support, themeable UI (follows the terminal's colors by default, Tokyo Night as a preset), configurable keybinds
 - System tray icon (badges unread messages, `tray_mono = true` for the monochrome variant) and desktop notifications
 
 ## Install
