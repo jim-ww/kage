@@ -101,7 +101,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			// read the first XEP-0066 URL in a message body anyway, and
 			// combining also entangled the caption's send/retry state with
 			// the attachment's own upload/queue state).
-			cmds = append(cmds, m.sendPlainTextCaption(text, chat, sendOpts))
+			cmds = append(cmds, m.sendText(text, chat, sendOpts))
 		}
 		cmds = append(cmds, m.startAttachedSend(chat.Address, sendOpts))
 		m.pendingAttachments = nil
@@ -158,23 +158,13 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		m.input.Placeholder = "message..."
 	} else {
 		// Send new message, optionally quoting a reply.
-		newMsg := Message{
-			Author:  "me",
-			Content: text,
-			SentAt:  time.Now(),
-			IsMe:    true,
-		}
-
 		var sendOpts SendOptions
 		if !m.replyTo.empty() {
 			sendOpts = m.pendingReplyOptions()
-			newMsg.ReplyToID = sendOpts.ReplyToID
 			m.replyTo = msgRef{}
 		}
-
 		chat, ok := m.currentChat()
-		switch {
-		case !ok || chat.Address == "":
+		if !ok || chat.Address == "" {
 			// Nothing was ever handed to Send - showing a local echo here
 			// would be a message the network has never heard of and never
 			// will, indistinguishable on screen from one that actually went
@@ -188,52 +178,8 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			}
 			m.updateSizes()
 			return tea.Batch(cmds...)
-
-		default:
-			newMsg.LocalID = newLocalID()
-			sendOpts.LocalID = newMsg.LocalID
-			id, err := m.daemon.Send(m.currentAccount, chat.Address, text, sendOpts)
-			switch {
-			case err == nil:
-				newMsg.ID = id
-				// Send only succeeds without falling back to plaintext, so a
-				// configured encryption mode here means the message really
-				// went out encrypted - mirrors what adapter.go's send()
-				// computes and persists to storage, which this local optimistic
-				// echo has no way to read back before the next reload.
-				switch mode := m.encryptionModeOrDefault(chat.EncryptionMode); {
-				case mode == "gpg":
-					newMsg.Encrypted, newMsg.EncMethod = true, "gpg"
-				case mode == "omemo-v1", mode == "omemo-v2":
-					newMsg.Encrypted, newMsg.EncMethod = true, mode
-				case mode != "none":
-					// Legacy stored mode (e.g. removed "omemo-auto") - actual
-					// protocol was resolved server-side; unknown here.
-					newMsg.Encrypted, newMsg.EncMethod = true, "omemo"
-				}
-			case errors.Is(err, ErrQueued):
-				// Not sent, not failed - queued for automatic replay once the
-				// account reconnects (see adapter.flushOutbox). Shown
-				// distinctly (Message.Pending) rather than silently rendered
-				// the same as a delivered message; MessageSendResolvedMsg
-				// reconciles it by LocalID once the queued send is actually
-				// attempted.
-				newMsg.Pending = true
-				cmds = append(cmds, m.showNotification("offline; message queued"))
-			default:
-				// A real failure - still shown (the text isn't lost) but
-				// flagged (Message.Failed), never silently indistinguishable
-				// from sent.
-				newMsg.Failed = true
-				cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
-			}
-
-			msgs := append(m.currentMessages(), newMsg)
-			m.setCurrentMessages(msgs)
-			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-				cmds = append(cmds, m.setChatLastMessage(m.currentAccount, chatIdx, MessagePreviewContent(newMsg)))
-			}
 		}
+		cmds = append(cmds, m.sendText(text, chat, sendOpts))
 	}
 
 	m.notifyTypingStopped()
@@ -301,23 +247,20 @@ func replySendOptions(msgs []Message, replyToID string) SendOptions {
 	return opts
 }
 
-// sendPlainTextCaption sends text as a standalone message alongside
-// attachments staged in the same compose (see sendCurrentInput's
-// hasAttachments branch) — a caption is always its own message, never
-// bundled into an attachment's body. Synchronous, like the plain-text-only
-// send path: unlike attachments there's no upload to wait on, so the local
-// echo can be built and appended immediately rather than via an async Cmd.
+// sendText sends text to chat and echoes it into the chat right away -
+// a plain message, or the caption typed alongside staged attachments, which
+// is always its own message, never bundled into an attachment's body.
 // sendOpts carries the reply target (if any), captured by the caller before
 // m.replyTo is cleared.
-func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOptions) tea.Cmd {
+func (m *Model) sendText(text string, chat Chat, sendOpts SendOptions) tea.Cmd {
 	newMsg := Message{
-		Author:  "me",
-		Content: text,
-		SentAt:  time.Now(),
-		IsMe:    true,
+		Author:    "me",
+		Content:   text,
+		SentAt:    time.Now(),
+		IsMe:      true,
+		ReplyToID: sendOpts.ReplyToID,
+		LocalID:   newLocalID(),
 	}
-	newMsg.ReplyToID = sendOpts.ReplyToID
-	newMsg.LocalID = newLocalID()
 	sendOpts.LocalID = newMsg.LocalID
 
 	var cmds []tea.Cmd
@@ -325,18 +268,26 @@ func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOption
 	switch {
 	case err == nil:
 		newMsg.ID = id
+		// Send only succeeds without falling back to plaintext, so a
+		// configured encryption mode here means the message really went out
+		// encrypted - mirrors what the daemon persists, which this echo has
+		// no way to read back before the next reload.
 		switch mode := m.encryptionModeOrDefault(chat.EncryptionMode); {
-		case mode == "gpg":
-			newMsg.Encrypted, newMsg.EncMethod = true, "gpg"
-		case mode == "omemo-v1", mode == "omemo-v2":
+		case mode == "gpg", mode == "omemo-v1", mode == "omemo-v2":
 			newMsg.Encrypted, newMsg.EncMethod = true, mode
 		case mode != "none":
+			// Legacy stored mode (e.g. removed "omemo-auto") - the actual
+			// protocol was resolved by the daemon; unknown here.
 			newMsg.Encrypted, newMsg.EncMethod = true, "omemo"
 		}
 	case errors.Is(err, ErrQueued):
+		// Queued for replay once the account reconnects (see the daemon's
+		// flushOutbox), shown as Pending until MessageSendResolvedMsg
+		// reconciles it by LocalID.
 		newMsg.Pending = true
 		cmds = append(cmds, m.showNotification("offline; message queued"))
 	default:
+		// A real failure - still shown (the text isn't lost) but flagged.
 		newMsg.Failed = true
 		cmds = append(cmds, m.showNotification("send failed: "+err.Error()))
 	}
