@@ -183,9 +183,9 @@ func statusConfigValue(status ui.Presence) string {
 // offline account back up for PresenceOnline/PresenceAway, or just updating
 // the advertised <show/> in place when already connected.
 func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
+	sess, err := a.session(accountIdx)
+	if err != nil {
+		return err
 	}
 	if err := config.SetAccountStatus(a.cfgPath, sess.account.JID, statusConfigValue(status)); err != nil {
 		return fmt.Errorf("persisting status: %w", err)
@@ -284,13 +284,23 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 
 // session returns the accountSession at accountIdx, guarded by mu since
 // AddAccount appends to a.sessions concurrently with reads from here.
-func (a *adapter) session(accountIdx int) (*accountSession, bool) {
+func (a *adapter) session(accountIdx int) (*accountSession, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if accountIdx < 0 || accountIdx >= len(a.sessions) || a.sessions[accountIdx] == nil {
-		return nil, false
+		return nil, fmt.Errorf("unknown account %d", accountIdx)
 	}
-	return a.sessions[accountIdx], true
+	return a.sessions[accountIdx], nil
+}
+
+// online is accountIdx's session and its connection, if it's online.
+func (a *adapter) online(accountIdx int) (*accountSession, *xmpp.Client, error) {
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return nil, nil, err
+	}
+	client, err := s.liveClient()
+	return s, client, err
 }
 
 // LoadHistoryWindow fetches a fresh window of
@@ -298,9 +308,9 @@ func (a *adapter) session(accountIdx int) (*accountSession, bool) {
 // tea.Cmd, off the main goroutine, since it's a disk read plus decrypt of up
 // to a window's worth of messages.
 func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.HistoryAnchor) (ui.HistoryWindowMsg, error) {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return ui.HistoryWindowMsg{}, fmt.Errorf("unknown account %d", accountIdx)
+	sess, err := a.session(accountIdx)
+	if err != nil {
+		return ui.HistoryWindowMsg{}, err
 	}
 	msgs, hasOlder, hasNewer := loadHistoryWindow(context.Background(), sess, to, sess.rosterName(to), anchor, historyPageSize)
 	return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasOlder: hasOlder, HasNewer: hasNewer}, nil
@@ -313,9 +323,9 @@ func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.Histor
 // loads that wholesale rather than making a second round trip once a result
 // is picked.
 func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySearchResultMsg, error) {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return ui.HistorySearchResultMsg{}, fmt.Errorf("unknown account %d", accountIdx)
+	sess, err := a.session(accountIdx)
+	if err != nil {
+		return ui.HistorySearchResultMsg{}, err
 	}
 	msgs := loadHistory(context.Background(), sess, to, sess.rosterName(to))
 	needle := strings.ToLower(query)
@@ -440,9 +450,9 @@ func omemoProtocolLabel(p omemolib.Protocol) string {
 // runs its own separate device pool - see account.go), tagging every entry
 // with which protocol it belongs to.
 func (a *adapter) FetchOwnDeviceList(accountIdx int) (ui.OmemoDeviceListMsg, error) {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return ui.OmemoDeviceListMsg{}, fmt.Errorf("account is still connecting")
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return ui.OmemoDeviceListMsg{}, errors.New("account is still connecting")
 	}
 	if s.omemoV2() == nil && s.omemoV1() == nil {
 		return ui.OmemoDeviceListMsg{}, fmt.Errorf("omemo isn't ready for this account")
@@ -554,9 +564,9 @@ func omemoFingerprint(identityKey []byte) string {
 // device list is unchanged (no entries in keep or removed for it) isn't
 // republished.
 func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) (ui.OmemoDevicePurgedMsg, error) {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return ui.OmemoDevicePurgedMsg{}, fmt.Errorf("account is still connecting")
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return ui.OmemoDevicePurgedMsg{}, errors.New("account is still connecting")
 	}
 	if s.omemoV2() == nil && s.omemoV1() == nil {
 		return ui.OmemoDevicePurgedMsg{}, fmt.Errorf("omemo isn't ready for this account")
@@ -616,9 +626,9 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) (ui.
 // ui.AccountRemovedMsg for why indices must stay stable), just closed, so
 // its reconnect supervisor goroutine exits instead of retrying.
 func (a *adapter) RemoveAccount(accountIdx int) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("account is still connecting")
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return errors.New("account is still connecting")
 	}
 
 	ctx := context.Background()
@@ -670,9 +680,9 @@ func (a *adapter) RemoveAccount(accountIdx int) error {
 // deleting someone else's message, since XEP-0424 retraction only applies to
 // messages we sent ourselves.
 func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return err
 	}
 	if _, err := s.db.MarkMessageRetracted(context.Background(), storage.MarkMessageRetractedParams{
 		AccountJid: s.account.JID,
@@ -693,9 +703,9 @@ func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 // a record of what was said. Nothing goes on the wire: XMPP has no "erase it
 // from the archive" stanza, so this only ever affects our own copy.
 func (a *adapter) PurgeMessage(accountIdx int, to, id string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return err
 	}
 	ctx := context.Background()
 	if err := s.db.DeleteReactionsByMessage(ctx, storage.DeleteReactionsByMessageParams{
@@ -728,9 +738,9 @@ func (a *adapter) PurgeMessage(accountIdx int, to, id string) error {
 // not just the one that asked) only happens when a row actually existed to
 // delete.
 func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return err
 	}
 	to, found, err := s.deleteOutboxByLocalID(context.Background(), localID)
 	if err != nil {
@@ -747,11 +757,7 @@ func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
 // A sent "composing" is remembered per calling client so clearTyping can take
 // it back if that TUI goes away before clearing it itself.
 func (a *adapter) SetTyping(tuiClient ipc.ClientID, accountIdx int, to string, composing bool) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	client, err := s.liveClient()
+	_, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
 	}
@@ -808,11 +814,7 @@ func (a *adapter) drainTyping(tuiClient ipc.ClientID) map[int]string {
 // indefinitely: nothing else on the wire ever contradicts it.
 func (a *adapter) clearTyping(tuiClient ipc.ClientID) {
 	for accountIdx, to := range a.drainTyping(tuiClient) {
-		s, ok := a.session(accountIdx)
-		if !ok {
-			continue
-		}
-		client, err := s.liveClient()
+		_, client, err := a.online(accountIdx)
 		if err != nil {
 			continue
 		}
@@ -828,12 +830,7 @@ func (a *adapter) clearTyping(tuiClient ipc.ClientID) {
 // contact's nickname there too, matching what a fresh roster fetch would
 // show after the server applies the same change.
 func (a *adapter) RenameContact(accountIdx int, address, name string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-
-	client, err := s.liveClient()
+	s, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
 	}
@@ -863,16 +860,11 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 // sends a subscription request, then mirrors it into local storage and the
 // in-memory roster cache used by rosterName.
 func (a *adapter) AddContact(accountIdx int, address string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-
-	ctx := context.Background()
-	client, err := s.liveClient()
+	s, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 	if err := client.AddContact(ctx, address, ""); err != nil {
 		return err
 	}
@@ -894,36 +886,22 @@ func (a *adapter) AddContact(accountIdx int, address string) error {
 // ResubscribeContact re-sends a subscription
 // request for an existing contact, without touching its roster item.
 func (a *adapter) ResubscribeContact(accountIdx int, address string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-
-	ctx := context.Background()
-	client, err := s.liveClient()
+	_, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
 	}
-	if err := client.ResubscribeContact(ctx, address); err != nil {
-		return err
-	}
-	return nil
+	return client.ResubscribeContact(context.Background(), address)
 }
 
 // RemoveContact removes address from the
 // roster and unsubscribes, then mirrors the removal into local storage and
 // the in-memory roster cache.
 func (a *adapter) RemoveContact(accountIdx int, address string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-
-	ctx := context.Background()
-	client, err := s.liveClient()
+	s, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 	if err := client.RemoveContact(ctx, address); err != nil {
 		return err
 	}
@@ -943,9 +921,9 @@ func (a *adapter) RemoveContact(accountIdx int, address string) error {
 // outgoing message encryption ("omemo-v1", "omemo-v2", "gpg", or "none") for
 // one chat.
 func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return err
 	}
 	if err := s.db.SetChatEncryptionMode(context.Background(), storage.SetChatEncryptionModeParams{
 		AccountJid: s.account.JID,
@@ -1129,9 +1107,9 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 // unencrypted, since attaching them in the clear would leak the URL
 // alongside an encrypted body.
 func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opts ui.SendOptions) (id string, err error) {
-	s, valid := a.session(accountIdx)
-	if !valid {
-		return "", fmt.Errorf("unknown account %d", accountIdx)
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return "", err
 	}
 
 	// A real (non-offline, non-queued) failure below - "omemo not ready", an
@@ -1552,11 +1530,7 @@ func (a *adapter) progressCallback(id, label string) func(sent, total int64) {
 // SendFile uploads path (XEP-0363) and sends its URL to "to".
 func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions) (ui.FileSendResultMsg, error) {
 	result := ui.FileSendResultMsg{AccountIdx: accountIdx, To: to, Path: path, ReplyToID: opts.ReplyToID}
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return result, fmt.Errorf("unknown account %d", accountIdx)
-	}
-	client, err := s.liveClient()
+	s, client, err := a.online(accountIdx)
 	if err != nil {
 		return result, err
 	}
@@ -1594,9 +1568,9 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 // adapter.flushOutbox once reconnected.
 func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.SendOptions) (ui.FileUploadResultMsg, error) {
 	result := ui.FileUploadResultMsg{Path: path}
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return result, fmt.Errorf("unknown account %d", accountIdx)
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return result, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -1639,9 +1613,9 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 
 // CallAction does action to accountIdx's call.
 func (a *adapter) CallAction(accountIdx int, action ui.CallAction) error {
-	sess, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
+	sess, err := a.session(accountIdx)
+	if err != nil {
+		return err
 	}
 	ctx := context.Background()
 	switch c := action.(type) {

@@ -233,11 +233,7 @@ func (s *accountSession) syncAvatarOnce(ctx context.Context, srv *ipc.Server, ac
 // account bar and any chat with oneself show it without waiting for a
 // round trip back from the server.
 func (a *adapter) SetOwnAvatar(accountIdx int, path string) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	client, err := s.liveClient()
+	s, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
 	}
@@ -290,11 +286,7 @@ func (a *adapter) SetOwnAvatar(accountIdx int, path string) error {
 // RemoveOwnAvatar stops publishing this account's avatar and drops the
 // local copy.
 func (a *adapter) RemoveOwnAvatar(accountIdx int) error {
-	s, ok := a.session(accountIdx)
-	if !ok {
-		return fmt.Errorf("unknown account %d", accountIdx)
-	}
-	client, err := s.liveClient()
+	s, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
 	}

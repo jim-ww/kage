@@ -35,8 +35,8 @@ func TestConnectAndSuperviseAccountRegistersOfflineSession(t *testing.T) {
 	defer cancel()
 	connectAndSuperviseAccount(ctx, nil, a, 0, acct, queries, nil)
 
-	sess, ok := a.session(0)
-	if !ok {
+	sess, err := a.session(0)
+	if err != nil {
 		t.Fatal("a.session(0) not ok after failed initial connect - account is now unreachable for queuing")
 	}
 
