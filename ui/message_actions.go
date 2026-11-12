@@ -717,7 +717,6 @@ func (m *Model) actionInfoMessage() tea.Cmd {
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return m.showNotification("no message selected")
 	}
-	m.showMsgInfo = true
 
 	// Fetch a size for each attachment on this message that doesn't already
 	// have one locally measurable and hasn't already been fetched/attempted
@@ -740,6 +739,19 @@ func (m *Model) actionInfoMessage() tea.Cmd {
 		m.attachmentSizeFetching[a] = true
 		cmds = append(cmds, fetchAttachmentSizeCmd(a))
 	}
+	text := modal.NewText(m.infoLines()...)
+	text.ActLabel = "copy URL"
+	cmds = append(cmds, m.openModal(&modal.Modal[*Model]{
+		ID:    infoModalID,
+		Title: "Message info",
+		Body:  text,
+		OnAct: func(m *Model, v any) tea.Cmd {
+			if err := clipboard.WriteAll(v.(string)); err != nil {
+				return m.showNotification("copy failed")
+			}
+			return m.showNotification("URL copied")
+		},
+	}))
 	return tea.Batch(cmds...)
 }
 

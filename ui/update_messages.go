@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // trimMessagesFront drops the oldest messages from msgs so at most limit
@@ -190,6 +191,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				m.attachmentSizeFailed = make(map[string]bool)
 			}
 			m.attachmentSizeFailed[msg.target] = true
+		}
+		if info := m.modals.Find(infoModalID); info != nil {
+			info.Body.(*modal.Text).SetLines(m.infoLines()...)
 		}
 		return m, nil, true
 

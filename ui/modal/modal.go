@@ -70,6 +70,7 @@ const (
 	keepGoing outcomeKind = iota
 	submitted
 	canceled
+	acted
 )
 
 // Continue keeps the modal open.
@@ -80,6 +81,10 @@ func Submit(value any) Outcome { return Outcome{kind: submitted, value: value} }
 
 // Cancel closes the modal as esc does.
 func Cancel() Outcome { return Outcome{kind: canceled} }
+
+// Act hands value to the modal's OnAct and keeps it open: an action taken
+// from inside it (copy this, toggle that), as opposed to its answer.
+func Act(value any) Outcome { return Outcome{kind: acted, value: value} }
 
 // Hint is one entry of the hint row: a key and what it does. Clicking it
 // sends Key to the modal as if pressed, so every key shown is also a
@@ -94,6 +99,10 @@ func KeyHint(key tea.KeyPressMsg, label string) Hint { return Hint{Key: key, Lab
 
 // Modal is one overlay: Body in a frame titled Title.
 type Modal[H any] struct {
+	// ID, if set, finds the modal again (Stack.Find) - to update it when
+	// something it shows changes, or close it when an answer it waits on
+	// arrives.
+	ID    string
 	Title string
 	Body  Component
 	// MaxWidth caps the frame's width (0: 60 columns); it's never wider
@@ -103,6 +112,9 @@ type Modal[H any] struct {
 	OnSubmit func(h H, value any) tea.Cmd
 	// OnCancel, if set, runs when the modal is closed without a value.
 	OnCancel func(h H) tea.Cmd
+	// OnAct gets the values the body acts with (see Act); the modal stays
+	// open.
+	OnAct func(h H, value any) tea.Cmd
 
 	scroll int // first body line shown, when the body is taller than the space
 	width  int // outer width, fixed when shown or resized - see sizeTop
@@ -157,6 +169,16 @@ func (s Stack[H]) Top() *Modal[H] {
 		return nil
 	}
 	return s.modals[len(s.modals)-1]
+}
+
+// Find is the open modal with id, or nil.
+func (s Stack[H]) Find(id string) *Modal[H] {
+	for _, m := range s.modals {
+		if m.ID == id {
+			return m
+		}
+	}
+	return nil
 }
 
 // Push opens m on top of whatever is open.
@@ -279,10 +301,16 @@ func (s *Stack[H]) body(h H, top *Modal[H], msg tea.Msg) tea.Cmd {
 // finish closes the top modal on a submit or cancel and runs its callback
 // - after closing, so the callback can open another modal.
 func (s *Stack[H]) finish(h H, o Outcome) tea.Cmd {
-	if o.kind == keepGoing {
+	top := s.Top()
+	switch o.kind {
+	case keepGoing:
+		return nil
+	case acted:
+		if top.OnAct != nil {
+			return top.OnAct(h, o.value)
+		}
 		return nil
 	}
-	top := s.Top()
 	focus := s.Close()
 	switch {
 	case o.kind == submitted && top.OnSubmit != nil:

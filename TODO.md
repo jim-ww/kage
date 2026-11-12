@@ -23,6 +23,7 @@
 - lags on big window scale
 
 ## UX
+- bad UX: when replying to some message, new message from other participant can hide behind reply-to notice.
 - delete message modal has no mouse support. other modals must be checked too.
 - hard to grab left/bottom panel border for resize
 - add scrollbar for messages list, and perhaps, for chat list too

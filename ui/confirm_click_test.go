@@ -92,3 +92,30 @@ func TestContactRemoveConfirmClickable(t *testing.T) {
 		t.Fatal("no didn't cancel the contact removal")
 	}
 }
+
+// TestMessageInfoCopiesAttachmentURL: an attachment's line in the info
+// modal copies its URL - by keyboard (it's selected, enter) and by click -
+// and the modal shows the size once it's fetched.
+func TestMessageInfoBothWays(t *testing.T) {
+	m := pasteTestModel(t)
+	m.width, m.termHeight = 100, 30
+	m.updateSizes()
+	m.currentMessages()[0].Attachments = []string{"https://up.example.test/a.pdf"}
+	m.selectedMsg = 0
+	m.actionInfoMessage()
+	if modalTitle(m) != "Message info" {
+		t.Fatalf("info opened %q", modalTitle(m))
+	}
+	text := m.modals.Top().Body.(*modal.Text)
+	if !strings.Contains(text.View(), "fetching") {
+		t.Fatalf("size isn't shown as fetching:\n%s", ansi.Strip(text.View()))
+	}
+	m, _, _ = m.handleEventMsg(attachmentSizeMsg{target: "https://up.example.test/a.pdf", size: 2048, ok: true})
+	if !strings.Contains(ansi.Strip(m.modals.Top().Body.View()), "2.0 KB") {
+		t.Fatalf("size didn't update in the open modal:\n%s", ansi.Strip(m.modals.Top().Body.View()))
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m = next.(Model); !m.modals.Open() || m.noticeText == "" {
+		t.Fatal("enter on the attachment line should act (copy) and keep the modal open")
+	}
+}

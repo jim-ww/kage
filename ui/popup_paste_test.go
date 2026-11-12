@@ -44,8 +44,8 @@ func TestPasteIntoEmojiPickerSearch(t *testing.T) {
 // field is open lands nowhere rather than in the compose box behind it.
 func TestPasteDoesNotLeakBehindPopups(t *testing.T) {
 	for name, open := range map[string]func(*Model){
-		"help":         func(m *Model) { m.showHelp = true },
-		"message info": func(m *Model) { m.showMsgInfo = true },
+		"help":         func(m *Model) { m.openHelp() },
+		"message info": func(m *Model) { m.actionInfoMessage() },
 		"confirm":      func(m *Model) { m.confirm("Quit kage?", "", func(*Model) tea.Cmd { return tea.Quit }) },
 		"context menu": func(m *Model) {
 			m.openContextMenu("x", []contextMenuItem{{label: "a", run: func(*Model) tea.Cmd { return nil }}})

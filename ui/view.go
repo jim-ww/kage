@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // View implements tea.Model.
@@ -346,10 +347,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.modals.View()
 	case m.contextMenu != nil:
 		viewportArea = m.renderContextMenuPopup()
-	case m.showMsgInfo:
-		viewportArea = m.renderInfoPopup()
-	case m.showHelp:
-		viewportArea = m.renderHelpPopup()
 	case m.desktopVolumeOpen && m.call != nil:
 		viewportArea = m.renderDesktopVolumePopup()
 	case m.emojiPicker != nil:
@@ -686,18 +683,6 @@ func (m Model) deletePromptWidth() int {
 	return min(max(1, m.chatAreaWidth()-10), 50)
 }
 
-// renderInfoPopup shows metadata about the currently selected message.
-func (m Model) renderInfoPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	// popup padding (4 each side) + border (1 each side).
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.infoPrompt(cw-10))
-	popup = m.zone.Mark(zoneMsgInfoPopup, popup)
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
 // encryptionLabel describes a message's wire-level encryption state for the
 // info popup: which mechanism (OMEMO/GPG) encrypted it, or that it went
 // unencrypted.
@@ -719,11 +704,12 @@ func encryptionLabel(msg Message) string {
 	}
 }
 
-func (m Model) infoPrompt(width int) string {
-	closeKey := m.keys.InfoMsg.Help().Key
+// infoLines is the message-info modal's content for the selected message:
+// each attachment's line copies its URL when acted on.
+func (m Model) infoLines() []modal.Line {
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
-		return m.styles.infoPopup("Message info", nil, closeKey)
+		return nil
 	}
 	msg := msgs[m.selectedMsg]
 
@@ -731,15 +717,14 @@ func (m Model) infoPrompt(width int) string {
 	if msg.IsMe {
 		from = msg.Author + " (you)"
 	}
-
-	rows := []string{
-		fmt.Sprintf("From:  %s", from),
-		fmt.Sprintf("Sent:  %s", msg.SentAt.Format("2006-01-02 15:04:05")),
-		fmt.Sprintf("Length: %d chars", len([]rune(msg.Content))),
-		fmt.Sprintf("Encryption: %s", encryptionLabel(msg)),
+	lines := []modal.Line{
+		{Text: fmt.Sprintf("From:  %s", from)},
+		{Text: fmt.Sprintf("Sent:  %s", msg.SentAt.Format("2006-01-02 15:04:05"))},
+		{Text: fmt.Sprintf("Length: %d chars", len([]rune(msg.Content)))},
+		{Text: fmt.Sprintf("Encryption: %s", encryptionLabel(msg))},
 	}
 	if replyIdx := messageIndexByID(msgs, msg.ReplyToID); replyIdx >= 0 {
-		rows = append(rows, fmt.Sprintf("Reply to: %s", m.replyPreview(replyIdx, msgs)))
+		lines = append(lines, modal.Line{Text: fmt.Sprintf("Reply to: %s", m.replyPreview(replyIdx, msgs))})
 	}
 	chat, _ := m.currentChat()
 	for i, a := range msg.Attachments {
@@ -747,37 +732,32 @@ func (m Model) infoPrompt(width int) string {
 		if len(msg.Attachments) > 1 {
 			label = fmt.Sprintf("Attachment %d:", i+1)
 		}
-		fg := m.styles.colors.themFg
-		if m.isHovered(zoneMsgInfoAttachment(i)) {
-			fg = m.styles.colors.accentCyan
-		}
-		url := lipgloss.NewStyle().Foreground(fg).Render(a)
-		row := fmt.Sprintf("%s %s", label, url)
-		row = ansi.Truncate(row, width, "…")
-		rows = append(rows, m.zone.Mark(zoneMsgInfoAttachment(i), row))
-		rows = append(rows, "  Size: "+m.attachmentSizeLabel(a, chat.Address))
+		lines = append(lines,
+			modal.Line{Text: label + " " + a, Value: a},
+			modal.Line{Text: "  Size: " + m.attachmentSizeLabel(a, chat.Address)})
 	}
 	if msg.Retracted {
 		// The chat view hides deleted content, but we never actually erase
-		// it locally — the info popup is where the original stays visible.
-		rows = append(rows, "Deleted: yes (original content below)", fmt.Sprintf("Content: %s", msg.Content))
+		// it locally — the info modal is where the original stays visible.
+		lines = append(lines, modal.Line{Text: "Deleted: yes (original content below)"}, modal.Line{Text: fmt.Sprintf("Content: %s", msg.Content)})
 	}
-
-	return m.styles.infoPopup("Message info", rows, closeKey)
+	return lines
 }
 
-// renderHelpPopup lists every keybinding grouped by which tab it applies to
-// (plus a Global section for bindings that work everywhere) — the full
-// reference behind the footer's necessarily-truncated one-line hint.
-func (m Model) renderHelpPopup() string {
-	closeKey := m.keys.Help.Help().Key
+// infoModalID finds the open message-info modal, to refresh it as the
+// attachment sizes it shows arrive.
+const infoModalID = "msg-info"
+
+// openHelp lists every keybinding grouped by which tab it applies to (plus
+// a Global section for bindings that work everywhere) — the full reference
+// behind the footer's necessarily-truncated one-line hint.
+func (m *Model) openHelp() tea.Cmd {
 	var rows []string
 	for i, section := range m.keys.helpSections() {
 		if i > 0 {
 			rows = append(rows, "")
 		}
-		title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.accentCyan).Render(section.Title)
-		rows = append(rows, title)
+		rows = append(rows, lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.accentCyan).Render(section.Title))
 		for _, e := range section.Entries {
 			key := shortestKey(e.binding)
 			if key == "" {
@@ -786,7 +766,7 @@ func (m Model) renderHelpPopup() string {
 			rows = append(rows, fmt.Sprintf("  %-14s %s", caretKey(key), e.desc))
 		}
 	}
-	return m.styles.infoPopup("Help", rows, closeKey)
+	return m.openModal(&modal.Modal[*Model]{Title: "Help", Body: modal.TextLines(rows...)})
 }
 
 // renderOpenPopup lists the pending link/attachment choices, numbered within

@@ -155,7 +155,7 @@ func TestCallKeysDontShadowChatKeys(t *testing.T) {
 		t.Fatalf("chat keys reached the call controller: %v", ctrl.calls)
 	}
 	m = press(t, m, ctrlH)
-	if !m.showHelp {
+	if modalTitle(m) != "Help" {
 		t.Fatal("ctrl+h during a call didn't open help")
 	}
 }

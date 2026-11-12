@@ -31,24 +31,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return next, cmd, true
 	}
 
-	// ── Message-info popup intercepts all input until dismissed ────────
-	if m.showMsgInfo {
-		switch {
-		case matchesKey(msg, m.keys.InfoMsg), matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
-			m.showMsgInfo = false
-		}
-		return m, nil, true
-	}
-
-	// ── Help popup intercepts all input until dismissed ─────────────────
-	if m.showHelp {
-		switch {
-		case matchesKey(msg, m.keys.Help), matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
-			m.showHelp = false
-		}
-		return m, nil, true
-	}
-
 	// ── Desktop audio volume popup intercepts all input until closed ───
 	if m.desktopVolumeOpen && m.call != nil {
 		return m.updateDesktopVolumeKey(msg)
@@ -178,8 +160,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	// ── Global ────────────────────────────────────────────────────────
 	case matchesKey(msg, m.keys.Help):
-		m.showHelp = true
-		return m, nil, true
+		return m, m.openHelp(), true
 
 	case matchesKey(msg, m.keys.Quit):
 		if msg.String() == "ctrl+c" {

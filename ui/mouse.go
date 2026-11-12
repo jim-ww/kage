@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/atotto/clipboard"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -30,7 +29,6 @@ const (
 	zoneAttachButton          = "attach-button"
 	zoneReplyHintCancel       = "reply-hint-cancel"
 	zoneToggleSidebar         = "toggle-sidebar-button"
-	zoneMsgInfoPopup          = "msg-info-popup"
 	zoneContactManagerPopup   = "contact-manager-popup"
 	zoneEmojiPickerPopup      = "emoji-picker-popup"
 	zoneDeviceListPopup       = "device-list-popup"
@@ -70,7 +68,6 @@ func zoneMessageReactKey(i int) string    { return fmt.Sprintf("msg-react-key-%d
 func zoneMessageExpand(i int) string      { return fmt.Sprintf("msg-expand-%d", i) }
 func zoneMessageReaction(i, j int) string { return fmt.Sprintf("msg-reaction-%d-%d", i, j) }
 func zoneAttachmentRemove(i int) string   { return fmt.Sprintf("attachment-remove-%d", i) }
-func zoneMsgInfoAttachment(i int) string  { return fmt.Sprintf("msg-info-attachment-%d", i) }
 func zoneContactRow(i int) string         { return fmt.Sprintf("contact-row-%d", i) }
 func zoneDeviceRow(i int) string          { return fmt.Sprintf("device-row-%d", i) }
 func zoneSearchResultRow(i int) string    { return fmt.Sprintf("search-result-row-%d", i) }
@@ -498,17 +495,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		return ""
 	}
 
-	if m.showMsgInfo {
-		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
-			for i := range msgs[m.selectedMsg].Attachments {
-				if m.zone.Get(zoneMsgInfoAttachment(i)).InBounds(mouse) {
-					return zoneMsgInfoAttachment(i)
-				}
-			}
-		}
-		return ""
-	}
-
 	if m.emojiPicker != nil {
 		// Cells are clickable (see the click-dispatch handler below) but
 		// don't have a distinct hover style, so there's nothing for this to
@@ -656,24 +642,6 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.pickingFile {
 		return m.handleFilePickerClick(msg)
-	}
-
-	if m.showMsgInfo {
-		if !m.zone.Get(zoneMsgInfoPopup).InBounds(msg) {
-			m.showMsgInfo = false
-			return m, nil
-		}
-		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
-			for i, a := range msgs[m.selectedMsg].Attachments {
-				if m.zone.Get(zoneMsgInfoAttachment(i)).InBounds(msg) {
-					if err := clipboard.WriteAll(a); err != nil {
-						return m, m.showNotification("copy failed")
-					}
-					return m, m.showNotification("URL copied")
-				}
-			}
-		}
-		return m, nil
 	}
 
 	if m.emojiPicker != nil {

@@ -16,8 +16,8 @@ func TestHelpPopupOpensAndCloses(t *testing.T) {
 
 	next, cmd := m.Update(open)
 	nm := next.(Model)
-	if !nm.showHelp {
-		t.Fatalf("%q: showHelp = false after pressing it, want true", open.String())
+	if modalTitle(nm) != "Help" {
+		t.Fatalf("%q opened %q, want help", open.String(), modalTitle(nm))
 	}
 	if msg := nonIdleCmd(cmd); msg != nil {
 		t.Fatalf("%q: expected no cmd while opening help, got %T", open.String(), msg)
@@ -28,8 +28,8 @@ func TestHelpPopupOpensAndCloses(t *testing.T) {
 
 	next, _ = nm.Update(keyText("esc"))
 	nm = next.(Model)
-	if nm.showHelp {
-		t.Fatalf("%q: showHelp still true after esc, want false", open.String())
+	if nm.modals.Open() {
+		t.Fatalf("%q: help stayed open after esc", open.String())
 	}
 }
 
