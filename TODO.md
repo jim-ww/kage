@@ -1,4 +1,5 @@
 ## Bugs
+- problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ
 - hide chat keybind doesnt trigger
 - add new 'attachments' screen (for every chat).
 - on nixos rebuild, call hangs or something. or one of clients dies
