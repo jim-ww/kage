@@ -86,12 +86,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m.updateSearchResultsKey(msg)
 	}
 
-	// ── Save-as prompt intercepts all input until submitted/canceled ──
-	if m.savingAs {
-		model, cmd := m.updateSaveAsForm(msg)
-		return model.(Model), cmd, true
-	}
-
 	// ── Avatar preview sits on top of the still-open picker ────────────
 	if m.avatarPreview != nil {
 		return m.updateAvatarPreviewKey(msg)
@@ -598,25 +592,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	return m, nil, false
-}
-
-// updateSaveAsForm handles all key input while the save-as popup is open:
-// enter submits the typed path and starts the download, esc cancels.
-func (m Model) updateSaveAsForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case msg.String() == "esc":
-		m.savingAs = false
-		m.saveAsTarget = ""
-		return m, nil
-
-	case matchesKey(msg, m.keys.SelectSend):
-		return m, m.submitSaveAs()
-
-	default:
-		var cmd tea.Cmd
-		*m.saveAsInput, cmd = m.saveAsInput.Update(msg)
-		return m, cmd
-	}
 }
 
 // addAccountFieldCount returns how many of addAccountInputs are active for

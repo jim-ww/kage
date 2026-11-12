@@ -96,7 +96,7 @@ func (m Model) narrow() bool { return m.width < narrowWidth }
 // into even while the chat list is the logically selected view.
 func (m Model) popupActive() bool {
 	return m.modals.Open() || m.contextMenu != nil || m.showMsgInfo || m.showHelp ||
-		m.addingAccount || m.savingAs || len(m.openItems) > 0 || m.pickingFile || m.deviceList != nil ||
+		m.addingAccount || len(m.openItems) > 0 || m.pickingFile || m.deviceList != nil ||
 		m.avatarPreview != nil ||
 		m.searchResults != nil || (m.desktopVolumeOpen && m.call != nil)
 }

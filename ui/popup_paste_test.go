@@ -77,9 +77,9 @@ func TestPasteIntoPromptInputs(t *testing.T) {
 
 	m = pasteTestModel(t)
 	m.openSaveAsPrompt("https://example.test/f.pdf")
-	m.saveAsInput.SetValue("")
-	if m = paste(m, "/tmp/f.pdf"); m.saveAsInput.Value() != "/tmp/f.pdf" {
-		t.Errorf("save as: %q", m.saveAsInput.Value())
+	modalInput(t, m).Model.SetValue("")
+	if m = paste(m, "/tmp/f.pdf"); modalInput(t, m).Model.Value() != "/tmp/f.pdf" {
+		t.Errorf("save as: %q", modalInput(t, m).Model.Value())
 	}
 
 	m = pasteTestModel(t)

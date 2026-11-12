@@ -302,11 +302,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		m.searchResults.filterInput, cmd = m.searchResults.filterInput.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
-	if m.savingAs {
-		var cmd tea.Cmd
-		*m.saveAsInput, cmd = m.saveAsInput.Update(msg)
-		return m, tea.Batch(append(cmds, cmd)...)
-	}
 	if m.pickingFile {
 		// Directory reads are asynchronous messages, not key presses, so they
 		// bypass the key-interception block above and must still reach the

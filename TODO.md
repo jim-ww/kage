@@ -1,4 +1,5 @@
 ## Bugs
+- hide chat keybind doesnt trigger
 - add new 'attachments' screen (for every chat).
 - on nixos rebuild, call hangs or something. or one of clients dies
 - after switching to new account, tray icon started showing 'new message' alert all the time

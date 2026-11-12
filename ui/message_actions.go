@@ -9,7 +9,6 @@ import (
 	"time"
 	"unicode"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 	"github.com/jim-ww/kage/ui/emojipicker"
@@ -822,34 +821,17 @@ func (m *Model) openSaveAsPrompt(target string) tea.Cmd {
 		dest = uniqueDestPath(dir, attachmentDisplayName(target))
 	}
 
-	ti := textinput.New()
-	ti.Prompt = "Path: "
-	ti.KeyMap = m.keys.TextInputKeys
-	ti.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&ti, m.styles.colors)
-	ti.SetValue(dest)
-	ti.CursorEnd()
-	ti.Focus()
-
-	m.saveAsTarget = target
-	m.saveAsInput = &ti
-	m.savingAs = true
-	return textinput.Blink
-}
-
-// submitSaveAs applies the save-as prompt's current value as the download
-// destination and starts the download. An empty path cancels instead of
-// saving nowhere.
-func (m *Model) submitSaveAs() tea.Cmd {
-	m.savingAs = false
-
-	dest := strings.TrimSpace(m.saveAsInput.Value())
-	if dest == "" {
-		return nil
-	}
-	target := m.saveAsTarget
-	m.saveAsTarget = ""
-	return m.startSaveAs(target, dest)
+	return m.openModal(&modal.Modal[*Model]{
+		Title: "Save as",
+		Body:  m.newInput(dest, "", "Path: ", "save"),
+		OnSubmit: func(m *Model, v any) tea.Cmd {
+			// An empty path cancels instead of saving nowhere.
+			if dest := strings.TrimSpace(v.(string)); dest != "" {
+				return m.startSaveAs(target, dest)
+			}
+			return nil
+		},
+	})
 }
 
 // actionReactMessage opens the emoji picker popup (see ui/emojipicker) on

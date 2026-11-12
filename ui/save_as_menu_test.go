@@ -22,7 +22,7 @@ func TestMessageMenuSaveAsPromptsForPath(t *testing.T) {
 		t.Fatalf("menu lacks Save/Save as: %v", items)
 	}
 	saveAs.run(&m)
-	if !m.savingAs || m.saveAsInput == nil {
+	if modalTitle(m) != "Save as" {
 		t.Fatal("Save as didn't open the destination prompt")
 	}
 }

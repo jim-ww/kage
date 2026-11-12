@@ -113,7 +113,7 @@ type Model struct {
 
 	accounts       []Account
 	currentAccount int
-	// chats, input, filePicker, renameInput, searchInput, saveAsInput, and
+	// chats, input, filePicker, and
 	// addAccountInputs are pointers rather than embedded values: Model is
 	// passed by value throughout this package (View, chatAreaWidth,
 	// renderMessage, dozens of other read-only helpers), and each of these
@@ -325,14 +325,6 @@ type Model struct {
 	// searchResults is non-nil while the search-results popup (opened once a
 	// search-in-chat query completes) is showing. See searchResultsState.
 	searchResults *searchResultsState
-
-	// save-as prompt state, active while savingAs is true. Opened by
-	// SaveMsgAs (Ctrl+Shift+S) or picking an item from the open/save popup
-	// while openMode == pickerModeSaveAs; saveAsTarget is the URL to
-	// download once a destination path is submitted.
-	savingAs     bool
-	saveAsTarget string
-	saveAsInput  *textinput.Model
 
 	// changePasswordState is non-nil while the "change local storage
 	// password" popup is open — see ui/storage_password.go.

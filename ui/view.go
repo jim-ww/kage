@@ -364,8 +364,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderAddAccountPopup()
 	case m.searchResults != nil:
 		viewportArea = m.renderSearchResultsPopup()
-	case m.savingAs:
-		viewportArea = m.renderSaveAsPopup()
 	case len(m.openItems) > 0:
 		viewportArea = m.renderOpenPopup()
 	case m.avatarPreview != nil:
@@ -979,18 +977,6 @@ func (m Model) renderChangePasswordPopup() string {
 
 	footer := "[tab] next field · [enter] change · [esc] cancel"
 	body := m.styles.listPopup("Change storage password", rows, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-// renderSaveAsPopup shows the single-field save-as destination-path prompt.
-func (m Model) renderSaveAsPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	footer := "[enter] save · [esc] cancel"
-	body := m.styles.listPopup("Save as", []string{m.popupInputView(m.saveAsInput)}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
