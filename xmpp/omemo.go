@@ -30,61 +30,87 @@ const (
 	omemoItemID           = "current"
 )
 
-// ── Device list ──────────────────────────────────────────────────────────
-
-type omemoDeviceElem struct {
-	ID uint32 `xml:"id,attr"`
+// omemoWire is what tells the two OMEMO protocols' PEP nodes apart.
+type omemoWire struct {
+	ns, devicesNode, listElem, bundleNodePrefix, itemID, name string
 }
 
-type omemoDevicesElem struct {
-	XMLName xml.Name          `xml:"urn:xmpp:omemo:2 devices"`
-	Devices []omemoDeviceElem `xml:"urn:xmpp:omemo:2 device"`
+var (
+	omemoWireV2 = omemoWire{omemoNS, omemoDevicesNode, "devices", omemoBundleNodePrefix, omemoItemID, "omemo"}
+	omemoWireV1 = omemoWire{omemoV1NS, omemoV1DevicesNode, "list", omemoV1BundleNodePrefix, omemoV1ItemID, "legacy omemo"}
+)
+
+func (w omemoWire) bundleNode(id omemolib.DeviceID) string {
+	return w.bundleNodePrefix + strconv.FormatUint(uint64(id), 10)
+}
+
+// ── Device list ──────────────────────────────────────────────────────────
+
+// omemoDeviceListElem decodes either protocol's device list - <devices/>
+// or <list/> - by its <device/> children alone.
+type omemoDeviceListElem struct {
+	Devices []struct {
+		ID uint32 `xml:"id,attr"`
+	} `xml:"device"`
 }
 
 // PublishOmemoDeviceList publishes list to our own PEP device-list node.
 func (c *Client) PublishOmemoDeviceList(ctx context.Context, list omemolib.DeviceList) error {
+	return c.publishOmemoDeviceList(ctx, omemoWireV2, list)
+}
+
+// FetchOmemoDeviceList fetches peerJID's published device list.
+func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omemolib.DeviceList, error) {
+	return c.fetchOmemoDeviceList(ctx, omemoWireV2, peerJID)
+}
+
+func (c *Client) publishOmemoDeviceList(ctx context.Context, w omemoWire, list omemolib.DeviceList) error {
 	children := make([]xml.TokenReader, len(list.Devices))
 	for i, id := range list.Devices {
 		children[i] = xmlstream.Wrap(nil, xml.StartElement{
-			Name: xml.Name{Space: omemoNS, Local: "device"},
+			Name: xml.Name{Space: w.ns, Local: "device"},
 			Attr: []xml.Attr{{Name: xml.Name{Local: "id"}, Value: strconv.FormatUint(uint64(id), 10)}},
 		})
 	}
 	elem := xmlstream.Wrap(
 		xmlstream.MultiReader(children...),
-		xml.StartElement{Name: xml.Name{Space: omemoNS, Local: "devices"}},
+		xml.StartElement{Name: xml.Name{Space: w.ns, Local: w.listElem}},
 	)
-	if _, err := pubsub.Publish(ctx, c.session, omemoDevicesNode, omemoItemID, elem); err != nil {
-		return fmt.Errorf("publishing omemo device list: %w", err)
+	if _, err := pubsub.Publish(ctx, c.session, w.devicesNode, w.itemID, elem); err != nil {
+		return fmt.Errorf("publishing %s device list: %w", w.name, err)
 	}
-	c.makeNodeOpen(ctx, omemoDevicesNode)
+	c.makeNodeOpen(ctx, w.devicesNode)
 	return nil
 }
 
-// FetchOmemoDeviceList fetches peerJID's published device list.
-func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omemolib.DeviceList, error) {
+func (c *Client) fetchOmemoDeviceList(ctx context.Context, w omemoWire, peerJID string) (omemolib.DeviceList, error) {
 	peer, err := jid.Parse(peerJID)
 	if err != nil {
 		return omemolib.DeviceList{}, fmt.Errorf("parsing peer jid %q: %w", peerJID, err)
 	}
 
-	iter := pubsub.FetchIQ(ctx, stanza.IQ{To: peer}, c.session, pubsub.Query{Node: omemoDevicesNode})
+	iter := pubsub.FetchIQ(ctx, stanza.IQ{To: peer}, c.session, pubsub.Query{Node: w.devicesNode})
 	defer iter.Close()
 
-	// See FetchOmemoDeviceListV1's comment: this is a PEP singleton node, so
-	// keep only the last item iterated instead of merging every item's
-	// devices together - a service that ever hands back more than the one
-	// true-current item must not resurrect long-dead device IDs.
+	// This is a PEP node: XEP-0163 mandates a singleton item (the service is
+	// supposed to enforce max_items=1), so there is exactly one *current*
+	// device list, ever. A well-behaved service like Prosody only ever
+	// returns one item regardless of how many item IDs were published under,
+	// but a service that doesn't enforce that (or has leftover items from
+	// before a max_items config change) could return several - keep only the
+	// last one iterated rather than merging every item's devices together,
+	// or a single stale leftover item reintroduces long-dead device IDs
+	// forever.
 	var ids []omemolib.DeviceID
 	for iter.Next() {
 		_, r := iter.Item()
-		var devices omemoDevicesElem
-		if err := xml.NewTokenDecoder(r).Decode(&devices); err != nil {
-			slog.Warn("FetchOmemoDeviceList: failed to decode device-list item", "peer", peerJID, "err", err)
+		var list omemoDeviceListElem
+		if err := xml.NewTokenDecoder(r).Decode(&list); err != nil {
+			slog.Warn("fetching omemo device list: failed to decode item", "protocol", w.name, "peer", peerJID, "err", err)
 			continue
 		}
 		ids = ids[:0]
-		for _, d := range devices.Devices {
+		for _, d := range list.Devices {
 			ids = append(ids, omemolib.DeviceID(d.ID))
 		}
 	}
@@ -94,12 +120,11 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 		// service-unavailable, not-authorized, ...) is a real fetch failure
 		// and must propagate - otherwise it gets cached as "peer has zero
 		// devices" and every future send silently fails with ErrNoRecipients.
-		if strings.Contains(err.Error(), "item-not-found") || strings.Contains(err.Error(), "Node not found") {
-			return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
+		if !strings.Contains(err.Error(), "item-not-found") && !strings.Contains(err.Error(), "Node not found") {
+			return omemolib.DeviceList{}, fmt.Errorf("fetching %s device list for %s: %w", w.name, peerJID, err)
 		}
-		return omemolib.DeviceList{}, fmt.Errorf("fetching omemo device list for %s: %w", peerJID, err)
 	}
-	slog.Debug("FetchOmemoDeviceList: fetched", "peer", peerJID, "count", len(ids), "devices", ids)
+	slog.Debug("fetched omemo device list", "protocol", w.name, "peer", peerJID, "count", len(ids), "devices", ids)
 	return omemolib.DeviceList{JID: peerJID, Devices: ids}, nil
 }
 
@@ -158,7 +183,7 @@ func (c *Client) PublishOmemoBundle(ctx context.Context, bundle omemolib.Bundle)
 		xml.StartElement{Name: xml.Name{Space: omemoNS, Local: "bundle"}},
 	)
 
-	node := omemoBundleNodePrefix + strconv.FormatUint(uint64(bundle.Device.ID), 10)
+	node := omemoWireV2.bundleNode(bundle.Device.ID)
 	if _, err := pubsub.Publish(ctx, c.session, node, omemoItemID, elem); err != nil {
 		return fmt.Errorf("publishing omemo bundle: %w", err)
 	}
@@ -168,32 +193,42 @@ func (c *Client) PublishOmemoBundle(ctx context.Context, bundle omemolib.Bundle)
 
 // FetchOmemoBundle fetches dev's published bundle.
 func (c *Client) FetchOmemoBundle(ctx context.Context, dev omemolib.Device) (omemolib.Bundle, error) {
+	var b omemoBundleElem
+	if err := c.fetchOmemoBundle(ctx, omemoWireV2, dev, &b); err != nil {
+		return omemolib.Bundle{}, err
+	}
+	return bundleFromElem(dev, b, base64.StdEncoding.DecodeString)
+}
+
+// fetchOmemoBundle decodes dev's published bundle into b.
+func (c *Client) fetchOmemoBundle(ctx context.Context, w omemoWire, dev omemolib.Device, b any) error {
 	peer, err := jid.Parse(dev.JID)
 	if err != nil {
-		return omemolib.Bundle{}, fmt.Errorf("parsing peer jid %q: %w", dev.JID, err)
+		return fmt.Errorf("parsing peer jid %q: %w", dev.JID, err)
 	}
-
-	node := omemoBundleNodePrefix + strconv.FormatUint(uint64(dev.ID), 10)
-	iter := pubsub.FetchIQ(ctx, stanza.IQ{To: peer}, c.session, pubsub.Query{Node: node})
+	iter := pubsub.FetchIQ(ctx, stanza.IQ{To: peer}, c.session, pubsub.Query{Node: w.bundleNode(dev.ID)})
 	defer iter.Close()
-
 	if !iter.Next() {
 		if err := iter.Err(); err != nil {
-			return omemolib.Bundle{}, fmt.Errorf("fetching omemo bundle for %s/%d: %w", dev.JID, dev.ID, err)
+			return fmt.Errorf("fetching %s bundle for %s/%d: %w", w.name, dev.JID, dev.ID, err)
 		}
-		return omemolib.Bundle{}, fmt.Errorf("no omemo bundle published for %s/%d", dev.JID, dev.ID)
+		return fmt.Errorf("no %s bundle published for %s/%d", w.name, dev.JID, dev.ID)
 	}
 	_, r := iter.Item()
-	var b omemoBundleElem
-	if err := xml.NewTokenDecoder(r).Decode(&b); err != nil {
-		return omemolib.Bundle{}, fmt.Errorf("decoding omemo bundle from %s: %w", dev.JID, err)
+	if err := xml.NewTokenDecoder(r).Decode(b); err != nil {
+		return fmt.Errorf("decoding %s bundle from %s: %w", w.name, dev.JID, err)
 	}
+	return nil
+}
 
-	ik, err := base64.StdEncoding.DecodeString(b.IdentityKey)
+// bundleFromElem reads dev's bundle out of b, its public keys decoded by
+// key.
+func bundleFromElem(dev omemolib.Device, b omemoBundleElem, key func(string) ([]byte, error)) (omemolib.Bundle, error) {
+	ik, err := key(b.IdentityKey)
 	if err != nil {
 		return omemolib.Bundle{}, fmt.Errorf("decoding identity key: %w", err)
 	}
-	spkPub, err := base64.StdEncoding.DecodeString(b.SignedPreKey.Public)
+	spkPub, err := key(b.SignedPreKey.Public)
 	if err != nil {
 		return omemolib.Bundle{}, fmt.Errorf("decoding signed prekey: %w", err)
 	}
@@ -201,16 +236,12 @@ func (c *Client) FetchOmemoBundle(ctx context.Context, dev omemolib.Device) (ome
 	if err != nil {
 		return omemolib.Bundle{}, fmt.Errorf("decoding signed prekey signature: %w", err)
 	}
-
 	preKeys := make([]omemolib.PreKey, 0, len(b.PreKeys))
 	for _, pk := range b.PreKeys {
-		pub, err := base64.StdEncoding.DecodeString(pk.Public)
-		if err != nil {
-			continue
+		if pub, err := key(pk.Public); err == nil {
+			preKeys = append(preKeys, omemolib.PreKey{ID: pk.ID, Public: pub})
 		}
-		preKeys = append(preKeys, omemolib.PreKey{ID: pk.ID, Public: pub})
 	}
-
 	return omemolib.Bundle{
 		Device:      dev,
 		IdentityKey: ik,
@@ -343,5 +374,5 @@ var _ = xmpp.Session{} // keep mellium.im/xmpp import used if the above ever tri
 // an OMEMO device ID is rotated away from, so the abandoned ID stops
 // advertising a bundle peers could still build a session against.
 func (c *Client) DeleteOmemoBundle(ctx context.Context, deviceID omemolib.DeviceID) error {
-	return c.deleteNode(ctx, omemoBundleNodePrefix+strconv.FormatUint(uint64(deviceID), 10))
+	return c.deleteNode(ctx, omemoWireV2.bundleNode(deviceID))
 }

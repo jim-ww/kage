@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// TestOmemoV1ListElemDecodeKeepsOnlyLastItem is a network-free unit test for
-// the exact decode-and-keep-last-item logic FetchOmemoDeviceListV1 runs
+// TestOmemoDeviceListDecodeKeepsOnlyLastItem is a network-free unit test for
+// the exact decode-and-keep-last-item logic fetchOmemoDeviceList runs
 // per-item: given two device-list item payloads (as if two items had been
 // iterated from a pubsub response), only the second's devices should
-// survive, mirroring the loop body in omemo_v1.go.
-func TestOmemoV1ListElemDecodeKeepsOnlyLastItem(t *testing.T) {
+// survive, mirroring the loop body in omemo.go.
+func TestOmemoDeviceListDecodeKeepsOnlyLastItem(t *testing.T) {
 	items := []string{
 		`<list xmlns="eu.siacs.conversations.axolotl"><device id="111"/><device id="222"/></list>`,
 		`<list xmlns="eu.siacs.conversations.axolotl"><device id="999"/></list>`,
@@ -19,7 +19,7 @@ func TestOmemoV1ListElemDecodeKeepsOnlyLastItem(t *testing.T) {
 
 	var ids []uint32
 	for _, raw := range items {
-		var list omemoV1ListElem
+		var list omemoDeviceListElem
 		if err := xml.NewDecoder(strings.NewReader(raw)).Decode(&list); err != nil {
 			t.Fatalf("decode item: %v", err)
 		}
