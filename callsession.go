@@ -23,12 +23,9 @@ import (
 	"github.com/pion/webrtc/v4/pkg/media/samplebuilder"
 )
 
-// recoverAndLog runs f under a recover, logging a full stack trace on panic
-// instead of crashing the whole daemon - every call-related goroutine below
-// (media pumps, screen-share capture/playback, connection-state handling)
-// runs detached from any request that could otherwise catch it, so this is
-// their only panic boundary. what identifies which goroutine paniced in the
-// log, since a stack trace alone doesn't say which call site started it.
+// recoverAndLog runs f, logging a panic instead of crashing the daemon: it's
+// the only panic boundary of the detached call goroutines. what names the
+// goroutine in the log.
 func recoverAndLog(sid, what string, f func()) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -38,9 +35,8 @@ func recoverAndLog(sid, what string, f func()) {
 	f()
 }
 
-// callState is the lifecycle of the one voice call an account can have in
-// flight. Kept deliberately flat: there's no call waiting, no hold, and no
-// renegotiation in this slice.
+// callState is the lifecycle of an account's one call. No call waiting or
+// hold.
 type callState int
 
 const (
@@ -72,33 +68,24 @@ func (s callState) String() string {
 	}
 }
 
-// callSession is one voice call: the Jingle signaling state plus the media
-// pipeline (pion peer connection, PulseAudio mic/speaker, Opus codec) the
-// daemon owns on its behalf. The TUI never touches any of it - it only makes
-// the four call RPCs and reacts to the events broadcast from here.
+// callSession is one call: its Jingle signaling state and media pipeline
+// (pion peer connection, mic and speaker, Opus).
 type callSession struct {
 	srv        *ipc.Server
 	accountIdx int
 	sess       *accountSession
 	client     *xmpp.Client
 
-	// peer is the contact's bare JID (what the UI shows); remoteJID is the
-	// full JID every Jingle IQ of this session must be addressed to, learned
-	// from the peer's first directed stanza. Jingle is resource-to-resource,
-	// so the bare JID is never a valid target for the IQ half of the flow.
+	// peer is the contact's bare JID; remoteJID the full JID every Jingle IQ
+	// goes to, learned from the peer's first directed stanza.
 	peer      string
 	remoteJID string
 	sid       string
 	incoming  bool
 
-	// ringingFrom collects the full JID of every one of the peer's resources
-	// that sent a <ringing/> for this call (XEP-0353 fans <propose/> out to
-	// all their devices, so more than one can start ringing). A <retract/>
-	// addressed to the bare JID alone isn't reliably redelivered to every
-	// resource - not every server broadcasts a bare-JID message to all of a
-	// contact's connected resources - so hangupCall/rejectCall also retract
-	// directly to each JID here, otherwise devices that never proceeded keep
-	// ringing after the call is called off. Guarded by mu.
+	// ringingFrom is every peer resource that sent <ringing/>: a <propose/>
+	// rings all their devices, and a bare-JID <retract/> doesn't reach every
+	// one on every server, so it's also sent to each of these. Guarded by mu.
 	ringingFrom []string
 
 	mu    sync.Mutex
@@ -114,9 +101,8 @@ type callSession struct {
 	micStop chan struct{}
 	micDone chan struct{}
 
-	// desktop captures other applications' audio, mixed into what the mic
-	// pump sends, while we share the screen with desktop audio on (see
-	// syncDesktopAudio) - nil otherwise.
+	// desktop captures other applications' audio, mixed into the mic, while
+	// sharing the screen with desktop audio on (see syncDesktopAudio).
 	desktop *call.DesktopAudio
 
 	// contentName/ufrag/pwd identify our half of the ICE session, repeated on
@@ -125,9 +111,8 @@ type callSession struct {
 	ufrag       string
 	pwd         string
 
-	// signalingReady goes true once our session-initiate/-accept is on the
-	// wire; until then locally-gathered candidates queue in pendingLocal
-	// rather than being sent for a session the peer doesn't know about yet.
+	// signalingReady is set once our session-initiate/-accept is sent; until
+	// then local candidates queue in pendingLocal.
 	signalingReady bool
 	pendingLocal   []xmpp.ICECandidate
 
@@ -137,123 +122,75 @@ type callSession struct {
 	remoteSet     bool
 
 	mediaStarted bool
-	// connectedAt is set the first time onConnectionState sees
-	// PeerConnectionStateConnected (guarded the same way as mediaStarted, so
-	// a later ICE-recovery blip doesn't reset it) - used by end() to compute
-	// the call's duration for the persisted call-log row.
+	// connectedAt is when the call first connected, for its duration.
 	connectedAt time.Time
 	done        chan struct{}
 	closeOnce   sync.Once
 
-	// ICE restart bookkeeping (XEP-0166/0176 §6.1). Only the Jingle
-	// initiator (!incoming) ever drives a restart; the responder just
-	// answers whatever transport-replace arrives. restarting guards against
-	// starting a second attempt while one is in flight or re-triggering on
-	// a stale connection-state callback; restartAttempts is the retry
-	// budget; disconnectTimer is the one-shot grace-period check for
-	// PeerConnectionStateDisconnected, which is often transient and
-	// resolves on its own within a few seconds.
+	// ICE restart (XEP-0176 §6.1), driven only by the initiator. restarting
+	// keeps to one attempt at a time; disconnectTimer gives a Disconnected
+	// state, often transient, iceDisconnectGrace to recover first.
 	restarting      bool
 	restartAttempts int
 	disconnectTimer *time.Timer
 
-	// muted gates the mic-read goroutine in startMedia: while true, captured
-	// frames are dropped instead of encoded+sent. quality is the last
-	// computed bucket from the periodic sampler started in onConnectionState
-	// (see qualityTicker/sampleQuality) - "" until the first sample lands.
+	// muted drops captured mic frames. quality is the last sampled quality
+	// bucket (see sampleQuality), "" until the first sample.
 	muted         bool
 	quality       string
 	qualityTicker *time.Ticker
 	qualityDone   chan struct{}
 
-	// sharing is true while we're actively capturing and sending our own
-	// screen; screenShare is the capture subprocess driving it, nil
-	// whenever sharing is false. The peer's incoming screen share (if any)
-	// has no session-level flag here - it's just whatever video arrives on
-	// OnTrack, played via playRemoteVideo/ScreenViewer independently.
-	// pendingShare is true from the moment a content-add offering video is
-	// sent until the peer's content-accept lands - startVideoShare only
-	// actually starts capturing once negotiation completes (see
-	// applyContentAccept), so an idle-forever video m-line never gets
-	// negotiated in the first place (see call.PeerConnection.AddVideoTrack).
+	// sharing is set while we send our own video, captured by screenShare.
+	// pendingShare is set from sending a content-add offering video until the
+	// peer accepts it: capture only starts then (see applyContentAccept).
 	sharing      bool
 	pendingShare bool
-	// videoUseCamera records which source startVideoShare was asked for, so
-	// beginScreenShareCapture (invoked later, once the peer's content-accept
-	// lands) knows whether to spin up call.NewCamera or call.NewScreenShare.
+	// videoUseCamera is the source startVideoShare was asked for, the camera
+	// or the screen, for beginScreenShareCapture.
 	videoUseCamera bool
 	videoSource    call.VideoSource
 
-	// remoteVideo is true while the peer is actually streaming video to us:
-	// from the first keyframe playRemoteVideo assembles until the peer
-	// withdraws that content (applyContentRemove) or the track ends.
-	// viewerDismissed is set when the mpv window showing it is closed by
-	// hand - playRemoteVideo then keeps draining the track without popping
-	// a new window on the next keyframe, until reopenRemoteVideo asks for
-	// it back.
+	// remoteVideo is set while the peer streams video to us. viewerDismissed
+	// is set when its window is closed by hand: the track is still drained,
+	// but no window reopens until reopenRemoteVideo.
 	remoteVideo     bool
 	viewerDismissed bool
 
-	// remoteVideoTrack is the peer's currently active incoming video track,
-	// set for as long as playRemoteVideo is reading it - lets reopenRemoteVideo
-	// (the "peer closed mpv by accident, press the key again" recovery path)
-	// request a fresh keyframe without needing its own copy of the track.
+	// remoteVideoTrack is the incoming video track playRemoteVideo reads, for
+	// reopenRemoteVideo to ask a keyframe on.
 	remoteVideoTrack *webrtc.TrackRemote
 
-	// remoteVideoViewer is the mpv window currently showing the peer's video,
-	// mirrored here from playRemoteVideo's own local so applyContentRemove
-	// can close it the moment the peer withdraws the content - no frames
-	// arrive after that, so nothing in the read loop would ever notice on its
-	// own. The loop's local copy is left pointing at the closed viewer: its
-	// next WriteFrame fails, which is already the "mpv went away, reopen on
-	// the next keyframe" path.
+	// remoteVideoViewer is the window showing the peer's video, for
+	// applyContentRemove to close: once the content is withdrawn no frame
+	// arrives that would make the read loop notice.
 	remoteVideoViewer *call.ScreenViewer
 
-	// localFingerprint/remoteFingerprint are the two ends' DTLS-SRTP
-	// certificate fingerprints (XEP-0320), fingerprintSAS is the short
-	// authentication string derived from both (see computeSAS), and
-	// fingerprintChanged is true if remoteFingerprint didn't match this
-	// contact's previously pinned one (see checkAndPinCallFingerprint) - the
-	// TOFU + manual-verification mitigation for a malicious/compromised
-	// signaling server swapping fingerprints to MITM the call (see
-	// call_fingerprint.go). Set once negotiation completes: acceptSession
-	// for the callee, applyAnswer for the caller.
+	// The two ends' DTLS-SRTP fingerprints (XEP-0320), the short
+	// authentication string from both, and whether the peer's differs from
+	// the one pinned before - against a signaling server swapping them to
+	// intercept the call (see call_fingerprint.go). Set once negotiated.
 	localFingerprint   string
 	remoteFingerprint  string
 	fingerprintSAS     string
 	fingerprintChanged bool
 
-	// autoStartVideo/autoStartVideoUseCamera: set once at call creation by
-	// startVideoCall (the call menu's video call - camera/screen chosen before
-	// dialing), consumed exactly once by onConnectionState the first time
-	// this call reaches callConnected, then cleared. A plain startCall call
-	// leaves autoStartVideo false, so nothing here changes for a normal
-	// voice call.
+	// autoStartVideo makes onConnectionState start our video once the call
+	// connects - a call started as a video call.
 	autoStartVideo          bool
 	autoStartVideoUseCamera bool
 
-	// remoteContents is the peer's description of every Jingle content
-	// established so far (initially just audio, from session-initiate/
-	// -accept). A later content-add/content-accept only carries the new
-	// content, so this is the base it gets merged onto to reconstruct a full
-	// SDP for pion's SetRemoteDescription (see applyContentAdd/
-	// applyContentAccept) - a partial SDP would look like every other m-line
-	// got removed.
+	// remoteContents is every Jingle content the peer described so far. A
+	// content-add carries only the new one, so it's merged onto these into a
+	// full SDP: a partial one reads as the others removed.
 	remoteContents []xmpp.JingleContent
 
-	// ring plays the ringback/ringtone while this call sits in
-	// callRingingRemote/callRingingLocal - see startRing/stopRing. Always nil
-	// once past the ringing states.
+	// ring is the ringback or ringtone while the call rings.
 	ring *call.RingTone
 }
 
-// Ringback (outgoing call, peer's device is alerting them) and ringtone
-// (incoming call, we're alerting the user) use distinct chords/cadences so
-// the two are audibly distinguishable. Each plays a soft two-note major-third
-// chord rather than one raw sine tone, and ringtone uses a modern
-// double-pulse cadence ("brr-brr ... brr-brr ...") instead of one long
-// buzz - both changes are what make it read as a phone ringing rather than
-// an alarm.
+// Ringback (outgoing) and ringtone (incoming) sound different: each a
+// two-note chord, the ringtone in a double pulse.
 var (
 	ringbackFreqsHz = []float64{480, 600}
 	ringbackPattern = []time.Duration{time.Second, 3 * time.Second}
@@ -265,9 +202,8 @@ var (
 	}
 )
 
-// startRing begins playing a tone pattern for the current ringing state, if
-// one isn't already playing. Runs on its own dedicated speaker (see
-// call.RingTone), never the call's real media speaker.
+// startRing plays a tone pattern, if none is playing, on its own speaker
+// (see call.RingTone).
 func (c *callSession) startRing(freqsHz []float64, pattern []time.Duration) {
 	c.mu.Lock()
 	if c.ring != nil {
@@ -305,17 +241,11 @@ func (c *callSession) stopRing() {
 	}
 }
 
-// qualitySampleInterval is how often the connected call's ICE/RTP stats are
-// sampled to recompute the quality bucket - frequent enough to notice a
-// degrading link within a few seconds, infrequent enough not to matter for
-// CPU/allocation overhead.
+// qualitySampleInterval is how often a call's ICE/RTP stats are sampled.
 const qualitySampleInterval = 3 * time.Second
 
-// Packet-loss/RTT thresholds for the 3-tier quality bucket, picked as round
-// numbers rather than tuned against real-world data: under 2% loss and
-// under 150ms RTT reads as "good" (typical for a healthy direct or
-// STUN-brokered path); under 8% loss and 400ms RTT is "fair" (still
-// usable voice, noticeably worse); anything past that is "poor".
+// Packet loss and RTT limits of the "good" and "fair" call quality; past
+// them it's "poor". Round numbers, not tuned.
 const (
 	qualityGoodLossPct = 2.0
 	qualityGoodRTTMs   = 150.0
@@ -338,16 +268,14 @@ func qualityBucket(lossPct, rttMs float64) string {
 // after PeerConnectionStateFailed before giving up and ending the call.
 const maxICERestarts = 3
 
-// iceDisconnectGrace is how long PeerConnectionStateDisconnected is given to
-// resolve on its own (ICE can un-disconnect without any action) before it's
-// treated as failure worth restarting over.
+// iceDisconnectGrace is how long a Disconnected state may recover by itself
+// before ICE is restarted.
 const iceDisconnectGrace = 5 * time.Second
 
 // --- accountSession call slot -------------------------------------------
 //
-// One call at a time per account, so the slot is a single pointer. callMu
-// guards only the pointer; each callSession's own mu guards its state. Lock
-// order is always callMu -> callSession.mu.
+// callMu guards only the pointer, each callSession's mu its state. Lock
+// order is callMu, then callSession.mu.
 
 func (s *accountSession) currentCall() *callSession {
 	s.callMu.Lock()
@@ -374,10 +302,8 @@ func (s *accountSession) startCall(ctx context.Context, srv *ipc.Server, account
 	return err
 }
 
-// startVideoCall places a call exactly like startCall, but additionally
-// arms autoStartVideo so the moment it reaches callConnected, onConnectionState
-// starts sending our own video (camera or screen, see useCamera) without a
-// separate ScreenShare call - the call menu's video call.
+// startVideoCall is startCall, sending our camera or screen video from when
+// the call connects.
 func (s *accountSession) startVideoCall(ctx context.Context, srv *ipc.Server, accountIdx int, to string, useCamera bool) error {
 	_, err := s.doStartCall(ctx, srv, accountIdx, to, true, useCamera)
 	return err
@@ -443,19 +369,9 @@ func (s *accountSession) answerCall(ctx context.Context) error {
 	return nil
 }
 
-// rejectAndNotifyOwnDevices sends a XEP-0353 <reject/> to the caller (remote)
-// declining the call, then, mirroring answerCall's AcceptCall self-notify,
-// tells every other online resource of this account that it can stop
-// ringing on the same fanned-out propose. That self-notify used to go only
-// to our own bare JID, same as AcceptCall - but unlike a <retract/> to the
-// peer's bare JID (see retractFromAllRinging), there was no way to verify
-// the server actually redelivers a bare-JID message to *every* resource,
-// and evidently at least one doesn't: other devices kept ringing after a
-// decline. So this sends directly to each sibling resource's full JID too,
-// using the same live presence tracking (setRosterPresence) that already
-// keeps sess.roster's entry for our own bare JID up to date with which of
-// our resources are online - the self-presence every server pushes about
-// an account's own other connected resources (RFC 6121 4.4.2).
+// rejectAndNotifyOwnDevices sends a XEP-0353 <reject/> to the caller, and to
+// our own bare JID and each of our other resources (see ownResources) so
+// they stop ringing: not every server fans a bare-JID message out to all.
 func (c *callSession) rejectAndNotifyOwnDevices(ctx context.Context, remote string) {
 	if err := c.client.RejectCall(ctx, remote, c.sid); err != nil {
 		slog.Warn("rejecting call", "sid", c.sid, "err", err)
@@ -478,11 +394,7 @@ func (c *callSession) rejectAndNotifyOwnDevices(ctx context.Context, remote stri
 }
 
 // retractFromAllRinging sends a XEP-0353 <retract/> to the peer's bare JID
-// (the "should reach every resource" address) plus directly to every full
-// JID that's individually confirmed ringing (see ringingFrom) - belt and
-// suspenders against servers that don't fan a bare-JID message out to all of
-// a contact's connected resources, which otherwise left devices that never
-// answered ringing forever after the call was called off.
+// and to each resource that rang (see ringingFrom).
 func (c *callSession) retractFromAllRinging(ctx context.Context) {
 	if err := c.client.RetractCall(ctx, c.peer, c.sid); err != nil {
 		slog.Warn("retracting call", "sid", c.sid, "err", err)
@@ -513,10 +425,8 @@ func (s *accountSession) hangupCall(ctx context.Context) error {
 	case callProposing, callRingingRemote:
 		c.retractFromAllRinging(ctx)
 	case callRingingLocal:
-		// An incoming call we haven't answered yet: no Jingle session exists
-		// to terminate, only the XEP-0353 propose to decline - same wire
-		// action as rejectCall, reached here when the call is hung up rather
-		// than rejected (e.g. on daemon shutdown).
+		// Unanswered incoming call: no session yet, only the propose to
+		// decline.
 		c.rejectAndNotifyOwnDevices(ctx, remote)
 	default:
 		if remote != "" {
@@ -529,10 +439,8 @@ func (s *accountSession) hangupCall(ctx context.Context) error {
 	return nil
 }
 
-// peerWentOffline ends the current call if fullJID - the peer device it's
-// with - just went unavailable: that device can no longer send a
-// session-terminate or retract, so without this the call would sit there
-// until ICE gave up (connected) or forever (still ringing).
+// peerWentOffline ends the call if fullJID, the peer device it's with, went
+// unavailable: it can't send a terminate or retract any more.
 func (s *accountSession) peerWentOffline(ctx context.Context, fullJID string) {
 	c := s.currentCall()
 	if c == nil {
@@ -561,11 +469,7 @@ func (s *accountSession) rejectCall(ctx context.Context) error {
 	case state == callRingingLocal:
 		c.rejectAndNotifyOwnDevices(ctx, remote)
 	case state == callProposing || state == callRingingRemote:
-		// Our own outgoing call, not yet proceeded to a Jingle session - same
-		// wire action as hangupCall's equivalent branch (there's no
-		// session-terminate to send yet, and remoteJID isn't even known
-		// until the callee proceeds). Without this case, calling rejectCall
-		// on an outgoing call silently sent nothing at all.
+		// Our outgoing call, no session yet: retract, as hangupCall does.
 		c.retractFromAllRinging(ctx)
 	case remote != "":
 		if err := c.client.SendSessionTerminate(ctx, remote, c.sid, &xmpp.JingleReason{Decline: &struct{}{}}); err != nil {
@@ -586,9 +490,7 @@ func (s *accountSession) muteCall(muted bool) error {
 	return nil
 }
 
-// setScreenShare starts or stops capturing and sending our own video (screen
-// or camera, see useCamera) on the current call's (always-negotiated, see
-// call.NewPeerConnection) video track. useCamera is ignored when stopping.
+// setScreenShare starts or stops sending our screen or camera video.
 func (s *accountSession) setScreenShare(sharing, useCamera bool) error {
 	c := s.currentCall()
 	if c == nil {
@@ -601,9 +503,7 @@ func (s *accountSession) setScreenShare(sharing, useCamera bool) error {
 	return nil
 }
 
-// reopenVideo re-requests a keyframe for the current call's incoming video
-// (see callSession.reopenRemoteVideo) - the "peer closed mpv by accident"
-// recovery action.
+// reopenVideo reopens the call's incoming video, see reopenRemoteVideo.
 func (s *accountSession) reopenVideo() error {
 	c := s.currentCall()
 	if c == nil {
@@ -629,20 +529,13 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 
 	switch ev.Action {
 	case xmpp.JMIRinging:
-		// Only meaningful for the caller: a callee that sent its own
-		// <ringing/> can get it back as a carbon of its own stanza (XEP-0280
-		// self-copy, "from" left as our own address by the copy), which used
-		// to unconditionally re-broadcast ringing-remote over the correct
-		// ringing-local state moments after handlePropose set it - the TUI
-		// showed the caller's "hang up only" bar instead of answer/reject.
+		// A callee gets its own <ringing/> back as a carbon (XEP-0280); it
+		// mustn't turn its ringing-local into ringing-remote.
 		if bareJID(ev.From) == s.account.JID {
 			return
 		}
 		c.mu.Lock()
-		// <propose/> fans out to every resource of the callee, so more than
-		// one can answer with <ringing/> - track each so hangupCall/
-		// rejectCall can retract directly to devices a bare-JID retract
-		// might not reach (see ringingFrom's doc comment).
+		// See ringingFrom.
 		alreadyTracked := false
 		for _, from := range c.ringingFrom {
 			if from == ev.From {
@@ -683,12 +576,9 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 		}
 
 	case xmpp.JMIReject:
-		// Mirrors JMIAccept below: as the caller, a <reject/> from the callee
-		// always ends the call. As the callee (c.incoming), rejectCall now
-		// also sends <reject/> to our own bare JID so every other resource
-		// that's also ringing on this propose learns one of them declined -
-		// only end on that self-notify if we're still the one ringing,
-		// otherwise a device that already answered would hang up on itself.
+		// The caller ends on any <reject/>. A callee gets the one another of
+		// its devices sent (see rejectAndNotifyOwnDevices), and ends only if
+		// still ringing, not if this device answered.
 		c.mu.Lock()
 		stillRinging := c.incoming && c.state == callRingingLocal
 		isCaller := !c.incoming
@@ -701,18 +591,10 @@ func (s *accountSession) handleJingleMessage(ctx context.Context, srv *ipc.Serve
 		c.end(ctx, "ended", "caller hung up")
 
 	case xmpp.JMIAccept:
-		// <accept/> is sent to our own bare JID so every resource of this
-		// account learns the call was answered - including the resource
-		// that sent it. answerCall's own AcceptCall call routes straight
-		// back to us this way, and matching ev.From against our own JID to
-		// tell the two apart isn't reliable (message-carbon unwrapping of
-		// our own sent stanza doesn't reliably preserve a comparable
-		// "from"). c.state is: answerCall moves it to callNegotiating
-		// before ever calling AcceptCall, so by the time our own echo (or
-		// anything else) arrives here we're provably past "still ringing" -
-		// only end the call if we're still in callRingingLocal, meaning we
-		// ourselves haven't answered and this really is a different
-		// resource taking it.
+		// <accept/> goes to our own bare JID, so this device gets its own
+		// back too, with no reliable "from" to tell. answerCall leaves
+		// callRingingLocal before sending it, so still ringing means another
+		// device answered.
 		c.mu.Lock()
 		stillRinging := c.incoming && c.state == callRingingLocal
 		c.mu.Unlock()
@@ -738,11 +620,8 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 	s.callMu.Lock()
 	if s.call != nil {
 		s.callMu.Unlock()
-		// Busy: decline rather than leave the caller ringing forever. No call
-		// waiting in this slice - just let the TUI show what it missed. Also
-		// tell our own other devices directly (see rejectAndNotifyOwnDevices
-		// for why a bare-JID message alone isn't enough) so they don't keep
-		// ringing on a call we've already declined as busy.
+		// Busy: decline, and tell our other devices (see
+		// rejectAndNotifyOwnDevices). The TUI shows it as missed.
 		if err := client.RejectCall(ctx, ev.From, ev.SID); err != nil {
 			slog.Warn("rejecting call while busy", "sid", ev.SID, "err", err)
 		}
@@ -859,10 +738,9 @@ func terminateReason(r *xmpp.JingleReason) string {
 
 // --- media/SDP negotiation ----------------------------------------------
 
-// setupPeer creates the peer connection and registers every callback before
-// any description is applied - OnTrack in particular must be in place before
-// SetRemoteDescription, or the remote audio track arrives with nobody
-// reading it.
+// setupPeer creates the peer connection with every callback registered
+// before any description is applied: OnTrack set later misses the remote
+// audio track.
 func (c *callSession) setupPeer(ctx context.Context) error {
 	pc, err := call.NewPeerConnection()
 	if err != nil {
@@ -903,25 +781,16 @@ func (c *callSession) initiateSession(ctx context.Context) error {
 	c.mu.Lock()
 	autoVideo, autoCamera := c.autoStartVideo, c.autoStartVideoUseCamera
 	c.mu.Unlock()
-	// A video call (startVideoCall, the call menu's video call) bundles its video track
-	// into this very first offer, rather than sending it later as a
-	// content-add once the audio-only call is already connected. The two
-	// ought to be equivalent per XEP-0166, but a real peer (Conversations)
-	// was observed live mishandling the content-add path specifically -
-	// reacting to it with its own ICE restart that uses inconsistent
-	// credentials across its own bundled m-lines and never completes,
-	// silently dropping the call's video with no error on either side. Video
-	// negotiated in the original offer/answer never hits that path at all.
+	// A video call offers its video in the first offer, not as a later
+	// content-add: Conversations answers a content-add with an ICE restart
+	// that never completes, losing the video.
 	if autoVideo {
 		if err := c.pc.AddVideoTrack(); err != nil {
 			return fmt.Errorf("adding video track: %w", err)
 		}
 		c.mu.Lock()
 		c.videoUseCamera = autoCamera
-		// Consumed here, bundled into the offer below - onConnectionState's
-		// own autoStartVideo check (the content-add path) must not also
-		// fire once this call connects, or we'd try to add a second video
-		// m-line on top of the one already negotiated.
+		// Consumed, or onConnectionState would add a second video m-line.
 		c.autoStartVideo = false
 		c.mu.Unlock()
 	}
@@ -946,15 +815,7 @@ func (c *callSession) initiateSession(ctx context.Context) error {
 	if err := c.client.SendSessionInitiate(ctx, remote, xmpp.JingleIQ{SID: c.sid, Contents: contents}); err != nil {
 		return err
 	}
-	// Only now - once session-initiate has actually gone out - is it safe to
-	// mark signalingReady (see rememberTransport's doc): flipping it earlier
-	// let a fast local ICE candidate race ahead of the very session-initiate
-	// that establishes the Jingle session it belongs to, since OnICECandidate
-	// fires on pion's own goroutine independent of this one. A trickled
-	// transport-info naming a session the peer doesn't know about yet is
-	// exactly the kind of stanza most peers silently drop - permanently
-	// losing that candidate with no local error, which live logs show can
-	// leave ICE stuck at "connecting" for the rest of the call.
+	// Only once session-initiate is sent, see rememberTransport.
 	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 	return nil
@@ -983,13 +844,8 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	if err != nil {
 		return err
 	}
-	// Echo the initiator's content name for each content so both ends agree
-	// on the mid - matched by media kind, not position: contents[0] isn't
-	// necessarily audio (e.g. an incoming audio+video call whose offer lists
-	// video first), and blindly renaming contents[0] to the initiator's
-	// audio name produced two contents with the same name (collapsing to
-	// the same mid) whenever it wasn't, which some peers (Conversations)
-	// reject outright with "Multiple entries with same key".
+	// Echo the initiator's content names so both ends agree on the mid,
+	// matched by media kind, not position: the offer may list video first.
 	for i := range contents {
 		if contents[i].Description == nil {
 			continue
@@ -1002,9 +858,6 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	c.broadcastState(c.currentState(), "")
 
 	c.mu.Lock()
-	// The peer's description of every content established so far - the base
-	// a later content-add (e.g. video for screen sharing) gets merged onto
-	// to reconstruct the full remote SDP (see applyContentAdd).
 	c.remoteContents = jingle.Contents
 	c.mu.Unlock()
 
@@ -1016,9 +869,7 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	if err := c.client.SendSessionAccept(ctx, remote, xmpp.JingleIQ{SID: c.sid, Contents: contents}); err != nil {
 		return err
 	}
-	// See initiateSession's matching comment: only safe to mark
-	// signalingReady (letting sendCandidate actually trickle) once
-	// session-accept is confirmed on the wire, not before.
+	// Only once session-accept is sent, see rememberTransport.
 	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 	return nil
@@ -1049,23 +900,17 @@ func (c *callSession) applyAnswer(ctx context.Context, jingle xmpp.JingleIQ) err
 	c.checkFingerprints(localFP, firstFingerprint(jingle.Contents))
 	c.broadcastState(c.currentState(), "")
 
-	// A video call (see initiateSession) bundled its video track into the
-	// original offer rather than a later content-add - if the callee's
-	// answer accepted it, this is the equivalent of applyContentAccept's
-	// job for that path: negotiation just completed, so it's finally safe
-	// to actually start capturing and sending frames.
+	// A video call's video was in the offer (see initiateSession): once the
+	// answer accepts it, capture starts, as applyContentAccept does.
 	if _, ok := firstContentOfKind(jingle.Contents, "video"); ok {
 		c.beginScreenShareCapture(pc)
 	}
 	return nil
 }
 
-// checkFingerprints computes the SAS and TOFU-checks remoteFP against this
-// contact's pinned fingerprint (see checkAndPinCallFingerprint), storing the
-// result on c for callBarLine to display. No-op if either fingerprint is
-// missing (shouldn't happen - sdpFromJingleContents/jingleContentsFromSDP
-// both require one - but a call session with nothing to compare is better
-// than a false "changed" alarm from an empty string).
+// checkFingerprints computes the SAS and checks remoteFP against the
+// contact's pinned one (see checkAndPinCallFingerprint). No-op without both
+// fingerprints, rather than a false "changed" alarm.
 func (c *callSession) checkFingerprints(localFP, remoteFP string) {
 	if localFP == "" || remoteFP == "" {
 		return
@@ -1081,32 +926,16 @@ func (c *callSession) checkFingerprints(localFP, remoteFP string) {
 	}
 }
 
-// rememberTransport records our own ICE credentials and content name from
-// the description we just generated, so trickled transport-info IQs can
-// repeat them. This also flips signalingReady, unblocking sendCandidate
-// (called from setupPeer's OnICECandidate, which fires on pion's own
-// goroutine independent of whichever one is running signaling) - so every
-// caller must call this only *after* confirming the session-initiate/
-// -accept/transport-replace/-accept that establishes what these credentials
-// belong to has actually gone out on the wire. Calling it any earlier lets a
-// fast local candidate race ahead as a transport-info for a session the peer
-// doesn't know exists yet, which most peers just silently drop - losing
-// that candidate for good, with no local error, which can leave ICE stuck
-// short of Connected for the rest of the call.
+// rememberTransport records our ICE credentials and content name for trickled
+// transport-info IQs, and sets signalingReady, letting sendCandidate (on
+// pion's goroutine) send. Call it only after the stanza establishing these
+// credentials is sent: peers silently drop a candidate for a session they
+// don't know yet, which can leave ICE stuck.
 func (c *callSession) rememberTransport(contents []xmpp.JingleContent) {
-	// ICE-UDP is bundled here (one ICE session shared by every mid via
-	// a=group:BUNDLE), so the ufrag/pwd pair is the same regardless of which
-	// content we anchor to - but the *content name* used to label trickled
-	// candidates is not a free choice: it has to be the bundle-tag content
-	// (the first m= section - RFC 8843 - so the first one here, since our
-	// content order always mirrors SDP m-line order). Hardcoding "audio"
-	// here used to seem harmless for exactly that reason, until a call
-	// where video is the first content (e.g. an incoming video call):
-	// candidates kept arriving labeled for the audio content, the peer
-	// never got any candidate for the actual bundle-tag line, and ICE sat
-	// at "checking" for the whole call - observed live against Conversations,
-	// which strictly attributes every candidate to the content name it came
-	// labeled with rather than just applying it to the whole bundle.
+	// Bundled, so every content shares the credentials, but candidates must
+	// be labelled with the bundle-tag content: the first m= section (RFC
+	// 8843), which is contents[0]. Conversations attributes a candidate only
+	// to the content it names.
 	if len(contents) == 0 || contents[0].Transport == nil {
 		return
 	}
@@ -1231,29 +1060,18 @@ func (c *callSession) onConnectionState(ctx context.Context, state webrtc.PeerCo
 	case webrtc.PeerConnectionStateFailed:
 		c.handleICEFailure(ctx)
 	case webrtc.PeerConnectionStateDisconnected:
-		// Often transient - ICE can un-disconnect on its own within a few
-		// seconds. Only escalate to a restart attempt if it's still
-		// disconnected (or has since failed) once the grace period elapses.
 		c.scheduleDisconnectCheck(ctx)
 	case webrtc.PeerConnectionStateClosed:
-		// Fires as a side effect of DTLS/ICE teardown on ANY hangup, not just
-		// a network failure - a peer ending the call normally closes their
-		// side's connection before (or without ever) sending the XEP-0166
-		// session-terminate that would explain why, and by the time it
-		// arrives (observed ~150-200ms later live) this callSession is
-		// already gone, so it can't be used to fill in a more specific
-		// reason. "connection lost" would wrongly imply a failure here -
-		// "call ended" is the honest, direction-agnostic description.
+		// Also how a normal hangup by the peer looks: their connection closes
+		// before their session-terminate arrives. So not "connection lost".
 		c.end(ctx, "ended", "call ended")
 	}
 }
 
-// handleICEFailure reacts to PeerConnectionStateFailed (or a
-// still-disconnected connection past its grace period). Before the call ever
-// connected, or once the retry budget is exhausted, it ends the call exactly
-// as before ICE restart existed. Once connected, only the Jingle initiator
-// drives a restart - the responder just waits for the initiator's
-// transport-replace (see handleJingle).
+// handleICEFailure reacts to a failed connection, or one still disconnected
+// past its grace period: ending the call if it never connected or restarts
+// ran out, else restarting ICE if we're the initiator. The responder waits
+// for the initiator's transport-replace.
 func (c *callSession) handleICEFailure(ctx context.Context) {
 	c.mu.Lock()
 	if c.state != callConnected {
@@ -1269,9 +1087,7 @@ func (c *callSession) handleICEFailure(ctx context.Context) {
 	c.attemptICERestart(ctx)
 }
 
-// scheduleDisconnectCheck arms (if not already armed) a one-shot timer that
-// re-checks the connection state after iceDisconnectGrace - most
-// disconnects resolve on their own before it fires.
+// scheduleDisconnectCheck re-checks the connection after iceDisconnectGrace.
 func (c *callSession) scheduleDisconnectCheck(ctx context.Context) {
 	c.mu.Lock()
 	if c.disconnectTimer != nil {
@@ -1294,11 +1110,9 @@ func (c *callSession) scheduleDisconnectCheck(ctx context.Context) {
 	c.mu.Unlock()
 }
 
-// attemptICERestart drives one XEP-0166/0176 §6.1 transport restart attempt:
-// regenerate our offer with fresh ICE credentials and send it as a
-// transport-replace. The peer's transport-accept (applied in
-// applyTransportAccept) completes the restart; failure to even get the
-// replace out schedules a bounded, backed-off retry via scheduleRestartRetry.
+// attemptICERestart sends a transport-replace with fresh ICE credentials
+// (XEP-0176 §6.1), which the peer's transport-accept completes. If it can't
+// be sent, scheduleRestartRetry tries again.
 func (c *callSession) attemptICERestart(ctx context.Context) {
 	c.mu.Lock()
 	if c.restarting {
@@ -1344,17 +1158,13 @@ func (c *callSession) attemptICERestart(ctx context.Context) {
 		c.scheduleRestartRetry(ctx, attempt)
 		return
 	}
-	// See initiateSession's matching comment: only safe to repoint
-	// sendCandidate at the new restart credentials once transport-replace is
-	// confirmed on the wire, not before.
+	// Only once transport-replace is sent, see rememberTransport.
 	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 }
 
-// scheduleRestartRetry backs off (1s, 2s, 4s, capped at 8s - the same
-// doubling shape as reconnectWithBackoff in account.go, just bounded by
-// maxICERestarts instead of running forever) and, if the call is still
-// connected and hasn't recovered by itself, makes another restart attempt.
+// scheduleRestartRetry backs off, then restarts ICE again unless the call
+// recovered or ended.
 func (c *callSession) scheduleRestartRetry(ctx context.Context, attempt int) {
 	c.mu.Lock()
 	c.restarting = false
@@ -1380,12 +1190,9 @@ func (c *callSession) scheduleRestartRetry(ctx context.Context, attempt int) {
 	})
 }
 
-// applyTransportReplace is the responder side of a restart: apply the
-// initiator's new offer (pion detects the changed ICE credentials and
-// restarts the ICE transport itself, regenerating our local credentials too
-// - see PeerConnection.SetRemoteDescription), then answer with
-// transport-accept naming our own restarted transport. A malformed replace
-// gets a transport-reject rather than silently doing nothing.
+// applyTransportReplace is the responder side of an ICE restart: pion
+// restarts ICE on the offer's new credentials, and we answer with
+// transport-accept, or transport-reject for a malformed replace.
 func (c *callSession) applyTransportReplace(ctx context.Context, jingle xmpp.JingleIQ) {
 	c.mu.Lock()
 	pc, remote, state := c.pc, c.remoteJID, c.state
@@ -1428,16 +1235,12 @@ func (c *callSession) applyTransportReplace(ctx context.Context, jingle xmpp.Jin
 	if err := c.client.SendTransportAccept(ctx, remote, c.sid, acceptContent); err != nil {
 		slog.Warn("sending transport-accept", "sid", c.sid, "err", err)
 	}
-	// See initiateSession's matching comment: only safe to repoint
-	// sendCandidate at the new restart credentials once transport-accept is
-	// confirmed on the wire, not before.
+	// Only once transport-accept is sent, see rememberTransport.
 	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 }
 
-// applyTransportAccept is the initiator side's final step: the peer's
-// answer to our transport-replace becomes the new remote description,
-// completing the restart.
+// applyTransportAccept completes our ICE restart with the peer's answer.
 func (c *callSession) applyTransportAccept(jingle xmpp.JingleIQ) {
 	c.mu.Lock()
 	pc := c.pc
@@ -1459,10 +1262,8 @@ func (c *callSession) applyTransportAccept(jingle xmpp.JingleIQ) {
 	c.mu.Unlock()
 }
 
-// startMedia opens the audio devices and starts pumping mic -> Opus -> RTP.
-// The receive direction is started by OnTrack instead, since it can't begin
-// before the peer's track actually arrives.
-// If the mic is unavailable, the call proceeds without it (send-only disabled).
+// startMedia opens the audio devices and sends the mic. Receiving starts in
+// OnTrack. Without a mic, the call goes on without it.
 func (c *callSession) startMedia() error {
 	enc, err := call.NewEncoder()
 	if err != nil {
@@ -1493,11 +1294,8 @@ func (c *callSession) startMedia() error {
 	return nil
 }
 
-// switchMic opens the named capture device and makes it the call's mic,
-// stopping and closing the previous one (if any) - how a call starts its
-// mic, and how a different input picked mid-call takes over. The old pump
-// is awaited before the new one starts: both feed the same Opus encoder,
-// which isn't safe for concurrent use.
+// switchMic makes the named device the call's mic. The old pump is awaited
+// before the new one starts: both use the one Opus encoder.
 func (c *callSession) switchMic(device string) error {
 	mic, err := call.NewMic(device)
 	if err != nil {
@@ -1692,10 +1490,8 @@ func (c *callSession) switchSpeaker(device string) error {
 	return nil
 }
 
-// setAudioDevices moves a call whose media is already running over to the
-// given input/output devices, reopening only whichever changed. A call
-// whose media hasn't started yet needs nothing: startMedia opens whatever
-// is current when it runs.
+// setAudioDevices moves a call's running media to the given devices,
+// reopening only what changed.
 func (c *callSession) setAudioDevices(input, output string, inputChanged, outputChanged bool) error {
 	c.mu.Lock()
 	started := c.spk != nil
@@ -1716,10 +1512,8 @@ func (c *callSession) setAudioDevices(input, output string, inputChanged, output
 	return nil
 }
 
-// playRemote drains the peer's RTP track into the speaker. It runs from the
-// moment the track appears, which can be before startMedia has opened the
-// speaker - packets read in that window are dropped rather than buffered,
-// which costs at most a few tens of milliseconds of audio at call setup.
+// playRemote plays the peer's audio track. Packets arriving before startMedia
+// opened the speaker are dropped.
 func (c *callSession) playRemote(track *webrtc.TrackRemote) {
 	pcm := make([]int16, call.FrameSamples*call.Channels)
 	for {
@@ -1765,28 +1559,18 @@ func (c *callSession) playRemote(track *webrtc.TrackRemote) {
 	}
 }
 
-// currentState returns c.state under lock, for broadcastState calls made
-// from places (like startVideoShare) that changed something other than the
-// lifecycle state and just want to re-broadcast the unchanged one.
+// currentState returns c.state under lock.
 func (c *callSession) currentState() callState {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.state
 }
 
-// startVideoShare adds the video track and sends a XEP-0166 content-add
-// offering it - the capture process (the screen recorder or, for useCamera, ffmpeg
-// reading the webcam) only actually starts once the peer's content-accept
-// lands (see applyContentAccept), so the video m-line only ever gets
-// negotiated with real media about to flow, never idle from the start (see
-// call.NewPeerConnection's doc comment for why that matters). Already
-// sending (or with a content-add in flight), it only switches the source to
-// useCamera's - see switchVideoSource. Runs fine while
-// we're already receiving the peer's own video too - each direction gets its
-// own content/mid (see call.PeerConnection.AddVideoTrack, which always
-// allocates a fresh transceiver rather than repurposing the recvonly one
-// applyContentAdd left in place for the peer's stream), so both sides can be
-// sending video on the same call simultaneously.
+// startVideoShare adds a video track and offers it with a XEP-0166
+// content-add. Capture starts once the peer accepts (applyContentAccept), so
+// the m-line is never negotiated idle (see call.NewPeerConnection). Already
+// sending, or offering, it switches the source (switchVideoSource). Our
+// video gets its own content and mid, apart from any the peer sends us.
 func (c *callSession) startVideoShare(useCamera bool) error {
 	c.mu.Lock()
 	if c.pendingShare {
@@ -1825,12 +1609,8 @@ func (c *callSession) startVideoShare(useCamera bool) error {
 	if err != nil {
 		return fmt.Errorf("building content-add: %w", err)
 	}
-	// Match by mid, not just "first video content": a call that started as
-	// audio+video (peer offering their own camera from session-initiate)
-	// already has an unrelated, pre-existing video content by this point -
-	// firstContentOfKind-by-kind would grab that one and re-announce an
-	// already negotiated name, which peers reject and terminate the call
-	// over (see VideoMid's doc comment).
+	// By mid, not kind: the peer's own video content may exist already, and
+	// re-announcing it makes peers end the call (see VideoMid).
 	videoMid := pc.VideoMid()
 	var videoContent xmpp.JingleContent
 	var ok bool
@@ -1860,12 +1640,9 @@ func (c *callSession) startVideoShare(useCamera bool) error {
 	return nil
 }
 
-// applyContentAdd is the responder side of a peer starting a screen share:
-// merge the new video content onto what's already established, apply the
-// resulting full offer, and answer with content-accept. We don't add our
-// own video track here - only the side that called startVideoShare sends;
-// this side just receives (pion's CreateAnswer sets recvonly for a
-// transceiver with no local track).
+// applyContentAdd accepts a peer's new content, typically their video: the
+// full offer (merged onto remoteContents) is applied and answered with
+// content-accept. With no local track, pion answers recvonly.
 func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ) {
 	slog.Debug("screen share: received content-add", "sid", c.sid, "contents", len(jingle.Contents))
 	c.mu.Lock()
@@ -1890,9 +1667,6 @@ func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ)
 	c.remoteContents = merged
 	c.mu.Unlock()
 
-	// No local video track is added on this side (see comment above), so
-	// given the sendonly offer we just applied, pion's CreateAnswer
-	// negotiates recvonly for the video m-line on its own.
 	answer, err := pc.CreateAnswer()
 	if err != nil {
 		slog.Warn("answering content-add", "sid", c.sid, "err", err)
@@ -1921,9 +1695,8 @@ func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ)
 	slog.Debug("screen share: transceiver state after content-add", "sid", c.sid, "transceivers", pc.DebugTransceivers())
 }
 
-// applyContentAccept is the sharer's side: the peer's answer to our
-// content-add completes the renegotiation, at which point it's finally safe
-// to actually start capturing and sending frames (see beginScreenShareCapture).
+// applyContentAccept applies the peer's answer to our content-add and starts
+// capture (see beginScreenShareCapture).
 func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.JingleIQ) {
 	slog.Debug("screen share: received content-accept", "sid", c.sid, "contents", len(jingle.Contents))
 	c.mu.Lock()
@@ -1958,21 +1731,12 @@ func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.Jingle
 	c.beginScreenShareCapture(pc)
 }
 
-// applyContentModify responds to a peer's XEP-0166 content-modify (e.g.
-// Conversations trying to upgrade a receive-only video content to
-// bidirectional so it can send its own camera back) by withdrawing the
-// content outright: send a content-remove and, if it's our own outbound
-// video (the content startVideoShare is sending on), stop capturing and
-// sending too, the same local teardown a user-initiated stop does (see
-// stopScreenShare). kage has no way to honor the request either way - pion
-// gives an already-negotiated transceiver no path to become bidirectional
-// without re-assigning its mid (see call.PeerConnection.VideoMid's doc) -
-// and echoing a decline back doesn't reliably communicate that: at least
-// one real peer (Conversations) proceeds as if the upgrade succeeded
-// regardless of what the decline says (observed live: "remote has accepted
-// our upgrade to senders=both" right after kage's echoed decline went out),
-// leaving both sides silently disagreeing about who sends what for the rest
-// of the call - a content-remove is unambiguous instead.
+// applyContentModify answers a peer's XEP-0166 content-modify (such as
+// making our video content bidirectional) by removing the content, stopping
+// our capture if it was ours. Pion can't make a negotiated transceiver
+// bidirectional (see call.PeerConnection.VideoMid), and Conversations treats
+// a declined modify as accepted, so a content-remove is the unambiguous
+// answer.
 func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.JingleIQ) {
 	c.mu.Lock()
 	remote, remoteContents, ourVideoMid := c.remoteJID, c.remoteContents, ""
@@ -1982,10 +1746,7 @@ func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.Jingle
 	c.mu.Unlock()
 
 	for _, req := range jingle.Contents {
-		// content-modify only names the content (creator/name/senders), no
-		// <description/> - matching jingleContentsFromSDP's own assumption
-		// that echoed content names are stable identifiers, not something to
-		// re-derive from a description that may not even be present here.
+		// content-modify names the content, without a <description/>.
 		var ok bool
 		for _, rc := range remoteContents {
 			if rc.Name == req.Name {
@@ -2029,15 +1790,11 @@ func videoSourceLabel(useCamera bool) string {
 	return "screen share"
 }
 
-// defaultCameraDevice is the only camera device kage tries - no UI or config
-// exists yet to pick among several, so the common single-webcam case is all
-// that's supported for now.
+// defaultCameraDevice is the camera kage uses; there's no picking another.
 const defaultCameraDevice = "/dev/video0"
 
-// beginScreenShareCapture launches the capture process (the configured
-// call.ScreenRecorder for a screen share, ffmpeg/v4l2 for a camera - see
-// c.videoUseCamera) and starts pumping captured frames onto the
-// now-fully-negotiated video track.
+// beginScreenShareCapture starts capturing the screen or camera onto the
+// negotiated video track.
 func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.mu.Lock()
 	useCamera := c.videoUseCamera
@@ -2053,9 +1810,7 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	}
 	if err != nil {
 		slog.Warn("starting video capture", "sid", c.sid, "camera", useCamera, "err", err)
-		// The content is negotiated but nothing will ever be sent on it -
-		// withdraw it the same way a user-initiated stop would, so neither
-		// side is left showing a video that isn't coming.
+		// Withdraw the content nothing will be sent on.
 		c.stopScreenShare()
 		c.removeVideoContent(context.Background())
 		c.broadcastNotice(fmt.Sprintf("couldn't start %s: %v", videoSourceLabel(useCamera), err))
@@ -2080,10 +1835,8 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 		stillOurs := c.videoSource == share
 		c.mu.Unlock()
 		if stillOurs {
-			// The capture process died on its own (the recorder/ffmpeg exited,
-			// the user closed the screen picker, ...) - as far as the peer is
-			// concerned that's the same event as a user-initiated stop, so
-			// withdraw the content rather than just clearing our own flags.
+			// Capture stopped by itself (the screen picker was closed, ...):
+			// to the peer that's a stop like any other.
 			c.withdrawVideoShare(context.Background())
 			if err != nil {
 				c.broadcastNotice(fmt.Sprintf("%s stopped: %v", videoSourceLabel(useCamera), err))
@@ -2094,17 +1847,14 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.broadcastUpdate()
 }
 
-// switchVideoSource swaps what feeds our already-negotiated outgoing video
-// track - camera to screen or back - without renegotiating: both sources
-// produce the same H.264 Annex-B stream, so all the peer sees is a fresh
-// keyframe (with its own SPS, i.e. possibly a new resolution) on the same
-// content.
+// switchVideoSource swaps camera and screen on our video track without
+// renegotiating: both are the same H.264 stream, so the peer just sees a
+// new keyframe.
 func (c *callSession) switchVideoSource(pc *call.PeerConnection, useCamera bool) {
 	c.mu.Lock()
 	old := c.videoSource
-	// Cleared before Stop so the old capture goroutine's stillOurs check
-	// doesn't mistake its own exit for the source dying and withdraw the
-	// content out from under the replacement.
+	// Cleared before Stop, so the old capture's exit doesn't read as the
+	// source dying and withdraw the content.
 	c.videoSource = nil
 	c.videoUseCamera = useCamera
 	c.mu.Unlock()
@@ -2115,11 +1865,8 @@ func (c *callSession) switchVideoSource(pc *call.PeerConnection, useCamera bool)
 	c.beginScreenShareCapture(pc)
 }
 
-// reopenRemoteVideo brings back the viewer for the peer's currently active
-// incoming video after it was closed by hand: clears viewerDismissed and
-// re-requests a keyframe, letting playRemoteVideo's viewer==nil branch
-// reopen mpv once it arrives - without tearing down or renegotiating the
-// video content itself.
+// reopenRemoteVideo brings back the peer's video window after it was closed
+// by hand, by asking for a keyframe for playRemoteVideo to reopen it on.
 func (c *callSession) reopenRemoteVideo() error {
 	c.mu.Lock()
 	pc, track := c.pc, c.remoteVideoTrack
@@ -2133,10 +1880,8 @@ func (c *callSession) reopenRemoteVideo() error {
 	return pc.SendPLI(track.SSRC())
 }
 
-// stopScreenShare tears down the capture process, if one is running. Purely
-// local - the peer isn't told, since the callers that already sent (or
-// received) their own content-remove would otherwise send a second one. For
-// a user-initiated stop, see withdrawVideoShare.
+// stopScreenShare stops the capture, if any, without telling the peer; see
+// withdrawVideoShare for that.
 func (c *callSession) stopScreenShare() {
 	c.mu.Lock()
 	share := c.videoSource
@@ -2150,18 +1895,12 @@ func (c *callSession) stopScreenShare() {
 	c.broadcastUpdate()
 }
 
-// withdrawVideoShare stops sending our own video and tells the peer so with
-// a XEP-0166 content-remove - the counterpart to startVideoShare's
-// content-add. Without it the peer has no way to tell "the sharer stopped"
-// from "the frames are late": its viewer just sits on the last frame it
-// decoded for the rest of the call.
+// withdrawVideoShare stops our video and tells the peer with a XEP-0166
+// content-remove, or its viewer would sit on the last frame.
 //
-// The video m-line itself stays negotiated on both ends (no local
-// renegotiation here - pion gives a removed transceiver no path back), so
-// re-sharing later re-offers the same mid through startVideoShare. That only
-// stays clean because the withdrawn content is dropped from remoteContents
-// too: applyContentAccept merges by appending, so leaving it in place would
-// give the re-share's answer two m-lines for one mid.
+// The m-line stays negotiated, so sharing again re-offers the same mid.
+// The content is dropped from remoteContents, or that answer would get two
+// m-lines for one mid.
 func (c *callSession) withdrawVideoShare(ctx context.Context) {
 	c.mu.Lock()
 	sharing, pending := c.sharing, c.pendingShare
@@ -2177,10 +1916,8 @@ func (c *callSession) withdrawVideoShare(ctx context.Context) {
 	c.removeVideoContent(ctx)
 }
 
-// removeVideoContent sends the content-remove for our outgoing video
-// content and forgets it from remoteContents - the signaling half of
-// withdrawVideoShare, also used on its own when capture fails to start at
-// all (nothing to stop locally then, but the content is still negotiated).
+// removeVideoContent sends the content-remove for our video content and drops
+// it from remoteContents.
 func (c *callSession) removeVideoContent(ctx context.Context) {
 	c.mu.Lock()
 	remote, videoMid := c.remoteJID, ""
@@ -2217,12 +1954,9 @@ func (c *callSession) clearRemoteVideoViewer() {
 	c.mu.Unlock()
 }
 
-// applyContentRemove is the receiving end of a peer withdrawing a content
-// (see withdrawVideoShare for our own side of it): close the viewer showing
-// that video and forget the content, so a later re-add of the same mid
-// merges cleanly. We deliberately don't renegotiate or end the call over it -
-// XEP-0166 §7.2.8 only ends the session when the last content goes away, and
-// for us that's never the case: the audio content always outlives it.
+// applyContentRemove handles the peer withdrawing a content: its video window
+// closes and the content is forgotten, so re-adding the mid works. The call
+// goes on: audio is never removed (XEP-0166 §7.2.8).
 func (c *callSession) applyContentRemove(jingle xmpp.JingleIQ) {
 	for _, req := range jingle.Contents {
 		if req.Name == "" {
@@ -2259,13 +1993,9 @@ func (c *callSession) applyContentRemove(jingle xmpp.JingleIQ) {
 	}
 }
 
-// playRemoteVideo pipes a peer's shared-screen video track into mpv,
-// mirroring playRemote's role for audio - reassembled via pion's H.264
-// depacketizer/samplebuilder rather than decoded ourselves; mpv does the
-// actual H.264 decode (see call.ScreenViewer). The viewer window is only
-// spawned once the first complete frame arrives, so a video track that's
-// negotiated but never actually sends anything (the common case: the peer
-// isn't sharing) never pops up an empty mpv window.
+// playRemoteVideo pipes the peer's video track into an mpv window, which
+// decodes it (see call.ScreenViewer). The window only opens on the first
+// keyframe, so a negotiated but silent track shows nothing.
 func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.TrackRemote) {
 	slog.Debug("screen share: remote video track registered, waiting for packets", "sid", c.sid, "track_id", track.ID(), "ssrc", track.SSRC())
 
@@ -2283,12 +2013,8 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 		}
 	}()
 
-	// Request a keyframe now, not just once we're ready to decode: the
-	// sender's encoder was very likely already running before this track
-	// existed on our side (see SendPLI's doc), so without this the first
-	// samples we assemble reference a keyframe we never received and the
-	// viewer stays black indefinitely. A couple of retries cover a PLI lost
-	// before ICE/DTLS is fully settled.
+	// The sender likely encoded its keyframe before this track existed here,
+	// so ask for one (see SendPLI), a few times in case one is lost early.
 	for _, delay := range []time.Duration{0, 2 * time.Second, 5 * time.Second} {
 		time.AfterFunc(delay, func() {
 			if err := pc.SendPLI(track.SSRC()); err != nil {
@@ -2299,12 +2025,8 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 		})
 	}
 
-	// The very first RTP packet has to be read before we can ask pion what
-	// codec it actually negotiated: track.Codec() is empty at the moment
-	// OnTrack fires (SetFireOnTrackBeforeFirstRTP - see NewPeerConnection -
-	// deliberately fires OnTrack before codec auto-detection completes, to
-	// dodge a separate pion crash), and only reads as the real value once
-	// codec detection has run, which needs a packet to have arrived first.
+	// track.Codec() is only known after the first packet: OnTrack fires
+	// before it (SetFireOnTrackBeforeFirstRTP, see NewPeerConnection).
 	var firstPacket *rtp.Packet
 	for firstPacket == nil {
 		select {
@@ -2320,13 +2042,8 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 		firstPacket = packet
 	}
 
-	// The peer picks the codec, not us - kage's own screen-share always
-	// sends H.264, but an arbitrary Jingle peer's video (e.g. a phone
-	// placing a video call) may have negotiated VP8 instead. Feeding VP8
-	// RTP through an H.264 depacketizer produces no error, just NAL-shaped
-	// garbage that never contains anything hasKeyframe recognizes and a
-	// viewer that opens and stays black forever - so ask pion what it
-	// actually negotiated rather than assuming.
+	// The peer may send VP8 rather than H.264; the wrong depacketizer
+	// fails silently.
 	mimeType := strings.ToLower(track.Codec().RTPCodecCapability.MimeType)
 	var depacketizer rtp.Depacketizer
 	var videoCodec call.VideoCodec
@@ -2347,13 +2064,9 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 	}
 	slog.Debug("screen share: first remote video RTP packet received", "sid", c.sid, "seq", firstPacket.SequenceNumber, "payload_type", firstPacket.PayloadType, "codec", mimeType, "bytes", len(firstPacket.Payload))
 
-	// maxLate is counted in packets, and a frame spanning more of them than
-	// that gets its head evicted before its tail arrives - so it has to
-	// cover a whole keyframe, which at CBR easily runs 5-10x an average
-	// frame (100KB+, ~100 RTP packets). Too low and every keyframe is
-	// silently dropped: the viewer never opens while P-frames keep flowing.
-	// The time cap keeps a lost packet from stalling playback for as long
-	// as that many packets take to arrive.
+	// maxLate, in packets, must hold a whole keyframe (100+ packets), or
+	// every keyframe is dropped. The time cap keeps a lost packet from
+	// stalling playback.
 	sb := samplebuilder.New(1000, depacketizer, 90000, samplebuilder.WithMaxTimeDelay(500*time.Millisecond))
 	sb.Push(firstPacket)
 	var viewer *call.ScreenViewer
@@ -2387,10 +2100,7 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				slog.Debug("screen share: assembled sample", "sid", c.sid, "sample", samples, "bytes", len(sample.Data), "saw_keyframe", sawKeyframe)
 			}
 			if viewer == nil {
-				// Only open a fresh viewer once we've actually seen a keyframe
-				// since the last one closed - feeding an interframe-only stream
-				// into a brand new mpv process never decodes into a visible
-				// picture.
+				// A new viewer needs a keyframe to show anything.
 				if !sawKeyframe {
 					continue
 				}
@@ -2414,15 +2124,10 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				c.broadcastUpdate()
 			}
 			if err := viewer.WriteFrame(sample.Data); err != nil {
-				// mpv exited (the window was closed) - this doesn't end the
-				// call's video: keep draining the track, but don't pop the
-				// window straight back up on the next keyframe either. It
-				// stays closed until reopenRemoteVideo (the call menu's
-				// "open video") asks for it back.
+				// The window was closed: keep draining the track, without
+				// reopening it until reopenRemoteVideo.
 				slog.Debug("screen share: writing to mpv failed, closing viewer", "sid", c.sid, "err", err)
-				// A viewer applyContentRemove already closed (the peer
-				// stopped, then re-shared on the same track) wasn't
-				// dismissed by anyone - the re-share should just show.
+				// Closed by applyContentRemove, not by hand: a re-share shows.
 				viewer.Close()
 				c.mu.Lock()
 				dismissed := c.remoteVideoViewer == viewer
@@ -2463,12 +2168,8 @@ func hasVP8Keyframe(data []byte) bool {
 	return len(data) > 0 && data[0]&0x1 == 0
 }
 
-// hasH264IDRNAL reports whether an assembled H.264 access unit (Annex-B,
-// one or more concatenated NALs) contains an IDR slice (type 5) - i.e. is a
-// keyframe a decoder can actually start from. Used purely for diagnosing
-// "video track receives packets but the viewer stays black": that symptom
-// is indistinguishable from working RTP unless we can tell whether any of
-// what we assembled was ever decodable in the first place (see SendPLI).
+// hasH264IDRNAL reports whether an H.264 access unit (Annex-B) contains an
+// IDR slice, a keyframe.
 func hasH264IDRNAL(data []byte) bool {
 	for i := 0; i+3 < len(data); i++ {
 		if data[i] != 0 || data[i+1] != 0 {
@@ -2491,9 +2192,8 @@ func hasH264IDRNAL(data []byte) bool {
 
 // --- teardown -----------------------------------------------------------
 
-// end tears the call down exactly once and tells the TUI why. It does not
-// send any stanza itself: whichever caller decided the call is over already
-// sent (or received) the terminate/reject/retract that says so on the wire.
+// end tears the call down once and tells the TUI why. It sends nothing: the
+// caller already sent or received what ended it.
 func (c *callSession) end(ctx context.Context, state, reason string) {
 	c.closeOnce.Do(func() {
 		close(c.done)
@@ -2544,20 +2244,9 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 	})
 }
 
-// callOutcome buckets a finished call into one of the four call-log outcomes
-// ("answered", "missed", "declined", "failed") from its final lifecycle
-// state, whether media ever actually started, and the free-text reason
-// string passed to end() - see the various c.end(ctx, "ended"/"failed", ...)
-// call sites throughout this file for every reason string actually in use
-// ("hung up", "declined", "caller hung up", "answered elsewhere",
-// terminateReason's outputs, "call ended", "ice connection failed", the
-// restart-exhausted message, "peer rejected connection restart"). A call
-// that was ever connected (mediaStarted) is "answered" even if it later
-// disconnected - it happened and had a duration. Otherwise state == "failed"
-// is "failed"; an explicit decline is "declined"; anything else that never
-// connected (we or the peer hung up/retracted/cancelled before pickup, or
-// the ringing device answered elsewhere) reads as "missed" - the closest of
-// the four buckets to "nothing was ever heard".
+// callOutcome is a finished call's log outcome: "answered" if media ever
+// started, else "failed", "declined" or, for anything else that never
+// connected, "missed". reason is what end() was given.
 func callOutcome(state, reason string, mediaStarted bool) string {
 	switch {
 	case mediaStarted:
@@ -2571,17 +2260,8 @@ func callOutcome(state, reason string, mediaStarted bool) string {
 	}
 }
 
-// logCall persists this finished call as a call-log row in the same chat as
-// the peer, and broadcasts it live via the same event a normal incoming
-// message uses, so it appears immediately in the timeline of anyone with
-// this chat open. Runs from inside end()'s closeOnce.Do, after teardown.
-//
-// Every callSession that reaches here represents a real call attempt (an
-// outgoing XEP-0353 propose we sent, or one we received from the peer) - a
-// purely local pre-flight failure before any signaling happened never gets
-// this far, since setupPeer only ever runs after a propose/proceed
-// round-trip already occurred - so there's no "too early to log" case to
-// filter out here.
+// logCall stores the finished call as a call-log row in the peer's chat and
+// broadcasts it like an incoming message. Runs from end().
 func (c *callSession) logCall(state, reason string) {
 	c.mu.Lock()
 	mediaStarted := c.mediaStarted
@@ -2658,20 +2338,16 @@ func (c *callSession) stateEventLocked(state callState, reason string) ui.CallSt
 	}
 }
 
-// broadcastUpdate re-broadcasts the call's unchanged lifecycle state after
-// something else about it changed (video started/stopped, the peer's video
-// appeared, ...). Silent once the call has ended - end() already sent the
-// final state, and a late media goroutine winding down must not follow it
-// with a stale one.
+// broadcastUpdate re-broadcasts the call's state after something else about
+// it changed. Silent once ended, so a late goroutine can't follow end()'s
+// final state with a stale one.
 func (c *callSession) broadcastUpdate() {
 	if state := c.currentState(); state != callEnded {
 		c.broadcastState(state, "")
 	}
 }
 
-// broadcastNotice is broadcastUpdate carrying a one-off message for the UI
-// to surface (e.g. a capture device that failed to open) - something worth
-// telling the user that isn't itself a call state.
+// broadcastNotice is broadcastUpdate with a message for the user.
 func (c *callSession) broadcastNotice(notice string) {
 	c.mu.Lock()
 	state := c.state
@@ -2684,9 +2360,7 @@ func (c *callSession) broadcastNotice(notice string) {
 	broadcast(c.srv, ev)
 }
 
-// setMuted flips the mic-gate checked by startMedia's capture loop and
-// broadcasts the new state at the call's current lifecycle state (unchanged)
-// so the UI's mute icon updates without waiting for some other transition.
+// setMuted mutes or unmutes the mic and broadcasts it.
 func (c *callSession) setMuted(muted bool) {
 	c.mu.Lock()
 	c.muted = muted
@@ -2695,11 +2369,8 @@ func (c *callSession) setMuted(muted bool) {
 	c.broadcastState(state, "")
 }
 
-// startQualitySampler begins polling GetStats() every qualitySampleInterval
-// while the call is connected, updating c.quality and broadcasting it
-// alongside the unchanged "connected" state. Stopped by stopQualitySampler
-// from end() (or if the call ends before ever connecting, it's simply never
-// started).
+// startQualitySampler samples the connection's quality every
+// qualitySampleInterval until stopQualitySampler, broadcasting it.
 func (c *callSession) startQualitySampler() {
 	c.mu.Lock()
 	if c.qualityTicker != nil {
