@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -28,16 +29,32 @@ func newLocalID() string {
 // trimComposed drops the blank lines and trailing whitespace around what
 // was typed, but keeps the first line's indentation: trimmed like the rest
 // of the text, a pasted indented block would come out with its first line
-// shifted left of the others.
+// shifted left of the others. Text with nothing visible in it - only
+// spaces, or invisible characters like a zero-width space - comes back
+// empty, so it isn't sent.
 func trimComposed(s string) string {
-	s = strings.TrimRight(s, " \t\r\n")
+	if isBlank(s) {
+		return ""
+	}
+	s = strings.TrimRightFunc(s, unicode.IsSpace)
 	for {
 		line, rest, ok := strings.Cut(s, "\n")
-		if !ok || strings.TrimSpace(line) != "" {
+		if !ok || !isBlank(line) {
 			return s
 		}
 		s = rest
 	}
+}
+
+// isBlank reports whether s shows nothing: only whitespace and invisible
+// format characters (zero-width space, joiners, direction marks...).
+func isBlank(s string) bool {
+	for _, r := range s {
+		if !unicode.IsSpace(r) && !unicode.Is(unicode.Cf, r) {
+			return false
+		}
+	}
+	return true
 }
 
 // sendCurrentInput performs the SelectSend action for viewChat: sends the
