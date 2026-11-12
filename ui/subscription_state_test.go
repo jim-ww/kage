@@ -42,12 +42,13 @@ func TestChatAddedUpdatesSubscription(t *testing.T) {
 		t.Fatalf("after approval: %+v (%d chats)", got, len(m.accounts[0].Chats))
 	}
 
-	m.contactManagerState = &contactManagerState{}
-	if strings.Contains(m.contactManagerPrompt(), "pending") {
+	m = openContacts(t, m)
+	if strings.Contains(m.contactsOpen().View(), "pending") {
 		t.Fatal("contact manager still shows the request as pending")
 	}
 	m.accounts[0].Chats[0] = Chat{Name: "Bob", Address: "bob@example.test", Subscription: "none", SubscriptionPending: true}
-	if !strings.Contains(m.contactManagerPrompt(), "Bob <bob@example.test> (request pending)") {
-		t.Fatalf("contact manager row:\n%s", m.contactManagerPrompt())
+	m.refreshContacts()
+	if !strings.Contains(m.contactsOpen().View(), "Bob <bob@example.test> (request pending)") {
+		t.Fatalf("contact manager row:\n%s", m.contactsOpen().View())
 	}
 }

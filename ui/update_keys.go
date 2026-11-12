@@ -29,11 +29,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m.updateDeviceListKey(msg)
 	}
 
-	// ── Contact-manager popup intercepts all input until dismissed ─────
-	if m.contactManagerState != nil {
-		return m.updateContactManagerKey(msg)
-	}
-
 	// ── Search-results popup intercepts all input until closed ──────────
 	if m.searchResults != nil {
 		return m.updateSearchResultsKey(msg)
@@ -177,8 +172,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	case matchesKey(msg, m.keys.ContactManager):
 		if m.selectedView == viewAccounts {
-			model, cmd := m.openContactManager()
-			return model, cmd, true
+			return m, m.openContactManager(), true
 		}
 
 	case matchesKey(msg, m.keys.AvatarMenu):

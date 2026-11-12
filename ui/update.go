@@ -265,24 +265,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		}
 	}
 
-	// Route remaining events to the focused component. Checked before the
-	// m.selectedView switch below since the add-account form floats on top
-	// of viewAccounts: non-key messages (bracketed-paste text, the
-	// textinput cursor-blink tick) aren't caught by the key interception
-	// above (that only matches tea.KeyMsg), so without this they'd fall
-	// through to the "Account focus is handled by global keys only" case
-	// and silently vanish — e.g. paste never reaching the focused field.
-	if m.contactManagerState != nil {
-		// The popup is modal, so nothing underneath it (the compose box in
-		// particular) may see these messages; only the add-contact field,
-		// when it's the thing on screen, gets them.
-		if !m.contactManagerState.adding || m.contactManagerState.busy {
-			return m, tea.Batch(cmds...)
-		}
-		var cmd tea.Cmd
-		m.contactManagerState.addInput, cmd = m.contactManagerState.addInput.Update(msg)
-		return m, tea.Batch(append(cmds, cmd)...)
-	}
 	if m.searchResults != nil && m.searchResults.filtering {
 		var cmd tea.Cmd
 		m.searchResults.filterInput, cmd = m.searchResults.filterInput.Update(msg)

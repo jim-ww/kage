@@ -897,54 +897,42 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, removeCmd, true
 
 	case ContactAddedMsg:
-		cs := m.contactManagerState
-		if cs == nil || cs.accountIdx != msg.AccountIdx {
+		body := m.contactsOpen()
+		md := m.modals.Find(addContactModalID)
+		if body == nil || md == nil || body.accountIdx != msg.AccountIdx {
 			return m, nil, true
 		}
-		cs.busy = false
+		form := md.Body.(*modal.Form)
+		form.SetBusy("")
 		if msg.Err != nil {
-			cs.err = msg.Err.Error()
+			form.SetError(msg.Err.Error())
 			return m, nil, true
 		}
-		cs.adding = false
+		m.modals.Remove(addContactModalID)
+		var cmd tea.Cmd
 		if m.chatIndexByAddress(msg.AccountIdx, msg.Address) < 0 {
 			chat := Chat{Name: msg.Address, Address: msg.Address}
 			m.accounts[msg.AccountIdx].Chats = append(m.accounts[msg.AccountIdx].Chats, chat)
-			var cmd tea.Cmd
 			if msg.AccountIdx == m.currentAccount {
 				cmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
 			}
-			return m, tea.Batch(cmd, m.showNotification("contact added: "+msg.Address)), true
 		}
-		return m, m.showNotification("contact added: " + msg.Address), true
+		m.refreshContacts()
+		return m, tea.Batch(cmd, m.showNotification("contact added: "+msg.Address)), true
 
 	case ContactRemovedMsg:
-		cs := m.contactManagerState
-		if cs == nil || cs.accountIdx != msg.AccountIdx {
+		if !m.contactResult(msg.AccountIdx, msg.Err) {
 			return m, nil, true
 		}
-		cs.busy = false
-		if msg.Err != nil {
-			cs.err = msg.Err.Error()
-			return m, nil, true
+		var cmd tea.Cmd
+		if idx := m.chatIndexByAddress(msg.AccountIdx, msg.Address); m.removeChatAt(msg.AccountIdx, idx) && msg.AccountIdx == m.currentAccount {
+			cmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
 		}
-		if idx := m.chatIndexByAddress(msg.AccountIdx, msg.Address); m.removeChatAt(msg.AccountIdx, idx) {
-			var cmd tea.Cmd
-			if msg.AccountIdx == m.currentAccount {
-				cmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
-			}
-			return m, tea.Batch(cmd, m.showNotification("contact removed: "+msg.Address)), true
-		}
-		return m, m.showNotification("contact removed: " + msg.Address), true
+		m.refreshContacts()
+		return m, tea.Batch(cmd, m.showNotification("contact removed: "+msg.Address)), true
 
 	case ContactResubscribedMsg:
-		cs := m.contactManagerState
-		if cs == nil || cs.accountIdx != msg.AccountIdx {
-			return m, nil, true
-		}
-		cs.busy = false
-		if msg.Err != nil {
-			cs.err = msg.Err.Error()
+		if !m.contactResult(msg.AccountIdx, msg.Err) {
 			return m, nil, true
 		}
 		return m, m.showNotification("resubscribe sent: " + msg.Address), true

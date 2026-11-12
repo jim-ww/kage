@@ -29,7 +29,6 @@ const (
 	zoneAttachButton          = "attach-button"
 	zoneReplyHintCancel       = "reply-hint-cancel"
 	zoneToggleSidebar         = "toggle-sidebar-button"
-	zoneContactManagerPopup   = "contact-manager-popup"
 	zoneDeviceListPopup       = "device-list-popup"
 	zoneSearchResultsPopup    = "search-results-popup"
 	zoneCallAnswer            = "call-answer-button"
@@ -66,7 +65,6 @@ func zoneMessageReactKey(i int) string    { return fmt.Sprintf("msg-react-key-%d
 func zoneMessageExpand(i int) string      { return fmt.Sprintf("msg-expand-%d", i) }
 func zoneMessageReaction(i, j int) string { return fmt.Sprintf("msg-reaction-%d-%d", i, j) }
 func zoneAttachmentRemove(i int) string   { return fmt.Sprintf("attachment-remove-%d", i) }
-func zoneContactRow(i int) string         { return fmt.Sprintf("contact-row-%d", i) }
 func zoneDeviceRow(i int) string          { return fmt.Sprintf("device-row-%d", i) }
 func zoneSearchResultRow(i int) string    { return fmt.Sprintf("search-result-row-%d", i) }
 
@@ -469,20 +467,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		}
 		return ""
 	}
-	if m.contactManagerState != nil {
-		cs := m.contactManagerState
-		if !cs.adding && cs.pendingRemove == "" && cs.err == "" {
-			contacts := cs.contacts(m)
-			start, end := cs.bounds(len(contacts))
-			for i := 0; i < end-start; i++ {
-				if m.zone.Get(zoneContactRow(i)).InBounds(mouse) {
-					return zoneContactRow(i)
-				}
-			}
-		}
-		return ""
-	}
-
 	if m.searchResults != nil {
 		sr := m.searchResults
 		if matches := sr.filteredMatches(); !sr.busy && sr.err == "" && !sr.filtering && len(matches) > 0 {
@@ -594,10 +578,6 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.handleFilePickerClick(msg)
 	}
 
-	if m.contactManagerState != nil {
-		return m.handleContactManagerClick(msg)
-	}
-
 	if m.searchResults != nil {
 		return m.handleSearchResultsClick(msg)
 	}
@@ -656,11 +636,6 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 // accept and on cancel, if one is: the contact manager's or device list's.
 func (m Model) confirmActions() (accept, cancel func(*Model) tea.Cmd, ok bool) {
 	switch {
-	case m.contactManagerState != nil && m.contactManagerState.pendingRemove != "" && !m.contactManagerState.busy:
-		return (*Model).acceptContactRemove, func(m *Model) tea.Cmd {
-			m.contactManagerState.pendingRemove = ""
-			return nil
-		}, true
 	case m.deviceList != nil && m.deviceList.confirming && !m.deviceList.busy:
 		return (*Model).acceptDevicePurge, func(m *Model) tea.Cmd {
 			m.deviceList.confirming = false

@@ -26,6 +26,12 @@ type Menu struct {
 	// - for an embedder matching letters its own way, by physical key
 	// position, say.
 	MatchKey func(msg tea.KeyMsg, r rune) bool
+	// ActOnPick makes picking an item act with its index (see Act) and
+	// keep the menu open, rather than submit it: a list whose items have
+	// actions of their own, like opening a menu of options for one.
+	ActOnPick bool
+	// Empty is shown when there are no items.
+	Empty string
 
 	cursor int
 	hover  int
@@ -113,6 +119,14 @@ func (m *Menu) matches(msg tea.KeyMsg, r rune) bool {
 	return msg.String() == string(r)
 }
 
+// pick is the outcome of picking item i.
+func (m *Menu) pick(i int) Outcome {
+	if m.ActOnPick {
+		return Act(i)
+	}
+	return Submit(i)
+}
+
 func (m *Menu) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 	if len(m.Items) == 0 {
 		return nil, Continue
@@ -122,7 +136,7 @@ func (m *Menu) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 		// An item's own key first: it may be a letter the cursor keys use.
 		for i, item := range m.Items {
 			if item.Key != 0 && m.matches(msg, item.Key) {
-				return nil, Submit(i)
+				return nil, m.pick(i)
 			}
 		}
 		switch msg.String() {
@@ -133,13 +147,14 @@ func (m *Menu) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 			m.cursor = (m.cursor + 1) % len(m.Items)
 			m.show(m.cursor)
 		case "enter":
-			return nil, Submit(m.cursor)
+			return nil, m.pick(m.cursor)
 		}
 	case tea.MouseMotionMsg:
 		m.hover = m.itemAt(msg)
 	case tea.MouseClickMsg:
 		if i := m.itemAt(msg); i >= 0 && msg.Button == tea.MouseLeft {
-			return nil, Submit(i)
+			m.cursor = i
+			return nil, m.pick(i)
 		}
 	case tea.MouseWheelMsg:
 		switch msg.Button {
@@ -153,6 +168,9 @@ func (m *Menu) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 }
 
 func (m *Menu) View() string {
+	if len(m.Items) == 0 {
+		return m.Styles.Key.Render(m.Empty)
+	}
 	width := m.width
 	if width <= 0 {
 		width = m.PreferredWidth()

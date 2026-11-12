@@ -176,16 +176,16 @@ func (m *Model) contactRowContextMenuItems(address string) []contextMenuItem {
 	// from isn't stranded off the chat list forever.
 	if accountIdx := m.contactManagerAccount(); m.isChatHidden(accountIdx, address) {
 		items = append(items, contextMenuItem{label: "Unhide chat", run: func(m *Model) tea.Cmd {
-			return m.unhideChat(accountIdx, address)
+			cmd := m.unhideChat(accountIdx, address)
+			m.refreshContacts()
+			return cmd
 		}})
 	}
 	return append(items,
 		contextMenuItem{label: "Resubscribe", run: func(m *Model) tea.Cmd { return m.actionResubscribeContact(address) }},
 		contextMenuItem{label: "Remove", run: func(m *Model) tea.Cmd {
-			if m.contactManagerState != nil {
-				m.contactManagerState.pendingRemove = address
-			}
-			return nil
+			return m.confirm("Remove "+address+"?", "This also unsubscribes from their presence.",
+				func(m *Model) tea.Cmd { return m.removeContact(address) })
 		}},
 	)
 }
@@ -193,8 +193,8 @@ func (m *Model) contactRowContextMenuItems(address string) []contextMenuItem {
 // contactManagerAccount is the account the contact manager is open for,
 // or the current one when it isn't open.
 func (m Model) contactManagerAccount() int {
-	if m.contactManagerState != nil {
-		return m.contactManagerState.accountIdx
+	if body := m.contactsOpen(); body != nil {
+		return body.accountIdx
 	}
 	return m.currentAccount
 }
@@ -203,12 +203,13 @@ func (m Model) contactManagerAccount() int {
 // the contact manager's current account, run as a tea.Cmd since it's
 // network I/O (see ContactManager.ResubscribeContact).
 func (m *Model) actionResubscribeContact(address string) tea.Cmd {
-	if m.contactManager == nil || m.contactManagerState == nil {
+	body := m.contactsOpen()
+	if m.contactManager == nil || body == nil {
 		return nil
 	}
-	accountIdx := m.contactManagerState.accountIdx
+	accountIdx := body.accountIdx
 	manager := m.contactManager
-	m.contactManagerState.busy = true
+	body.setBusy("resubscribing to " + address + "…")
 	return func() tea.Msg { return manager.ResubscribeContact(accountIdx, address) }
 }
 
@@ -226,9 +227,7 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 		}},
 		{label: "Contacts", run: func(m *Model) tea.Cmd {
 			m.switchAccount(idx)
-			model, cmd := m.openContactManager()
-			*m = model
-			return cmd
+			return m.openContactManager()
 		}},
 		{label: "OMEMO devices", run: func(m *Model) tea.Cmd {
 			m.switchAccount(idx)

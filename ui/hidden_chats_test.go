@@ -219,9 +219,7 @@ func TestContactManagerListsAndUnhides(t *testing.T) {
 		Chat{Name: "a", Address: "a@x"},
 		Chat{Name: "b", Address: "b@x", Hidden: true},
 	)
-	m.contactManagerState = &contactManagerState{accountIdx: 0}
-
-	contacts := m.contactManagerState.contacts(m)
+	contacts := m.contactsOf(0)
 	var found bool
 	for _, c := range contacts {
 		if c.Address == "b@x" {

@@ -348,9 +348,6 @@ type Model struct {
 	// confirmation, on top of the still-open picker — see
 	// ui/avatar_preview.go.
 	avatarPreview *avatarPreviewState
-	// contactManagerState is non-nil while the "manage contacts" popup is
-	// open — see ui/contacts.go.
-	contactManagerState *contactManagerState
 
 	// call is non-nil whenever this account has a voice call in flight or
 	// just ended (briefly, to show the reason) — see ui/call.go. nil means

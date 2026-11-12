@@ -4,122 +4,135 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/jim-ww/kage/ui/modal"
 )
 
-// contactManagerState holds the state of the "manage contacts" popup, active
-// while non-nil. Lists the current account's roster (drawn from its Chats,
-// same data the sidebar uses) as a cursor-navigable, mouse-clickable list —
-// moving the cursor with up/down/j/k or the mouse and picking a row (enter
-// or click) opens an options menu (remove/resubscribe, see
-// contactRowContextMenuItems) — plus an add-contact text-input sub-mode.
-type contactManagerState struct {
+// Modal IDs of the contact manager and its add-contact form, to update them
+// as the server answers.
+const (
+	contactsModalID   = "contacts"
+	addContactModalID = "add-contact"
+)
+
+// contactsBody is the contact manager: the account's roster (drawn from its
+// Chats, same data the sidebar uses, plus its hidden chats) as a list -
+// picking a contact opens its options (see contactRowContextMenuItems), a
+// adds one. While a change is with the server it shows what's happening and
+// takes no input; a failure shows under the list.
+type contactsBody struct {
+	*modal.Menu
 	accountIdx int
-	pagedCursor
-	busy bool
-	err  string
-
-	// pendingRemove is the address staged for removal; non-empty while the
-	// "remove this contact?" confirmation is showing.
-	pendingRemove string
-
-	adding   bool // true while the add-contact text input is focused
-	addInput textinput.Model
+	addrs      []string
+	status     string
+	err        string
+	styles     *uiStyles
 }
 
-// openContactManager opens the contact-manager popup for the current
-// account.
-func (m Model) openContactManager() (Model, tea.Cmd) {
+// contactsAdd is what the contact manager acts with on a: add a contact.
+type contactsAdd struct{}
+
+func (b *contactsBody) Update(msg tea.Msg) (tea.Cmd, modal.Outcome) {
+	if b.Busy() {
+		return nil, modal.Continue
+	}
+	if k, ok := msg.(tea.KeyPressMsg); ok && matchesLetter(k, 'a') {
+		return nil, modal.Act(contactsAdd{})
+	}
+	return b.Menu.Update(msg)
+}
+
+func (b *contactsBody) View() string {
+	view := b.Menu.View()
+	switch {
+	case b.status != "":
+		view += "\n\n" + b.styles.messageMuted.Render(b.status)
+	case b.err != "":
+		view += "\n\n" + b.styles.popupDanger.Render(b.err)
+	}
+	return view
+}
+
+func (b *contactsBody) SetSize(width, height int) { b.Menu.SetSize(width, max(1, height-2)) }
+
+// Busy keeps the manager open while a change is with the server.
+func (b *contactsBody) Busy() bool { return b.status != "" }
+
+func (b *contactsBody) setBusy(status string) {
+	b.status = status
+	if status != "" {
+		b.err = ""
+	}
+}
+
+func (b *contactsBody) Hints() []modal.Hint {
+	if b.Busy() {
+		return nil
+	}
+	return []modal.Hint{
+		modal.KeyHint(tea.KeyPressMsg{Code: tea.KeyEnter}, "options"),
+		modal.KeyHint(tea.KeyPressMsg{Code: 'a', Text: "a"}, "add"),
+	}
+}
+
+// openContactManager opens the contact manager for the current account.
+func (m *Model) openContactManager() tea.Cmd {
 	if m.contactManager == nil {
-		return m, m.showNotification("contact management unavailable")
+		return m.showNotification("contact management unavailable")
 	}
 	accountIdx := m.currentAccount
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
-		return m, nil
+		return nil
 	}
 	if m.accounts[accountIdx].Connecting {
-		return m, m.showNotification("account is still connecting, try again shortly")
+		return m.showNotification("account is still connecting, try again shortly")
 	}
-	m.contactManagerState = &contactManagerState{accountIdx: accountIdx}
-	return m, nil
+	menu := modal.NewMenu()
+	menu.ActOnPick = true
+	menu.Empty = "no contacts"
+	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
+	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
+	body := &contactsBody{Menu: menu, accountIdx: accountIdx, styles: m.styles}
+	cmd := m.openModal(&modal.Modal[*Model]{
+		ID:    contactsModalID,
+		Title: "Contacts",
+		Body:  body,
+		OnAct: func(m *Model, v any) tea.Cmd {
+			switch v := v.(type) {
+			case int:
+				addr := body.addrs[v]
+				m.openContextMenu(addr, m.contactRowContextMenuItems(addr))
+			case contactsAdd:
+				return m.openAddContact()
+			}
+			return nil
+		},
+	})
+	m.refreshContacts()
+	return cmd
 }
 
-// contacts returns the account's roster entries in display order, drawn from
-// the same Chats list the sidebar renders.
-func (cs *contactManagerState) contacts(m Model) []Chat {
-	var out []Chat
-	for _, item := range m.accounts[cs.accountIdx].Chats {
-		if c, ok := item.(Chat); ok && c.Address != "" {
-			out = append(out, c)
-		}
+// contactsOpen is the open contact manager, or nil.
+func (m Model) contactsOpen() *contactsBody {
+	if md := m.modals.Find(contactsModalID); md != nil {
+		return md.Body.(*contactsBody)
 	}
-	// Hidden chats are not in the account's list at all (see
-	// ui/hidden_chats.go), and this is where they're reachable again.
-	return append(out, m.hiddenChatsFor(cs.accountIdx)...)
+	return nil
 }
 
-func newAddContactInput(m Model) textinput.Model {
-	ti := textinput.New()
-	ti.Placeholder = "user@server"
-	ti.Prompt = "JID: "
-	ti.KeyMap = m.keys.TextInputKeys
-	ti.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&ti, m.styles.colors)
-	ti.Focus()
-	return ti
-}
-
-func (m Model) renderContactManagerPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.contactManagerPrompt())
-	popup = m.zone.Mark(zoneContactManagerPopup, popup)
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-func (m Model) contactManagerPrompt() string {
-	cs := m.contactManagerState
-	if cs == nil {
-		return ""
+// refreshContacts relists the open contact manager's roster.
+func (m *Model) refreshContacts() {
+	body := m.contactsOpen()
+	if body == nil {
+		return
 	}
-	closeKey := m.keys.ContactManager.Help().Key
-
-	if cs.adding {
-		rows := []string{m.popupInputView(&cs.addInput)}
-		if cs.busy {
-			rows = append(rows, "", "adding...")
-		} else if cs.err != "" {
-			rows = append(rows, "", m.styles.popupDanger.Render(cs.err))
-		}
-		return m.styles.listPopup("Add contact", rows, "[enter] add  ·  [esc] cancel")
-	}
-
-	if cs.err != "" {
-		return m.styles.infoPopup("Contacts", []string{"Error: " + cs.err}, closeKey)
-	}
-	if cs.busy {
-		return m.styles.infoPopup("Contacts", []string{"Working…"}, closeKey)
-	}
-
-	contacts := cs.contacts(m)
-
-	if cs.pendingRemove != "" {
-		return m.styles.deletePrompt(m.deletePromptWidth(), "Remove "+cs.pendingRemove+"?", "This also unsubscribes from their presence.", m.confirmButtons())
-	}
-
-	start, end := cs.bounds(len(contacts))
-	page := contacts[start:end]
-	if cs.cursor >= len(page) {
-		cs.cursor = max(0, len(page)-1)
-	}
-	rows := make([]string, 0, len(page)+2)
-	if len(contacts) == 0 {
-		rows = append(rows, "  no contacts")
-	}
-	for i, c := range page {
+	contacts := m.contactsOf(body.accountIdx)
+	body.addrs = make([]string, len(contacts))
+	items := make([]modal.MenuItem, len(contacts))
+	for i, c := range contacts {
+		body.addrs[i] = c.Address
 		label := c.Address
 		if c.Name != "" && c.Name != c.Address {
 			label = fmt.Sprintf("%s <%s>", c.Name, c.Address)
@@ -130,16 +143,46 @@ func (m Model) contactManagerPrompt() string {
 		if c.Hidden {
 			label += " (hidden)"
 		}
-		rows = append(rows, m.renderRow(zoneContactRow(i), i, cs.cursor, label))
+		items[i] = modal.MenuItem{Label: label}
 	}
+	body.SetItems(items...)
+}
 
-	hint := "a: add · enter: options"
-	if pages := openPageCount(len(contacts)); pages > 1 {
-		hint = fmt.Sprintf("page %d/%d · left/right: page · %s", cs.page+1, pages, hint)
+// contactsOf is accountIdx's roster in display order, drawn from the same
+// Chats list the sidebar renders.
+func (m Model) contactsOf(accountIdx int) []Chat {
+	var out []Chat
+	for _, item := range m.accounts[accountIdx].Chats {
+		if c, ok := item.(Chat); ok && c.Address != "" {
+			out = append(out, c)
+		}
 	}
-	rows = append(rows, "", hint)
+	// Hidden chats are not in the account's list at all (see
+	// ui/hidden_chats.go), and this is where they're reachable again.
+	return append(out, m.hiddenChatsFor(accountIdx)...)
+}
 
-	return m.styles.infoPopup("Contacts", rows, closeKey)
+// openAddContact asks for the address of a contact to add to the contact
+// manager's account; the form stays open (busy) until the server answers
+// (ContactAddedMsg).
+func (m *Model) openAddContact() tea.Cmd {
+	form := m.newForm("", "add", m.newInput("", "user@server", "JID: ", ""))
+	return m.openModal(&modal.Modal[*Model]{
+		ID:    addContactModalID,
+		Title: "Add contact",
+		Body:  form,
+		OnAct: func(m *Model, v any) tea.Cmd {
+			addr := strings.TrimSpace(v.([]string)[0])
+			body := m.contactsOpen()
+			if addr == "" || body == nil {
+				form.SetError("JID is required")
+				return nil
+			}
+			form.SetBusy("adding…")
+			accountIdx, manager := body.accountIdx, m.contactManager
+			return func() tea.Msg { return manager.AddContact(accountIdx, addr) }
+		},
+	})
 }
 
 // subscriptionLabel says what's missing from a contact's presence
@@ -160,117 +203,30 @@ func subscriptionLabel(c Chat) string {
 	}
 }
 
-// acceptContactRemove removes the contact staged in pendingRemove - the
-// remove confirmation's ConfirmYes key and "yes" button.
-func (m *Model) acceptContactRemove() tea.Cmd {
-	cs := m.contactManagerState
-	accountIdx, addr, manager := cs.accountIdx, cs.pendingRemove, m.contactManager
-	cs.busy = true
-	cs.pendingRemove = ""
-	return func() tea.Msg { return manager.RemoveContact(accountIdx, addr) }
+// removeContact removes address from the contact manager's account.
+func (m *Model) removeContact(address string) tea.Cmd {
+	body := m.contactsOpen()
+	if body == nil || m.contactManager == nil {
+		return nil
+	}
+	body.setBusy("removing " + address + "…")
+	accountIdx, manager := body.accountIdx, m.contactManager
+	return func() tea.Msg { return manager.RemoveContact(accountIdx, address) }
 }
 
-// updateContactManagerKey handles all input while the contact-manager popup
-// (m.contactManagerState != nil) is open.
-func (m Model) updateContactManagerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
-	cs := m.contactManagerState
-
-	if cs.busy {
-		return m, nil, true
+// contactResult applies the server's answer to a contact change on
+// accountIdx: the manager stops being busy and shows err, if any; on success
+// its list is refreshed.
+func (m *Model) contactResult(accountIdx int, err error) bool {
+	body := m.contactsOpen()
+	if body == nil || body.accountIdx != accountIdx {
+		return false
 	}
-
-	if cs.adding {
-		switch {
-		case msg.String() == "esc":
-			cs.adding = false
-			cs.err = ""
-			return m, nil, true
-		case matchesKey(msg, m.keys.SelectSend):
-			addr := strings.TrimSpace(cs.addInput.Value())
-			if addr == "" {
-				cs.err = "JID is required"
-				return m, nil, true
-			}
-			accountIdx := cs.accountIdx
-			manager := m.contactManager
-			cs.busy = true
-			cs.err = ""
-			return m, func() tea.Msg { return manager.AddContact(accountIdx, addr) }, true
-		default:
-			var cmd tea.Cmd
-			cs.addInput, cmd = cs.addInput.Update(msg)
-			return m, cmd, true
-		}
+	body.setBusy("")
+	if err != nil {
+		body.err = err.Error()
+		return false
 	}
-
-	if cs.err != "" {
-		if matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) || matchesKey(msg, m.keys.ContactManager) {
-			m.contactManagerState = nil
-		}
-		return m, nil, true
-	}
-
-	if cs.pendingRemove != "" {
-		switch {
-		case matchesKey(msg, m.keys.ConfirmYes):
-			return m, m.acceptContactRemove(), true
-		case matchesKey(msg, m.keys.ConfirmNo):
-			cs.pendingRemove = ""
-		}
-		return m, nil, true
-	}
-
-	contacts := cs.contacts(m)
-	start, end := cs.bounds(len(contacts))
-	rowCount := end - start
-
-	if cs.handleNavKey(msg, rowCount, len(contacts)) {
-		return m, nil, true
-	}
-
-	switch {
-	case matchesKey(msg, m.keys.SelectSend):
-		if cs.cursor >= 0 && cs.cursor < rowCount {
-			addr := contacts[start+cs.cursor].Address
-			m.openContextMenu(addr, m.contactRowContextMenuItems(addr))
-		}
-		return m, nil, true
-	case matchesLetter(msg, 'a'):
-		cs.adding = true
-		cs.addInput = newAddContactInput(m)
-		return m, textinput.Blink, true
-	}
-
-	switch {
-	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo), matchesKey(msg, m.keys.ContactManager):
-		m.contactManagerState = nil
-	}
-	return m, nil, true
-}
-
-// handleContactManagerClick handles mouse clicks while the contact-manager
-// popup is open: clicking a row moves the cursor there and (left click)
-// opens its options menu; clicking outside the popup closes it.
-func (m Model) handleContactManagerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	cs := m.contactManagerState
-
-	if cs.adding || cs.pendingRemove != "" || cs.err != "" || cs.busy {
-		return m, nil
-	}
-
-	if !m.zone.Get(zoneContactManagerPopup).InBounds(msg) {
-		m.contactManagerState = nil
-		return m, nil
-	}
-
-	contacts := cs.contacts(m)
-	start, end := cs.bounds(len(contacts))
-	if i := m.rowUnderMouse(msg, end-start, zoneContactRow); i >= 0 {
-		cs.cursor = i
-		if msg.Mouse().Button == tea.MouseLeft {
-			addr := contacts[start+i].Address
-			m.openContextMenu(addr, m.contactRowContextMenuItems(addr))
-		}
-	}
-	return m, nil
+	m.refreshContacts()
+	return true
 }

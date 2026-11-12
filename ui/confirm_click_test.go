@@ -82,14 +82,42 @@ func TestConfirmClickOutsideCancels(t *testing.T) {
 	}
 }
 
-// TestContactRemoveConfirmClickable covers the contact manager's own
-// confirmation, which shares the buttons.
-func TestContactRemoveConfirmClickable(t *testing.T) {
+// TestContactRemoveAsks: removing a contact asks first - its no closes the
+// question and removes nothing, its yes removes it and refreshes the list.
+func TestContactRemoveAsks(t *testing.T) {
 	m := pasteTestModel(t)
-	m.contactManagerState = &contactManagerState{pendingRemove: "bob@example.test"}
-	m, _ = clickZone(t, m, zoneConfirmNo)
-	if m.contactManagerState.pendingRemove != "" {
-		t.Fatal("no didn't cancel the contact removal")
+	manager := &fakeContactManager{}
+	m.contactManager = manager
+	m = openContacts(t, m)
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}) // bob's options
+	if modalTitle(m) != "bob@example.test" {
+		t.Fatalf("enter opened %q, want bob's options", modalTitle(m))
+	}
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyUp}) // Remove, last
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if modalTitle(m) != "Remove bob@example.test?" {
+		t.Fatalf("Remove opened %q, want the question", modalTitle(m))
+	}
+	m, _ = clickZone(t, m, "modal-hint-1") // n no
+	if modalTitle(m) != "Contacts" || len(manager.removed) != 0 {
+		t.Fatalf("no: on %q, removed %v - want back on the list, nothing removed", modalTitle(m), manager.removed)
+	}
+
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	next, cmd := m.Update(keyCode('y'))
+	m = next.(Model)
+	if len(manager.removed) != 0 {
+		t.Fatal("removed before the server was even asked")
+	}
+	removed, ok := findMsg[ContactRemovedMsg](cmd)
+	if !ok {
+		t.Fatal("yes didn't ask the server to remove bob")
+	}
+	m, _, _ = m.handleEventMsg(removed)
+	if len(manager.removed) != 1 || len(m.contactsOpen().addrs) != 0 {
+		t.Fatalf("after removing: removed %v, list %v", manager.removed, m.contactsOpen().addrs)
 	}
 }
 

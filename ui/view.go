@@ -348,8 +348,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.modals.View()
 	case m.deviceList != nil:
 		viewportArea = m.renderDeviceListPopup()
-	case m.contactManagerState != nil:
-		viewportArea = m.renderContactManagerPopup()
 	case m.searchResults != nil:
 		viewportArea = m.renderSearchResultsPopup()
 	case m.avatarPreview != nil:
