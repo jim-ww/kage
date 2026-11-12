@@ -1235,13 +1235,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if !ok {
 			return m, nil, true
 		}
-		chat = chat.withResource(msg.Resource, msg.Presence)
+		chat.Resources = WithResource(chat.Resources, msg.Resource, msg.Presence)
 		if msg.Resource == "" {
 			// No resource part to track individually - this stanza is the
 			// whole story, same as before resource-aware aggregation existed.
 			chat.Presence = msg.Presence
 		} else {
-			chat.Presence = aggregatePresence(chat.Resources)
+			chat.Presence = AggregatePresence(chat.Resources)
 		}
 		m.accounts[msg.AccountIdx].Chats[chatIdx] = chat
 		var cmd tea.Cmd

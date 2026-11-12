@@ -339,11 +339,11 @@ func (s *accountSession) setRosterPresence(bareJID, resource string, presence ui
 	s.mutateRoster(func(entries map[string]rosterEntry) {
 		e := entries[bareJID]
 		was := e.Presence
-		e.Resources = withResource(e.Resources, resource, presence)
+		e.Resources = ui.WithResource(e.Resources, resource, presence)
 		if resource == "" {
 			e.Presence = presence
 		} else {
-			e.Presence = aggregatePresence(e.Resources)
+			e.Presence = ui.AggregatePresence(e.Resources)
 		}
 		// Logs changes of the aggregate, which the chat list shows, not of
 		// each stanza.
@@ -393,37 +393,6 @@ func (s *accountSession) resolveDeviceName(ctx context.Context, srv *ipc.Server,
 		Resource:   resource,
 		Name:       name,
 	})
-}
-
-// aggregatePresence is a contact's most available resource's presence, so
-// one device going offline doesn't hide another that's online.
-func aggregatePresence(resources []ui.ResourcePresence) ui.Presence {
-	best := ui.PresenceOffline
-	for _, r := range resources {
-		if r.Presence > best {
-			best = r.Presence
-		}
-	}
-	return best
-}
-
-// withResource is resources with resource set to presence, sorted. Must
-// match ui.Chat.withResource, or the daemon and a TUI disagree on devices.
-func withResource(resources []ui.ResourcePresence, resource string, presence ui.Presence) []ui.ResourcePresence {
-	if resource == "" {
-		return resources
-	}
-	updated := make([]ui.ResourcePresence, 0, len(resources)+1)
-	for _, r := range resources {
-		if r.Resource != resource {
-			updated = append(updated, r)
-		}
-	}
-	if presence != ui.PresenceOffline {
-		updated = append(updated, ui.ResourcePresence{Resource: resource, Presence: presence})
-		sort.Slice(updated, func(i, j int) bool { return updated[i].Resource < updated[j].Resource })
-	}
-	return updated
 }
 
 func derefRoster(m *map[string]rosterEntry) map[string]rosterEntry {

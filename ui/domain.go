@@ -306,14 +306,14 @@ func (c Chat) Description() string {
 // FilterValue implements list.Item.
 func (c Chat) FilterValue() string { return c.Name }
 
-// withResource is c with resource set to presence in Resources, removed if
-// offline. Must match the daemon's withResource.
-func (c Chat) withResource(resource string, presence Presence) Chat {
+// WithResource is resources with resource ("" for none) set to presence,
+// sorted, or removed if offline.
+func WithResource(resources []ResourcePresence, resource string, presence Presence) []ResourcePresence {
 	if resource == "" {
-		return c
+		return resources
 	}
-	updated := make([]ResourcePresence, 0, len(c.Resources)+1)
-	for _, r := range c.Resources {
+	updated := make([]ResourcePresence, 0, len(resources)+1)
+	for _, r := range resources {
 		if r.Resource != resource {
 			updated = append(updated, r)
 		}
@@ -322,13 +322,12 @@ func (c Chat) withResource(resource string, presence Presence) Chat {
 		updated = append(updated, ResourcePresence{Resource: resource, Presence: presence})
 		sort.Slice(updated, func(i, j int) bool { return updated[i].Resource < updated[j].Resource })
 	}
-	c.Resources = updated
-	return c
+	return updated
 }
 
-// aggregatePresence is a contact's most available resource's presence, so
+// AggregatePresence is a contact's most available resource's presence, so
 // one device going offline doesn't hide another that's online.
-func aggregatePresence(resources []ResourcePresence) Presence {
+func AggregatePresence(resources []ResourcePresence) Presence {
 	best := PresenceOffline
 	for _, r := range resources {
 		if r.Presence > best {
