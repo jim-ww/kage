@@ -27,12 +27,9 @@ import (
 	omemolib "github.com/jim-ww/omemo-go"
 )
 
-// adapter implements the daemon-side business logic RPCs are dispatched to
-// (see daemon_server.go), encrypting outgoing bodies when a peer key is
-// configured and persisting sent messages to storage. sessions is only ever
-// appended to (by AddAccount, from an RPC handler goroutine) after startup,
-// so existing indices stay stable and Send doesn't need to hold mu itself —
-// mu only guards the append plus the read of len(sessions) it races with.
+// adapter is what the daemon runs the TUI's calls against (see ipc_rpc.go).
+// sessions is only appended to after startup, so indices stay stable; mu
+// guards it.
 type adapter struct {
 	mu          sync.Mutex
 	sessions    []*accountSession
@@ -52,16 +49,11 @@ type adapter struct {
 	typingTo map[ipc.ClientID]map[int]string // client -> accountIdx -> peer it has sent "composing" to and not yet cleared, see SetTyping/clearTyping
 }
 
-// errUploadCanceled is returned (and translated to a distinct "upload
-// canceled" message before reaching the UI, see SendFile/UploadFile) when
-// CancelUpload aborts an in-flight upload's context.
+// errUploadCanceled is an upload's error after CancelUpload.
 var errUploadCanceled = errors.New("upload canceled")
 
-// beginUpload registers a cancelable context for the upload identified by
-// path (its local file path is unique per in-flight upload, matching the ID
-// FileTransferProgress/Done events already use) so a later CancelUpload call
-// can abort it. done must be called once the upload finishes, successfully
-// or not, to unregister it.
+// beginUpload registers a context CancelUpload(path) cancels. done
+// unregisters it once the upload is over.
 func (a *adapter) beginUpload(path string) (ctx context.Context, done func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.uploadCancelsMu.Lock()
@@ -78,10 +70,7 @@ func (a *adapter) beginUpload(path string) (ctx context.Context, done func()) {
 	}
 }
 
-// CancelUpload aborts the in-flight upload for path, if any (a no-op
-// otherwise — the upload may have already finished by the time the RPC
-// arrives). Implements the daemon side of the UI's cancel-on-backspace
-// action; see cancelUploadReq.
+// CancelUpload aborts the upload of path, if it's still running.
 func (a *adapter) CancelUpload(path string) {
 	a.uploadCancelsMu.Lock()
 	cancel := a.uploadCancels[path]
@@ -91,12 +80,9 @@ func (a *adapter) CancelUpload(path string) {
 	}
 }
 
-// AddAccount resolves and stores the password in
-// the OS keyring, persists the account to config.toml, connects it live, and
-// starts its supervisor goroutine — mirroring what main does for accounts
-// configured at startup, just for one account added mid-session. When
-// register is true, it first creates the account on the server via XEP-0077
-// in-band registration, then proceeds identically to logging in.
+// AddAccount stores the password, saves the account to config.toml, connects
+// and supervises it - registering it on the server first (XEP-0077) when
+// register is set.
 func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) (ui.Account, error) {
 	// Checked before registering too: that would create the account on the
 	// server only for saving it to fail afterwards.
@@ -113,10 +99,7 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) (ui.
 
 	acct := config.Account{JID: jid, GPGKeyID: gpgKeyID}
 	if password != "" {
-		// Prefer the OS keyring (unless use_keyring is off); if that's
-		// unavailable (no Secret Service running, headless box, etc.) fall
-		// back to storing the password in plaintext in config.toml rather
-		// than failing the add outright.
+		// The OS keyring if available, else plaintext in config.toml.
 		keyringErr := fmt.Errorf("use_keyring is disabled")
 		if a.useKeyring {
 			keyringErr = config.SetKeyringPassword(jid, password)
@@ -145,21 +128,15 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) (ui.
 
 	go superviseAccount(ctx, a.srv, a, accountIdx, sess)
 
-	// Every attached client has to learn about this, not just the one that
-	// asked: account indices are positional, so a client still on the old,
-	// shorter list would place its own next added account at an index the
-	// daemon has already given to this one.
+	// To every TUI: indices are positional, and one still on the shorter
+	// list would misplace its next added account.
 	broadcast(a.srv, ui.AccountAppearedMsg{Index: accountIdx, Account: uiAcct})
 
 	return uiAcct, nil
 }
 
-// SetAccountStatus persists the chosen
-// status to config.toml (so a restart comes back up the same way), then
-// applies it live - closing the connection outright for PresenceOffline (no
-// further traffic to that account's server at all), dialing a currently
-// offline account back up for PresenceOnline/PresenceAway, or just updating
-// the advertised <show/> in place when already connected.
+// SetAccountStatus saves an account's own status and applies it: offline
+// disconnects, anything else connects if needed and sets <show/>.
 func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 	sess, err := a.session(accountIdx)
 	if err != nil {
@@ -169,10 +146,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 		return fmt.Errorf("persisting status: %w", err)
 	}
 	sess.account.Status = presenceNames[status]
-	// Best-effort: this SIGHUPs the daemon's own process to re-read
-	// config.toml (see daemon.SignalReload) for settings like Notifications
-	// that aren't already reflected in the live session state above - never
-	// a reason to fail the status change itself.
+	// Best-effort reload of config.toml (see daemon.SignalReload).
 	if err := daemon.SignalReload(); err != nil {
 		slog.Warn("signaling daemon to reload after status change", "err", err)
 	}
@@ -181,9 +155,6 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 	client, offlineErr := sess.liveClient()
 	online := offlineErr == nil
 
-	// The wire-level counterpart lives in xmpp.Client.SetPresence, but going
-	// offline closes the connection instead of advertising anything, so it
-	// would leave no trace at all without this.
 	slog.Debug("own status changed", "jid", sess.account.JID, "status", status, "was_connected", online)
 
 	if status == ui.PresenceOffline {
@@ -204,11 +175,8 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 		return nil
 	}
 
-	// presenceShow has no <show/> value for invisible - going invisible while
-	// offline dials with plain show (connectAccountLive/Dial can't skip their
-	// own unconditional available-presence blast), then SetInvisible below
-	// corrects it, same brief-visible-window trade-off connectAccountLive
-	// already has for every non-default status.
+	// Invisible has no <show/>: connecting announces us as available, which
+	// SetInvisible then corrects.
 	show := presenceShow(status)
 	if online {
 		if err := client.SetPresence(ctx, show); err != nil {
@@ -225,10 +193,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 	}
 	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, existing, show)
 	if err != nil {
-		// Don't just give up: the account stays valid for queuing sends
-		// (see accountSession.outbox), and this keeps retrying with
-		// backoff until it actually gets online, same as a failed initial
-		// connect at startup.
+		// Sends queue meanwhile.
 		go retryInitialConnect(ctx, a.srv, a, accountIdx, sess, existing, show)
 		return err
 	}
@@ -241,16 +206,8 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 	}
 	go superviseAccount(ctx, a.srv, a, accountIdx, sess)
 
-	// Everything sent to this account while it was switched off went to the
-	// archive and nowhere else, exactly as during a disconnect - so this
-	// needs the same backfill every other path back online already does
-	// (connectAndSuperviseAccount, retryInitialConnect, superviseAccount's
-	// reconnect). Without it, flipping an account back to online reconnects
-	// but never asks for what it missed, and those messages stay invisible
-	// until the whole app is restarted and the startup sync picks them up.
-	//
-	// Detached, unlike the startup path that runs it inline: this is an RPC
-	// the TUI is blocked on, and a backfill can take tens of seconds.
+	// What arrived while switched off is only in the archive. Detached: the
+	// TUI waits on this call, and a backfill can take long.
 	go triggerArchiveSync(ctx, a.srv, accountIdx, sess)
 
 	broadcast(a.srv, ui.AccountStatusChangedMsg{
@@ -281,10 +238,8 @@ func (a *adapter) online(accountIdx int) (*accountSession, *xmpp.Client, error) 
 	return s, client, err
 }
 
-// LoadHistoryWindow fetches a fresh window of
-// to's persisted history around anchor (see loadHistoryWindow) as a
-// tea.Cmd, off the main goroutine, since it's a disk read plus decrypt of up
-// to a window's worth of messages.
+// LoadHistoryWindow loads a window of to's history around anchor (see
+// loadHistoryWindow).
 func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.HistoryAnchor) (ui.HistoryWindowMsg, error) {
 	sess, err := a.session(accountIdx)
 	if err != nil {
@@ -294,12 +249,9 @@ func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.Histor
 	return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasOlder: hasOlder, HasNewer: hasNewer}, nil
 }
 
-// SearchHistory decrypts and scans to's
-// entire persisted history (see loadHistory) as a tea.Cmd, off the main
-// goroutine, and returns every message whose content contains query
-// (case-insensitive) alongside the whole decrypted history — the caller
-// loads that wholesale rather than making a second round trip once a result
-// is picked.
+// SearchHistory finds the messages of to's whole history containing query,
+// case-insensitively, returned with that whole history so picking a result
+// needs no second round trip.
 func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySearchResultMsg, error) {
 	sess, err := a.session(accountIdx)
 	if err != nil {
@@ -329,9 +281,7 @@ func (a *adapter) SetChatFlag(accountJID, chatAddress string, flag ui.ChatSettin
 	// restarts rebuilds its chat list the same.
 	flags.flag(accountJID, chatAddress, on)
 	if flag == ui.ChatHidden {
-		// Re-evaluate the tray dot: a hidden chat stops feeding it (see
-		// badgeable), an unhidden one starts again with whatever count
-		// storage held all along.
+		// A hidden chat doesn't count towards the tray dot (see badgeable).
 		count := 0
 		if !on {
 			if n, err := a.queries.GetChatUnread(context.Background(), storage.GetChatUnreadParams{
@@ -347,10 +297,8 @@ func (a *adapter) SetChatFlag(accountJID, chatAddress string, flag ui.ChatSettin
 	return nil
 }
 
-// SetFocusState records whether the calling
-// TUI's terminal has OS focus and which chat (if any) it currently has
-// open, so handleIncomingMessage (events.go) can skip a desktop
-// notification for a message that's already visible on screen.
+// SetFocusState records whether the calling TUI's terminal has focus and
+// which chat it shows, so a message already on screen isn't notified.
 func (a *adapter) SetFocusState(tuiClient ipc.ClientID, accountJID, chatAddress string, focused bool) error {
 	key := focusedChatKey(accountJID, chatAddress)
 	clientFocus.set(tuiClient, focusState{focused: focused, chatKey: key})
@@ -358,9 +306,7 @@ func (a *adapter) SetFocusState(tuiClient ipc.ClientID, accountJID, chatAddress 
 	return nil
 }
 
-// ResetChatUnread zeroes the persisted
-// unread counter for a chat, called when it's opened in the UI, and tells
-// every attached TUI so the chat reads as read in all of them.
+// ResetChatUnread clears a chat's unread count, in every TUI.
 func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
 	if err := a.queries.ResetChatUnread(context.Background(), storage.ResetChatUnreadParams{
 		AccountJid: accountJID,
@@ -373,9 +319,7 @@ func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
 	return nil
 }
 
-// ChatUnreadCounts loads every chat with a
-// nonzero persisted unread count for an account, keyed by chat address, so
-// the UI can seed Chat.Unread when (re)connecting.
+// ChatUnreadCounts is an account's nonzero unread counts by chat address.
 func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
 	rows, err := a.queries.ListChatUnread(context.Background(), accountJID)
 	if err != nil {
@@ -388,10 +332,8 @@ func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
 	return counts, nil
 }
 
-// SaveDraft persists chatAddress's compose-box
-// text, sealed under the local storage key (crypto/localstore) same as a
-// message body when one is configured, or clears the persisted draft
-// entirely when text is empty (rather than storing an empty row).
+// SaveDraft stores a chat's unsent text, sealed like a message body; ""
+// deletes it.
 func (a *adapter) SaveDraft(accountJID, chatAddress, text string) error {
 	if text == "" {
 		return a.queries.DeleteChatDraft(context.Background(), storage.DeleteChatDraftParams{
@@ -416,10 +358,8 @@ func omemoProtocolLabel(p omemolib.Protocol) string {
 	return "v2"
 }
 
-// FetchOwnDeviceList fetches the
-// account's currently-published device list for both OMEMO protocols (each
-// runs its own separate device pool - see account.go), tagging every entry
-// with which protocol it belongs to.
+// FetchOwnDeviceList fetches the account's published device lists of both
+// OMEMO protocols.
 func (a *adapter) FetchOwnDeviceList(accountIdx int) (ui.OmemoDeviceListMsg, error) {
 	s, err := a.session(accountIdx)
 	if err != nil {
@@ -528,12 +468,8 @@ func omemoFingerprint(identityKey []byte) string {
 	return strings.Join(groups, " ")
 }
 
-// PurgeOwnDeviceList republishes each
-// affected protocol's device list containing only the entries in keep for
-// that protocol (this instance's own devices are always included
-// regardless, so it can never accidentally remove itself). A protocol whose
-// device list is unchanged (no entries in keep or removed for it) isn't
-// republished.
+// PurgeOwnDeviceList republishes each changed protocol's device list with
+// only keep's devices, and always this instance's own.
 func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) (ui.OmemoDevicePurgedMsg, error) {
 	s, err := a.session(accountIdx)
 	if err != nil {
@@ -589,13 +525,10 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) (ui.
 	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: devices}, nil
 }
 
-// RemoveAccount purges this account's own
-// device from each OMEMO protocol's published device list (so peers stop
-// treating it as a valid encryption target), disconnects it, and drops it
-// from config.toml. Local storage (history, roster cache, OMEMO
-// identity/session state) is never touched — sessions keeps the slot (see
-// ui.AccountRemovedMsg for why indices must stay stable), just closed, so
-// its reconnect supervisor goroutine exits instead of retrying.
+// RemoveAccount removes this device from the account's published OMEMO
+// device lists, disconnects it and drops it from config.toml. Local storage
+// is kept. Its sessions slot stays, closed, as indices must stay stable
+// (see ui.AccountRemovedMsg).
 func (a *adapter) RemoveAccount(accountIdx int) error {
 	s, err := a.session(accountIdx)
 	if err != nil {
@@ -646,10 +579,8 @@ func (a *adapter) RemoveAccount(accountIdx int) error {
 	return nil
 }
 
-// MarkRetracted flags a message as locally
-// deleted in storage without sending anything over the network. Used when
-// deleting someone else's message, since XEP-0424 retraction only applies to
-// messages we sent ourselves.
+// MarkRetracted flags someone else's message deleted, locally only: XEP-0424
+// retracts only our own.
 func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 	s, err := a.session(accountIdx)
 	if err != nil {
@@ -666,13 +597,8 @@ func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 	return nil
 }
 
-// PurgeMessage erases a message outright from
-// local storage, reactions included, and broadcasts a MessagePurgedMsg so every
-// attached client drops it too. The second half of the two-step delete - only
-// reached for a message already flagged retracted (see MarkRetracted and
-// Send's RetractID branch), since the first delete is the one that preserves
-// a record of what was said. Nothing goes on the wire: XMPP has no "erase it
-// from the archive" stanza, so this only ever affects our own copy.
+// PurgeMessage erases a retracted message and its reactions from storage, in
+// every TUI - the second delete. Local only.
 func (a *adapter) PurgeMessage(accountIdx int, to, id string) error {
 	s, err := a.session(accountIdx)
 	if err != nil {
@@ -702,12 +628,8 @@ func (a *adapter) PurgeMessage(accountIdx int, to, id string) error {
 	return nil
 }
 
-// DeleteQueued permanently discards a
-// still-Pending message from the outbox table without ever sending it. Not
-// an error if localID no longer matches anything queued - broadcasting
-// an OutboxDeletedMsg (so every attached client removes the same placeholder,
-// not just the one that asked) only happens when a row actually existed to
-// delete.
+// DeleteQueued discards a queued message unsent, in every TUI. Not an error
+// if it's gone already.
 func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
 	s, err := a.session(accountIdx)
 	if err != nil {
@@ -723,10 +645,8 @@ func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
 	return nil
 }
 
-// SetTyping sends a XEP-0085 chat state
-// notification to "to" — no persistence, no encryption, it's ephemeral.
-// A sent "composing" is remembered per calling client so clearTyping can take
-// it back if that TUI goes away before clearing it itself.
+// SetTyping sends a XEP-0085 chat state. "composing" is remembered per TUI
+// for clearTyping.
 func (a *adapter) SetTyping(tuiClient ipc.ClientID, accountIdx int, to string, composing bool) error {
 	_, client, err := a.online(accountIdx)
 	if err != nil {
@@ -778,11 +698,8 @@ func (a *adapter) drainTyping(tuiClient ipc.ClientID) map[int]string {
 	return pending
 }
 
-// clearTyping sends "active" to every peer tuiClient left in a "composing"
-// state via SetTyping. The daemon outlives the TUI, so without this a client
-// that quits (or dies) mid-keystroke — before its own pause timeout or quit
-// path clears the state — leaves the peer's client showing a typing indicator
-// indefinitely: nothing else on the wire ever contradicts it.
+// clearTyping sends "active" to every peer tuiClient left "composing", for a
+// TUI that went away while typing.
 func (a *adapter) clearTyping(tuiClient ipc.ClientID) {
 	for accountIdx, to := range a.drainTyping(tuiClient) {
 		_, client, err := a.online(accountIdx)
@@ -795,11 +712,8 @@ func (a *adapter) clearTyping(tuiClient ipc.ClientID) {
 	}
 }
 
-// RenameContact pushes name as a roster set
-// (RFC 6121) to the server, and mirrors it into local storage and the
-// in-memory roster cache used by rosterName. An empty name clears the
-// contact's nickname there too, matching what a fresh roster fetch would
-// show after the server applies the same change.
+// RenameContact sets a contact's name with a roster set (RFC 6121), and in
+// storage and the roster cache. "" clears it.
 func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 	s, client, err := a.online(accountIdx)
 	if err != nil {
@@ -827,9 +741,7 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 	return nil
 }
 
-// AddContact adds address to the roster and
-// sends a subscription request, then mirrors it into local storage and the
-// in-memory roster cache used by rosterName.
+// AddContact adds address to the roster and asks for its presence.
 func (a *adapter) AddContact(accountIdx int, address string) error {
 	s, client, err := a.online(accountIdx)
 	if err != nil {
@@ -864,9 +776,7 @@ func (a *adapter) ResubscribeContact(accountIdx int, address string) error {
 	return client.ResubscribeContact(context.Background(), address)
 }
 
-// RemoveContact removes address from the
-// roster and unsubscribes, then mirrors the removal into local storage and
-// the in-memory roster cache.
+// RemoveContact removes address from the roster and unsubscribes.
 func (a *adapter) RemoveContact(accountIdx int, address string) error {
 	s, client, err := a.online(accountIdx)
 	if err != nil {
@@ -888,9 +798,8 @@ func (a *adapter) RemoveContact(accountIdx int, address string) error {
 	return nil
 }
 
-// SetChatEncryption persists the chosen
-// outgoing message encryption ("omemo-v1", "omemo-v2", "gpg", or "none") for
-// one chat.
+// SetChatEncryption sets a chat's outgoing encryption: "omemo-v1",
+// "omemo-v2", "gpg" or "none".
 func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error {
 	s, err := a.session(accountIdx)
 	if err != nil {
@@ -911,30 +820,14 @@ func (a *adapter) Send(accountIdx int, to, body string, opts ui.SendOptions) (st
 	return a.send(context.Background(), accountIdx, to, body, opts)
 }
 
-// flushOutbox replays every send persisted to the outbox table (see its
-// schema doc comment) while s was offline, oldest first. Plain sends
-// (messages, reactions, retractions, corrections) go straight through
-// a.send, the same path a live send would take, so encryption is
-// (re)resolved against the fresh connection. Attachments were never
-// uploaded, so those go through the same upload-then-send steps
-// SendFile/UploadFile+Send would - the result wasn't the return value of a
-// Bubble Tea command the UI is waiting on (that call already returned
-// "queued" and moved on), so it's pushed into the UI via the same live-event
-// broadcast path an incoming message uses.
+// flushOutbox replays the sends queued while s was offline, oldest first,
+// through a.send (attachments uploaded first), broadcasting the results.
 //
-// Each row is deleted right before it's actually attempted, not after - if
-// the connection drops again mid-attempt, a.send's own offline branch
-// re-inserts it as a fresh row via enqueueOutbox, so nothing is lost, it's
-// just replayed under a new row id next time. Deleting after instead would
-// risk the opposite: a second concurrent flush (or a slow send outliving a
-// disconnect/reconnect cycle) re-sending the same row twice before either
-// gets to delete it. Called by reconnectWithBackoff and
-// connectAndSuperviseAccount right after either restores s's client.
+// Each row is deleted right before its attempt, not after: going offline
+// again mid-attempt re-queues it as a new row, while deleting after could
+// let two flushes send it twice.
 func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 	if _, err := s.liveClient(); err != nil {
-		// Nothing to do - called speculatively, or dropped again immediately
-		// after reconnecting. Every row stays exactly where it is for the
-		// next attempt.
 		return
 	}
 
@@ -952,9 +845,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 			id, err := a.send(ctx, s.accountIdx, q.to, q.body, q.opts)
 			switch {
 			case errors.Is(err, ui.ErrQueued):
-				// Went offline again between the top-level check above and
-				// this send - a.send already re-enqueued it (as a fresh
-				// row), so the UI's placeholder is still accurately Pending.
+				// Offline again: a.send re-queued it.
 			case err != nil:
 				slog.Warn("sending queued message failed", "jid", s.account.JID, "to", q.to, "err", err)
 				if q.opts.LocalID != "" {
@@ -989,14 +880,8 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 		}
 		url, err := a.uploadFile(ctx, s, client, q.to, q.filePath, nil)
 		if err != nil {
-			// The upload itself failed (not an offline/queued outcome) -
-			// same as a plain send's real-failure case, this row is done,
-			// not worth retrying forever. Persisted the same way a.send's own
-			// defer does for a plain-message failure (see markOutboxFailed's
-			// doc comment) - this fails before ever reaching a.send, so
-			// nothing else does it here - and resolved by LocalID so the
-			// placeholder startAttachedSend showed flips from Pending to
-			// Failed instead of sitting unresolved forever.
+			// Stored as failed (see markOutboxFailed), and the placeholder
+			// resolved by LocalID.
 			slog.Warn("uploading queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", err)
 			if delErr := s.deleteOutboxRow(ctx, q.dbID); delErr != nil {
 				slog.Warn("deleting failed outbox attachment entry", "jid", s.account.JID, "to", q.to, "err", delErr)
@@ -1023,10 +908,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 		}
 		switch {
 		case errors.Is(sendErr, ui.ErrQueued):
-			// Went offline again between the upload finishing and this send -
-			// a.send already re-enqueued it (as a fresh plain-text row, now
-			// containing the real URL since the upload itself already
-			// succeeded) - the UI's placeholder is still accurately Pending.
+			// Offline again: a.send re-queued it, now with the URL.
 		case sendErr != nil:
 			slog.Warn("sending queued attachment failed", "jid", s.account.JID, "to", q.to, "path", q.filePath, "err", sendErr)
 			if q.opts.LocalID != "" {
@@ -1035,12 +917,8 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 				})
 			}
 		default:
-			// Resolves the Pending placeholder startAttachedSend showed when
-			// this was first queued (see MessageSendResolvedMsg.LocalID) -
-			// not a new IncomingMessageMsg, which would just duplicate it: the
-			// placeholder is already sitting in chat history, only its
-			// ID/Encrypted/EncMethod/Content/Attachments need to catch up now
-			// that the real URL is known.
+			// Resolves the placeholder shown when it was queued, rather than
+			// adding a message.
 			if q.opts.LocalID != "" {
 				encrypted, method := modeEncryption(resolveEncryptionMode(ctx, s, q.to))
 				broadcast(a.srv, ui.MessageSendResolvedMsg{
@@ -1065,26 +943,16 @@ func modeEncryption(mode string) (encrypted bool, method string) {
 	return true, "omemo"
 }
 
-// send is the context-aware implementation behind Send. File uploads use it
-// with their deadline so a subsequent peer-key lookup or stanza send cannot
-// outlive the operation that initiated it. opts.OOBURLs, if given, marks
-// those URLs as XEP-0066 attachments - only applied when the send ends up
-// unencrypted, since attaching them in the clear would leak the URL
-// alongside an encrypted body.
+// send is Send with a context. opts.OOBURLs are marked as XEP-0066
+// attachments only when sent unencrypted, or they'd leak beside an encrypted
+// body.
 func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opts ui.SendOptions) (id string, err error) {
 	s, err := a.session(accountIdx)
 	if err != nil {
 		return "", err
 	}
 
-	// A real (non-offline, non-queued) failure below - "omemo not ready", an
-	// encrypt error, the server rejecting the stanza - must survive this
-	// process restarting the same as a queued send does, or it silently
-	// vanishes the moment a different TUI process (which never saw this
-	// return value) reloads its view from storage. Skipped for
-	// reactions/retractions/corrections: those target an existing message
-	// that's already durably stored, nothing here needs to survive on their
-	// behalf. See markOutboxFailed's doc comment.
+	// A failed new message is stored as failed (see markOutboxFailed).
 	isPlainMessageSend := opts.ReplaceID == "" && opts.RetractID == "" && opts.ReactionTargetID == ""
 	defer func() {
 		if err != nil && !errors.Is(err, ui.ErrQueued) && isPlainMessageSend && opts.LocalID != "" {
@@ -1096,21 +964,9 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 
 	client, err := s.liveClient()
 	if err != nil {
-		// Queue and replay verbatim once reconnected. Reactions/retractions/
-		// corrections reference a target ID from an earlier, already-sent
-		// message, so replaying them later is safe as long as that target
-		// wasn't itself still queued (see enqueueOutbox).
-		//
-		// ui.ErrQueued (not nil) is returned so the caller can tell "queued,
-		// will go out automatically" apart from "sent" - a nil error here
-		// used to be indistinguishable from success up at the UI, which then
-		// had no way to avoid rendering an unsent message exactly like a
-		// delivered one.
+		// Queued for when we're back online; ui.ErrQueued tells the caller
+		// it isn't sent.
 		if qErr := s.enqueueOutbox(ctx, to, body, opts); qErr != nil {
-			// Persisting the queue entry itself failed - this is a genuine
-			// failure, not "queued, will go out automatically": returning
-			// ErrQueued here would tell the UI everything's fine when the
-			// message was actually never recorded anywhere.
 			return "", fmt.Errorf("account offline and queuing failed: %w", qErr)
 		}
 		slog.Debug("account offline; message queued", "jid", s.account.JID, "to", to)
@@ -1140,9 +996,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	}
 
 	if opts.RetractID != "" {
-		// The retraction body is fixed fallback text, not user content —
-		// nothing to encrypt for the peer. We never delete our own copy: a
-		// retraction only flags the message, it doesn't erase local history.
+		// Nothing to encrypt; our own copy is only flagged.
 		id, err := client.Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID})
 		if err != nil {
 			return "", err
@@ -1186,20 +1040,12 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		protocol, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
 		slog.Debug("send: using omemo encryption", "protocol", protocol, "jid", s.account.JID, "to", to)
 		if mgr != nil {
-			// Deliberately a bare plaintext string, not a structured envelope
-			// carrying OOB metadata: an earlier version of this code wrapped
-			// it in XML so encrypted file messages could still get attachment
-			// styling, but that showed as literal "<kage-payload><body>..."
-			// noise in every other OMEMO client (Dino, Conversations, etc).
-			// Real interop matters more than attachment icons on encrypted
-			// files, so those just render as plain text/links instead - same
-			// as GPG.
+			// The plain body, no envelope with attachment metadata: other
+			// clients would show it as text.
 			refreshPeerDevicesIfStale(ctx, s, protocol, to, mgr.SyncDevices)
 			enc, deviceErrs, err := mgr.EncryptMessage(ctx, to, []byte(plaintext))
 			if err != nil {
-				// The manager only auto-fetches a peer's device list when its
-				// cache is empty, so a peer that rotated/added devices since
-				// our last fetch looks unencryptable until we force a resync.
+				// The cached device list may be stale; resync and retry.
 				slog.Debug("send: omemo encrypt failed; forcing device resync", "protocol", protocol, "jid", s.account.JID, "to", to, "err", err, "device_errs", deviceErrs)
 				if syncErr := mgr.SyncDevices(ctx, to); syncErr != nil {
 					slog.Debug("send: omemo device resync failed", "protocol", protocol, "to", to, "err", syncErr)
@@ -1214,12 +1060,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			slog.Debug("send: omemo encrypt succeeded", "protocol", protocol, "jid", s.account.JID, "to", to, "keys", len(enc.Keys))
 			checkRecipientCoverage(ctx, s, mgr, protocol, to, enc)
 			for _, de := range deviceErrs {
-				// EncryptMessage is best-effort and only returns a non-nil
-				// err when EVERY device failed - a partial failure (some
-				// devices got a key, one silently didn't) is otherwise
-				// invisible, which is exactly what makes "encrypted to the
-				// wrong/stale devices, skipped the one that would actually
-				// decrypt" undiagnosable without this.
+				// EncryptMessage only errors when every device failed.
 				slog.Debug("send: omemo device failed (message still sent to other devices)", "protocol", protocol, "device_jid", de.Device.JID, "device_id", de.Device.ID, "err", de.Err)
 			}
 			if protocol == omemolib.ProtocolV1 {
@@ -1232,10 +1073,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			wireBody = ""
 			e2eEncrypted = true
 		} else {
-			// Chat is configured for OMEMO but the manager for the resolved
-			// protocol never came up (see setupOmemoProtocol) - refuse to
-			// send rather than silently falling back to plaintext for a chat
-			// the user explicitly marked as encrypted.
+			// Never fall back to plaintext in an encrypted chat.
 			slog.Warn("send: omemo not ready; refusing to send unencrypted", "protocol", protocol, "jid", s.account.JID, "to", to)
 			return "", fmt.Errorf("omemo(%s) isn't ready for this account; message not sent", protocol)
 		}
@@ -1279,9 +1117,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}); err != nil {
 			slog.Warn("persisting correction", "err", err)
 		}
-		// The editing TUI already shows the new text; every other attached
-		// one only learns of it from this - same reason as the plain-send
-		// broadcast below.
+		// For the other TUIs, as below.
 		broadcast(a.srv, ui.MessageCorrectedMsg{
 			AccountIdx: accountIdx,
 			From:       to,
@@ -1294,24 +1130,15 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	}
 
 	if opts.LocalID != "" {
-		// This send may be a manual retry (ui.actionRetryMessage) of a prior
-		// failure markOutboxFailed recorded under this same LocalID. Now that
-		// it succeeded and is about to get its own fresh messages row below,
-		// that stale failed outbox row must go - otherwise it survives
-		// forever and keeps reappearing as a Failed placeholder (see
-		// pendingOutboxMessagesByPeer) alongside the now-successfully-sent
-		// message on every reload/reconnect.
+		// A retry of a failure stored under this LocalID: drop that row, or
+		// it reappears as failed beside the sent message.
 		if _, _, err := s.deleteOutboxByLocalID(ctx, opts.LocalID); err != nil {
 			slog.Warn("clearing stale outbox entry after successful retry", "jid", s.account.JID, "to", to, "err", err)
 		}
 	}
 	if opts.SupersedesID != "" {
-		// The other shape of retry: the earlier attempt already made it into
-		// the messages table under its own ID before an ack timeout flagged
-		// it sendFailed (see SendOptions.SupersedesID's doc comment). This
-		// send is getting its own fresh row below, so the old one must be
-		// removed here too, or it survives forever as a stale Failed
-		// duplicate.
+		// A retry of a stored message an ack timeout failed (see
+		// SendOptions.SupersedesID): drop its row the same way.
 		if _, err := s.db.DeleteMessageByID(ctx, storage.DeleteMessageByIDParams{
 			AccountJid: s.account.JID,
 			IDAttr:     nullString(opts.SupersedesID),
@@ -1321,11 +1148,8 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		}
 	}
 
-	// Snapshot the replied-to message's author+preview (already known from
-	// the UI's own loaded state - see SendOptions.QuotedAuthor/QuotedBody's
-	// doc comment) so the reply indicator survives even once that message
-	// falls outside whatever window of history gets loaded later (see
-	// ui.Message.QuotedAuthor/QuotedPreview).
+	// Stored with the reply, so it shows even once the replied-to message
+	// isn't loaded (see ui.Message.QuotedAuthor).
 	var quotedAuthor, quotedPreview string
 	if opts.ReplyToID != "" {
 		quotedAuthor = opts.QuotedAuthor
@@ -1353,18 +1177,8 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	}
 	s.trackForServerAck(a, s.accountIdx, to, id)
 
-	// More than one TUI process can be attached to this daemon at once (see
-	// cmd_daemon.go) sharing this one account's connection - every one of
-	// them besides the client that made this particular Send RPC (which
-	// already rendered its own local optimistic echo, see
-	// ui/message_actions.go's sendCurrentInput) needs to learn about this
-	// message some other way, the same way it learns about a message a peer
-	// sent. Reusing IncomingMessageMsg (rather than inventing a "just sent by
-	// another instance" event) means every attached client, including the
-	// sender's own, goes through the exact same handling as a real incoming
-	// message - the sender's own copy is a harmless duplicate broadcast of
-	// something it already rendered, deduped there by matching message ID
-	// (see IncomingMessageMsg's handler in ui/update_messages.go).
+	// Every TUI learns of it as an incoming message; the sender's own, which
+	// already shows it, dedupes it by ID.
 	broadcast(a.srv, ui.IncomingMessageMsg{
 		AccountIdx: accountIdx,
 		From:       to,
@@ -1386,12 +1200,8 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	return id, nil
 }
 
-// uploadFile applies the same peer encryption policy as an outgoing message
-// (XEP-0454 AES-256-GCM when the resolved mode is encrypted, plain XEP-0363
-// otherwise) and uploads path, returning the URL to put in a message body.
-// Shared by SendFile (upload + immediate send) and UploadFile (upload only,
-// for staging a pending attachment). onProgress, if non-nil, is called with
-// cumulative bytes sent as the PUT streams.
+// uploadFile uploads path (XEP-0363), encrypted (XEP-0454) when a message to
+// "to" would be, returning the URL to send.
 func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmpp.Client, to, path string, onProgress func(sent, total int64)) (string, error) {
 	encryptFile := false
 	switch mode := resolveEncryptionMode(ctx, s, to); mode {
@@ -1437,11 +1247,8 @@ func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmp
 	return url, nil
 }
 
-// cacheUploadedAttachment copies a just-uploaded local file to the same
-// location a download of url would use (see ui.AttachmentLocalPath), so a
-// file we send is available locally in the same format/place as one we'd
-// receive, without re-downloading it from the server. Best-effort: a failure
-// here doesn't affect the send, which already succeeded.
+// cacheUploadedAttachment copies an uploaded file to where downloading url
+// would put it (see ui.AttachmentLocalPath). Best-effort.
 func cacheUploadedAttachment(path, url, to string) {
 	dest := ui.AttachmentLocalPath(url, bareJID(to))
 	if dest == "" || dest == path {
@@ -1470,13 +1277,9 @@ func cacheUploadedAttachment(path, url, to string) {
 	}
 }
 
-// progressCallback returns a throttled onProgress func suitable for
-// xmpp.Client.UploadFile/Upload (or a download loop): it only
-// sends a ui.FileTransferProgressMsg to the UI when the whole percentage
-// changes, so a large file doesn't flood the update loop with a message per
-// 32KB chunk. id is an opaque per-transfer key (e.g. local path for an
-// upload, URL for a download) letting the UI track multiple concurrent
-// transfers separately.
+// progressCallback is an upload's onProgress, broadcasting a
+// ui.FileTransferProgressMsg when the whole percentage changes. id tells
+// transfers apart.
 func (a *adapter) progressCallback(id, label string) func(sent, total int64) {
 	lastPercent := -1
 	return func(sent, total int64) {
@@ -1525,12 +1328,8 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	return result, nil
 }
 
-// UploadFile uploads path. Unlike SendFile it only uploads —
-// used by startAttachedSend to upload+send each staged attachment as its own
-// message. text/opts are only consulted when the account is offline: rather
-// than fail (upload needs a live connection, unlike a plain text send),
-// upload+send is queued as one unit and replayed together by
-// adapter.flushOutbox once reconnected.
+// UploadFile uploads path without sending it. Offline, the upload and the
+// send of text/opts are queued as one (see flushOutbox).
 func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.SendOptions) (ui.FileUploadResultMsg, error) {
 	result := ui.FileUploadResultMsg{Path: path}
 	s, err := a.session(accountIdx)
@@ -1569,12 +1368,7 @@ func (a *adapter) UploadFile(accountIdx int, to, path, text string, opts ui.Send
 	return result, nil
 }
 
-// --- voice calls (XEP-0166/0167/0176/0353, see callsession.go) ---
-//
-// Blocking-in-the-RPC-handler is fine here for the same reason SetTyping is:
-// each of these only builds and writes one stanza. The slow parts (ICE
-// gathering, DTLS, audio) happen on the call's own goroutines and report
-// back via CallStateMsg broadcasts.
+// --- calls (see callsession.go) ---
 
 // CallAction does action to accountIdx's call.
 func (a *adapter) CallAction(accountIdx int, action ui.CallAction) error {
@@ -1702,27 +1496,14 @@ func (a *adapter) hangupAllCalls(timeout time.Duration) {
 }
 
 // peerDeviceSyncInterval is how long a peer's cached OMEMO device list is
-// trusted before a send re-fetches it. Long enough that a busy conversation
-// doesn't put a PEP IQ in front of every message, short enough that a
-// missed device-list push doesn't go unnoticed for the life of the daemon.
+// trusted before a send re-fetches it.
 const peerDeviceSyncInterval = 30 * time.Minute
 
-// refreshPeerDevicesIfStale re-fetches to's OMEMO device list if it hasn't
-// been synced recently.
-//
-// omemo-go only auto-fetches a peer's list when its cache is completely
-// empty, and send only forces a resync after an encrypt fails outright. A
-// cache that is stale but non-empty therefore encrypts happily to the wrong
-// set of devices and reports success - the peer's newest device simply never
-// gets a key and the message never appears there, with nothing in the log
-// beyond a lower-than-expected key count. Device-list PEP pushes normally
-// keep the cache honest, but a push missed while either side was
-// reconnecting is never resent.
-//
-// Best-effort: a failed fetch leaves the cache as it was and lets the send
-// proceed, which is no worse than not having tried.
-// syncDevices is mgr.SyncDevices, taken as a parameter so the throttle can
-// be tested without a live Manager.
+// refreshPeerDevicesIfStale re-fetches to's OMEMO device list if it wasn't
+// synced within peerDeviceSyncInterval. omemo-go only fetches an empty
+// cached list by itself, so a stale one encrypts without error but without
+// a key for the peer's newer devices. Best-effort. syncDevices is
+// mgr.SyncDevices.
 func refreshPeerDevicesIfStale(
 	ctx context.Context, s *accountSession, protocol omemolib.Protocol, to string,
 	syncDevices func(context.Context, string) error,
@@ -1752,9 +1533,7 @@ func refreshPeerDevicesIfStale(
 }
 
 // checkRecipientCoverage logs the two ways an OMEMO encrypt can succeed and
-// still be undeliverable. Neither is recoverable here - both are about the
-// peer's published devices - but both are invisible without this, which is
-// what made them take a packet capture and a peer's logcat to find.
+// still not reach the peer, which are otherwise invisible.
 func checkRecipientCoverage(
 	ctx context.Context, s *accountSession, mgr *omemolib.Manager,
 	protocol omemolib.Protocol, to string, enc *omemolib.EncryptedMessage,
@@ -1770,9 +1549,8 @@ func checkRecipientCoverage(
 		keyed[k.Device] = true
 	}
 
-	// 1. No key for any device the peer publishes. The stanza goes out, the
-	// server accepts it, and it can only ever reach our own other clients -
-	// the exact shape of "he never got it but it showed up on my phone".
+	// 1. No key for any device the peer publishes: only our own other
+	// devices can read it.
 	covered := 0
 	for _, id := range peerDevices {
 		if keyed[id] {
@@ -1785,13 +1563,8 @@ func checkRecipientCoverage(
 			"peer_devices", peerDevices, "keyed_devices", len(enc.Keys))
 	}
 
-	// 2. A recipient device ID outside OMEMO's addressable range. Every
-	// libsignal-derived client parses sid/rid as a signed 32-bit int and
-	// drops the WHOLE stanza on overflow, keys for its own devices
-	// included - so one such device in the list makes the message
-	// undeliverable to every Conversations/Dino/Gajim device in the chat,
-	// not just to that one. Nothing can be done from this side; it resolves
-	// when that device's client re-numbers itself (see
+	// 2. A device ID out of OMEMO's range: libsignal-based clients parse
+	// rid as a signed int32 and drop the whole stanza on overflow (see
 	// rotateOutOfRangeDeviceID).
 	for _, id := range peerDevices {
 		if !id.Valid() {
