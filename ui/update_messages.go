@@ -262,7 +262,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 				cmd = tea.Batch(cmd, m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(placeholder)))
 				if isOpenChat {
-					m.followTail()
+					m.followNew(true)
 				}
 				return m, cmd, true
 			}
@@ -334,7 +334,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			}
 		}
 		if chatIdx >= 0 && msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
-			m.followTail()
+			m.followNew(true)
 		}
 		return m, tea.Batch(cmds...), true
 
@@ -377,7 +377,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
-			m.followTail()
+			m.followNew(true)
 		}
 		return m, tea.Batch(lastMsgCmd, notice), true
 
@@ -453,7 +453,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, tea.Batch(typingCmd, cmd), true
 		}
 		if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
-			m.followTail()
+			m.followNew(newMsg.IsMe)
 		}
 		return m, tea.Batch(typingCmd, cmd), true
 

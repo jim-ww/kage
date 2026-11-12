@@ -99,6 +99,11 @@ type Config struct {
 	// HoverSelectDisabled stops hovering a message from selecting it, so
 	// only a click (or the keyboard) does; off (hover selects) by default.
 	HoverSelectDisabled bool `toml:"hover_select_disabled,omitempty"`
+	// Autofocus selects and scrolls to new messages in the open chat as
+	// they arrive: "own" (yours), "others" (everyone else's) or "all".
+	// Unset by default: the chat only follows along if it's already
+	// scrolled to the bottom.
+	Autofocus ui.Autofocus `toml:"autofocus,omitempty"`
 	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
 	// off by default.
 	ShowEncryptedIcon bool `toml:"show_encrypted_icon,omitempty"`
@@ -310,6 +315,9 @@ func loadConfigFile(path string) (cfg Config, found bool, err error) {
 	}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return cfg, false, fmt.Errorf("parse config %q: %w", path, err)
+	}
+	if !cfg.Autofocus.Valid() {
+		return cfg, false, fmt.Errorf("config %q: autofocus = %q, want \"own\", \"others\" or \"all\"", path, cfg.Autofocus)
 	}
 	return cfg, true, nil
 }

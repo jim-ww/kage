@@ -263,7 +263,9 @@ type Model struct {
 	autoUnhideDisabled bool
 	// hoverSelectDisabled: see DisplayOptions.HoverSelectDisabled.
 	hoverSelectDisabled bool
-	focusReporter       FocusReporter
+	// autofocus: see DisplayOptions.Autofocus.
+	autofocus     Autofocus
+	focusReporter FocusReporter
 	// landedOnce marks the one-time startup landing as done - see
 	// Model.landedInChat. Whichever message first brings the current
 	// account's chats in gets to put the view on the newest message; every
@@ -442,6 +444,8 @@ type DisplayOptions struct {
 	// HoverSelectDisabled stops hovering a message from selecting it; a
 	// click still does. Named the same way: hover selects by default.
 	HoverSelectDisabled bool
+	// Autofocus is whose new messages get selected and scrolled to.
+	Autofocus Autofocus
 }
 
 // New builds the initial Model. initialCallState, if non-nil, seeds the
@@ -550,6 +554,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		accounts:                   accounts,
 		autoUnhideDisabled:         display.AutoUnhideDisabled,
 		hoverSelectDisabled:        display.HoverSelectDisabled,
+		autofocus:                  display.Autofocus,
 		currentAccount:             startAccount,
 		chats:                      &l,
 		sidebarRenderCache:         &sidebarCacheEntry{},

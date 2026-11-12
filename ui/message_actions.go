@@ -42,6 +42,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	if chatIdx < 0 {
 		return nil
 	}
+	shown := len(m.currentMessages())
 
 	if hasAttachments {
 		// Uploading (and the send it feeds into) runs async, same as
@@ -212,6 +213,9 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
 	}
 	m.updateSizes()
+	if len(m.currentMessages()) > shown && m.autofocus.covers(true) {
+		m.selectedMsg = len(m.currentMessages()) - 1
+	}
 	m.refreshViewport()
 	m.viewport.GotoBottom()
 	return tea.Batch(cmds...)

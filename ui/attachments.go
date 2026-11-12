@@ -107,7 +107,7 @@ func (m *Model) showFailedAttachmentPlaceholder(msg ComposedSendResultMsg) (tea.
 	isOpenChat := msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 	cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(placeholder))
 	if isOpenChat {
-		m.followTail()
+		m.followNew(true)
 	}
 	return cmd, true
 }
