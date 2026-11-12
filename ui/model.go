@@ -9,10 +9,11 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
+
 	"github.com/jim-ww/kage/ui/filepicker"
 	"github.com/jim-ww/kage/ui/modal"
 	"github.com/jim-ww/kage/ui/viewport"
-	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 // ── Model ─────────────────────────────────────────────────────────────────────
@@ -112,8 +113,7 @@ type Model struct {
 
 	accounts       []Account
 	currentAccount int
-	// chats, input, filePicker, and
-	// addAccountInputs are pointers rather than embedded values: Model is
+	// chats, input and filePicker are pointers rather than embedded values: Model is
 	// passed by value throughout this package (View, chatAreaWidth,
 	// renderMessage, dozens of other read-only helpers), and each of these
 	// bubbles components is itself several KB — embedded by value they
@@ -316,10 +316,6 @@ type Model struct {
 	// search-in-chat query completes) is showing. See searchResultsState.
 	searchResults *searchResultsState
 
-	// changePasswordState is non-nil while the "change local storage
-	// password" popup is open — see ui/storage_password.go.
-	changePasswordState *changePasswordState
-
 	// typingActiveTo is the address of the chat we're currently marked as
 	// "composing" to (empty if not composing to anyone). typingGen
 	// increments on every keystroke while composing, so a pending
@@ -340,18 +336,6 @@ type Model struct {
 	// panel's full re-render so holding the cursor key doesn't re-render
 	// every chat skipped through along the way.
 	chatSwitchGen int
-
-	// add-account form state, active while addingAccount is true.
-	// addAccountRegister toggles the form between logging into an existing
-	// account and registering a new one (XEP-0077) on the server before
-	// logging in — addAccountInputs[2] (confirm password) is only shown/used
-	// in register mode, and skipped when cycling focus in login mode.
-	addingAccount      bool
-	addAccountRegister bool
-	addAccountInputs   *[4]textinput.Model // JID, password, confirm password (register only), gpg key ID (optional)
-	addAccountFocus    int
-	addAccountErr      string
-	addAccountBusy     bool
 
 	// deviceList is non-nil while the OMEMO device-list popup is open — see
 	// ui/omemo_devices.go.
@@ -636,61 +620,6 @@ const popupInputMinWidth = 8
 // DefaultNoticeDuration is how long an in-app notification toast stays
 // visible before auto-dismissing when DisplayOptions.NoticeDuration is unset.
 const DefaultNoticeDuration = 3 * time.Second
-
-func (m Model) newAddAccountForm() *[4]textinput.Model {
-	var fields [4]textinput.Model
-
-	jidInput := textinput.New()
-	jidInput.Placeholder = "user@server"
-	jidInput.Prompt = "JID:      "
-	jidInput.KeyMap = m.keys.TextInputKeys
-	jidInput.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&jidInput, m.styles.colors)
-	jidInput.Focus()
-	fields[0] = jidInput
-
-	passInput := textinput.New()
-	passInput.Placeholder = "(leave blank to use password_cmd/keyring)"
-	passInput.Prompt = "Password: "
-	passInput.EchoMode = textinput.EchoPassword
-	passInput.KeyMap = m.keys.TextInputKeys
-	passInput.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&passInput, m.styles.colors)
-	fields[1] = passInput
-
-	confirmInput := textinput.New()
-	confirmInput.Placeholder = "confirm password"
-	confirmInput.Prompt = "Confirm:  "
-	confirmInput.EchoMode = textinput.EchoPassword
-	confirmInput.KeyMap = m.keys.TextInputKeys
-	confirmInput.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&confirmInput, m.styles.colors)
-	fields[2] = confirmInput
-
-	gpgInput := textinput.New()
-	gpgInput.Placeholder = "(optional) own gpg key fingerprint"
-	gpgInput.Prompt = "GPG key:  "
-	gpgInput.KeyMap = m.keys.TextInputKeys
-	gpgInput.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&gpgInput, m.styles.colors)
-	fields[3] = gpgInput
-
-	return &fields
-}
-
-// OpenAddAccountForm switches to the accounts panel and opens the
-// add-account modal, same as pressing "a" there — used by main.go to land
-// directly in it on a fresh install with zero accounts configured, since an
-// empty sidebar with no visible way to add one would otherwise be a dead end.
-func (m Model) OpenAddAccountForm() Model {
-	m.setSelectedView(viewAccounts)
-	m.addingAccount = true
-	m.addAccountRegister = false
-	m.addAccountFocus = 0
-	m.addAccountErr = ""
-	m.addAccountInputs = m.newAddAccountForm()
-	return m
-}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 

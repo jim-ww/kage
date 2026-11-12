@@ -1,13 +1,13 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"regexp"
 )
 
 // shortcutMenu opens a menu whose items record which one ran into *ran.

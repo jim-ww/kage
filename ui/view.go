@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/jim-ww/kage/ui/modal"
 )
 
@@ -349,10 +350,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderDeviceListPopup()
 	case m.contactManagerState != nil:
 		viewportArea = m.renderContactManagerPopup()
-	case m.changePasswordState != nil:
-		viewportArea = m.renderChangePasswordPopup()
-	case m.addingAccount:
-		viewportArea = m.renderAddAccountPopup()
 	case m.searchResults != nil:
 		viewportArea = m.renderSearchResultsPopup()
 	case m.avatarPreview != nil:
@@ -751,82 +748,6 @@ func (m Model) renderFilePickerNavButton(glyph, zoneID string, enabled bool) str
 		return rendered
 	}
 	return m.zone.Mark(zoneID, rendered)
-}
-
-// renderAddAccountPopup shows the add-account form: one line per active
-// field (JID, password, confirm password when registering, GPG key ID), the
-// focused field highlighted by its own textinput cursor, plus an error line
-// if the last attempt failed.
-func (m Model) renderAddAccountPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	title := "Log in"
-	verb := "log in"
-	if m.addAccountRegister {
-		title = "Register"
-		verb = "register"
-	}
-
-	count := m.addAccountFieldCount()
-	rows := make([]string, count)
-	for pos := 0; pos < count; pos++ {
-		rows[pos] = m.popupInputView(&m.addAccountInputs[m.addAccountFieldIndex(pos)])
-	}
-	if m.addAccountBusy {
-		rows = append(rows, "", verb+"...")
-	} else if m.addAccountErr != "" {
-		rows = append(rows, "", m.styles.popupDanger.Render(m.addAccountErr))
-	}
-
-	footer := fmt.Sprintf("[tab] next field · [ctrl+r] switch to %s · [enter] %s · [esc] cancel", altMode(m.addAccountRegister), verb)
-	body := m.styles.listPopup(title, rows, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-// altMode returns the label for the mode ctrl+r switches to, opposite the
-// current one.
-func altMode(register bool) string {
-	if register {
-		return "log in"
-	}
-	return "register"
-}
-
-// renderChangePasswordPopup shows the "change local storage password"
-// popup's two masked fields, plus a loud warning: unlike an account
-// password, this key isn't recoverable from anywhere else (not the server,
-// not a peer) — losing it means losing every locally-stored message/draft
-// it protects.
-func (m Model) renderChangePasswordPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	s := m.changePasswordState
-	rows := []string{
-		m.styles.popupDanger.Render(wrapToWidth("Write this down. If you lose it, your local message history is unrecoverable.", m.popupTextWidth())),
-		wrapToWidth("Leave both fields blank to turn local storage encryption off.", m.popupTextWidth()),
-		"",
-		m.popupInputView(&s.inputs[0]),
-		m.popupInputView(&s.inputs[1]),
-	}
-	if s.busy {
-		if s.inputs[0].Value() == "" {
-			rows = append(rows, "", "disabling local storage encryption...")
-		} else {
-			rows = append(rows, "", "re-encrypting local storage...")
-		}
-	} else if s.err != "" {
-		rows = append(rows, "", m.styles.popupDanger.Render(s.err))
-	}
-
-	footer := "[tab] next field · [enter] change · [esc] cancel"
-	body := m.styles.listPopup("Change storage password", rows, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }
 
 // renderAccountBar returns the account bar's name and status text

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/jim-ww/kage/ui/modal"
 )
 
@@ -766,8 +767,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 
 	case AccountAddedMsg:
-		m.addingAccount = false
-		m.addAccountBusy = false
+		m.modals.Remove(addAccountModalID)
 		if m.accountIndexByJID(msg.Account.Name) >= 0 {
 			// The AccountAppearedMsg broadcast for our own add raced ahead of
 			// this RPC result (both come from the daemon, over different
@@ -793,8 +793,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, m.showNotification("account added elsewhere: " + msg.Account.Name), true
 
 	case AccountAddErrorMsg:
-		m.addAccountBusy = false
-		m.addAccountErr = msg.Err.Error()
+		if md := m.modals.Find(addAccountModalID); md != nil {
+			body := md.Body.(*addAccountBody)
+			body.SetBusy("")
+			body.SetError(msg.Err.Error())
+		}
 		return m, nil, true
 
 	case OmemoDeviceListMsg:
@@ -1146,15 +1149,17 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 
 	case StoragePasswordChangedMsg:
-		if m.changePasswordState == nil {
+		md := m.modals.Find(storagePasswordModalID)
+		if md == nil {
 			return m, nil, true
 		}
-		m.changePasswordState.busy = false
+		form := md.Body.(*modal.Form)
+		form.SetBusy("")
 		if msg.Err != nil {
-			m.changePasswordState.err = msg.Err.Error()
+			form.SetError(msg.Err.Error())
 			return m, nil, true
 		}
-		m.changePasswordState = nil
+		m.modals.Remove(storagePasswordModalID)
 		return m, m.showNotification("storage password changed — kage will restart shortly, please relaunch it"), true
 
 	case draftSaveMsg:

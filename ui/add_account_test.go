@@ -37,6 +37,14 @@ func keyCode(code rune) tea.KeyMsg {
 	return tea.KeyPressMsg{Code: code}
 }
 
+// addAccountOf is the open add-account form, or nil.
+func addAccountOf(m Model) *addAccountBody {
+	if md := m.modals.Find(addAccountModalID); md != nil {
+		return md.Body.(*addAccountBody)
+	}
+	return nil
+}
+
 func newTestModel(adder AccountAdder) Model {
 	return newTestModelWithSender(nil, adder)
 }
@@ -57,14 +65,14 @@ func TestAddAccountFormOpenAndCancel(t *testing.T) {
 
 	next, _ := m.Update(keyText("a"))
 	m = next.(Model)
-	if !m.addingAccount {
-		t.Fatal("expected addingAccount to be true after pressing 'a'")
+	if addAccountOf(m) == nil {
+		t.Fatal("expected the add-account form after pressing 'a'")
 	}
 
 	next, _ = m.Update(keyCode(tea.KeyEscape))
 	m = next.(Model)
-	if m.addingAccount {
-		t.Fatal("expected addingAccount to be false after esc")
+	if addAccountOf(m) != nil {
+		t.Fatal("expected esc to close the add-account form")
 	}
 	if adder.calls != 0 {
 		t.Fatalf("expected no AddAccount calls, got %d", adder.calls)
@@ -90,8 +98,8 @@ func TestAddAccountFormFieldNavigationAndSubmit(t *testing.T) {
 
 	next, _ = m.Update(keyCode(tea.KeyTab))
 	m = next.(Model)
-	if m.addAccountFocus != 1 {
-		t.Fatalf("expected focus on password field (1), got %d", m.addAccountFocus)
+	if addAccountOf(m).Focused() != 1 {
+		t.Fatalf("expected focus on password field (1), got %d", addAccountOf(m).Focused())
 	}
 	for _, r := range "hunter2" {
 		next, _ = m.Update(keyText(string(r)))
@@ -100,8 +108,8 @@ func TestAddAccountFormFieldNavigationAndSubmit(t *testing.T) {
 
 	next, _ = m.Update(keyCode(tea.KeyTab))
 	m = next.(Model)
-	if m.addAccountFocus != 3 {
-		t.Fatalf("expected focus on gpg key field (3, confirm-password skipped in login mode), got %d", m.addAccountFocus)
+	if addAccountOf(m).Focused() != 3 {
+		t.Fatalf("expected focus on gpg key field (3, confirm-password skipped in login mode), got %d", addAccountOf(m).Focused())
 	}
 	for _, r := range "ABCD1234" {
 		next, _ = m.Update(keyText(string(r)))
@@ -110,7 +118,7 @@ func TestAddAccountFormFieldNavigationAndSubmit(t *testing.T) {
 
 	next, cmd := m.Update(keyCode(tea.KeyEnter))
 	m = next.(Model)
-	if !m.addAccountBusy {
+	if !addAccountOf(m).Busy() {
 		t.Fatal("expected addAccountBusy to be true right after submit")
 	}
 	if cmd == nil {
@@ -127,7 +135,7 @@ func TestAddAccountFormFieldNavigationAndSubmit(t *testing.T) {
 	if adder.lastJID != "alice@example.com" || adder.lastPassword != "hunter2" || adder.lastGPGKeyID != "ABCD1234" {
 		t.Fatalf("got jid=%q password=%q gpgKeyID=%q", adder.lastJID, adder.lastPassword, adder.lastGPGKeyID)
 	}
-	if m.addingAccount {
+	if addAccountOf(m) != nil {
 		t.Fatal("expected form to close on success")
 	}
 	if len(m.accounts) != 1 || m.accounts[0].Name != "alice@example.com" {
@@ -156,13 +164,13 @@ func TestAddAccountFormSubmitErrorKeepsFormOpen(t *testing.T) {
 	next, _ = m.Update(msg)
 	m = next.(Model)
 
-	if !m.addingAccount {
+	if addAccountOf(m) == nil {
 		t.Fatal("expected form to stay open after an error")
 	}
-	if m.addAccountBusy {
+	if addAccountOf(m).Busy() {
 		t.Fatal("expected addAccountBusy to be cleared after the error result")
 	}
-	if m.addAccountErr == "" {
+	if addAccountOf(m).Err() == "" {
 		t.Fatal("expected addAccountErr to be set")
 	}
 	if len(m.accounts) != 0 {
@@ -188,7 +196,7 @@ func TestAddAccountFormRequiresJID(t *testing.T) {
 	if adder.calls != 0 {
 		t.Fatalf("expected no AddAccount calls, got %d", adder.calls)
 	}
-	if m.addAccountErr == "" {
+	if addAccountOf(m).Err() == "" {
 		t.Fatal("expected a validation error to be set")
 	}
 }
@@ -207,9 +215,9 @@ func TestAddAccountFormRendersFullPlaceholders(t *testing.T) {
 	next, _ := m.Update(keyText("a"))
 	m = next.(Model)
 
-	for i, field := range m.addAccountInputs {
+	for i, field := range addAccountOf(m).Fields {
 		got := ansi.Strip(field.View())
-		want := field.Placeholder
+		want := field.Model.Placeholder
 		if want == "" {
 			continue
 		}
@@ -235,7 +243,7 @@ func TestAddAccountFormPaste(t *testing.T) {
 	next, _ = m.Update(tea.PasteMsg{Content: "alice@example.com"})
 	m = next.(Model)
 
-	if got := m.addAccountInputs[0].Value(); got != "alice@example.com" {
+	if got := addAccountOf(m).Values()[0]; got != "alice@example.com" {
 		t.Fatalf("JID field after paste = %q, want %q", got, "alice@example.com")
 	}
 
@@ -243,7 +251,7 @@ func TestAddAccountFormPaste(t *testing.T) {
 	m = next.(Model)
 	next, _ = m.Update(tea.PasteMsg{Content: "hunter2"})
 	m = next.(Model)
-	if got := m.addAccountInputs[1].Value(); got != "hunter2" {
+	if got := addAccountOf(m).Values()[1]; got != "hunter2" {
 		t.Fatalf("password field after paste = %q, want %q", got, "hunter2")
 	}
 }
@@ -262,7 +270,7 @@ func TestAddAccountFormRegisterToggle(t *testing.T) {
 
 	next, _ = m.Update(keyText("ctrl+r"))
 	m = next.(Model)
-	if !m.addAccountRegister {
+	if !addAccountOf(m).register {
 		t.Fatal("expected ctrl+r to switch to register mode")
 	}
 
@@ -272,8 +280,8 @@ func TestAddAccountFormRegisterToggle(t *testing.T) {
 	}
 	next, _ = m.Update(keyCode(tea.KeyTab))
 	m = next.(Model)
-	if m.addAccountFocus != 1 {
-		t.Fatalf("expected focus on password field (1), got %d", m.addAccountFocus)
+	if addAccountOf(m).Focused() != 1 {
+		t.Fatalf("expected focus on password field (1), got %d", addAccountOf(m).Focused())
 	}
 	for _, r := range "hunter2" {
 		next, _ = m.Update(keyText(string(r)))
@@ -281,8 +289,8 @@ func TestAddAccountFormRegisterToggle(t *testing.T) {
 	}
 	next, _ = m.Update(keyCode(tea.KeyTab))
 	m = next.(Model)
-	if m.addAccountFocus != 2 {
-		t.Fatalf("expected focus on confirm-password field (2) in register mode, got %d", m.addAccountFocus)
+	if addAccountOf(m).Focused() != 2 {
+		t.Fatalf("expected focus on confirm-password field (2) in register mode, got %d", addAccountOf(m).Focused())
 	}
 	for _, r := range "different" {
 		next, _ = m.Update(keyText(string(r)))
@@ -297,7 +305,7 @@ func TestAddAccountFormRegisterToggle(t *testing.T) {
 	if adder.calls != 0 {
 		t.Fatalf("expected no AddAccount calls on mismatched confirmation, got %d", adder.calls)
 	}
-	if m.addAccountErr == "" {
+	if addAccountOf(m).Err() == "" {
 		t.Fatal("expected a validation error for mismatched passwords")
 	}
 

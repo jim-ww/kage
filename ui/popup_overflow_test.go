@@ -18,14 +18,13 @@ import (
 func TestPopupsFitChatArea(t *testing.T) {
 	popups := map[string]func(m *Model) string{
 		"change password": func(m *Model) string {
-			m.changePasswordState = m.newChangePasswordForm()
-			m.changePasswordState.err = "passwords don't match"
-			return m.renderChangePasswordPopup()
+			m.openChangePasswordPopup()
+			formOf(*m, storagePasswordModalID).SetError("passwords don't match")
+			return m.modals.View()
 		},
 		"add account": func(m *Model) string {
-			m.addingAccount = true
-			m.addAccountInputs = m.newAddAccountForm()
-			return m.renderAddAccountPopup()
+			m.openAddAccount()
+			return m.modals.View()
 		},
 		"rename chat": func(m *Model) string {
 			m.actionRenameChat()

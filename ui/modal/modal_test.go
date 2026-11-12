@@ -244,3 +244,39 @@ func TestMenuScrollsToTheCursor(t *testing.T) {
 		t.Fatalf("cursor on item 10 isn't in view:\n%s", view)
 	}
 }
+
+func TestFormBothWaysAndBusy(t *testing.T) {
+	s, zm := newStack(80, 20)
+	var acted [][]string
+	form := NewForm("note", NewInput("", "jid"), NewPassword("password"))
+	s.Push(&Modal[*host]{Title: "Add", Body: form, OnAct: func(_ *host, v any) tea.Cmd {
+		acted = append(acted, v.([]string))
+		return nil
+	}})
+	h := &host{}
+	typeText(s, h, "bob")
+	s.Update(h, tabKey)
+	typeText(s, h, "pw")
+	s.Update(h, enterKey)
+	if len(acted) != 1 || acted[0][0] != "bob" || acted[0][1] != "pw" || !s.Open() {
+		t.Fatalf("type, tab, type, enter: acted %v, open %v - want [bob pw] and still open", acted, s.Open())
+	}
+	// A click focuses a field.
+	s.Update(h, click(draw(t, s, zm, form.fieldID(0))))
+	typeText(s, h, "!")
+	if form.Values()[0] != "bob!" {
+		t.Fatalf("after clicking the first field and typing: %v", form.Values())
+	}
+	// Busy: no input, and esc doesn't close it.
+	form.SetBusy("connecting…")
+	typeText(s, h, "x")
+	s.Update(h, escKey)
+	if !s.Open() || form.Values()[0] != "bob!" {
+		t.Fatalf("busy: open=%v values=%v - want still open and untouched", s.Open(), form.Values())
+	}
+	form.SetBusy("")
+	s.Update(h, escKey)
+	if s.Open() {
+		t.Fatal("esc didn't close the form once it wasn't busy")
+	}
+}

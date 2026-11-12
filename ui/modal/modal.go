@@ -55,6 +55,9 @@ type (
 	// Widther says how wide it would like to be; the frame is otherwise as
 	// wide as the body's View.
 	Widther interface{ PreferredWidth() int }
+	// Busier is busy with something it started that can't be walked away
+	// from: while it is, esc and a click outside don't close its modal.
+	Busier interface{ Busy() bool }
 )
 
 // Outcome is what a Component's Update says about the modal: keep going
@@ -260,8 +263,15 @@ func (s *Stack[H]) Update(h H, msg tea.Msg) (tea.Cmd, bool) {
 	if top == nil {
 		return nil, false
 	}
+	busy := false
+	if b, ok := top.Body.(Busier); ok {
+		busy = b.Busy()
+	}
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
+		if busy && msg.String() == escKey.String() {
+			return nil, true
+		}
 		return s.key(h, top, msg), true
 	case tea.MouseClickMsg:
 		if msg.Button != tea.MouseLeft {
@@ -274,7 +284,7 @@ func (s *Stack[H]) Update(h H, msg tea.Msg) (tea.Cmd, bool) {
 		// Outside the frame closes - when where the frame is is known: a
 		// click can land before a fresh frame's zone is recorded.
 		if s.Zone != nil {
-			if z := s.Zone.Get(s.frameID()); !z.IsZero() && !z.InBounds(msg) {
+			if z := s.Zone.Get(s.frameID()); !busy && !z.IsZero() && !z.InBounds(msg) {
 				return s.finish(h, Cancel()), true
 			}
 		}
@@ -427,6 +437,9 @@ func (s *Stack[H]) hints(m *Modal[H]) (hints []Hint, kept int) {
 	if s.overflows(m) {
 		hints = append(hints, KeyHint(scrollDown, "scroll"))
 		kept = 2
+	}
+	if b, ok := m.Body.(Busier); ok && b.Busy() {
+		return hints, min(kept-1, len(hints)) // nothing closes it while busy
 	}
 	return append(hints, KeyHint(escKey, "close")), kept
 }

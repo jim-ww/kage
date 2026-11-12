@@ -283,20 +283,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		m.contactManagerState.addInput, cmd = m.contactManagerState.addInput.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
-	if m.changePasswordState != nil {
-		s := m.changePasswordState
-		if s.busy {
-			return m, tea.Batch(cmds...)
-		}
-		var cmd tea.Cmd
-		s.inputs[s.focus], cmd = s.inputs[s.focus].Update(msg)
-		return m, tea.Batch(append(cmds, cmd)...)
-	}
-	if m.addingAccount {
-		var cmd tea.Cmd
-		m.addAccountInputs[m.addAccountFocus], cmd = m.addAccountInputs[m.addAccountFocus].Update(msg)
-		return m, tea.Batch(append(cmds, cmd)...)
-	}
 	if m.searchResults != nil && m.searchResults.filtering {
 		var cmd tea.Cmd
 		m.searchResults.filterInput, cmd = m.searchResults.filterInput.Update(msg)

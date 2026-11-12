@@ -11,10 +11,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	zone "github.com/lrstanley/bubblezone/v2"
+
 	"github.com/jim-ww/kage/ui/datepicker"
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
-	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, hv *hoverState) list.ItemDelegate {

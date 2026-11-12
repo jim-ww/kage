@@ -2,10 +2,10 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/lrstanley/bubblezone/v2"
 
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/modal"
-	"github.com/lrstanley/bubblezone/v2"
 )
 
 // emojiPickerBody is the reaction picker (ui/emojipicker) as a modal body:

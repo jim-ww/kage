@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	zone "github.com/lrstanley/bubblezone/v2"
@@ -37,6 +38,24 @@ func (m *Model) confirm(title, detail string, onYes func(*Model) tea.Cmd) tea.Cm
 		Body:     c,
 		OnSubmit: func(m *Model, _ any) tea.Cmd { return onYes(m) },
 	})
+}
+
+// newPasswordInput is a masked field, styled and bound like newInput's.
+func (m *Model) newPasswordInput(prompt string) *modal.Input {
+	in := m.newInput("", "", prompt, "")
+	in.Model.EchoMode = textinput.EchoPassword
+	return in
+}
+
+// newForm is a modal.Form of fields under note, enter labeled submitLabel,
+// in the theme's colors.
+func (m *Model) newForm(note, submitLabel string, fields ...*modal.Input) *modal.Form {
+	f := modal.NewForm(note, fields...)
+	f.SubmitLabel = submitLabel
+	f.Styles.Note = lipgloss.NewStyle().Foreground(m.styles.colors.textMuted)
+	f.Styles.Error = m.styles.popupDanger
+	f.Styles.Status = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan).Italic(true)
+	return f
 }
 
 // newInput is a one-line text field styled and bound like kage's others.

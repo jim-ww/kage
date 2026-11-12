@@ -5,11 +5,41 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 type fakeStoragePasswordChanger struct {
 	calls []string
 	err   error
+}
+
+// findMsg runs cmd - a batch, possibly - and returns the first message of
+// type T it produces, skipping the idle timer.
+func findMsg[T any](cmd tea.Cmd) (T, bool) {
+	var zero T
+	if cmd == nil || isIdleTimerCmd(cmd) {
+		return zero, false
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			if t, ok := findMsg[T](c); ok {
+				return t, true
+			}
+		}
+		return zero, false
+	}
+	t, ok := msg.(T)
+	return t, ok
+}
+
+// formOf is the open form modal with id, or nil.
+func formOf(m Model, id string) *modal.Form {
+	if md := m.modals.Find(id); md != nil {
+		return md.Body.(*modal.Form)
+	}
+	return nil
 }
 
 func (f *fakeStoragePasswordChanger) ChangeStoragePassword(newPassword string) error {
@@ -59,7 +89,7 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	menuOf(m).SetCursor(idx)
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
-	if m.changePasswordState == nil {
+	if formOf(m, storagePasswordModalID) == nil {
 		t.Fatal("the account menu's storage-password entry did not open the popup")
 	}
 
@@ -77,16 +107,15 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	// Confirming calls through with an empty password.
 	next, disableCmd := m.Update(tea.KeyPressMsg{Code: 'y'})
 	m = next.(Model)
-	if m.modals.Open() {
-		t.Fatal("confirmation popup should close after confirming")
+	if modalTitle(m) != "Change storage password" {
+		t.Fatal("confirmation popup should close after confirming, back to the form")
 	}
-	if !m.changePasswordState.busy {
+	if !formOf(m, storagePasswordModalID).Busy() {
 		t.Fatal("popup should be marked busy while the change is in flight")
 	}
-	disableMsg := nonIdleCmd(disableCmd)
-	disableResult, ok := disableMsg.(StoragePasswordChangedMsg)
+	disableResult, ok := findMsg[StoragePasswordChangedMsg](disableCmd)
 	if !ok {
-		t.Fatalf("cmd produced %T, want StoragePasswordChangedMsg", disableMsg)
+		t.Fatal("confirming didn't start the change")
 	}
 	if len(changer.calls) != 1 || changer.calls[0] != "" {
 		t.Fatalf("changer.calls = %v, want [\"\"]", changer.calls)
@@ -94,7 +123,10 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	// Deliver the result and reopen the popup for the rest of the test.
 	nm, _, _ := m.handleEventMsg(disableResult)
 	m = nm
-	m.changePasswordState = m.newChangePasswordForm()
+	if formOf(m, storagePasswordModalID) != nil {
+		t.Fatal("popup should close on success")
+	}
+	m.openChangePasswordPopup()
 
 	for _, r := range "newpass" {
 		next, _ = m.Update(tea.KeyPressMsg{Text: string(r), Code: r})
@@ -109,7 +141,7 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	}
 	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
-	if m.changePasswordState.err == "" {
+	if formOf(m, storagePasswordModalID).Err() == "" {
 		t.Fatal("expected an error for mismatched passwords")
 	}
 	if len(changer.calls) != 1 {
@@ -127,16 +159,15 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	}
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
-	if !m.changePasswordState.busy {
+	if !formOf(m, storagePasswordModalID).Busy() {
 		t.Fatal("popup should be marked busy while the change is in flight")
 	}
 	if cmd == nil {
 		t.Fatal("submitting a valid new+confirm pair should return a cmd")
 	}
-	msg := nonIdleCmd(cmd)
-	result, ok := msg.(StoragePasswordChangedMsg)
+	result, ok := findMsg[StoragePasswordChangedMsg](cmd)
 	if !ok {
-		t.Fatalf("cmd produced %T, want StoragePasswordChangedMsg", msg)
+		t.Fatal("submitting didn't start the change")
 	}
 	if result.Err != nil {
 		t.Fatalf("unexpected error from the fake changer: %v", result.Err)
@@ -147,7 +178,7 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 
 	// Deliver the result message the same way Update() would.
 	nm, _, _ = m.handleEventMsg(result)
-	if nm.changePasswordState != nil {
+	if formOf(nm, storagePasswordModalID) != nil {
 		t.Fatal("popup should close on success")
 	}
 }
@@ -160,19 +191,18 @@ func TestChangeStoragePasswordFailureKeepsPopupOpen(t *testing.T) {
 	changer.fakeStoragePasswordChanger.err = errors.New("boom")
 	m := newTestModelWithSender(changer, &fakeAccountAdder{})
 	m.selectedView = viewAccounts
-	m.changePasswordState = m.newChangePasswordForm()
-	m.changePasswordState.inputs[0].SetValue("pw")
-	m.changePasswordState.inputs[1].SetValue("pw")
-	m.changePasswordState.busy = true
+	m.openChangePasswordPopup()
+	formOf(m, storagePasswordModalID).SetBusy("re-encrypting local storage…")
 
 	got, _, _ := m.handleEventMsg(StoragePasswordChangedMsg{Err: errors.New("boom")})
-	if got.changePasswordState == nil {
+	form := formOf(got, storagePasswordModalID)
+	if form == nil {
 		t.Fatal("popup should stay open on failure")
 	}
-	if got.changePasswordState.busy {
+	if form.Busy() {
 		t.Fatal("busy should be cleared after the result arrives, success or not")
 	}
-	if got.changePasswordState.err != "boom" {
-		t.Fatalf("changePasswordState.err = %q, want %q", got.changePasswordState.err, "boom")
+	if form.Err() != "boom" {
+		t.Fatalf("error = %q, want %q", form.Err(), "boom")
 	}
 }

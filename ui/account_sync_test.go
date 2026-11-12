@@ -46,7 +46,7 @@ func TestAccountAddedIsIdempotent(t *testing.T) {
 			if len(m.accounts) != 2 {
 				t.Fatalf("accounts = %v, want exactly alice and bob", accountNames(m))
 			}
-			if m.addingAccount || m.addAccountBusy {
+			if addAccountOf(m) != nil {
 				t.Error("add-account form left open after the add completed")
 			}
 		})

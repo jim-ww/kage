@@ -5,8 +5,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/jim-ww/kage/ui/emojipicker"
 	zone "github.com/lrstanley/bubblezone/v2"
+
+	"github.com/jim-ww/kage/ui/emojipicker"
 )
 
 // awaitZone polls until id's zone is recorded - Scan buffers zone updates

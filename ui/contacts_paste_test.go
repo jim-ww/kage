@@ -46,11 +46,11 @@ func TestContactManagerPasteDoesNotReachCompose(t *testing.T) {
 // password popup.
 func TestChangePasswordPaste(t *testing.T) {
 	m := newTestModel(nil)
-	m.changePasswordState = m.newChangePasswordForm()
+	m.openChangePasswordPopup()
 
 	next, _ := m.Update(tea.PasteMsg{Content: "hunter2"})
 	m = next.(Model)
-	if got := m.changePasswordState.inputs[0].Value(); got != "hunter2" {
+	if got := formOf(m, storagePasswordModalID).Values()[0]; got != "hunter2" {
 		t.Fatalf("new-password field after paste = %q, want %q", got, "hunter2")
 	}
 }
