@@ -121,7 +121,13 @@ type Model struct {
 	cursor   time.Time
 	hover    time.Time // zero when no day is under the pointer
 	hoverNav int       // -1 / +1 while ‹ / › is under the pointer
+	picked   bool      // the last Update picked the cursor's day
 }
+
+// Picked is the day the last Update picked, if it picked one - the same
+// day its PickedMsg carries, for an embedder that wants the answer right
+// away rather than as a message.
+func (m Model) Picked() (time.Time, bool) { return m.cursor, m.picked }
 
 // New returns a picker with its cursor on day.
 func New(day time.Time) Model {
@@ -147,6 +153,7 @@ func (m Model) Init() tea.Cmd { return nil }
 // Update handles keys and, with Zone set, mouse messages. A pick (enter, or
 // a click on a day) returns a command producing a PickedMsg.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	m.picked = false
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
@@ -169,7 +176,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(msg, m.KeyMap.Today):
 			m.SetCursor(m.Today)
 		case key.Matches(msg, m.KeyMap.Pick):
-			return m, m.pick(m.cursor)
+			cmd := m.pick(m.cursor)
+			m.picked = cmd != nil
+			return m, cmd
 		}
 	case tea.MouseMotionMsg:
 		m.hover, m.hoverNav = time.Time{}, 0
@@ -187,6 +196,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		if day, ok := m.dayAt(msg); ok {
 			m.cursor = day
+			m.picked = true
 			return m, m.pick(day)
 		}
 		if dir := m.navAt(msg); dir != 0 {
