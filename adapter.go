@@ -154,27 +154,6 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) (ui.
 	return uiAcct, nil
 }
 
-// statusConfigValue is the inverse of accountStatus: the config.toml value to
-// persist for a ui.Presence account status ("" for online).
-func statusConfigValue(status ui.Presence) string {
-	switch status {
-	case ui.PresenceChat:
-		return "chat"
-	case ui.PresenceAway:
-		return "away"
-	case ui.PresenceXA:
-		return "xa"
-	case ui.PresenceDND:
-		return "dnd"
-	case ui.PresenceOffline:
-		return "offline"
-	case ui.PresenceInvisible:
-		return "invisible"
-	default:
-		return ""
-	}
-}
-
 // SetAccountStatus persists the chosen
 // status to config.toml (so a restart comes back up the same way), then
 // applies it live - closing the connection outright for PresenceOffline (no
@@ -186,10 +165,10 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 	if err != nil {
 		return err
 	}
-	if err := config.SetAccountStatus(a.cfgPath, sess.account.JID, statusConfigValue(status)); err != nil {
+	if err := config.SetAccountStatus(a.cfgPath, sess.account.JID, presenceNames[status]); err != nil {
 		return fmt.Errorf("persisting status: %w", err)
 	}
-	sess.account.Status = statusConfigValue(status)
+	sess.account.Status = presenceNames[status]
 	// Best-effort: this SIGHUPs the daemon's own process to re-read
 	// config.toml (see daemon.SignalReload) for settings like Notifications
 	// that aren't already reflected in the live session state above - never

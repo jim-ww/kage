@@ -1403,45 +1403,33 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 	}
 }
 
-// accountStatus maps a config.Account's Status field ("", "chat", "away",
-// "xa", "dnd", or "offline") to the UI's Presence enum; "" defaults to
-// online.
-func accountStatus(status string) ui.Presence {
-	switch status {
-	case "chat":
-		return ui.PresenceChat
-	case "away":
-		return ui.PresenceAway
-	case "xa":
-		return ui.PresenceXA
-	case "dnd":
-		return ui.PresenceDND
-	case "offline":
-		return ui.PresenceOffline
-	case "invisible":
-		return ui.PresenceInvisible
-	default:
-		return ui.PresenceOnline
-	}
+// presenceNames is each ui.Presence's config.toml status name, also its
+// <show/> value (RFC 6121 §4.7.2.1) for chat/away/xa/dnd. Online has none:
+// "" in config, no <show/> on the wire.
+var presenceNames = map[ui.Presence]string{
+	ui.PresenceChat: "chat", ui.PresenceAway: "away", ui.PresenceXA: "xa", ui.PresenceDND: "dnd",
+	ui.PresenceOffline: "offline", ui.PresenceInvisible: "invisible",
 }
 
-// presenceShow maps a ui.Presence to the <show/> value SetPresence should
-// send: "" for online (no <show/> at all), the RFC 6121 §4.7.2.1 value name
-// otherwise (offline is handled separately, by not connecting/by
-// disconnecting rather than by any presence stanza).
+// accountStatus maps a config.Account's status name to its ui.Presence;
+// anything unknown is online.
+func accountStatus(name string) ui.Presence {
+	for p, n := range presenceNames {
+		if n == name {
+			return p
+		}
+	}
+	return ui.PresenceOnline
+}
+
+// presenceShow is the <show/> value SetPresence sends for status, "" for
+// none (offline is handled by not connecting rather than by any stanza).
 func presenceShow(status ui.Presence) string {
 	switch status {
-	case ui.PresenceChat:
-		return "chat"
-	case ui.PresenceAway:
-		return "away"
-	case ui.PresenceXA:
-		return "xa"
-	case ui.PresenceDND:
-		return "dnd"
-	default:
-		return ""
+	case ui.PresenceChat, ui.PresenceAway, ui.PresenceXA, ui.PresenceDND:
+		return presenceNames[status]
 	}
+	return ""
 }
 
 // mapPresence reduces an xmpp.PresenceEvent to the UI's Presence enum.
@@ -1449,18 +1437,10 @@ func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 	if !ev.Available {
 		return ui.PresenceOffline
 	}
-	switch ev.Show {
-	case "chat":
-		return ui.PresenceChat
-	case "away":
-		return ui.PresenceAway
-	case "xa":
-		return ui.PresenceXA
-	case "dnd":
-		return ui.PresenceDND
-	default:
-		return ui.PresenceOnline
+	if p := accountStatus(ev.Show); presenceShow(p) != "" {
+		return p
 	}
+	return ui.PresenceOnline
 }
 
 // syncArchive backfills every roster contact's history via XEP-0313 (MAM),
