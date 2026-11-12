@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+	"regexp"
 )
 
 // shortcutMenu opens a menu whose items record which one ran into *ran.
@@ -26,7 +28,7 @@ func TestContextMenuShortcutRunsItem(t *testing.T) {
 	if ran != "Mute" {
 		t.Fatalf("m ran %q, want Mute", ran)
 	}
-	if m.contextMenu != nil {
+	if menuOf(m) != nil {
 		t.Fatal("menu still open after running an item by its shortcut")
 	}
 }
@@ -44,23 +46,27 @@ func TestContextMenuShortcutBeatsConfirmNo(t *testing.T) {
 		t.Fatalf("n ran %q, want Reject", ran)
 	}
 
-	// Without such an item, n still closes.
+	// Without such an item, n is just a key the menu has no use for.
 	ran = ""
 	m.openContextMenu("Plain", []contextMenuItem{{label: "A", run: func(*Model) tea.Cmd { ran = "A"; return nil }}})
 	next, _ = m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m = next.(Model)
-	if ran != "" || m.contextMenu != nil {
-		t.Fatalf("n in a menu without an n item: ran=%q open=%v", ran, m.contextMenu != nil)
+	if ran != "" || menuOf(m) == nil {
+		t.Fatalf("n in a menu without an n item: ran=%q open=%v, want nothing run and the menu still open", ran, menuOf(m) != nil)
 	}
 }
 
 func TestContextMenuRowShowsShortcut(t *testing.T) {
-	text := contextMenuRowText(contextMenuItem{label: "Mute", key: 'm'}, 20)
-	if !strings.HasPrefix(text, "Mute") || !strings.HasSuffix(text, "m") || len(text) != 18 {
-		t.Fatalf("row text %q: want label, padding, key, 18 wide", text)
+	m := newTestModel(nil)
+	m.width, m.termHeight = 80, 24
+	m.updateSizes()
+	m.openContextMenu("x", []contextMenuItem{{label: "Mute", key: 'm'}, {label: "Copy"}})
+	view := ansi.Strip(m.modals.View())
+	if !regexp.MustCompile(`Mute +m`).MatchString(view) {
+		t.Fatalf("Mute's row doesn't end in its key:\n%s", view)
 	}
-	if got := contextMenuRowText(contextMenuItem{label: "Copy"}, 20); got != "Copy" {
-		t.Fatalf("row without a shortcut = %q, want the bare label", got)
+	if regexp.MustCompile(`Copy +[a-z] `).MatchString(view) {
+		t.Fatalf("Copy has no key but shows one:\n%s", view)
 	}
 }
 
@@ -75,18 +81,18 @@ func TestRefreshContextMenu(t *testing.T) {
 		return out
 	}
 	m.openContextMenu("x", items())
-	m.contextMenu.refresh = func(*Model) (string, []contextMenuItem) { return "y", items() }
-	m.contextMenu.cursor = 2
+	menuOf(m).refresh = func(*Model) (string, []contextMenuItem) { return "y", items() }
+	menuOf(m).SetCursor(2)
 
 	n = 2
 	m.refreshContextMenu()
-	if m.contextMenu.title != "y" || len(m.contextMenu.items) != 2 || m.contextMenu.cursor != 1 {
-		t.Fatalf("after shrinking: title=%q items=%d cursor=%d", m.contextMenu.title, len(m.contextMenu.items), m.contextMenu.cursor)
+	if menuTitle(m) != "y" || len(menuOf(m).items) != 2 || menuOf(m).Cursor() != 1 {
+		t.Fatalf("after shrinking: title=%q items=%d cursor=%d", menuTitle(m), len(menuOf(m).items), menuOf(m).Cursor())
 	}
 
 	n = 0
 	m.refreshContextMenu()
-	if m.contextMenu != nil {
+	if menuOf(m) != nil {
 		t.Fatal("menu with nothing left in it stayed open")
 	}
 }
@@ -101,7 +107,7 @@ func TestContextMenuRowsNeverWrap(t *testing.T) {
 			{label: label, run: func(*Model) tea.Cmd { return nil }},
 			{label: "Short", key: 's', run: func(*Model) tea.Cmd { return nil }},
 		})
-		return m.renderContextMenuPopup()
+		return m.modals.View()
 	}
 	short := open("Copy")
 	long := open("start " + strings.Repeat("x", 300) + " end")

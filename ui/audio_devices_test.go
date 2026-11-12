@@ -43,8 +43,8 @@ func TestAudioDevicePicker(t *testing.T) {
 
 	m = pressAndDeliver(t, m, ctrlG)
 	m = pressAndDeliver(t, m, letter('d'))
-	if m.contextMenu == nil || m.contextMenu.title != "Audio devices" {
-		t.Fatalf("d didn't open the audio devices menu: %+v", m.contextMenu)
+	if menuOf(m) == nil || menuTitle(m) != "Audio devices" {
+		t.Fatalf("d didn't open the audio devices menu: %+v", menuOf(m))
 	}
 	labels := strings.Join(callMenuLabels(m), "|")
 	if labels != "Microphone: System default|Speaker: Headphones" {
@@ -80,7 +80,7 @@ func TestAudioDevicesUnaskedListingIgnored(t *testing.T) {
 	m := callTestModel(&fakeCallController{})
 	m.audioDevices = &fakeAudioDevices{}
 	next, _ := m.Update(AudioDevicesMsg{})
-	if next.(Model).contextMenu != nil {
+	if menuOf(next.(Model)) != nil {
 		t.Fatal("unrequested device listing opened a menu")
 	}
 }

@@ -345,8 +345,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 	switch {
 	case m.modals.Open():
 		viewportArea = m.modals.View()
-	case m.contextMenu != nil:
-		viewportArea = m.renderContextMenuPopup()
 	case m.desktopVolumeOpen && m.call != nil:
 		viewportArea = m.renderDesktopVolumePopup()
 	case m.emojiPicker != nil:
@@ -586,82 +584,6 @@ func footerWrapLines(hint string, width, maxLines int) []string {
 	lines = lines[:maxLines]
 	lines[maxLines-1] = ansi.Truncate(lines[maxLines-1], width, "…")
 	return lines
-}
-
-// renderContextMenuPopup lists the actions available on whatever was
-// right-clicked; each row is a marked zone so handleContextMenuClick can
-// map a click back to the item that produced it. Rows are widened to a
-// uniform size and, when there's room, separated by a blank line — packed
-// edge-to-edge single-char-tall rows are easy to misclick. On short
-// terminals the spacing is dropped rather than letting the popup get
-// clipped; row width is always capped to the available chat-area width.
-func (m Model) renderContextMenuPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	// Leave room for the popup's border + Padding(1, 4) (see uiStyles.popup).
-	maxItemWidth := max(6, cw-10)
-	longest := 0
-	for _, item := range m.contextMenu.items {
-		w := lipgloss.Width(item.label) + 1 // contextMenuRow's left padding
-		if item.key != 0 {
-			// The gap, the key, and one cell of room after it.
-			w += contextMenuKeyGap + 1 + 1
-		}
-		longest = max(longest, w)
-	}
-	// contextMenuMinWidth keeps rows from shrink-wrapping to the longest
-	// label alone — that reads as squeezed/cramped on anything but a
-	// narrow terminal, where maxItemWidth still clamps it down.
-	const contextMenuMinWidth = 20
-	// The title sizes the rows too: the call menu's ("alice@example.org is
-	// calling") is often its longest line.
-	longest = max(longest, lipgloss.Width(m.contextMenu.title))
-	itemWidth := min(max(longest, contextMenuMinWidth), maxItemWidth)
-
-	rows := make([]string, len(m.contextMenu.items))
-	for i, item := range m.contextMenu.items {
-		// Highlighted when the pointer is over it or the keyboard cursor
-		// is on it — the menu is driven both ways.
-		active := m.isHovered(zoneContextMenuItem(i)) || i == m.contextMenu.cursor
-		row := m.styles.contextMenuRow(contextMenuRowText(item, itemWidth), active, itemWidth)
-		rows[i] = m.zone.Mark(zoneContextMenuItem(i), row)
-	}
-
-	sep := "\n"
-	if vh >= len(rows)*2+4 {
-		sep = "\n\n"
-	}
-	heading := m.contextMenu.title
-	if heading == "" {
-		heading = contextMenuDefaultTitle
-	}
-	title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.borderA).
-		Render(ansi.Truncate(heading, itemWidth, "…"))
-	body := title + "\n" + strings.Join(rows, sep)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-// contextMenuKeyGap is the minimum space between an item's label and its
-// right-aligned shortcut key.
-const contextMenuKeyGap = 3
-
-// contextMenuRowText lays out one menu row's text for a row width wide:
-// the label, plus the item's shortcut key (if any) pushed to the right
-// edge. contextMenuRow's own left padding and one cell of breathing room on
-// the right come out of width.
-func contextMenuRowText(item contextMenuItem, width int) string {
-	if item.key == 0 {
-		// Truncated rather than left to wrap: a wrapped row would be two
-		// lines tall and knock the whole popup out of shape.
-		return ansi.Truncate(item.label, max(0, width-1), "…")
-	}
-	inner := width - 2
-	label := ansi.Truncate(item.label, max(0, inner-contextMenuKeyGap-1), "…")
-	gap := max(1, inner-lipgloss.Width(label)-1)
-	return label + strings.Repeat(" ", gap) + string(item.key)
 }
 
 // confirmButtons renders a confirmation's clickable "[y] yes" and "[n] no"

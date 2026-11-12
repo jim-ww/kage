@@ -200,11 +200,10 @@ type Model struct {
 	// modals are the open modals, the top one taking all input (see
 	// ui/modal and ui/modals.go).
 	modals                 modal.Stack[*Model]
-	contextMenu            *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
-	openItems              []string     // non-empty while the open-link/attachment picker is open
-	openItemsAttachCount   int          // how many leading entries of openItems are real attachments (vs. a plain link found in Content) - openableItems always puts attachments first
-	openPage               int          // current page (of openItemsPerPage items) in the open picker
-	openMode               pickerMode   // what picking an item from openItems actually does: open or save
+	openItems              []string   // non-empty while the open-link/attachment picker is open
+	openItemsAttachCount   int        // how many leading entries of openItems are real attachments (vs. a plain link found in Content) - openableItems always puts attachments first
+	openPage               int        // current page (of openItemsPerPage items) in the open picker
+	openMode               pickerMode // what picking an item from openItems actually does: open or save
 	filePicker             *filepicker.Model
 	pickingFile            bool                // true while the Bubble file picker is open
 	pendingAttachments     []pendingAttachment // files staged (via the file picker) to go out with the next sent message; nothing is uploaded until send

@@ -181,6 +181,22 @@ func (s Stack[H]) Find(id string) *Modal[H] {
 	return nil
 }
 
+// Remove closes the modal with id wherever it is in the stack, without
+// running its callbacks - when what it shows is gone.
+func (s *Stack[H]) Remove(id string) tea.Cmd {
+	for i, m := range s.modals {
+		if m.ID != id {
+			continue
+		}
+		if i == len(s.modals)-1 {
+			return s.Close()
+		}
+		s.modals = append(s.modals[:i], s.modals[i+1:]...)
+		return nil
+	}
+	return nil
+}
+
 // Push opens m on top of whatever is open.
 func (s *Stack[H]) Push(m *Modal[H]) tea.Cmd {
 	if top := s.Top(); top != nil {
@@ -543,3 +559,6 @@ func padTo(line string, width int) string {
 	}
 	return line
 }
+
+// truncate cuts line to width columns, with an ellipsis.
+func truncate(line string, width int) string { return ansi.Truncate(line, width, "…") }

@@ -47,7 +47,7 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 		t.Fatalf("openAccountMenu returned a notification: %v", cmd())
 	}
 	idx := -1
-	for i, item := range m.contextMenu.items {
+	for i, item := range menuOf(m).items {
 		if item.label == "Storage password" {
 			idx = i
 			break
@@ -56,7 +56,7 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	if idx < 0 {
 		t.Fatal("the account menu does not offer storage-password rotation")
 	}
-	m.contextMenu.cursor = idx
+	menuOf(m).SetCursor(idx)
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	if m.changePasswordState == nil {

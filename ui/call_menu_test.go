@@ -69,11 +69,11 @@ var (
 func letter(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Text: string(r)} }
 
 func callMenuLabels(m Model) []string {
-	if m.contextMenu == nil {
+	if menuOf(m) == nil {
 		return nil
 	}
 	var out []string
-	for _, it := range m.contextMenu.items {
+	for _, it := range menuOf(m).items {
 		out = append(out, it.label)
 	}
 	return out
@@ -90,14 +90,14 @@ func TestCallMenuPlacesCalls(t *testing.T) {
 	} {
 		ctrl := &fakeCallController{}
 		m := press(t, callTestModel(ctrl), ctrlG)
-		if m.contextMenu == nil || m.contextMenu.title != "Call Bob" {
-			t.Fatalf("ctrl+g opened %+v", m.contextMenu)
+		if menuOf(m) == nil || menuTitle(m) != "Call Bob" {
+			t.Fatalf("ctrl+g opened %+v", menuOf(m))
 		}
 		m = press(t, m, letter(tc.key))
 		if len(ctrl.calls) != 1 || ctrl.calls[0] != tc.want {
 			t.Fatalf("%c: calls %v, want [%s]", tc.key, ctrl.calls, tc.want)
 		}
-		if m.contextMenu != nil {
+		if menuOf(m) != nil {
 			t.Fatalf("%c: menu still open", tc.key)
 		}
 	}
@@ -127,8 +127,8 @@ func TestCallMenuAnswerReject(t *testing.T) {
 		m := callTestModel(ctrl)
 		m, _ = m.handleIncomingCallMsg(IncomingCallMsg{From: "bob@example.test", SID: "s1"})
 		m = press(t, m, ctrlG)
-		if m.contextMenu == nil || m.contextMenu.title != "Bob is calling" {
-			t.Fatalf("menu while ringing: %+v", m.contextMenu)
+		if menuOf(m) == nil || menuTitle(m) != "Bob is calling" {
+			t.Fatalf("menu while ringing: %+v", menuOf(m))
 		}
 		press(t, m, tc.key)
 		if len(ctrl.calls) != 1 || ctrl.calls[0] != tc.want {

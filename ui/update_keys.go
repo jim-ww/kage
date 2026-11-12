@@ -25,12 +25,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	}
 
-	// ── Context menu intercepts all input until dismissed ───────────────
-	if m.contextMenu != nil {
-		next, cmd := m.updateContextMenuKey(msg)
-		return next, cmd, true
-	}
-
 	// ── Desktop audio volume popup intercepts all input until closed ───
 	if m.desktopVolumeOpen && m.call != nil {
 		return m.updateDesktopVolumeKey(msg)

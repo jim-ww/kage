@@ -361,7 +361,7 @@ func formatCallDuration(d time.Duration) string {
 
 // openCallMenu opens the call menu — every call action lives there, reached
 // by CallMenu from any view and by the call bar's menu button. While it's
-// open it follows the call (see contextMenu.refresh): a call ringing in,
+// open it follows the call (see contextMenuBody.refresh): a call ringing in,
 // connecting or ending swaps what it offers.
 func (m *Model) openCallMenu() tea.Cmd {
 	if m.callController == nil {
@@ -371,8 +371,7 @@ func (m *Model) openCallMenu() tea.Cmd {
 	if len(items) == 0 {
 		return m.showNotification("no chat selected")
 	}
-	m.openContextMenu(title, items)
-	m.contextMenu.refresh = (*Model).callMenuItems
+	m.openContextMenu(title, items).refresh = (*Model).callMenuItems
 	return nil
 }
 

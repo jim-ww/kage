@@ -25,11 +25,11 @@ func TestAccountMenuOpensFromAnyView(t *testing.T) {
 		m.selectedView = view
 
 		next := updated(t, m, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
-		if next.contextMenu == nil {
+		if menuOf(next) == nil {
 			t.Errorf("view %v: account menu did not open", view)
 			continue
 		}
-		labels := menuLabels(next.contextMenu)
+		labels := menuLabels(menuOf(next))
 		for _, want := range []string{"Avatar", "Contacts", "OMEMO devices"} {
 			if !strings.Contains(labels, want) {
 				t.Errorf("view %v: menu %q is missing %q", view, labels, want)
@@ -45,7 +45,7 @@ func TestAccountMenuListsEveryAccountAction(t *testing.T) {
 	if cmd := m.openAccountMenu(); cmd != nil {
 		t.Fatalf("openAccountMenu returned a notification command: %v", cmd())
 	}
-	labels := menuLabels(m.contextMenu)
+	labels := menuLabels(menuOf(m))
 	for _, want := range []string{"Status", "Avatar", "Contacts", "OMEMO devices", "Make default", "Remove account"} {
 		if !strings.Contains(labels, want) {
 			t.Errorf("menu %q is missing %q", labels, want)
@@ -57,7 +57,7 @@ func TestAccountMenuListsEveryAccountAction(t *testing.T) {
 func TestAccountMenuHidesStoragePasswordWithoutAChanger(t *testing.T) {
 	m := accountMenuModel(t)
 	m.openAccountMenu()
-	if strings.Contains(menuLabels(m.contextMenu), "Storage password") {
+	if strings.Contains(menuLabels(menuOf(m)), "Storage password") {
 		t.Error("menu offers storage-password rotation with nothing wired up to do it")
 	}
 }
@@ -69,7 +69,7 @@ func TestAccountMenuWithNoAccount(t *testing.T) {
 	if cmd := m.openAccountMenu(); cmd == nil {
 		t.Error("openAccountMenu with no account gave no feedback")
 	}
-	if m.contextMenu != nil {
+	if menuOf(m) != nil {
 		t.Error("account menu opened with no account")
 	}
 }
@@ -79,30 +79,30 @@ func TestAccountMenuWithNoAccount(t *testing.T) {
 func TestContextMenuKeyboardNavigation(t *testing.T) {
 	m := accountMenuModel(t)
 	m.openAccountMenu()
-	n := len(m.contextMenu.items)
+	n := len(menuOf(m).items)
 	if n < 3 {
 		t.Fatalf("menu has %d items, too few to test navigation", n)
 	}
 
 	next := updated(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
-	if next.contextMenu.cursor != 1 {
-		t.Errorf("cursor = %d after one down, want 1", next.contextMenu.cursor)
+	if menuOf(next).Cursor() != 1 {
+		t.Errorf("cursor = %d after one down, want 1", menuOf(next).Cursor())
 	}
 	next = updated(t, next, tea.KeyPressMsg{Code: tea.KeyUp})
-	if next.contextMenu.cursor != 0 {
-		t.Errorf("cursor = %d after down then up, want 0", next.contextMenu.cursor)
+	if menuOf(next).Cursor() != 0 {
+		t.Errorf("cursor = %d after down then up, want 0", menuOf(next).Cursor())
 	}
 	// Wraps rather than sticking at the ends.
 	next = updated(t, next, tea.KeyPressMsg{Code: tea.KeyUp})
-	if next.contextMenu.cursor != n-1 {
-		t.Errorf("cursor = %d after up from the top, want %d", next.contextMenu.cursor, n-1)
+	if menuOf(next).Cursor() != n-1 {
+		t.Errorf("cursor = %d after up from the top, want %d", menuOf(next).Cursor(), n-1)
 	}
 	next = updated(t, next, tea.KeyPressMsg{Code: tea.KeyDown})
-	if next.contextMenu.cursor != 0 {
-		t.Errorf("cursor = %d after down from the bottom, want 0", next.contextMenu.cursor)
+	if menuOf(next).Cursor() != 0 {
+		t.Errorf("cursor = %d after down from the bottom, want 0", menuOf(next).Cursor())
 	}
 
-	if closed := updated(t, next, tea.KeyPressMsg{Code: tea.KeyEscape}); closed.contextMenu != nil {
+	if closed := updated(t, next, tea.KeyPressMsg{Code: tea.KeyEscape}); menuOf(closed) != nil {
 		t.Error("esc did not close the menu")
 	}
 }
@@ -113,7 +113,7 @@ func TestContextMenuEnterRunsTheItem(t *testing.T) {
 	m := accountMenuModel(t)
 	m.openAccountMenu()
 	idx := -1
-	for i, item := range m.contextMenu.items {
+	for i, item := range menuOf(m).items {
 		if item.label == "Avatar" {
 			idx = i
 			break
@@ -122,14 +122,14 @@ func TestContextMenuEnterRunsTheItem(t *testing.T) {
 	if idx < 0 {
 		t.Fatal("no Avatar item")
 	}
-	m.contextMenu.cursor = idx
+	menuOf(m).SetCursor(idx)
 
 	next := updated(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	if next.contextMenu == nil {
+	if menuOf(next) == nil {
 		t.Fatal("enter on Avatar closed the menus instead of opening the avatar one")
 	}
-	if next.contextMenu.title != "Avatar" {
-		t.Errorf("menu title = %q, want the avatar menu to have replaced the account one", next.contextMenu.title)
+	if menuTitle(next) != "Avatar" {
+		t.Errorf("menu title = %q, want the avatar menu to have replaced the account one", menuTitle(next))
 	}
 }
 
@@ -140,21 +140,36 @@ func TestContextMenuRendersCursor(t *testing.T) {
 	m.width, m.height, m.termHeight = 120, 40, 40
 	m.updateSizes()
 	m.openAccountMenu()
-	m.contextMenu.cursor = 1
+	menuOf(m).SetCursor(1)
 
-	first := ansi.Strip(m.renderContextMenuPopup())
-	m.contextMenu.cursor = 2
-	second := ansi.Strip(m.renderContextMenuPopup())
-	if first != second {
+	first := m.modals.View()
+	menuOf(m).SetCursor(2)
+	second := m.modals.View()
+	if ansi.Strip(first) != ansi.Strip(second) {
 		t.Fatalf("stripped rendering changed with the cursor; highlight must be color only")
 	}
-	m.contextMenu.cursor = 1
-	if m.renderContextMenuPopup() == func() string { m2 := m; m2.contextMenu.cursor = 2; return m2.renderContextMenuPopup() }() {
+	if first == second {
 		t.Error("moving the cursor did not change the rendering at all")
 	}
 }
 
-func menuLabels(menu *contextMenu) string {
+// menuOf is the open menu, or nil.
+func menuOf(m Model) *contextMenuBody {
+	if md := m.modals.Find(menuModalID); md != nil {
+		return md.Body.(*contextMenuBody)
+	}
+	return nil
+}
+
+// menuTitle is the open menu's title, or "" if none is open.
+func menuTitle(m Model) string {
+	if md := m.modals.Find(menuModalID); md != nil {
+		return md.Title
+	}
+	return ""
+}
+
+func menuLabels(menu *contextMenuBody) string {
 	labels := make([]string, 0, len(menu.items))
 	for _, item := range menu.items {
 		labels = append(labels, item.label)
@@ -212,10 +227,10 @@ func TestAccountMenuIsTitledWithTheAccount(t *testing.T) {
 	m.openAccountMenu()
 
 	want := m.accounts[0].DisplayName()
-	if m.contextMenu.title != want {
-		t.Errorf("menu title = %q, want %q", m.contextMenu.title, want)
+	if menuTitle(m) != want {
+		t.Errorf("menu title = %q, want %q", menuTitle(m), want)
 	}
-	rendered := ansi.Strip(m.renderContextMenuPopup())
+	rendered := ansi.Strip(m.modals.View())
 	if !strings.Contains(rendered, want) {
 		t.Errorf("rendered menu does not show %q:\n%s", want, rendered)
 	}
@@ -232,7 +247,7 @@ func TestContextMenuFallsBackToGenericTitle(t *testing.T) {
 	m.updateSizes()
 	m.openContextMenu("", []contextMenuItem{{label: "Something"}})
 
-	if !strings.Contains(ansi.Strip(m.renderContextMenuPopup()), contextMenuDefaultTitle) {
+	if !strings.Contains(ansi.Strip(m.modals.View()), contextMenuDefaultTitle) {
 		t.Errorf("untitled menu lost its heading")
 	}
 }
@@ -245,8 +260,8 @@ func TestAliasedAccountShowsJID(t *testing.T) {
 	m.accounts = []Account{{Name: "me@example.org", Alias: "Work"}}
 	m.currentAccount = 0
 	m.openAccountMenu()
-	if m.contextMenu == nil || m.contextMenu.title != "Work · me@example.org" {
-		t.Fatalf("account menu title: %+v", m.contextMenu)
+	if menuOf(m) == nil || menuTitle(m) != "Work · me@example.org" {
+		t.Fatalf("account menu title: %+v", menuOf(m))
 	}
 	if list := m.renderAccountsList(80); !strings.Contains(list, "Work · me@example.org") {
 		t.Fatalf("accounts list doesn't show the JID: %q", list)

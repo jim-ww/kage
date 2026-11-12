@@ -426,14 +426,6 @@ func (s *uiStyles) renderAccountMenuButton(icons bool, row lipgloss.Style, hover
 	return st.Render(label)
 }
 
-func (s *uiStyles) contextMenuRow(label string, hovered bool, width int) string {
-	st := s.contextMenuItem
-	if hovered {
-		st = s.contextMenuItemHover
-	}
-	return st.Width(width).Render(label)
-}
-
 // plainTextLine applies the default body foreground to line, unless it
 // already carries its own ANSI codes (e.g. chroma syntax highlighting) —
 // wrapping already-colored text in another Foreground style would only take

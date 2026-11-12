@@ -1,6 +1,7 @@
 package modal
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -209,5 +210,37 @@ func TestFrameKeepsItsWidth(t *testing.T) {
 	s.Update(&host{}, tabKey)
 	if after := width(); after != before {
 		t.Fatalf("frame went from %d to %d columns wide on switching tabs", before, after)
+	}
+}
+
+func TestMenuBothWays(t *testing.T) {
+	s, zm := newStack(80, 20)
+	h := &host{}
+	items := []MenuItem{{Label: "Copy", Key: 'y'}, {Label: "Reply", Key: 'r'}, {Label: "Info"}}
+	open(s, "Message", NewMenu(items...))
+	s.Update(h, tea.KeyPressMsg{Code: tea.KeyDown})
+	s.Update(h, enterKey)
+	open(s, "Message", NewMenu(items...))
+	s.Update(h, tea.KeyPressMsg{Code: 'r', Text: "r"})
+	open(s, "Message", NewMenu(items...))
+	menu := s.Top().Body.(*Menu)
+	s.Update(h, click(draw(t, s, zm, menu.itemID(2))))
+	if len(h.submitted) != 3 || h.submitted[0] != 1 || h.submitted[1] != 1 || h.submitted[2] != 2 {
+		t.Fatalf("↓ enter, r, click Info: submitted %v, want [1 1 2]", h.submitted)
+	}
+}
+
+func TestMenuScrollsToTheCursor(t *testing.T) {
+	s, _ := newStack(60, 8) // a 6-row body
+	items := make([]MenuItem, 20)
+	for i := range items {
+		items[i] = MenuItem{Label: "item " + strconv.Itoa(i)}
+	}
+	open(s, "Pick", NewMenu(items...))
+	for range 10 {
+		s.Update(&host{}, tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	if view := ansi.Strip(s.View()); !strings.Contains(view, "item 10") || strings.Contains(view, "item 0 ") {
+		t.Fatalf("cursor on item 10 isn't in view:\n%s", view)
 	}
 }

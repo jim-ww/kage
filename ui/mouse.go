@@ -353,7 +353,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.contextMenu == nil {
+	{
 		if m.zone.Get(zonePaneSidebar).InBounds(msg) {
 			// Don't steal focus away from the account manager — it renders
 			// inside this same sidebar zone, so hovering an account row
@@ -377,7 +377,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.selectedView == viewChat && m.contextMenu == nil {
+	if m.selectedView == viewChat {
 		// Every hover sub-state below is checked independently, but a
 		// single mouse move can flip several of them at once (e.g.
 		// entering a new row changes selectedMsg and, if the pointer lands
@@ -486,15 +486,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	if m.desktopVolumeOpen && m.call != nil {
 		return m.desktopVolumeZoneUnderMouse(mouse)
 	}
-	if m.contextMenu != nil {
-		for i := range m.contextMenu.items {
-			if m.zone.Get(zoneContextMenuItem(i)).InBounds(mouse) {
-				return zoneContextMenuItem(i)
-			}
-		}
-		return ""
-	}
-
 	if m.emojiPicker != nil {
 		// Cells are clickable (see the click-dispatch handler below) but
 		// don't have a distinct hover style, so there's nothing for this to
@@ -624,9 +615,6 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.contextMenu != nil {
-		return m.handleContextMenuClick(msg)
-	}
 	if m.desktopVolumeOpen && m.call != nil {
 		return m.handleDesktopVolumeClick(msg)
 	}
@@ -726,26 +714,6 @@ func (m Model) confirmActions() (accept, cancel func(*Model) tea.Cmd, ok bool) {
 		}, true
 	}
 	return nil, nil, false
-}
-
-// handleContextMenuClick is the only input the open context menu responds
-// to: clicking one of its items runs that item's action and closes the
-// menu; any other click (a different item's popup, or empty space) just
-// closes it without acting — nothing under the popup is clicked "through".
-// An item's run can open a submenu (e.g. the "Encryption" picker) by setting
-// m.contextMenu itself — don't stomp that back to nil afterward.
-func (m Model) handleContextMenuClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if msg.Mouse().Button != tea.MouseLeft {
-		m.closeContextMenu()
-		return m, nil
-	}
-	for i, item := range m.contextMenu.items {
-		if m.zone.Get(zoneContextMenuItem(i)).InBounds(msg) {
-			return m.runContextMenuItem(item)
-		}
-	}
-	m.closeContextMenu()
-	return m, nil
 }
 
 // handleLeftClick dispatches a left-click to whichever marked zone it
@@ -1211,9 +1179,6 @@ func (m Model) handleOpenPickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 // chat list in the sidebar, or the message viewport. Swallowed entirely
 // while a context menu is open, so it can't scroll what's underneath it.
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if m.contextMenu != nil {
-		return m, nil
-	}
 	if m.desktopVolumeOpen && m.call != nil {
 		return m.handleDesktopVolumeWheel(msg)
 	}

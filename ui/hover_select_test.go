@@ -56,7 +56,7 @@ func TestHoverSelectDisabled(t *testing.T) {
 	z := m.zone.Get(zoneMessage(0))
 	next, _ := m.Update(tea.MouseClickMsg(tea.Mouse{X: z.StartX + 1, Y: z.StartY, Button: tea.MouseRight}))
 	m = next.(Model)
-	if m.selectedMsg != 0 || m.contextMenu == nil {
-		t.Fatalf("right-click: selectedMsg=%d menu=%v, want the hovered message and its menu", m.selectedMsg, m.contextMenu != nil)
+	if m.selectedMsg != 0 || menuOf(m) == nil {
+		t.Fatalf("right-click: selectedMsg=%d menu=%v, want the hovered message and its menu", m.selectedMsg, menuOf(m) != nil)
 	}
 }

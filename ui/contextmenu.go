@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"fmt"
-
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // contextMenuItem is one entry in a right-click popup menu: a label plus
@@ -21,25 +21,14 @@ type contextMenuItem struct {
 	run func(m *Model) tea.Cmd
 }
 
-// contextMenu is the popup-menu state: a fixed list of actions applicable
-// to whatever it was opened on, rendered as a small centered popup
-// (renderContextMenuPopup in view.go) until an item is picked or the menu
-// is dismissed. Driven by mouse (see handleContextMenuClick) and by
-// keyboard (cursor plus SelectSend, see updateContextMenuKey) — it used to
-// be mouse-only on the grounds that every action it listed had its own
-// keybinding, which stopped being true once the account menu became the
-// home for actions that have none.
-type contextMenu struct {
-	// title names what the menu's actions apply to — the account, in the
-	// account menu's case. Without it a menu opened from a keybinding or a
-	// toolbar button (rather than by right-clicking the thing itself) gives
-	// no indication of what it is about to act on.
-	title string
+// menuModalID finds the open menu, to rebuild it (see refreshContextMenu).
+const menuModalID = "menu"
+
+// contextMenuBody is a menu modal's body: a modal.Menu of items' labels and
+// keys, plus the items themselves, whose run picking one calls.
+type contextMenuBody struct {
+	*modal.Menu
 	items []contextMenuItem
-	// cursor is the keyboard-selected row. Mouse hover is tracked
-	// separately (hoverState), so moving the pointer doesn't yank the
-	// keyboard's place in the list.
-	cursor int
 	// refresh, when set, rebuilds title and items from the model's current
 	// state - for a menu whose actions depend on something that can change
 	// while it's open (the call menu: a call ringing, connecting, ending).
@@ -47,72 +36,59 @@ type contextMenu struct {
 	refresh func(m *Model) (string, []contextMenuItem)
 }
 
-func zoneContextMenuItem(i int) string { return fmt.Sprintf("ctxmenu-item-%d", i) }
-
-func (m *Model) openContextMenu(title string, items []contextMenuItem) {
-	if len(items) == 0 {
-		return
+func menuItems(items []contextMenuItem) []modal.MenuItem {
+	out := make([]modal.MenuItem, len(items))
+	for i, item := range items {
+		out[i] = modal.MenuItem{Label: item.label, Key: item.key}
 	}
-	m.contextMenu = &contextMenu{title: title, items: items}
+	return out
 }
 
-func (m *Model) closeContextMenu() {
-	m.contextMenu = nil
+// openContextMenu opens a menu of items, titled with what they act on. An
+// item's run happens after the menu has closed, so it can open another
+// (a submenu).
+func (m *Model) openContextMenu(title string, items []contextMenuItem) *contextMenuBody {
+	if len(items) == 0 {
+		return nil
+	}
+	if title == "" {
+		title = contextMenuDefaultTitle
+	}
+	menu := modal.NewMenu(menuItems(items)...)
+	menu.MatchKey = matchesLetter
+	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
+	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
+	menu.Styles.Key = lipgloss.NewStyle().Foreground(m.styles.colors.time)
+	body := &contextMenuBody{Menu: menu, items: items}
+	m.openModal(&modal.Modal[*Model]{
+		ID:    menuModalID,
+		Title: title,
+		Body:  body,
+		OnSubmit: func(m *Model, v any) tea.Cmd {
+			return body.items[v.(int)].run(m)
+		},
+	})
+	return body
 }
 
 // refreshContextMenu rebuilds the open menu from current state if it was
-// opened with a refresh func, keeping the cursor in range, and closes it if
-// nothing applicable is left.
+// opened with a refresh func, and closes it if nothing applicable is left.
 func (m *Model) refreshContextMenu() {
-	menu := m.contextMenu
-	if menu == nil || menu.refresh == nil {
+	md := m.modals.Find(menuModalID)
+	if md == nil {
 		return
 	}
-	title, items := menu.refresh(m)
+	body := md.Body.(*contextMenuBody)
+	if body.refresh == nil {
+		return
+	}
+	title, items := body.refresh(m)
 	if len(items) == 0 {
-		m.closeContextMenu()
+		m.modals.Remove(menuModalID)
 		return
 	}
-	menu.title, menu.items = title, items
-	menu.cursor = min(menu.cursor, len(items)-1)
-}
-
-// runContextMenuItem runs item and closes the menu it was picked from - unless
-// the item opened a menu of its own (a submenu), which must not be closed
-// again from under it.
-func (m Model) runContextMenuItem(item contextMenuItem) (Model, tea.Cmd) {
-	before := m.contextMenu
-	cmd := item.run(&m)
-	if m.contextMenu == before {
-		m.closeContextMenu()
-	}
-	return m, cmd
-}
-
-// updateContextMenuKey drives the popup from the keyboard: an item's own
-// shortcut key runs it directly, otherwise cursor moves, SelectSend runs the
-// highlighted item, Back/ConfirmNo closes.
-func (m Model) updateContextMenuKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	menu := m.contextMenu
-	for _, item := range menu.items {
-		if item.key != 0 && matchesLetter(msg, item.key) {
-			return m.runContextMenuItem(item)
-		}
-	}
-	switch {
-	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo):
-		m.closeContextMenu()
-	case matchesKey(msg, m.keys.MsgUp):
-		menu.cursor = (menu.cursor - 1 + len(menu.items)) % len(menu.items)
-	case matchesKey(msg, m.keys.MsgDown):
-		menu.cursor = (menu.cursor + 1) % len(menu.items)
-	case matchesKey(msg, m.keys.SelectSend):
-		if menu.cursor < 0 || menu.cursor >= len(menu.items) {
-			return m, nil
-		}
-		return m.runContextMenuItem(menu.items[menu.cursor])
-	}
-	return m, nil
+	md.Title, body.items = title, items
+	body.SetItems(menuItems(items)...)
 }
 
 // messageContextMenuItems builds the right-click menu for the message at

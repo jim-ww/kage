@@ -42,15 +42,15 @@ func avatarMenuModel(t *testing.T, pub *fakeAvatarPublisher) Model {
 
 func avatarMenuItem(t *testing.T, m Model, label string) int {
 	t.Helper()
-	if m.contextMenu == nil {
+	if menuOf(m) == nil {
 		t.Fatal("no menu is open")
 	}
-	for i, item := range m.contextMenu.items {
+	for i, item := range menuOf(m).items {
 		if item.label == label {
 			return i
 		}
 	}
-	t.Fatalf("menu %v has no %q entry", menuLabels(m.contextMenu), label)
+	t.Fatalf("menu %v has no %q entry", menuLabels(menuOf(m)), label)
 	return -1
 }
 
@@ -65,13 +65,13 @@ func TestAvatarMenuIsAContextMenu(t *testing.T) {
 	if cmd := m.openAvatarMenu(); cmd != nil {
 		t.Fatalf("openAvatarMenu returned a notification: %v", cmd())
 	}
-	if m.contextMenu == nil {
+	if menuOf(m) == nil {
 		t.Fatal("no context menu opened")
 	}
-	if m.contextMenu.title != "Avatar" {
-		t.Errorf("menu title = %q, want %q", m.contextMenu.title, "Avatar")
+	if menuTitle(m) != "Avatar" {
+		t.Errorf("menu title = %q, want %q", menuTitle(m), "Avatar")
 	}
-	rendered := ansi.Strip(m.renderContextMenuPopup())
+	rendered := ansi.Strip(m.modals.View())
 	for _, want := range []string{"Avatar", "Set from file", "Remove avatar"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("menu %q is missing %q", rendered, want)
@@ -88,7 +88,7 @@ func TestAvatarMenuNeedsAPublisher(t *testing.T) {
 	if cmd := m.openAvatarMenu(); cmd == nil {
 		t.Error("openAvatarMenu with no publisher gave no feedback")
 	}
-	if m.contextMenu != nil {
+	if menuOf(m) != nil {
 		t.Error("avatar menu opened with no publisher behind it")
 	}
 }
@@ -102,7 +102,7 @@ func TestAvatarMenuRemoveByClick(t *testing.T) {
 	m.openAvatarMenu()
 
 	idx := avatarMenuItem(t, m, "Remove avatar")
-	cmd := m.contextMenu.items[idx].run(&m)
+	cmd := menuOf(m).items[idx].run(&m)
 	if cmd == nil {
 		t.Fatal("Remove avatar produced no command")
 	}
@@ -122,13 +122,13 @@ func TestAvatarMenuRemoveByKeyboard(t *testing.T) {
 	pub := &fakeAvatarPublisher{}
 	m := avatarMenuModel(t, pub)
 	m.openAvatarMenu()
-	m.contextMenu.cursor = avatarMenuItem(t, m, "Remove avatar")
+	menuOf(m).SetCursor(avatarMenuItem(t, m, "Remove avatar"))
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter produced no command")
 	}
-	if got := next.(Model); got.contextMenu != nil {
+	if got := next.(Model); menuOf(got) != nil {
 		t.Error("the menu stayed open after running an item")
 	}
 	if !containsAvatarPublished(cmd) {
@@ -147,7 +147,7 @@ func TestAvatarMenuSetGoesThroughFilePicker(t *testing.T) {
 	m.openAvatarMenu()
 
 	idx := avatarMenuItem(t, m, "Set from file…")
-	m.contextMenu.items[idx].run(&m)
+	menuOf(m).items[idx].run(&m)
 	if !m.pickingFile || !m.pickingAvatar {
 		t.Fatalf("pickingFile=%v pickingAvatar=%v, want both true", m.pickingFile, m.pickingAvatar)
 	}
