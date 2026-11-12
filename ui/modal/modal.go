@@ -271,8 +271,12 @@ func (s *Stack[H]) Update(h H, msg tea.Msg) (tea.Cmd, bool) {
 			hints, _ := s.hints(top)
 			return s.key(h, top, hints[i].Key), true
 		}
-		if s.Zone != nil && !s.Zone.Get(s.frameID()).InBounds(msg) {
-			return s.finish(h, Cancel()), true
+		// Outside the frame closes - when where the frame is is known: a
+		// click can land before a fresh frame's zone is recorded.
+		if s.Zone != nil {
+			if z := s.Zone.Get(s.frameID()); !z.IsZero() && !z.InBounds(msg) {
+				return s.finish(h, Cancel()), true
+			}
 		}
 		return s.body(h, top, msg), true
 	case tea.MouseMotionMsg:

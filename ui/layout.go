@@ -98,7 +98,7 @@ func (m Model) popupActive() bool {
 	return m.modals.Open() ||
 		m.addingAccount || m.pickingFile || m.deviceList != nil ||
 		m.avatarPreview != nil ||
-		m.searchResults != nil || (m.desktopVolumeOpen && m.call != nil)
+		m.searchResults != nil
 }
 
 // narrowShowChat reports, in narrow mode, whether the single visible pane

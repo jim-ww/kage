@@ -372,9 +372,6 @@ type Model struct {
 	// just ended (briefly, to show the reason) — see ui/call.go. nil means
 	// idle: no call, nothing to render.
 	call *callUIState
-	// desktopVolumeOpen is true while the desktop audio volume popup is up
-	// (see ui/desktop_volume.go).
-	desktopVolumeOpen bool
 }
 
 // DisplayOptions bundles the message-rendering config toggles.

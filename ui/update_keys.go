@@ -25,11 +25,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	}
 
-	// ── Desktop audio volume popup intercepts all input until closed ───
-	if m.desktopVolumeOpen && m.call != nil {
-		return m.updateDesktopVolumeKey(msg)
-	}
-
 	// ── OMEMO device-list popup intercepts all input until dismissed ───
 	if m.deviceList != nil {
 		return m.updateDeviceListKey(msg)

@@ -159,9 +159,7 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 		m.updateSizes()
 	}
 	m.refreshContextMenu()
-	if msg.Video != "screen" {
-		m.desktopVolumeOpen = false
-	}
+	m.refreshDesktopVolume()
 	var notice tea.Cmd
 	if msg.Notice != "" {
 		notice = m.showNotification(msg.Notice)

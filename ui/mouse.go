@@ -469,9 +469,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 		}
 		return ""
 	}
-	if m.desktopVolumeOpen && m.call != nil {
-		return m.desktopVolumeZoneUnderMouse(mouse)
-	}
 	if m.contactManagerState != nil {
 		cs := m.contactManagerState
 		if !cs.adding && cs.pendingRemove == "" && cs.err == "" {
@@ -584,10 +581,6 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.desktopVolumeOpen && m.call != nil {
-		return m.handleDesktopVolumeClick(msg)
-	}
-
 	if m.avatarPreview != nil {
 		// Clicking off the preview rejects the candidate and leaves the
 		// picker where it was, the same as esc.
@@ -1045,10 +1038,6 @@ func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd)
 // chat list in the sidebar, or the message viewport. Swallowed entirely
 // while a context menu is open, so it can't scroll what's underneath it.
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if m.desktopVolumeOpen && m.call != nil {
-		return m.handleDesktopVolumeWheel(msg)
-	}
-
 	mouse := msg.Mouse()
 
 	if m.avatarPreview != nil {

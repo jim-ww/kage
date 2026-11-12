@@ -10,6 +10,8 @@ import (
 func sharingScreenModel(t *testing.T, ctrl *fakeCallController) Model {
 	t.Helper()
 	m := callTestModel(ctrl)
+	m.width, m.termHeight = 100, 30
+	m.updateSizes()
 	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected", Video: "screen", Sharing: true,
 		DesktopAudio: true, DesktopAudioEnabled: true, DesktopAudioVolume: 100})
 	return m
@@ -27,7 +29,7 @@ func TestDesktopVolumeKeyboard(t *testing.T) {
 	m := sharingScreenModel(t, ctrl)
 	m = press(t, m, ctrlG)
 	m = press(t, m, letter('v'))
-	if !m.desktopVolumeOpen {
+	if modalTitle(m) != "Desktop audio volume" {
 		t.Fatal("^G v didn't open the volume popup")
 	}
 	if !strings.Contains(m.View().Content, "100%") {
@@ -54,7 +56,7 @@ func TestDesktopVolumeKeyboard(t *testing.T) {
 		t.Fatalf("volume %d after holding left", m.call.desktopVolume)
 	}
 	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.desktopVolumeOpen {
+	if m.modals.Open() {
 		t.Fatal("esc didn't close it")
 	}
 }
@@ -65,19 +67,19 @@ func TestDesktopVolumeMouse(t *testing.T) {
 
 	m, cmd := clickZone(t, m, zoneCallDesktopAudio)
 	nonIdleCmd(cmd)
-	if !m.desktopVolumeOpen {
+	if modalTitle(m) != "Desktop audio volume" {
 		t.Fatal("clicking the bar's desktop audio button didn't open the popup")
 	}
-	m, cmd = clickZone(t, m, zoneDesktopVolumeCell(4))
+	m, cmd = clickZone(t, m, "modal-1-cell-4")
 	nonIdleCmd(cmd)
 	m = run(t, m, tea.MouseWheelMsg{Button: tea.MouseWheelUp})
-	m, cmd = clickZone(t, m, zoneDesktopVolumeToggle)
+	m, cmd = clickZone(t, m, "modal-hint-0") // space: turn off
 	nonIdleCmd(cmd)
 	if got := strings.Join(ctrl.calls, "|"); got != "volume 50|volume 60|desktopaudio false" {
 		t.Fatalf("calls: %s", got)
 	}
 	m = run(t, m, tea.MouseClickMsg{X: 0, Y: 0, Button: tea.MouseLeft})
-	if m.desktopVolumeOpen {
+	if m.modals.Open() {
 		t.Fatal("clicking outside didn't close it")
 	}
 }
@@ -88,7 +90,7 @@ func TestDesktopVolumeClosesWithTheShare(t *testing.T) {
 	m := sharingScreenModel(t, &fakeCallController{})
 	m.openDesktopVolume()
 	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected"})
-	if m.desktopVolumeOpen {
+	if m.modals.Open() {
 		t.Fatal("popup still open after the share stopped")
 	}
 }
