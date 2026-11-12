@@ -268,17 +268,7 @@ func newBackend() *backend { return &backend{} }
 
 func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	startupStart := time.Now()
-	notifyEnabled.Store(!cfg.NotificationsDisabled)
-	avatarsEnabled.Store(!cfg.AvatarsDisabled)
-	hiddenChats.replace(cfg.State.HiddenChats)
-	pinnedChats.replace(cfg.State.PinnedChats)
-	mutedChats.replace(cfg.State.MutedChats)
-	videoQuality.Store(int32(call.VideoQualityFromString(cfg.VideoQuality)))
-	screenRecorder.Store(int32(call.ScreenRecorderFromString(cfg.ScreenRecorder)))
-	setAudioDevices(cfg.State.AudioInput, cfg.State.AudioOutput)
-	desktopAudioEnabled.Store(!cfg.State.ScreenShareAudioDisabled)
-	desktopAudioVolume.Store(int32(clampDesktopAudioVolume(cfg.State.ScreenShareAudioVolume)))
-	defaultEncryptionMode.Store(cfg.DefaultEncryptionMode)
+	applyConfig(cfg)
 
 	if !cfg.GPGDisabled {
 		start := time.Now()
@@ -374,7 +364,11 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 // since the RPC that changed them and the connections themselves now live
 // in the same daemon) — this only needs to pick up config-level toggles
 // like cfg.NotificationsDisabled.
-func (b *backend) Reload(cfg config.Config) {
+func (b *backend) Reload(cfg config.Config) { applyConfig(cfg) }
+
+// applyConfig hands cfg's settings to the daemon code that reads them from
+// the globals above.
+func applyConfig(cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
 	hiddenChats.replace(cfg.State.HiddenChats)
