@@ -1444,7 +1444,7 @@ func (a *adapter) uploadFile(ctx context.Context, s *accountSession, client *xmp
 		return "", fmt.Errorf("encrypting file: %w", err)
 	}
 
-	url, err := client.UploadFileWithReader(ctx, path, bytes.NewReader(ciphertext), onProgress)
+	url, err := client.Upload(ctx, filepath.Base(path), bytes.NewReader(ciphertext), int64(len(ciphertext)), onProgress)
 	if err != nil {
 		return "", fmt.Errorf("uploading encrypted file: %w", err)
 	}
@@ -1492,7 +1492,7 @@ func cacheUploadedAttachment(path, url, to string) {
 }
 
 // progressCallback returns a throttled onProgress func suitable for
-// xmpp.Client.UploadFile/UploadFileWithReader (or a download loop): it only
+// xmpp.Client.UploadFile/Upload (or a download loop): it only
 // sends a ui.FileTransferProgressMsg to the UI when the whole percentage
 // changes, so a large file doesn't flood the update loop with a message per
 // 32KB chunk. id is an opaque per-transfer key (e.g. local path for an
