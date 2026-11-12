@@ -7,6 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // OmemoDeviceManager fetches and republishes our own account's OMEMO device
@@ -49,43 +51,220 @@ type OmemoDevicePurgedMsg struct {
 	Err        error
 }
 
-// deviceListState holds the state of the "view/purge OMEMO devices" popup,
-// active while non-nil. There's no way to know a sibling device's last-used
-// time (or anything else about it) from here — kage is just one of
-// potentially several clients on the account, and that data lives on the
-// device that used it, not on the server or in this instance. So all this
-// shows is the device ID and protocol, and whether it's the one kage is
-// currently running as.
-type deviceListState struct {
+// deviceListModalID finds the open device list, to fill it as the server
+// answers.
+const deviceListModalID = "omemo-devices"
+
+// deviceListBody is the "view/purge OMEMO devices" list. There's no way to
+// know a sibling device's last-used time (or anything else about it) from
+// here — kage is just one of potentially several clients on the account,
+// and that data lives on the device that used it, not on the server or in
+// this instance. So all this shows is each device's ID, protocol and
+// fingerprint, and which ones kage is currently running as (above the list,
+// never removable). Picking a device (enter, its digit, a click) marks it
+// for removal; y removes the marked ones, after asking.
+type deviceListBody struct {
+	*modal.Menu
 	accountIdx int
-	local      []OmemoDevice // this instance's own devices; never selectable for removal
+	local      []OmemoDevice
 	devices    []OmemoDevice
-	selected   map[OmemoDevice]bool // devices marked for removal
-	pagedCursor
-	busy       bool
+	removable  []OmemoDevice
+	selected   map[OmemoDevice]bool
+	status     string
 	err        string
-	confirming bool // true while showing the y/n "remove N device(s)?" confirmation
+	styles     *uiStyles
+	width      int
+	height     int
 }
 
-// openDeviceList opens the device-list popup for the current account and
-// kicks off a fetch of its published OMEMO device lists.
-func (m Model) openDeviceList() (Model, tea.Cmd) {
+// devicePurge is what the device list acts with on y.
+type devicePurge struct{}
+
+func (b *deviceListBody) Update(msg tea.Msg) (tea.Cmd, modal.Outcome) {
+	if b.Busy() {
+		return nil, modal.Continue
+	}
+	if k, ok := msg.(tea.KeyPressMsg); ok && matchesLetter(k, 'y') {
+		if len(b.marked()) == 0 {
+			return nil, modal.Continue
+		}
+		return nil, modal.Act(devicePurge{})
+	}
+	cmd, out := b.Menu.Update(msg)
+	if v, ok := out.Acted(); ok {
+		d := b.removable[v.(int)]
+		b.selected[d] = !b.selected[d]
+		b.relist()
+		return cmd, modal.Continue
+	}
+	return cmd, out
+}
+
+// marked is the devices marked for removal.
+func (b *deviceListBody) marked() []OmemoDevice {
+	var out []OmemoDevice
+	for _, d := range b.removable {
+		if b.selected[d] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// header is this instance's own devices, shown above the list.
+func (b *deviceListBody) header() []string {
+	var lines []string
+	for _, l := range b.local {
+		lines = append(lines, fmt.Sprintf("Device %d (%s, this device)", l.ID, l.Protocol))
+		lines = append(lines, fingerprintLines("  ", l.Fingerprint)...)
+	}
+	return lines
+}
+
+// footer is the highlighted device's fingerprint - below the list rather
+// than under every row, where it'd take two lines per device - and the
+// status or error.
+func (b *deviceListBody) footer() []string {
+	var lines []string
+	if c := b.Cursor(); c >= 0 && c < len(b.removable) {
+		lines = append(lines, "", fmt.Sprintf("Device %d fingerprint:", b.removable[c].ID))
+		lines = append(lines, fingerprintLines("  ", b.removable[c].Fingerprint)...)
+	}
+	switch {
+	case b.status != "":
+		lines = append(lines, "", b.styles.messageMuted.Render(b.status))
+	case b.err != "":
+		lines = append(lines, "", b.styles.popupDanger.Render(b.err))
+	}
+	return lines
+}
+
+func (b *deviceListBody) View() string {
+	parts := append(b.header(), b.Menu.View())
+	return strings.Join(append(parts, b.footer()...), "\n")
+}
+
+func (b *deviceListBody) SetSize(width, height int) {
+	b.width, b.height = width, height
+	b.Menu.SetSize(width, max(1, height-len(b.header())-len(b.footer())))
+}
+
+func (b *deviceListBody) PreferredWidth() int { return 48 }
+
+// Busy keeps the list open while a fetch or purge is with the server.
+func (b *deviceListBody) Busy() bool { return b.status != "" }
+
+func (b *deviceListBody) Hints() []modal.Hint {
+	if b.Busy() || len(b.removable) == 0 {
+		return nil
+	}
+	hints := []modal.Hint{modal.KeyHint(tea.KeyPressMsg{Code: tea.KeyEnter}, "mark")}
+	if len(b.marked()) > 0 {
+		hints = append(hints, modal.KeyHint(tea.KeyPressMsg{Code: 'y', Text: "y"}, "remove marked"))
+	}
+	return hints
+}
+
+// setDevices shows the account's devices as the server reported them.
+func (b *deviceListBody) setDevices(local, devices []OmemoDevice) {
+	b.local, b.devices = local, devices
+	b.removable = removableDevices(local, devices)
+	b.relist()
+}
+
+// relist rebuilds the list's rows from the devices and their marks.
+func (b *deviceListBody) relist() {
+	items := make([]modal.MenuItem, len(b.removable))
+	for i, d := range b.removable {
+		mark := "[ ]"
+		if b.selected[d] {
+			mark = "[x]"
+		}
+		var key rune
+		if i < 9 {
+			key = rune('1' + i)
+		}
+		items[i] = modal.MenuItem{Label: fmt.Sprintf("%s Device %d (%s)", mark, d.ID, d.Protocol), Key: key}
+	}
+	b.SetItems(items...)
+	if b.width > 0 {
+		b.SetSize(b.width, b.height)
+	}
+}
+
+// openDeviceList opens the device list for the current account and kicks
+// off a fetch of its published OMEMO device lists.
+func (m *Model) openDeviceList() tea.Cmd {
 	if m.deviceManager == nil {
-		return m, m.showNotification("omemo device management unavailable")
+		return m.showNotification("omemo device management unavailable")
 	}
 	accountIdx := m.currentAccount
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
-		return m, nil
+		return nil
 	}
 	if m.accounts[accountIdx].Connecting {
-		return m, m.showNotification("account is still connecting, try again shortly")
+		return m.showNotification("account is still connecting, try again shortly")
 	}
-	m.deviceList = &deviceListState{accountIdx: accountIdx, busy: true, selected: map[OmemoDevice]bool{}}
-	return m, func() tea.Msg { return m.deviceManager.FetchOwnDeviceList(accountIdx) }
+	menu := modal.NewMenu()
+	menu.ActOnPick = true
+	menu.Empty = "no other devices"
+	menu.MatchKey = matchesLetter
+	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
+	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
+	body := &deviceListBody{Menu: menu, accountIdx: accountIdx, selected: map[OmemoDevice]bool{}, status: "loading…", styles: m.styles}
+	cmd := m.openModal(&modal.Modal[*Model]{
+		ID:    deviceListModalID,
+		Title: "OMEMO devices",
+		Body:  body,
+		OnAct: func(m *Model, _ any) tea.Cmd {
+			marked := body.marked()
+			return m.confirm(fmt.Sprintf("Remove %d device(s) from account?", len(marked)),
+				"This republishes the affected protocol's device list without them.",
+				func(m *Model) tea.Cmd { return m.purgeDevices(body) })
+		},
+	})
+	manager := m.deviceManager
+	return tea.Batch(cmd, func() tea.Msg { return manager.FetchOwnDeviceList(accountIdx) })
 }
 
-func (dl *deviceListState) isLocal(d OmemoDevice) bool {
-	for _, l := range dl.local {
+// purgeDevices republishes body's account's device lists without its
+// marked devices.
+func (m *Model) purgeDevices(body *deviceListBody) tea.Cmd {
+	var keep []OmemoDevice
+	for _, d := range body.devices {
+		if !body.selected[d] {
+			keep = append(keep, d)
+		}
+	}
+	body.status, body.err = "removing…", ""
+	accountIdx, manager := body.accountIdx, m.deviceManager
+	return func() tea.Msg { return manager.PurgeOwnDeviceList(accountIdx, keep) }
+}
+
+// deviceListResult applies a fetch's or purge's answer to the open device
+// list for accountIdx, reporting whether it was one and succeeded.
+func (m *Model) deviceListResult(accountIdx int, local, devices []OmemoDevice, err error) bool {
+	md := m.modals.Find(deviceListModalID)
+	if md == nil {
+		return false
+	}
+	body := md.Body.(*deviceListBody)
+	if body.accountIdx != accountIdx {
+		return false
+	}
+	body.status = ""
+	if err != nil {
+		body.err = err.Error()
+		return false
+	}
+	body.err = ""
+	body.selected = map[OmemoDevice]bool{}
+	body.setDevices(local, devices)
+	return true
+}
+
+func isLocalDevice(local []OmemoDevice, d OmemoDevice) bool {
+	for _, l := range local {
 		if l.Protocol == d.Protocol && l.ID == d.ID {
 			return true
 		}
@@ -93,15 +272,14 @@ func (dl *deviceListState) isLocal(d OmemoDevice) bool {
 	return false
 }
 
-// removableDevices returns dl.devices minus the local devices, sorted by
-// protocol then ID — a stable, predictable numbering for the popup's
-// paginated, selectable rows. The local devices are always shown separately,
-// pinned above the page and never counted against it (they're never
-// removable).
-func (dl *deviceListState) removableDevices() []OmemoDevice {
-	out := make([]OmemoDevice, 0, len(dl.devices))
-	for _, d := range dl.devices {
-		if !dl.isLocal(d) {
+// removableDevices returns devices minus the local ones, sorted by
+// protocol then ID — a stable, predictable numbering for the list's
+// selectable rows. The local devices are shown separately, above the list,
+// and are never removable.
+func removableDevices(local, devices []OmemoDevice) []OmemoDevice {
+	out := make([]OmemoDevice, 0, len(devices))
+	for _, d := range devices {
+		if !isLocalDevice(local, d) {
 			out = append(out, d)
 		}
 	}
@@ -124,73 +302,6 @@ func (dl *deviceListState) removableDevices() []OmemoDevice {
 	return out
 }
 
-func (m Model) renderDeviceListPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.deviceListPrompt())
-	popup = m.zone.Mark(zoneDeviceListPopup, popup)
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-func (m Model) deviceListPrompt() string {
-	dl := m.deviceList
-	if dl == nil {
-		return ""
-	}
-	closeKey := m.keys.DeviceList.Help().Key
-	if dl.err != "" {
-		return m.styles.infoPopup("OMEMO devices", []string{"Error: " + dl.err}, closeKey)
-	}
-	if dl.busy {
-		return m.styles.infoPopup("OMEMO devices", []string{"Loading…"}, closeKey)
-	}
-
-	removable := dl.removableDevices()
-	if dl.confirming {
-		n := 0
-		for _, d := range removable {
-			if dl.selected[d] {
-				n++
-			}
-		}
-		return m.styles.deletePrompt(m.deletePromptWidth(), fmt.Sprintf("Remove %d device(s) from account?", n), "This republishes the affected protocol's device list without them.", m.confirmButtons())
-	}
-
-	start, end := dl.bounds(len(removable))
-	page := removable[start:end]
-
-	rows := make([]string, 0, 3*len(dl.local)+len(page)+6)
-	for _, l := range dl.local {
-		rows = append(rows, fmt.Sprintf("      Device %d (%s, this device)", l.ID, l.Protocol))
-		rows = append(rows, fingerprintLines("        ", l.Fingerprint)...)
-	}
-	for i, d := range page {
-		mark := "[ ]"
-		if dl.selected[d] {
-			mark = "[x]"
-		}
-		label := fmt.Sprintf("%d. %s Device %d (%s)", i+1, mark, d.ID, d.Protocol)
-		rows = append(rows, m.renderRow(zoneDeviceRow(i), i, dl.cursor, label))
-	}
-	// Only the highlighted device's fingerprint, below the list rather than
-	// under every row: two extra lines per device would push a full page
-	// past the popup on a short terminal.
-	if dl.cursor >= 0 && dl.cursor < len(page) {
-		d := page[dl.cursor]
-		rows = append(rows, "", fmt.Sprintf("  Device %d fingerprint:", d.ID))
-		rows = append(rows, fingerprintLines("    ", d.Fingerprint)...)
-	}
-
-	hint := "enter/digit: toggle · y: remove selected"
-	if pages := openPageCount(len(removable)); pages > 1 {
-		hint = fmt.Sprintf("page %d/%d · left/right: page · %s", dl.page+1, pages, hint)
-	}
-	rows = append(rows, "", hint)
-
-	return m.styles.infoPopup("OMEMO devices", rows, closeKey)
-}
-
 // fingerprintLines splits a fingerprint's eight hex groups over two lines
 // of four, each prefixed by indent - one 71-column line wouldn't fit the
 // popup on most terminals.
@@ -201,111 +312,4 @@ func fingerprintLines(indent, fingerprint string) []string {
 	groups := strings.Fields(fingerprint)
 	half := (len(groups) + 1) / 2
 	return []string{indent + strings.Join(groups[:half], " "), indent + strings.Join(groups[half:], " ")}
-}
-
-// updateDeviceListKey handles all input while the device-list popup
-// (m.deviceList != nil) is open.
-// acceptDevicePurge removes the selected devices from the published device
-// list - the purge confirmation's ConfirmYes key and "yes" button.
-func (m *Model) acceptDevicePurge() tea.Cmd {
-	dl := m.deviceList
-	var keep []OmemoDevice
-	for _, d := range dl.devices {
-		if !dl.selected[d] {
-			keep = append(keep, d)
-		}
-	}
-	accountIdx, manager := dl.accountIdx, m.deviceManager
-	dl.busy = true
-	dl.confirming = false
-	return func() tea.Msg { return manager.PurgeOwnDeviceList(accountIdx, keep) }
-}
-
-func (m Model) updateDeviceListKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
-	dl := m.deviceList
-
-	if dl.busy {
-		return m, nil, true
-	}
-
-	if dl.err != "" {
-		if matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) || matchesKey(msg, m.keys.DeviceList) {
-			m.deviceList = nil
-		}
-		return m, nil, true
-	}
-
-	if dl.confirming {
-		switch {
-		case matchesKey(msg, m.keys.ConfirmYes):
-			return m, m.acceptDevicePurge(), true
-		case matchesKey(msg, m.keys.ConfirmNo):
-			dl.confirming = false
-		}
-		return m, nil, true
-	}
-
-	removable := dl.removableDevices()
-	start, end := dl.bounds(len(removable))
-	rowCount := end - start
-
-	if i, ok := digitKey(msg); ok && i >= 1 && i <= rowCount {
-		d := removable[start+i-1]
-		dl.selected[d] = !dl.selected[d]
-		return m, nil, true
-	}
-
-	if dl.handleNavKey(msg, rowCount, len(removable)) {
-		return m, nil, true
-	}
-
-	switch {
-	case matchesKey(msg, m.keys.SelectSend):
-		if dl.cursor >= 0 && dl.cursor < rowCount {
-			d := removable[start+dl.cursor]
-			dl.selected[d] = !dl.selected[d]
-		}
-		return m, nil, true
-	case matchesKey(msg, m.keys.ConfirmYes):
-		anySelected := false
-		for _, v := range dl.selected {
-			if v {
-				anySelected = true
-				break
-			}
-		}
-		if anySelected {
-			dl.confirming = true
-		}
-	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo), matchesKey(msg, m.keys.DeviceList):
-		m.deviceList = nil
-	}
-	return m, nil, true
-}
-
-// handleDeviceListClick handles mouse clicks while the device-list popup is
-// open: clicking a device row moves the cursor there and toggles its
-// selection; clicking outside the popup closes it.
-func (m Model) handleDeviceListClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	dl := m.deviceList
-
-	if dl.busy || dl.confirming || dl.err != "" {
-		return m, nil
-	}
-
-	if !m.zone.Get(zoneDeviceListPopup).InBounds(msg) {
-		m.deviceList = nil
-		return m, nil
-	}
-
-	removable := dl.removableDevices()
-	start, end := dl.bounds(len(removable))
-	if i := m.rowUnderMouse(msg, end-start, zoneDeviceRow); i >= 0 {
-		dl.cursor = i
-		if msg.Mouse().Button == tea.MouseLeft {
-			d := removable[start+i]
-			dl.selected[d] = !dl.selected[d]
-		}
-	}
-	return m, nil
 }

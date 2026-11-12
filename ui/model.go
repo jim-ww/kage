@@ -337,10 +337,6 @@ type Model struct {
 	// every chat skipped through along the way.
 	chatSwitchGen int
 
-	// deviceList is non-nil while the OMEMO device-list popup is open — see
-	// ui/omemo_devices.go.
-	deviceList *deviceListState
-
 	// pickingAvatar marks the file picker as having been opened to choose
 	// an avatar rather than to attach a file, since both share one picker.
 	pickingAvatar bool

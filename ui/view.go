@@ -346,8 +346,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 	switch {
 	case m.modals.Open():
 		viewportArea = m.modals.View()
-	case m.deviceList != nil:
-		viewportArea = m.renderDeviceListPopup()
 	case m.searchResults != nil:
 		viewportArea = m.renderSearchResultsPopup()
 	case m.avatarPreview != nil:
@@ -573,25 +571,6 @@ func footerWrapLines(hint string, width, maxLines int) []string {
 	lines = lines[:maxLines]
 	lines[maxLines-1] = ansi.Truncate(lines[maxLines-1], width, "…")
 	return lines
-}
-
-// confirmButtons renders a confirmation's clickable "[y] yes" and "[n] no"
-// buttons, labeled with the keys ConfirmYes/ConfirmNo are bound to.
-func (m Model) confirmButtons() string {
-	yes := "[" + shortestKey(m.keys.ConfirmYes) + "] yes"
-	no := "[" + shortestKey(m.keys.ConfirmNo) + "] no"
-	return m.zone.Mark(zoneConfirmYes, m.styles.renderConfirmButton(yes, m.isHovered(zoneConfirmYes))) +
-		"    " + m.zone.Mark(zoneConfirmNo, m.styles.renderConfirmButton(no, m.isHovered(zoneConfirmNo)))
-}
-
-// deletePromptWidth is the wrap width for any styles.deletePrompt call
-// (this file, contacts.go, omemo_devices.go): -10 for the popup's own
-// border+padding (2 for Border(1,1) + 8 for Padding(1,4)), capped at 50 so
-// the dialog doesn't stretch edge-to-edge on wide terminals — content
-// narrower than this just renders at its own width. Recomputed on every
-// render from the current m.chatAreaWidth(), so it tracks live resizes.
-func (m Model) deletePromptWidth() int {
-	return min(max(1, m.chatAreaWidth()-10), 50)
 }
 
 // encryptionLabel describes a message's wire-level encryption state for the

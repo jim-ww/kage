@@ -29,7 +29,6 @@ const (
 	zoneAttachButton          = "attach-button"
 	zoneReplyHintCancel       = "reply-hint-cancel"
 	zoneToggleSidebar         = "toggle-sidebar-button"
-	zoneDeviceListPopup       = "device-list-popup"
 	zoneSearchResultsPopup    = "search-results-popup"
 	zoneCallAnswer            = "call-answer-button"
 	zoneCallReject            = "call-reject-button"
@@ -39,8 +38,6 @@ const (
 	zoneCallStopScreen        = "call-stop-screen-button"
 	zoneCallStopCamera        = "call-stop-camera-button"
 	zoneCallDesktopAudio      = "call-desktop-audio-button"
-	zoneConfirmYes            = "confirm-yes-button"
-	zoneConfirmNo             = "confirm-no-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
 	zoneFilePickerPopup       = "file-picker-popup"
 	zoneFilePickerBack        = "file-picker-back-button"
@@ -65,7 +62,6 @@ func zoneMessageReactKey(i int) string    { return fmt.Sprintf("msg-react-key-%d
 func zoneMessageExpand(i int) string      { return fmt.Sprintf("msg-expand-%d", i) }
 func zoneMessageReaction(i, j int) string { return fmt.Sprintf("msg-reaction-%d-%d", i, j) }
 func zoneAttachmentRemove(i int) string   { return fmt.Sprintf("attachment-remove-%d", i) }
-func zoneDeviceRow(i int) string          { return fmt.Sprintf("device-row-%d", i) }
 func zoneSearchResultRow(i int) string    { return fmt.Sprintf("search-result-row-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
@@ -459,14 +455,6 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 // handleLeftClick/handleRightClick, but restricted to the context menu's
 // own items while one is open — nothing underneath it is reachable.
 func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
-	if _, _, ok := m.confirmActions(); ok {
-		for _, id := range []string{zoneConfirmYes, zoneConfirmNo} {
-			if m.zone.Get(id).InBounds(mouse) {
-				return id
-			}
-		}
-		return ""
-	}
 	if m.searchResults != nil {
 		sr := m.searchResults
 		if matches := sr.filteredMatches(); !sr.busy && sr.err == "" && !sr.filtering && len(matches) > 0 {
@@ -474,20 +462,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 			for i := 0; i < end-start; i++ {
 				if m.zone.Get(zoneSearchResultRow(i)).InBounds(mouse) {
 					return zoneSearchResultRow(i)
-				}
-			}
-		}
-		return ""
-	}
-
-	if m.deviceList != nil {
-		dl := m.deviceList
-		if !dl.busy && !dl.confirming && dl.err == "" {
-			removable := dl.removableDevices()
-			start, end := dl.bounds(len(removable))
-			for i := 0; i < end-start; i++ {
-				if m.zone.Get(zoneDeviceRow(i)).InBounds(mouse) {
-					return zoneDeviceRow(i)
 				}
 			}
 		}
@@ -553,18 +527,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 // otherwise dispatches by button: left click acts directly, right click
 // opens a context menu of actions for whatever was clicked.
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if accept, cancel, ok := m.confirmActions(); ok {
-		// Modal like its keys: only the two buttons do anything.
-		if msg.Mouse().Button == tea.MouseLeft {
-			switch {
-			case m.zone.Get(zoneConfirmYes).InBounds(msg):
-				return m, accept(&m)
-			case m.zone.Get(zoneConfirmNo).InBounds(msg):
-				return m, cancel(&m)
-			}
-		}
-		return m, nil
-	}
 	if m.avatarPreview != nil {
 		// Clicking off the preview rejects the candidate and leaves the
 		// picker where it was, the same as esc.
@@ -580,10 +542,6 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.searchResults != nil {
 		return m.handleSearchResultsClick(msg)
-	}
-
-	if m.deviceList != nil {
-		return m.handleDeviceListClick(msg)
 	}
 
 	if msg.Mouse().Button == tea.MouseLeft {
@@ -630,19 +588,6 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 		}
 	}
 	return m, nil
-}
-
-// confirmActions returns what the yes/no confirmation on screen does on
-// accept and on cancel, if one is: the contact manager's or device list's.
-func (m Model) confirmActions() (accept, cancel func(*Model) tea.Cmd, ok bool) {
-	switch {
-	case m.deviceList != nil && m.deviceList.confirming && !m.deviceList.busy:
-		return (*Model).acceptDevicePurge, func(m *Model) tea.Cmd {
-			m.deviceList.confirming = false
-			return nil
-		}, true
-	}
-	return nil, nil, false
 }
 
 // handleLeftClick dispatches a left-click to whichever marked zone it

@@ -85,6 +85,10 @@ func Submit(value any) Outcome { return Outcome{kind: submitted, value: value} }
 // Cancel closes the modal as esc does.
 func Cancel() Outcome { return Outcome{kind: canceled} }
 
+// Acted is the value an Act outcome acts with - for a component wrapping
+// another, to handle some of its actions itself.
+func (o Outcome) Acted() (any, bool) { return o.value, o.kind == acted }
+
 // Act hands value to the modal's OnAct and keeps it open: an action taken
 // from inside it (copy this, toggle that), as opposed to its answer.
 func Act(value any) Outcome { return Outcome{kind: acted, value: value} }

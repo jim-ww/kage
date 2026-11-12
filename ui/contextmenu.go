@@ -231,9 +231,7 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 		}},
 		{label: "OMEMO devices", run: func(m *Model) tea.Cmd {
 			m.switchAccount(idx)
-			model, cmd := m.openDeviceList()
-			*m = model
-			return cmd
+			return m.openDeviceList()
 		}},
 	}
 	if m.storagePasswordChanger != nil {

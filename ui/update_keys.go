@@ -24,11 +24,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	}
 
-	// ── OMEMO device-list popup intercepts all input until dismissed ───
-	if m.deviceList != nil {
-		return m.updateDeviceListKey(msg)
-	}
-
 	// ── Search-results popup intercepts all input until closed ──────────
 	if m.searchResults != nil {
 		return m.updateSearchResultsKey(msg)
@@ -160,8 +155,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	case matchesKey(msg, m.keys.DeviceList):
 		if m.selectedView == viewAccounts {
-			model, cmd := m.openDeviceList()
-			return model, cmd, true
+			return m, m.openDeviceList(), true
 		}
 
 	case matchesKey(msg, m.keys.AccountMenu):
