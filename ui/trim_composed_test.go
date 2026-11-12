@@ -23,7 +23,7 @@ func TestTrimComposedKeepsIndentation(t *testing.T) {
 func TestBlankMessagesAreNotSent(t *testing.T) {
 	for _, in := range []string{"", "   ", "\n\n", " ", "​\n‍"} {
 		m := newTestModelWithMessages(nil, nil)
-		m.sender = &fakeSuccessSender{}
+		m.daemon = &fakeSuccessSender{}
 		m.input.SetValue(in)
 		if cmd := m.sendCurrentInput(); cmd != nil || len(m.currentMessages()) != 0 {
 			t.Errorf("%q was sent", in)

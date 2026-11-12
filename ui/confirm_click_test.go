@@ -87,7 +87,7 @@ func TestConfirmClickOutsideCancels(t *testing.T) {
 func TestContactRemoveAsks(t *testing.T) {
 	m := pasteTestModel(t)
 	manager := &fakeContactManager{}
-	m.contactManager = manager
+	m.daemon = manager
 	m = openContacts(t, m)
 	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}) // bob's options
 	if modalTitle(m) != "bob@example.test" {

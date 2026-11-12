@@ -30,7 +30,7 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 // appendAndTrim appends newMsgs to accounts[accountIdx].Messages[chatIdx]
 // (the live tail: incoming messages, our own sent messages, MAM catch-up)
 // and caps it back down to maxMessagesPerChat via trimMessagesFront. Unlike
-// a HistoryLoader window load, this never touches HistoryNewer — the tail is
+// a Daemon window load, this never touches HistoryNewer — the tail is
 // still the tail — but does set HistoryMore whenever trimming actually
 // dropped something, since storage now holds messages older than what's
 // left in memory (recoverable at any time via an ordinary older-history
@@ -1115,8 +1115,8 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 
 	case typingPauseMsg:
-		if m.sender != nil && m.typingActiveTo == msg.addr && m.typingGen == msg.gen {
-			if err := m.sender.SetTyping(m.currentAccount, msg.addr, false); err == nil {
+		if m.typingActiveTo == msg.addr && m.typingGen == msg.gen {
+			if err := m.daemon.SetTyping(m.currentAccount, msg.addr, false); err == nil {
 				m.typingActiveTo = ""
 			}
 		}

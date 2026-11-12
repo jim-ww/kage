@@ -11,16 +11,6 @@ import (
 	"github.com/jim-ww/kage/ui/modal"
 )
 
-// OmemoDeviceManager fetches and republishes our own account's OMEMO device
-// lists (XEP-0384 PEP for v2, eu.siacs.conversations.axolotl for v1),
-// implemented outside ui (main.go's adapter) so ui stays decoupled from
-// xmpp/omemo. Both run as a tea.Cmd like AccountAdder.AddAccount since
-// they're network I/O.
-type OmemoDeviceManager interface {
-	FetchOwnDeviceList(accountIdx int) tea.Msg
-	PurgeOwnDeviceList(accountIdx int, keep []OmemoDevice) tea.Msg
-}
-
 // OmemoDevice identifies one device in either OMEMO protocol's device list.
 // Device IDs are only unique within a protocol - the same numeric ID can
 // coincidentally appear in both an account's v1 and v2 device pools, since
@@ -35,7 +25,7 @@ type OmemoDevice struct {
 	Fingerprint string
 }
 
-// OmemoDeviceListMsg reports the result of OmemoDeviceManager.FetchOwnDeviceList.
+// OmemoDeviceListMsg reports the result of Daemon.FetchOwnDeviceList.
 type OmemoDeviceListMsg struct {
 	AccountIdx int
 	Local      []OmemoDevice // this instance's own device per protocol that's ready
@@ -43,7 +33,7 @@ type OmemoDeviceListMsg struct {
 	Err        error
 }
 
-// OmemoDevicePurgedMsg reports the result of OmemoDeviceManager.PurgeOwnDeviceList.
+// OmemoDevicePurgedMsg reports the result of Daemon.PurgeOwnDeviceList.
 type OmemoDevicePurgedMsg struct {
 	AccountIdx int
 	Local      []OmemoDevice
@@ -195,9 +185,6 @@ func (b *deviceListBody) relist() {
 // openDeviceList opens the device list for the current account and kicks
 // off a fetch of its published OMEMO device lists.
 func (m *Model) openDeviceList() tea.Cmd {
-	if m.deviceManager == nil {
-		return m.showNotification("omemo device management unavailable")
-	}
 	accountIdx := m.currentAccount
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil
@@ -223,7 +210,7 @@ func (m *Model) openDeviceList() tea.Cmd {
 				func(m *Model) tea.Cmd { return m.purgeDevices(body) })
 		},
 	})
-	manager := m.deviceManager
+	manager := m.daemon
 	return tea.Batch(cmd, func() tea.Msg { return manager.FetchOwnDeviceList(accountIdx) })
 }
 
@@ -237,7 +224,7 @@ func (m *Model) purgeDevices(body *deviceListBody) tea.Cmd {
 		}
 	}
 	body.status, body.err = "removing…", ""
-	accountIdx, manager := body.accountIdx, m.deviceManager
+	accountIdx, manager := body.accountIdx, m.daemon
 	return func() tea.Msg { return manager.PurgeOwnDeviceList(accountIdx, keep) }
 }
 

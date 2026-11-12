@@ -9,11 +9,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// MessageSender is embedded (and left nil) purely so this satisfies the
+// Daemon is embedded (and left nil) purely so this satisfies the
 // interface New takes: the avatar publisher is discovered by type assertion
 // on that same value, and none of these tests send a message.
 type fakeAvatarPublisher struct {
-	MessageSender
+	stubDaemon
 	setPath    string
 	setCalls   int
 	removeCall int
@@ -76,20 +76,6 @@ func TestAvatarMenuIsAContextMenu(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("menu %q is missing %q", rendered, want)
 		}
-	}
-}
-
-// Nothing wired up to publish with means the menu would be two dead
-// entries.
-func TestAvatarMenuNeedsAPublisher(t *testing.T) {
-	m := newTestModel(nil)
-	m.accounts = []Account{{Name: "me"}}
-	m.selectedView = viewAccounts
-	if cmd := m.openAvatarMenu(); cmd == nil {
-		t.Error("openAvatarMenu with no publisher gave no feedback")
-	}
-	if menuOf(m) != nil {
-		t.Error("avatar menu opened with no publisher behind it")
 	}
 }
 

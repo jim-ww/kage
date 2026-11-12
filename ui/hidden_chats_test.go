@@ -9,7 +9,7 @@ import (
 )
 
 type fakeChatHider struct {
-	MessageSender
+	stubDaemon
 	calls []string // "jid:addr:hidden"
 	err   error
 }
@@ -29,7 +29,7 @@ func hiddenChatsModel(t *testing.T, hider *fakeChatHider, chats ...Chat) Model {
 	for i, c := range chats {
 		messages[i] = []Message{{Content: "from " + c.Address}}
 	}
-	var sender MessageSender
+	var sender Daemon
 	if hider != nil {
 		sender = hider
 	}

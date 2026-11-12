@@ -28,7 +28,7 @@ func TestSearchDateTabJumpsToStartOfDay(t *testing.T) {
 	}
 	loader := &fakeHistoryLoader{fakeSuccessSender: &fakeSuccessSender{}, response: HistoryWindowMsg{Messages: window, HasOlder: true, HasNewer: true}}
 	m := newTestModelWithMessages(window[39:], &fakeHistorySearcher{})
-	m.historyLoader = loader
+	m.daemon = loader
 	m.width, m.termHeight = 100, 30
 	m.updateSizes()
 

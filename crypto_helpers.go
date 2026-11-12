@@ -343,7 +343,7 @@ func (s *accountSession) omemoManagerFor(protocol omemolib.Protocol) *omemolib.M
 // resolveEncryptionMode returns the outgoing message encryption mode for
 // peerJID: "omemo-v1" (the default), "omemo-v2" (force that protocol),
 // "gpg", or "none" if the user explicitly disabled encryption for this
-// chat — see ui.ChatEncryptionSetter/ui.encryptionModes.
+// chat — see ui.Daemon/ui.encryptionModes.
 func resolveEncryptionMode(ctx context.Context, s *accountSession, peerJID string) string {
 	mode, err := s.db.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{
 		AccountJid: s.account.JID,

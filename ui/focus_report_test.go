@@ -11,6 +11,7 @@ import (
 // daemon, so a test can assert on what the daemon would actually be told
 // rather than on Model internals.
 type recordingFocusReporter struct {
+	stubDaemon
 	calls []focusReport
 }
 
@@ -41,7 +42,7 @@ func newFocusTestModel(t *testing.T) (Model, *recordingFocusReporter) {
 	m.chats.SetItems([]list.Item{chat})
 	m.chats.Select(0)
 	m.selectedView = viewChat
-	m.focusReporter = reporter
+	m.daemon = reporter
 	m.focused = true
 	return m, reporter
 }

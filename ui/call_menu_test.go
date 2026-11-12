@@ -10,9 +10,10 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// fakeCallController records every CallController call as a string, e.g.
+// fakeCallController records every Daemon call as a string, e.g.
 // "share true camera".
 type fakeCallController struct {
+	stubDaemon
 	calls []string
 }
 
@@ -41,9 +42,9 @@ func (f *fakeCallController) ScreenShare(_ int, sharing, camera bool) tea.Msg {
 }
 
 // callTestModel is a model with one open chat with bob and ctrl wired up.
-func callTestModel(ctrl CallController) Model {
+func callTestModel(ctrl Daemon) Model {
 	m := newTestModelWithSender(&fakeSuccessSender{}, nil)
-	m.callController = ctrl
+	m.daemon = ctrl
 	chat := Chat{Name: "Bob", Address: "bob@example.test"}
 	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
 	m.chats.SetItems(m.accounts[0].Chats)

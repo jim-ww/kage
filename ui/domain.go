@@ -53,13 +53,13 @@ type Message struct {
 	LocalID string
 
 	// Pending is set on a message that's been queued for later delivery
-	// (MessageSender.Send returned ErrQueued, e.g. the account is offline)
+	// (Daemon.Send returned ErrQueued, e.g. the account is offline)
 	// rather than actually sent yet - see MessageSendResolvedMsg, which
 	// clears it once the queued send is actually attempted. Never true at
 	// the same time as Failed.
 	Pending bool
 
-	// Failed is set on a message MessageSender.Send (or its later queued
+	// Failed is set on a message Daemon.Send (or its later queued
 	// retry) reported a real error for - kept visible rather than silently
 	// dropped, so what the user typed is never lost, but never rendered
 	// indistinguishably from an actually-delivered message. Never true at
@@ -161,7 +161,7 @@ type Account struct {
 	// is its mirror for the newest message currently in Messages — false
 	// whenever Messages already reaches the live tail (the common case; only
 	// a mid-history window, from paging up or a search jump, can have this
-	// true). Both are set fresh by every HistoryLoader.LoadHistoryWindow
+	// true). Both are set fresh by every Daemon.LoadHistoryWindow
 	// response, and are the *only* source of truth for "is there more to
 	// page into" in either direction — nothing else derives or overrides
 	// them, which is what keeps every window transition (paging,
@@ -188,7 +188,7 @@ type Account struct {
 	// Status is this account's own configured presence: any Presence value
 	// (PresenceOnline by default). Distinct from Connecting - an offline
 	// account is never dialed at all, so it's never "connecting". Set by
-	// AccountStatusSetter and persisted to config so it's restored on the
+	// Daemon and persisted to config so it's restored on the
 	// next startup.
 	Status Presence
 
@@ -198,7 +198,7 @@ type Account struct {
 	// picker uses this to decide whether to even offer PresenceInvisible.
 	SupportsInvisible bool
 
-	// Removed is set once AccountRemover.RemoveAccount has disconnected this
+	// Removed is set once Daemon.RemoveAccount has disconnected this
 	// account and dropped it from config.toml. It stays in m.accounts (and
 	// so this slot in the sidebar) for the rest of this run — see
 	// AccountRemovedMsg for why indices can't shift — but is excluded from
@@ -334,7 +334,7 @@ type Chat struct {
 
 	// Muted marks a chat whose messages raise no desktop notification
 	// (they still count as unread). Local only, persisted via
-	// ChatMutedSetter; the daemon is what actually stays quiet.
+	// Daemon; the daemon is what actually stays quiet.
 	Muted bool
 
 	// Resources lists this contact's currently online devices (full-JID
@@ -346,11 +346,11 @@ type Chat struct {
 
 	// EncryptionMode is this chat's outgoing message encryption:
 	// "omemo-v1" (default), "omemo-v2", "gpg", or "none". Set by
-	// ChatEncryptionSetter.
+	// Daemon.
 	EncryptionMode string
 
 	// Unread is a local-only count of messages received while this chat
-	// wasn't the actively-focused one, persisted via ChatReadTracker. Reset
+	// wasn't the actively-focused one, persisted via Daemon. Reset
 	// to zero when the chat is opened.
 	Unread int
 
@@ -371,7 +371,7 @@ type Chat struct {
 	// Draft is the compose box's unsent text last recorded for this chat —
 	// loaded from storage when the account connects, kept in sync with
 	// m.input as the compose box switches between chats, and persisted via
-	// DraftSaver. Empty means no unsent draft.
+	// Daemon. Empty means no unsent draft.
 	Draft string
 }
 
@@ -478,10 +478,10 @@ const (
 	viewChat // viewport + input
 )
 
-// SendOptions carries optional wire metadata for MessageSender.Send — kept as
+// SendOptions carries optional wire metadata for Daemon.Send — kept as
 // plain fields here (rather than importing the xmpp package's own type) so
 // ui stays decoupled from the network layer; the adapter implementing
-// MessageSender translates these into XEP-0308/XEP-0461 elements.
+// Daemon translates these into XEP-0308/XEP-0461 elements.
 type SendOptions struct {
 	// ReplaceID, if set, marks this send as a correction of the earlier
 	// message with this ID (XEP-0308).
@@ -513,7 +513,7 @@ type SendOptions struct {
 	OOBURLs []string
 
 	// LocalID, for a plain new-message send, is the composing Message's own
-	// LocalID - carried through MessageSender.Send (and, if the account is
+	// LocalID - carried through Daemon.Send (and, if the account is
 	// offline, the outbox replay that eventually calls Send again) purely so
 	// a later MessageSendResolvedMsg can report back which placeholder
 	// message to reconcile. Meaningless (and unused) for

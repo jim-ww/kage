@@ -52,6 +52,7 @@ func TestLocalDeviceMatchesWhateverItsFingerprint(t *testing.T) {
 // fakeDeviceManager answers device-list fetches with a fixed list and
 // records purges.
 type fakeDeviceManager struct {
+	stubDaemon
 	local, devices []OmemoDevice
 	purged         [][]OmemoDevice
 }
@@ -73,7 +74,7 @@ func openDevices(t *testing.T, manager *fakeDeviceManager) Model {
 	m.width, m.height, m.termHeight = 120, 40, 40
 	m.accounts = []Account{{}}
 	m.updateSizes()
-	m.deviceManager = manager
+	m.daemon = manager
 	cmd := m.openDeviceList()
 	list, ok := findMsg[OmemoDeviceListMsg](cmd)
 	if !ok {

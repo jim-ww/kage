@@ -44,10 +44,7 @@ func (m *Model) togglePinChat(accountIdx, chatIdx int) tea.Cmd {
 }
 
 func (m Model) persistChatPinned(accountIdx int, address string, pinned bool) error {
-	if m.chatPinnedSetter == nil {
-		return nil
-	}
-	return m.chatPinnedSetter.SetChatPinned(m.accounts[accountIdx].Name, address, pinned)
+	return m.daemon.SetChatPinned(m.accounts[accountIdx].Name, address, pinned)
 }
 
 // toggleMuteChat flips whether accountIdx's chat at chatIdx raises desktop
@@ -72,10 +69,8 @@ func (m *Model) toggleMuteChat(accountIdx, chatIdx int) tea.Cmd {
 	if accountIdx == m.currentAccount {
 		cmd = m.chats.SetItem(chatIdx, chat)
 	}
-	if m.chatMutedSetter != nil {
-		if err := m.chatMutedSetter.SetChatMuted(m.accounts[accountIdx].Name, chat.Address, chat.Muted); err != nil {
-			return tea.Batch(cmd, m.showNotification("muting "+chat.Address+": "+err.Error()))
-		}
+	if err := m.daemon.SetChatMuted(m.accounts[accountIdx].Name, chat.Address, chat.Muted); err != nil {
+		return tea.Batch(cmd, m.showNotification("muting "+chat.Address+": "+err.Error()))
 	}
 	if chat.Muted {
 		return tea.Batch(cmd, m.showNotification("muted notifications from "+chat.Address))

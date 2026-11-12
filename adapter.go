@@ -93,7 +93,7 @@ func (a *adapter) CancelUpload(path string) {
 	}
 }
 
-// AddAccount implements ui.AccountAdder: resolves and stores the password in
+// AddAccount implements ui.Daemon: resolves and stores the password in
 // the OS keyring, persists the account to config.toml, connects it live, and
 // starts its supervisor goroutine — mirroring what main does for accounts
 // configured at startup, just for one account added mid-session. When
@@ -177,7 +177,7 @@ func statusConfigValue(status ui.Presence) string {
 	}
 }
 
-// SetAccountStatus implements ui.AccountStatusSetter: persists the chosen
+// SetAccountStatus implements ui.Daemon: persists the chosen
 // status to config.toml (so a restart comes back up the same way), then
 // applies it live - closing the connection outright for PresenceOffline (no
 // further traffic to that account's server at all), dialing a currently
@@ -291,7 +291,7 @@ func (a *adapter) session(accountIdx int) (*accountSession, bool) {
 	return a.sessions[accountIdx], true
 }
 
-// LoadHistoryWindow implements ui.HistoryLoader: fetches a fresh window of
+// LoadHistoryWindow implements ui.Daemon: fetches a fresh window of
 // to's persisted history around anchor (see loadHistoryWindow) as a
 // tea.Cmd, off the main goroutine, since it's a disk read plus decrypt of up
 // to a window's worth of messages.
@@ -306,7 +306,7 @@ func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.Histor
 	}
 }
 
-// SearchHistory implements ui.HistorySearcher: decrypts and scans to's
+// SearchHistory implements ui.Daemon: decrypts and scans to's
 // entire persisted history (see loadHistory) as a tea.Cmd, off the main
 // goroutine, and returns every message whose content contains query
 // (case-insensitive) alongside the whole decrypted history — the caller
@@ -330,26 +330,26 @@ func (a *adapter) SearchHistory(accountIdx int, to, query string) tea.Cmd {
 	}
 }
 
-// SetDefaultAccount implements ui.DefaultAccountSetter: persists jid as the
+// SetDefaultAccount implements ui.Daemon: persists jid as the
 // account selected on startup.
 func (a *adapter) SetDefaultAccount(jid string) error {
 	return config.SetDefaultAccount(a.cfgPath, jid)
 }
 
-// SetSidebarWidth implements ui.SidebarWidthSetter: persists the
+// SetSidebarWidth implements ui.Daemon: persists the
 // user-dragged sidebar width so it's restored on the next launch.
 func (a *adapter) SetSidebarWidth(width int) error {
 	return config.SetSidebarWidth(a.cfgPath, width)
 }
 
-// RecordReactionEmojiUsage implements ui.ReactionEmojiUsageRecorder:
+// RecordReactionEmojiUsage implements ui.Daemon:
 // persists per-emoji reaction send counts so the quick-pick suggestions
 // converge on what this user actually reaches for.
 func (a *adapter) RecordReactionEmojiUsage(emojis []string) error {
 	return config.RecordReactionEmojiUsage(a.cfgPath, emojis)
 }
 
-// SetSidebarHidden implements ui.SidebarHiddenSetter: persists the chat
+// SetSidebarHidden implements ui.Daemon: persists the chat
 // list's visibility so it's restored on the next launch.
 func (a *adapter) SetSidebarHidden(hidden bool) error {
 	return config.SetSidebarHidden(a.cfgPath, hidden)
@@ -379,7 +379,7 @@ func (a *adapter) SetChatHidden(accountJID, chatAddress string, hidden bool) err
 	return nil
 }
 
-// SetChatPinned implements ui.ChatPinnedSetter: persists whether a chat is
+// SetChatPinned implements ui.Daemon: persists whether a chat is
 // pinned to the top of the chat list.
 func (a *adapter) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
 	if err := config.SetChatPinned(a.cfgPath, accountJID, chatAddress, pinned); err != nil {
@@ -390,7 +390,7 @@ func (a *adapter) SetChatPinned(accountJID, chatAddress string, pinned bool) err
 	return nil
 }
 
-// SetChatMuted implements ui.ChatMutedSetter: persists whether a chat's
+// SetChatMuted implements ui.Daemon: persists whether a chat's
 // messages raise desktop notifications, and applies it right away.
 func (a *adapter) SetChatMuted(accountJID, chatAddress string, muted bool) error {
 	if err := config.SetChatMuted(a.cfgPath, accountJID, chatAddress, muted); err != nil {
@@ -401,26 +401,26 @@ func (a *adapter) SetChatMuted(accountJID, chatAddress string, muted bool) error
 	return nil
 }
 
-// SetInputHeight implements ui.InputHeightSetter: persists the user-dragged
+// SetInputHeight implements ui.Daemon: persists the user-dragged
 // compose box height so it's restored on the next launch.
 func (a *adapter) SetInputHeight(height int) error {
 	return config.SetInputHeight(a.cfgPath, height)
 }
 
-// SetFilePickerSort implements ui.FilePickerSortSetter: persists the
+// SetFilePickerSort implements ui.Daemon: persists the
 // attach-file picker's sort field/direction so it's restored on the next
 // launch.
 func (a *adapter) SetFilePickerSort(field string, ascending bool) error {
 	return config.SetFilePickerSort(a.cfgPath, field, ascending)
 }
 
-// SetLastChat implements ui.LastChatSetter: persists which chat was last
+// SetLastChat implements ui.Daemon: persists which chat was last
 // opened so it can be reopened on startup when open_last_chat is set.
 func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
 	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
 }
 
-// SetFocusState implements ui.FocusReporter: records whether the calling
+// SetFocusState implements ui.Daemon: records whether the calling
 // TUI's terminal has OS focus and which chat (if any) it currently has
 // open, so handleIncomingMessage (events.go) can skip a desktop
 // notification for a message that's already visible on screen.
@@ -431,7 +431,7 @@ func (a *adapter) SetFocusState(tuiClient ipc.ClientID, accountJID, chatAddress 
 	return nil
 }
 
-// ResetChatUnread implements ui.ChatReadTracker: zeroes the persisted
+// ResetChatUnread implements ui.Daemon: zeroes the persisted
 // unread counter for a chat, called when it's opened in the UI, and tells
 // every attached TUI so the chat reads as read in all of them.
 func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
@@ -446,7 +446,7 @@ func (a *adapter) ResetChatUnread(accountJID, chatAddress string) error {
 	return nil
 }
 
-// ChatUnreadCounts implements ui.ChatReadTracker: loads every chat with a
+// ChatUnreadCounts implements ui.Daemon: loads every chat with a
 // nonzero persisted unread count for an account, keyed by chat address, so
 // the UI can seed Chat.Unread when (re)connecting.
 func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
@@ -461,7 +461,7 @@ func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
 	return counts, nil
 }
 
-// SaveDraft implements ui.DraftSaver: persists chatAddress's compose-box
+// SaveDraft implements ui.Daemon: persists chatAddress's compose-box
 // text, sealed under the local storage key (crypto/localstore) same as a
 // message body when one is configured, or clears the persisted draft
 // entirely when text is empty (rather than storing an empty row).
@@ -496,7 +496,7 @@ func omemoProtocolLabel(p omemolib.Protocol) string {
 	return "v2"
 }
 
-// FetchOwnDeviceList implements ui.OmemoDeviceManager: fetches the
+// FetchOwnDeviceList implements ui.Daemon: fetches the
 // account's currently-published device list for both OMEMO protocols (each
 // runs its own separate device pool - see account.go), tagging every entry
 // with which protocol it belongs to.
@@ -608,7 +608,7 @@ func omemoFingerprint(identityKey []byte) string {
 	return strings.Join(groups, " ")
 }
 
-// PurgeOwnDeviceList implements ui.OmemoDeviceManager: republishes each
+// PurgeOwnDeviceList implements ui.Daemon: republishes each
 // affected protocol's device list containing only the entries in keep for
 // that protocol (this instance's own devices are always included
 // regardless, so it can never accidentally remove itself). A protocol whose
@@ -669,7 +669,7 @@ func (a *adapter) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) tea.
 	return ui.OmemoDevicePurgedMsg{AccountIdx: accountIdx, Local: local, Devices: devices}
 }
 
-// RemoveAccount implements ui.AccountRemover: purges this account's own
+// RemoveAccount implements ui.Daemon: purges this account's own
 // device from each OMEMO protocol's published device list (so peers stop
 // treating it as a valid encryption target), disconnects it, and drops it
 // from config.toml. Local storage (history, roster cache, OMEMO
@@ -726,7 +726,7 @@ func (a *adapter) RemoveAccount(accountIdx int) tea.Msg {
 	return ui.AccountRemovedMsg{Index: accountIdx}
 }
 
-// MarkRetracted implements ui.MessageSender: flags a message as locally
+// MarkRetracted implements ui.Daemon: flags a message as locally
 // deleted in storage without sending anything over the network. Used when
 // deleting someone else's message, since XEP-0424 retraction only applies to
 // messages we sent ourselves.
@@ -746,7 +746,7 @@ func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 	return nil
 }
 
-// PurgeMessage implements ui.MessageSender: erases a message outright from
+// PurgeMessage implements ui.Daemon: erases a message outright from
 // local storage, reactions included, and broadcasts evMessagePurged so every
 // attached client drops it too. The second half of the two-step delete - only
 // reached for a message already flagged retracted (see MarkRetracted and
@@ -782,7 +782,7 @@ func (a *adapter) PurgeMessage(accountIdx int, to, id string) error {
 	return nil
 }
 
-// DeleteQueued implements ui.MessageSender: permanently discards a
+// DeleteQueued implements ui.Daemon: permanently discards a
 // still-Pending message from the outbox table without ever sending it. Not
 // an error if localID no longer matches anything queued - broadcasting
 // evOutboxDeleted (so every attached client removes the same placeholder,
@@ -803,7 +803,7 @@ func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
 	return nil
 }
 
-// SetTyping implements ui.MessageSender: sends a XEP-0085 chat state
+// SetTyping implements ui.Daemon: sends a XEP-0085 chat state
 // notification to "to" — no persistence, no encryption, it's ephemeral.
 // A sent "composing" is remembered per calling client so clearTyping can take
 // it back if that TUI goes away before clearing it itself.
@@ -883,7 +883,7 @@ func (a *adapter) clearTyping(tuiClient ipc.ClientID) {
 	}
 }
 
-// RenameContact implements ui.ContactRenamer: pushes name as a roster set
+// RenameContact implements ui.Daemon: pushes name as a roster set
 // (RFC 6121) to the server, and mirrors it into local storage and the
 // in-memory roster cache used by rosterName. An empty name clears the
 // contact's nickname there too, matching what a fresh roster fetch would
@@ -920,7 +920,7 @@ func (a *adapter) RenameContact(accountIdx int, address, name string) error {
 	return nil
 }
 
-// AddContact implements ui.ContactManager: adds address to the roster and
+// AddContact implements ui.Daemon: adds address to the roster and
 // sends a subscription request, then mirrors it into local storage and the
 // in-memory roster cache used by rosterName.
 func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
@@ -952,7 +952,7 @@ func (a *adapter) AddContact(accountIdx int, address string) tea.Msg {
 	return ui.ContactAddedMsg{AccountIdx: accountIdx, Address: address}
 }
 
-// ResubscribeContact implements ui.ContactManager: re-sends a subscription
+// ResubscribeContact implements ui.Daemon: re-sends a subscription
 // request for an existing contact, without touching its roster item.
 func (a *adapter) ResubscribeContact(accountIdx int, address string) tea.Msg {
 	s, ok := a.session(accountIdx)
@@ -971,7 +971,7 @@ func (a *adapter) ResubscribeContact(accountIdx int, address string) tea.Msg {
 	return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address}
 }
 
-// RemoveContact implements ui.ContactManager: removes address from the
+// RemoveContact implements ui.Daemon: removes address from the
 // roster and unsubscribes, then mirrors the removal into local storage and
 // the in-memory roster cache.
 func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
@@ -1000,7 +1000,7 @@ func (a *adapter) RemoveContact(accountIdx int, address string) tea.Msg {
 	return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address}
 }
 
-// SetChatEncryption implements ui.ChatEncryptionSetter: persists the chosen
+// SetChatEncryption implements ui.Daemon: persists the chosen
 // outgoing message encryption ("omemo-v1", "omemo-v2", "gpg", or "none") for
 // one chat.
 func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error {
@@ -1610,7 +1610,7 @@ func (a *adapter) progressCallback(id, label string) func(sent, total int64) {
 	}
 }
 
-// SendFile implements ui.FileSender. Uploading and the follow-up message send
+// SendFile implements ui.Daemon. Uploading and the follow-up message send
 // run as a Bubble Tea command, so the terminal remains responsive while a
 // slot is discovered and the file is transferred.
 func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions) tea.Msg {
@@ -1653,7 +1653,7 @@ func (a *adapter) SendFile(accountIdx int, to, path string, opts ui.SendOptions)
 	return result
 }
 
-// UploadFile implements ui.FileSender. Unlike SendFile it only uploads —
+// UploadFile implements ui.Daemon. Unlike SendFile it only uploads —
 // used by startAttachedSend to upload+send each staged attachment as its own
 // message. text/opts are only consulted when the account is offline: rather
 // than fail (upload needs a live connection, unlike a plain text send),

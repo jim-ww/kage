@@ -79,9 +79,6 @@ func (b *contactsBody) Hints() []modal.Hint {
 
 // openContactManager opens the contact manager for the current account.
 func (m *Model) openContactManager() tea.Cmd {
-	if m.contactManager == nil {
-		return m.showNotification("contact management unavailable")
-	}
 	accountIdx := m.currentAccount
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil
@@ -179,7 +176,7 @@ func (m *Model) openAddContact() tea.Cmd {
 				return nil
 			}
 			form.SetBusy("adding…")
-			accountIdx, manager := body.accountIdx, m.contactManager
+			accountIdx, manager := body.accountIdx, m.daemon
 			return func() tea.Msg { return manager.AddContact(accountIdx, addr) }
 		},
 	})
@@ -206,11 +203,11 @@ func subscriptionLabel(c Chat) string {
 // removeContact removes address from the contact manager's account.
 func (m *Model) removeContact(address string) tea.Cmd {
 	body := m.contactsOpen()
-	if body == nil || m.contactManager == nil {
+	if body == nil {
 		return nil
 	}
 	body.setBusy("removing " + address + "…")
-	accountIdx, manager := body.accountIdx, m.contactManager
+	accountIdx, manager := body.accountIdx, m.daemon
 	return func() tea.Msg { return manager.RemoveContact(accountIdx, address) }
 }
 

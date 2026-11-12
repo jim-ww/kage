@@ -145,8 +145,8 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 				}
 			}
 
-			if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil && msgs[editIdx].ID != "" {
-				_, err := m.sender.Send(m.currentAccount, chat.Address, text, SendOptions{
+			if chat, ok := m.currentChat(); ok && chat.Address != "" && msgs[editIdx].ID != "" {
+				_, err := m.daemon.Send(m.currentAccount, chat.Address, text, SendOptions{
 					ReplaceID: msgs[editIdx].ID,
 				})
 				if err != nil {
@@ -174,7 +174,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 
 		chat, ok := m.currentChat()
 		switch {
-		case !ok || chat.Address == "" || m.sender == nil:
+		case !ok || chat.Address == "":
 			// Nothing was ever handed to Send - showing a local echo here
 			// would be a message the network has never heard of and never
 			// will, indistinguishable on screen from one that actually went
@@ -192,7 +192,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		default:
 			newMsg.LocalID = newLocalID()
 			sendOpts.LocalID = newMsg.LocalID
-			id, err := m.sender.Send(m.currentAccount, chat.Address, text, sendOpts)
+			id, err := m.daemon.Send(m.currentAccount, chat.Address, text, sendOpts)
 			switch {
 			case err == nil:
 				newMsg.ID = id
@@ -310,9 +310,6 @@ func replySendOptions(msgs []Message, replyToID string) SendOptions {
 // sendOpts carries the reply target (if any), captured by the caller before
 // m.replyTo is cleared.
 func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOptions) tea.Cmd {
-	if m.sender == nil {
-		return m.showNotification("not connected; caption not sent")
-	}
 	newMsg := Message{
 		Author:  "me",
 		Content: text,
@@ -324,7 +321,7 @@ func (m *Model) sendPlainTextCaption(text string, chat Chat, sendOpts SendOption
 	sendOpts.LocalID = newMsg.LocalID
 
 	var cmds []tea.Cmd
-	id, err := m.sender.Send(m.currentAccount, chat.Address, text, sendOpts)
+	id, err := m.daemon.Send(m.currentAccount, chat.Address, text, sendOpts)
 	switch {
 	case err == nil:
 		newMsg.ID = id
@@ -420,7 +417,7 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 		return m.showNotification("can't retry attachments")
 	}
 	chat, ok := m.currentChat()
-	if !ok || chat.Address == "" || m.sender == nil {
+	if !ok || chat.Address == "" {
 		return m.showNotification("not connected; message not sent")
 	}
 
@@ -441,7 +438,7 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 	}
 
 	var cmds []tea.Cmd
-	id, err := m.sender.Send(m.currentAccount, chat.Address, msgs[idx].Content, sendOpts)
+	id, err := m.daemon.Send(m.currentAccount, chat.Address, msgs[idx].Content, sendOpts)
 	msgs[idx].LocalID = sendOpts.LocalID
 	switch {
 	case err == nil:
@@ -512,7 +509,7 @@ func (m *Model) actionRenameChat() tea.Cmd {
 }
 
 // renameChat names the chat at idx: pushes the name to the server as a
-// roster set and mirrors it locally (see ContactRenamer), then updates the
+// roster set and mirrors it locally (see Daemon), then updates the
 // in-memory chat name shown in the sidebar. An empty name clears the custom
 // one — the chat falls back to displaying its JID, matching what a fresh
 // roster fetch would show.
@@ -534,8 +531,8 @@ func (m *Model) renameChat(idx int, typed string) tea.Cmd {
 		return nil
 	}
 
-	if m.renamer != nil && chat.Address != "" {
-		if err := m.renamer.RenameContact(m.currentAccount, chat.Address, strings.TrimSpace(typed)); err != nil {
+	if chat.Address != "" {
+		if err := m.daemon.RenameContact(m.currentAccount, chat.Address, strings.TrimSpace(typed)); err != nil {
 			return m.showNotification("rename failed: " + err.Error())
 		}
 	}
@@ -594,13 +591,13 @@ func (m *Model) actionSearchChat() tea.Cmd {
 func (m *Model) searchChat(query string) tea.Cmd {
 	query = strings.TrimSpace(query)
 	chat, ok := m.currentChat()
-	if !ok || query == "" || m.historySearcher == nil {
+	if !ok || query == "" {
 		return nil
 	}
 
 	accountIdx := m.currentAccount
 	to := chat.Address
-	return tea.Batch(m.openSearchResults(accountIdx, chat, query), m.historySearcher.SearchHistory(accountIdx, to, query))
+	return tea.Batch(m.openSearchResults(accountIdx, chat, query), m.daemon.SearchHistory(accountIdx, to, query))
 }
 
 func (m *Model) actionYankMessage() tea.Cmd {
@@ -964,9 +961,9 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	if msgs := m.currentMessages(); len(msgs) > 0 {
 		m.selectedMsg = len(msgs) - 1
 	}
-	if m.lastChatSetter != nil && m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
+	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
 		if chat, ok := m.currentChat(); ok {
-			_ = m.lastChatSetter.SetLastChat(m.accounts[m.currentAccount].Name, chat.Address)
+			_ = m.daemon.SetLastChat(m.accounts[m.currentAccount].Name, chat.Address)
 		}
 	}
 	draftCmd := m.swapComposeDraft(m.currentAccount, m.currentChatIndex())
@@ -1033,9 +1030,9 @@ func (m *Model) purgeSelectedMsg() tea.Cmd {
 	var cmds []tea.Cmd
 	// A message with no stanza ID was never persisted under one (so there's
 	// nothing for the daemon to look up) - it only has to leave this view.
-	if target.ID != "" && m.sender != nil {
+	if target.ID != "" {
 		if chat, ok := m.currentChat(); ok && chat.Address != "" {
-			if err := m.sender.PurgeMessage(m.currentAccount, chat.Address, target.ID); err != nil {
+			if err := m.daemon.PurgeMessage(m.currentAccount, chat.Address, target.ID); err != nil {
 				cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
 			}
 		}
@@ -1088,7 +1085,7 @@ func (m *Model) sendReaction(idx int, newMine []string) tea.Cmd {
 		return m.showNotification("message has no id; can't react")
 	}
 	chat, ok := m.currentChat()
-	if !ok || chat.Address == "" || m.sender == nil {
+	if !ok || chat.Address == "" {
 		return nil
 	}
 
@@ -1103,7 +1100,7 @@ func (m *Model) sendReaction(idx int, newMine []string) tea.Cmd {
 			cmd = m.setChatLastMessage(m.currentAccount, chatIdx, preview)
 		}
 	}
-	if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{
+	if _, err := m.daemon.Send(m.currentAccount, chat.Address, "", SendOptions{
 		ReactionTargetID: msgs[idx].ID,
 		Reactions:        newMine,
 	}); err != nil {

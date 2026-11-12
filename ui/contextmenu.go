@@ -201,14 +201,14 @@ func (m Model) contactManagerAccount() int {
 
 // actionResubscribeContact re-sends a subscription request for address on
 // the contact manager's current account, run as a tea.Cmd since it's
-// network I/O (see ContactManager.ResubscribeContact).
+// network I/O (see Daemon.ResubscribeContact).
 func (m *Model) actionResubscribeContact(address string) tea.Cmd {
 	body := m.contactsOpen()
-	if m.contactManager == nil || body == nil {
+	if body == nil {
 		return nil
 	}
 	accountIdx := body.accountIdx
-	manager := m.contactManager
+	manager := m.daemon
 	body.setBusy("resubscribing to " + address + "…")
 	return func() tea.Msg { return manager.ResubscribeContact(accountIdx, address) }
 }
@@ -234,12 +234,10 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 			return m.openDeviceList()
 		}},
 	}
-	if m.storagePasswordChanger != nil {
-		items = append(items, contextMenuItem{label: "Storage password", run: func(m *Model) tea.Cmd {
-			m.switchAccount(idx)
-			return m.openChangePasswordPopup()
-		}})
-	}
+	items = append(items, contextMenuItem{label: "Storage password", run: func(m *Model) tea.Cmd {
+		m.switchAccount(idx)
+		return m.openChangePasswordPopup()
+	}})
 	return append(items,
 		contextMenuItem{label: "Make default", run: func(m *Model) tea.Cmd { return m.actionMakeDefaultAccount(idx) }},
 		contextMenuItem{label: "Remove account", run: func(m *Model) tea.Cmd { return m.actionRemoveAccount(idx) }},
@@ -266,9 +264,9 @@ func (m *Model) openAccountMenu() tea.Cmd {
 // actionRemoveAccount opens the remove-account confirmation for the account
 // at idx (already selected/switched to by the caller — see
 // accountRowContextMenuItems). Confirming disconnects it and drops it from
-// config.toml (see AccountRemover) without touching local storage.
+// config.toml (see Daemon) without touching local storage.
 func (m *Model) actionRemoveAccount(idx int) tea.Cmd {
-	if idx < 0 || idx >= len(m.accounts) || m.accountRemover == nil {
+	if idx < 0 || idx >= len(m.accounts) {
 		return m.showNotification("account removal unavailable")
 	}
 	if idx != m.currentAccount {
@@ -281,13 +279,13 @@ func (m *Model) actionRemoveAccount(idx int) tea.Cmd {
 
 // removeCurrentAccount runs as a tea.Cmd since it purges the account's
 // published OMEMO device list over the network before disconnecting (see
-// AccountRemover.RemoveAccount).
+// Daemon.RemoveAccount).
 func (m *Model) removeCurrentAccount() tea.Cmd {
-	if m.accountRemover == nil || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+	if m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
 		return nil
 	}
 	accountIdx := m.currentAccount
-	return func() tea.Msg { return m.accountRemover.RemoveAccount(accountIdx) }
+	return func() tea.Msg { return m.daemon.RemoveAccount(accountIdx) }
 }
 
 // accountStatuses lists every selectable account status, in the order
@@ -298,7 +296,7 @@ var accountStatuses = []Presence{PresenceOnline, PresenceChat, PresenceAway, Pre
 // menu's "Status") listing every status with the current one marked, so
 // picking one sets it directly — mirrors actionOpenEncryptionMenu.
 func (m *Model) actionOpenAccountStatusMenu(idx int) tea.Cmd {
-	if idx < 0 || idx >= len(m.accounts) || m.accountStatusSetter == nil {
+	if idx < 0 || idx >= len(m.accounts) {
 		return nil
 	}
 	acct := m.accounts[idx]
@@ -328,10 +326,10 @@ func (m *Model) actionOpenAccountStatusMenu(idx int) tea.Cmd {
 // picker's per-status entries) — runs as a tea.Cmd since it may dial or
 // disconnect the account over the network.
 func (m *Model) actionSetAccountStatus(idx int, status Presence) tea.Cmd {
-	if idx < 0 || idx >= len(m.accounts) || m.accountStatusSetter == nil {
+	if idx < 0 || idx >= len(m.accounts) {
 		return nil
 	}
-	return func() tea.Msg { return m.accountStatusSetter.SetAccountStatus(idx, status) }
+	return func() tea.Msg { return m.daemon.SetAccountStatus(idx, status) }
 }
 
 // chatMenuTitle names the chat a right-click menu applies to, falling back

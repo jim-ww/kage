@@ -8,10 +8,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// fakeDraftSaver is a stub MessageSender+DraftSaver: Send always succeeds,
+// fakeDraftSaver is a stub Daemon+Daemon: Send always succeeds,
 // and SaveDraft records every call (keyed by chat address) so tests can
 // assert what got persisted and when.
 type fakeDraftSaver struct {
+	stubDaemon
 	saved map[string]string
 	calls int
 }

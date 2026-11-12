@@ -10,7 +10,7 @@ import (
 // newEditTestModel builds a chat of three messages - two from Bob, then one
 // of ours - already at the message cap, so the next arrival trims the oldest
 // off the front and renumbers everything left.
-func newEditTestModel(t *testing.T, sender MessageSender) Model {
+func newEditTestModel(t *testing.T, sender Daemon) Model {
 	t.Helper()
 	m := newTestModelWithSender(sender, nil)
 	m.maxMessagesPerChat = 3

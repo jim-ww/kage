@@ -184,10 +184,7 @@ func (m *Model) applyUnhideChat(accountIdx int, address string) (tea.Cmd, bool) 
 }
 
 func (m Model) persistChatHidden(accountIdx int, address string, hidden bool) error {
-	if m.chatHiddenSetter == nil {
-		return nil
-	}
-	return m.chatHiddenSetter.SetChatHidden(m.accounts[accountIdx].Name, address, hidden)
+	return m.daemon.SetChatHidden(m.accounts[accountIdx].Name, address, hidden)
 }
 
 // reselectAfterHide keeps the chat list usable once a row disappears from

@@ -263,7 +263,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 			theme.AppBg = fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
 		}
 	}
-	model := ui.New(nil, startAccountIdx, keyMap, theme, client, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, nil)
+	model := ui.New(nil, startAccountIdx, keyMap, theme, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, nil)
 	if len(cfg.Accounts) == 0 {
 		// First run, or every account was removed: open straight into the
 		// add-account modal (defaults to login mode; ctrl+r switches to

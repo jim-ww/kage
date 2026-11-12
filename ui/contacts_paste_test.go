@@ -7,7 +7,10 @@ import (
 )
 
 // fakeContactManager records contact changes and answers them at once.
-type fakeContactManager struct{ removed []string }
+type fakeContactManager struct {
+	stubDaemon
+	removed []string
+}
 
 func (f *fakeContactManager) AddContact(accountIdx int, address string) tea.Msg {
 	return ContactAddedMsg{AccountIdx: accountIdx, Address: address}
@@ -25,8 +28,8 @@ func (f *fakeContactManager) ResubscribeContact(accountIdx int, address string) 
 // openContacts opens the contact manager on account 0.
 func openContacts(t *testing.T, m Model) Model {
 	t.Helper()
-	if m.contactManager == nil {
-		m.contactManager = &fakeContactManager{}
+	if _, ok := m.daemon.(*fakeContactManager); !ok {
+		m.daemon = &fakeContactManager{}
 	}
 	m.currentAccount = 0
 	m.openContactManager()

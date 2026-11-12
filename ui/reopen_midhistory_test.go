@@ -13,7 +13,7 @@ func newMidHistoryModel(t *testing.T) (Model, *spyHistoryLoader) {
 	t.Helper()
 	loader := &spyHistoryLoader{fakeSuccessSender: &fakeSuccessSender{}}
 	m := newTestModelWithSender(loader, nil)
-	m.historyLoader = loader
+	m.daemon = loader
 
 	chat := Chat{Name: "bob", Address: "bob@example.test"}
 	m.accounts = []Account{{

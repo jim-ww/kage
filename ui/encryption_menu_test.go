@@ -6,9 +6,10 @@ import (
 	"charm.land/bubbles/v2/list"
 )
 
-// fakeChatEncryptionSender is a minimal MessageSender + ChatEncryptionSetter
+// fakeChatEncryptionSender is a minimal Daemon + Daemon
 // stub, recording the last SetChatEncryption call.
 type fakeChatEncryptionSender struct {
+	stubDaemon
 	lastAccountIdx    int
 	lastPeerJID, mode string
 }
@@ -41,7 +42,7 @@ func TestEncryptionModesIncludesOmemoV1V2(t *testing.T) {
 }
 
 // TestActionSetChatEncryptionForcesOmemoV1 verifies picking "omemo-v1" from
-// the menu persists that exact mode string via ChatEncryptionSetter and
+// the menu persists that exact mode string via Daemon and
 // updates the chat's displayed EncryptionMode - the mechanism
 // resolveOmemoManagerForMode (crypto_helpers.go) later reads to bypass
 // auto-detection for this chat.

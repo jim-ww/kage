@@ -19,6 +19,7 @@ type sendCall struct {
 }
 
 type fakeFileSender struct {
+	stubDaemon
 	path string
 	opts SendOptions
 

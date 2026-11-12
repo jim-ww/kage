@@ -147,7 +147,7 @@ func (b *desktopVolumeBody) Hints() []modal.Hint {
 // openDesktopVolume opens the volume modal, if there's a screen share whose
 // audio it could adjust.
 func (m *Model) openDesktopVolume() tea.Cmd {
-	if m.call == nil || m.call.video != "screen" || m.callController == nil {
+	if m.call == nil || m.call.video != "screen" {
 		return m.showNotification("not sharing the screen")
 	}
 	body := &desktopVolumeBody{hover: -1, accent: lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)}
@@ -187,7 +187,7 @@ func (m *Model) refreshDesktopVolume() {
 // setDesktopVolume sets the volume to percent (clamped and snapped to a
 // step), showing it at once rather than waiting for the daemon's echo.
 func (m *Model) setDesktopVolume(percent int) tea.Cmd {
-	if m.call == nil || m.callController == nil {
+	if m.call == nil {
 		return nil
 	}
 	percent = max(desktopVolumeMin, min(desktopVolumeMax, percent/desktopVolumeStep*desktopVolumeStep))
@@ -196,6 +196,6 @@ func (m *Model) setDesktopVolume(percent int) tea.Cmd {
 	}
 	m.call.desktopVolume = percent
 	m.refreshDesktopVolume()
-	ctrl := m.callController
+	ctrl := m.daemon
 	return func() tea.Msg { return ctrl.SetDesktopAudioVolume(percent) }
 }

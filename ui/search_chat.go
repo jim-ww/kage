@@ -35,13 +35,13 @@ func (m Model) newSearchDatePicker() datepicker.Model {
 func (m *Model) jumpToDate(day time.Time) tea.Cmd {
 	chat, ok := m.currentChat()
 	chatIdx := m.currentChatIndex()
-	if !ok || chatIdx < 0 || m.historyLoader == nil {
+	if !ok || chatIdx < 0 {
 		return nil
 	}
 	// StoreID 0 sorts before every message at that second, so the window's
 	// newer half starts with the day's first message.
 	anchor := &HistoryAnchor{Delay: day.Unix(), StoreID: 0}
-	cmd := m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, anchor)
+	cmd := m.daemon.LoadHistoryWindow(m.currentAccount, chat.Address, anchor)
 	if cmd == nil {
 		return nil // see markHistoryWindowLoading
 	}
@@ -73,7 +73,7 @@ func (m *Model) landOnDate(msgs []Message, day time.Time) {
 const searchResultsModalID = "search-results"
 
 // searchResultsBody is the search-in-chat results: opened busy while
-// HistorySearcher.SearchHistory scans the chat's whole persisted history,
+// Daemon.SearchHistory scans the chat's whole persisted history,
 // then a list of the messages that matched - narrowed by author (a cycles
 // all/me/peer) and a typo-tolerant filter (/ asks for it) - picking one
 // jumps the chat to it (see loadSearchResult). messages is the chat's
@@ -288,17 +288,17 @@ func (m *Model) openSearchResults(accountIdx int, chat Chat, query string) tea.C
 	})
 }
 
-// loadSearchResult fires a HistoryLoader request for a fresh window anchored
+// loadSearchResult fires a Daemon request for a fresh window anchored
 // on target — the same anchor-based load every other window
 // transition uses (see HistoryAnchor's doc comment), just with the anchor
 // coming from a search match instead of a scroll edge.
 func (m *Model) loadSearchResult(accountIdx int, chatAddress string, target Message) tea.Cmd {
 	chatIdx := m.chatIndexByAddress(accountIdx, chatAddress)
-	if chatIdx < 0 || m.historyLoader == nil {
+	if chatIdx < 0 {
 		return nil
 	}
 	anchor := &HistoryAnchor{Delay: target.SentAt.Unix(), StoreID: target.StoreID}
-	cmd := m.historyLoader.LoadHistoryWindow(accountIdx, chatAddress, anchor)
+	cmd := m.daemon.LoadHistoryWindow(accountIdx, chatAddress, anchor)
 	if cmd == nil {
 		return nil // see markHistoryWindowLoading
 	}

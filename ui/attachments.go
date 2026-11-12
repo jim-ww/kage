@@ -158,12 +158,9 @@ func (m *Model) retryAttachedSend(to string, reply SendOptions, paths []string, 
 // placeholder the first path's outcome should update in place rather than
 // append.
 func (m *Model) sendAttachments(to string, reply SendOptions, paths []string, retryLocalID string) tea.Cmd {
-	if m.fileSender == nil || m.sender == nil {
-		return m.showNotification("file sending unavailable")
-	}
 	accountIdx := m.currentAccount
-	fileSender := m.fileSender
-	sender := m.sender
+	fileSender := m.daemon
+	sender := m.daemon
 
 	return func() tea.Msg {
 		result := ComposedSendResultMsg{AccountIdx: accountIdx, To: to, ReplyToID: reply.ReplyToID, Paths: paths, RetryOfLocalID: retryLocalID}

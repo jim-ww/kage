@@ -306,7 +306,7 @@ func (c *ipcClient) PurgeOwnDeviceList(accountIdx int, keep []ui.OmemoDevice) te
 }
 
 // StartCall/AnswerCall/HangupCall/RejectCall drive the daemon's voice call
-// state machine (callsession.go), implementing ui.CallController. The RPC
+// state machine (callsession.go), implementing ui.Daemon. The RPC
 // only reports whether the request reached/was accepted by the daemon - the
 // call's actual state transitions arrive separately via evCallState/
 // evIncomingCall broadcasts, handled in dispatch below.
@@ -350,7 +350,7 @@ func (c *ipcClient) ReopenVideo(accountIdx int) tea.Msg {
 	return ui.CallActionResultMsg{Action: "reopenvideo", AccountIdx: accountIdx, Err: err}
 }
 
-// ListAudioDevices/SetAudioDevice implement ui.AudioDeviceController.
+// ListAudioDevices/SetAudioDevice implement ui.Daemon.
 func (c *ipcClient) ListAudioDevices() tea.Msg {
 	var res audioDevicesResult
 	if err := c.conn.Call(rpcAudioDevices, nil, &res); err != nil {

@@ -201,10 +201,8 @@ func (m *Model) openFilePicker(avatar bool) tea.Cmd {
 				m.updateSizes()
 				return nil
 			case filePickerSorted:
-				if m.filePickerSortSetter != nil {
-					if err := m.filePickerSortSetter.SetFilePickerSort(m.filePicker.SortField.String(), m.filePicker.SortAscending); err != nil {
-						return m.showNotification("saving file picker sort: " + err.Error())
-					}
+				if err := m.daemon.SetFilePickerSort(m.filePicker.SortField.String(), m.filePicker.SortAscending); err != nil {
+					return m.showNotification("saving file picker sort: " + err.Error())
 				}
 			case filePickerDisabled:
 				return m.showNotification("that file type cannot be selected")

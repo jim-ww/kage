@@ -27,7 +27,7 @@ func (r *recordingSettingsSender) SetChatHidden(_, addr string, _ bool) error {
 	return nil
 }
 
-func syncTestModel(sender MessageSender) Model {
+func syncTestModel(sender Daemon) Model {
 	m := newTestModelWithSender(sender, nil)
 	chats := []list.Item{Chat{Name: "Bob", Address: "bob@x"}, Chat{Name: "Carol", Address: "carol@x"}}
 	m.accounts = []Account{{Name: "me@x", Chats: chats, Messages: map[int][]Message{}}}

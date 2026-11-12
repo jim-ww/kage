@@ -53,15 +53,6 @@ func TestAccountMenuListsEveryAccountAction(t *testing.T) {
 	}
 }
 
-// Storage-password rotation is only offered when something can perform it.
-func TestAccountMenuHidesStoragePasswordWithoutAChanger(t *testing.T) {
-	m := accountMenuModel(t)
-	m.openAccountMenu()
-	if strings.Contains(menuLabels(menuOf(m)), "Storage password") {
-		t.Error("menu offers storage-password rotation with nothing wired up to do it")
-	}
-}
-
 func TestAccountMenuWithNoAccount(t *testing.T) {
 	m := newTestModelWithSender(&fakeAvatarPublisher{}, nil)
 	m.accounts = nil

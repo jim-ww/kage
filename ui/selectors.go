@@ -70,7 +70,7 @@ func (m Model) chatIndexByAddress(accountIdx int, address string) int {
 	return -1
 }
 
-// maybeLoadHistoryWindow fires a HistoryLoader.LoadHistoryWindow request
+// maybeLoadHistoryWindow fires a Daemon.LoadHistoryWindow request
 // anchored on edgeMsg (the message at whichever edge of the currently loaded
 // window was just reached), if one is configured, storage is known to hold
 // more in that direction, and a fetch isn't already in flight for this chat.
@@ -83,7 +83,7 @@ func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
 		return nil
 	}
-	if m.historyLoader == nil || edgeMsg.StoreID == 0 || m.loadingHistoryWindow[chatIdx] {
+	if edgeMsg.StoreID == 0 || m.loadingHistoryWindow[chatIdx] {
 		return nil
 	}
 	acct := m.accounts[m.currentAccount]
@@ -98,7 +98,7 @@ func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 		return nil
 	}
 	anchor := &HistoryAnchor{Delay: edgeMsg.SentAt.Unix(), StoreID: edgeMsg.StoreID}
-	cmd := m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, anchor)
+	cmd := m.daemon.LoadHistoryWindow(m.currentAccount, chat.Address, anchor)
 	if cmd == nil {
 		// No command means no HistoryWindowMsg will ever come back, so
 		// marking the fetch in flight would block this chat's paging for the
@@ -109,7 +109,7 @@ func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 	return cmd
 }
 
-// maybeLoadOlderHistory fires a HistoryLoader request for the current chat's
+// maybeLoadOlderHistory fires a Daemon request for the current chat's
 // next older window, if more history is known to exist beyond what's
 // currently loaded. Called when the message selection/viewport reaches the
 // top of what's currently loaded.
@@ -121,7 +121,7 @@ func (m *Model) maybeLoadOlderHistory() tea.Cmd {
 	return m.maybeLoadHistoryWindow(true, msgs[0])
 }
 
-// maybeLoadNewerHistory fires a HistoryLoader request for the current chat's
+// maybeLoadNewerHistory fires a Daemon request for the current chat's
 // next newer window — only possible when the currently loaded window isn't
 // already the live tail (paged up, or landed on a search result). A no-op
 // otherwise. Called when the message selection/viewport reaches the bottom
@@ -228,7 +228,7 @@ func (m *Model) setPeerTyping(accountIdx int, from string, typing bool) tea.Cmd 
 // activeChatKey returns the account JID and chat address of the chat
 // currently being actively viewed (selectedView == viewChat), or two empty
 // strings if no chat is currently open. Used to report the "currently open
-// chat" identity to the daemon (see FocusReporter) so it can suppress a
+// chat" identity to the daemon (see Daemon) so it can suppress a
 // desktop notification for a message that's already visible on screen.
 func (m Model) activeChatKey() (accountJID, chatAddress string) {
 	if m.selectedView != viewChat || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
@@ -251,7 +251,7 @@ func (m Model) activeChatKey() (accountJID, chatAddress string) {
 //
 // Terminal focus and idleness are part of it because they are part of the
 // daemon's answer to the same question (what activeChatKey reports, gated on
-// focused && !idle - see FocusReporter): the daemon fires a desktop
+// focused && !idle - see Daemon): the daemon fires a desktop
 // notification exactly when it believes nobody is watching the chat, so a
 // narrower rule here meant a message could notify and still be counted as
 // read - a notification with no unread badge anywhere, for a chat left open
@@ -297,11 +297,8 @@ func (m *Model) resetChatUnread(accountIdx, chatIdx int) tea.Cmd {
 		return nil
 	}
 	cmd := m.setChatUnread(accountIdx, chatIdx, 0)
-	if m.chatReadTracker == nil {
-		return cmd
-	}
 	accountJID, address := m.accounts[accountIdx].Name, chat.Address
-	tracker := m.chatReadTracker
+	tracker := m.daemon
 	return tea.Batch(cmd, func() tea.Msg {
 		_ = tracker.ResetChatUnread(accountJID, address)
 		return nil
@@ -327,8 +324,8 @@ func (m *Model) setChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
 	return nil
 }
 
-// saveChatDraft updates chatIdx's draft in memory and, if a DraftSaver is
-// wired in, persists it so it survives a restart. Best-effort: a persistence
+// saveChatDraft updates chatIdx's draft in memory and persists it so it
+// survives a restart. Best-effort: a persistence
 // failure doesn't roll back the in-memory draft.
 func (m *Model) saveChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
@@ -339,10 +336,10 @@ func (m *Model) saveChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
 		return nil
 	}
 	cmd := m.setChatDraft(accountIdx, chatIdx, text)
-	if m.draftSaver == nil || chat.Address == "" {
+	if chat.Address == "" {
 		return cmd
 	}
-	accountJID, address, saver := m.accounts[accountIdx].Name, chat.Address, m.draftSaver
+	accountJID, address, saver := m.accounts[accountIdx].Name, chat.Address, m.daemon
 	return tea.Batch(cmd, func() tea.Msg {
 		_ = saver.SaveDraft(accountJID, address, text)
 		return nil
@@ -356,7 +353,7 @@ func (m *Model) saveChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
 // that hadn't been flushed yet — call this once, after the Bubble Tea
 // program has stopped, before the process exits.
 func (m Model) FlushDraft() {
-	if m.draftSaver == nil || m.openChatAddress == "" {
+	if m.openChatAddress == "" {
 		return
 	}
 	chatIdx := m.chatIndexByAddress(m.openChatAccountIdx, m.openChatAddress)
@@ -367,7 +364,7 @@ func (m Model) FlushDraft() {
 	if !ok || chat.Draft == m.input.Value() {
 		return
 	}
-	_ = m.draftSaver.SaveDraft(m.accounts[m.openChatAccountIdx].Name, chat.Address, m.input.Value())
+	_ = m.daemon.SaveDraft(m.accounts[m.openChatAccountIdx].Name, chat.Address, m.input.Value())
 }
 
 // swapComposeDraft saves the draft of the chat currently loaded into

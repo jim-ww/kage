@@ -6,7 +6,7 @@ import (
 )
 
 // TestHistoryWindowMsgKeepsLiveMessageArrivedDuringFetch guards the race
-// between a live IncomingMessageMsg and an in-flight HistoryLoader fetch
+// between a live IncomingMessageMsg and an in-flight Daemon fetch
 // reaching the true tail (HasNewer: false): the fetch's storage query can
 // run before the live message's insert commits, so its response can land
 // after the live message was already spliced into Messages[chatIdx] and

@@ -14,7 +14,7 @@ import (
 // runCmd executes cmd and, if it produced a tea.BatchMsg, recursively
 // executes every sub-command too — mirroring what the real Program loop
 // does, since Update() itself only returns commands without running them.
-// Needed here so ChatReadTracker side effects (which ride inline func()
+// Needed here so Daemon side effects (which ride inline func()
 // tea.Msg closures batched alongside the list-item refresh) actually fire.
 func runCmd(cmd tea.Cmd) {
 	if cmd == nil {
@@ -61,8 +61,8 @@ func nonIdleCmd(cmd tea.Cmd) tea.Msg {
 	return msg
 }
 
-// fakeReadTrackerSender combines fakeSuccessSender with ChatReadTracker so
-// New's sender.(ChatReadTracker) type assertion picks it up, and records
+// fakeReadTrackerSender combines fakeSuccessSender with Daemon so
+// New's sender.(Daemon) type assertion picks it up, and records
 // resets so persistence can be asserted alongside in-memory state.
 type fakeReadTrackerSender struct {
 	fakeSuccessSender
@@ -198,7 +198,7 @@ func TestUnreadSkipsFocusedChatBelowTopOfList(t *testing.T) {
 
 // TestUnreadResetsOnOpenChat guards that opening a chat (openCurrentChat,
 // the funnel used by Enter/click/etc.) zeroes its unread count, in memory
-// and via ChatReadTracker.
+// and via Daemon.
 func TestUnreadResetsOnOpenChat(t *testing.T) {
 	sender := &fakeReadTrackerSender{}
 	m := newTestModelWithSender(sender, nil)
@@ -262,7 +262,7 @@ func TestChatDescriptionShowsUnreadCount(t *testing.T) {
 
 // TestUnreadWhileTerminalUnfocusedAndClearedOnReturn pins the UI's "read"
 // rule against the daemon's: the daemon counts a message whenever no client
-// reports itself focused on that chat (FocusReporter, gated on focused &&
+// reports itself focused on that chat (Daemon, gated on focused &&
 // !idle), so a chat left open in a terminal the user has switched away from
 // shows the count. Returning to the terminal marks it read.
 func TestUnreadWhileTerminalUnfocusedAndClearedOnReturn(t *testing.T) {

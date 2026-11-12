@@ -667,7 +667,7 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	if uiAcct.Status == ui.PresenceOffline {
 		// Configured offline: never dial at all - not even to fetch a live
 		// roster - so nothing about this account touches the network until
-		// AccountStatusSetter switches it back on.
+		// Daemon switches it back on.
 		uiAcct.Connecting = false
 		broadcast(srv, evAccountConnected, wireAccountConnectedMsg{Index: idx, Account: toWireAccount(uiAcct)})
 		return

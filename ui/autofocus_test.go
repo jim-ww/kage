@@ -65,7 +65,7 @@ func TestAutofocus(t *testing.T) {
 
 func TestAutofocusOwnSelectsWhatISend(t *testing.T) {
 	m := autofocusModel(AutofocusOwn)
-	m.sender = &fakeSuccessSender{}
+	m.daemon = &fakeSuccessSender{}
 	m.input.SetValue("hello")
 	m.sendCurrentInput()
 	if newest := len(m.currentMessages()) - 1; m.selectedMsg != newest {

@@ -10,7 +10,7 @@ import (
 )
 
 type fakeChatPinner struct {
-	MessageSender
+	stubDaemon
 	calls []string // "jid:addr:pinned|unpinned"
 	err   error
 }
@@ -28,7 +28,7 @@ func pinnedChatsModel(t *testing.T, pinner *fakeChatPinner, chats ...Chat) Model
 		items = append(items, c)
 		messages[i] = []Message{{Content: "from " + c.Address}}
 	}
-	var sender MessageSender
+	var sender Daemon
 	if pinner != nil {
 		sender = pinner
 	}

@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// fakeHistoryLoader stands in for a real HistoryLoader: records the anchor
+// fakeHistoryLoader stands in for a real Daemon: records the anchor
 // each LoadHistoryWindow call was made with and replies with a canned
 // response — used to test the ui-side glue (building the right anchor,
 // applying the response) without needing real storage.
@@ -28,7 +28,7 @@ func (f *fakeHistoryLoader) LoadHistoryWindow(accountIdx int, to string, anchor 
 }
 
 // TestLoadSearchResultFiresAnchoredWindowLoad guards loadSearchResult's
-// anchor-based reload: it must anchor the HistoryLoader request on the
+// anchor-based reload: it must anchor the Daemon request on the
 // picked match (not dump the search's entire decrypted history into the
 // chat's in-memory window directly), and the response's window/HasOlder
 // must land in Account state with the selection following the matched
@@ -48,7 +48,7 @@ func TestLoadSearchResultFiresAnchoredWindowLoad(t *testing.T) {
 		response:          HistoryWindowMsg{Messages: windowed, HasOlder: true, HasNewer: true},
 	}
 	m := newTestModelWithMessages(fullHistory[:1], &fakeHistorySearcher{})
-	m.historyLoader = loader
+	m.daemon = loader
 	m.maxMessagesPerChat = 100
 	cmd := m.loadSearchResult(0, "bob@example.test", fullHistory[500])
 	if cmd == nil {

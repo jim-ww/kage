@@ -362,9 +362,6 @@ func formatCallDuration(d time.Duration) string {
 // open it follows the call (see contextMenuBody.refresh): a call ringing in,
 // connecting or ending swaps what it offers.
 func (m *Model) openCallMenu() tea.Cmd {
-	if m.callController == nil {
-		return m.showNotification("calling unavailable")
-	}
 	title, items := m.callMenuItems()
 	if len(items) == 0 {
 		return m.showNotification("no chat selected")
@@ -379,14 +376,12 @@ func (m *Model) openCallMenu() tea.Cmd {
 // camera, s the screen, h hang up), and y/n answer/reject like every other
 // yes/no prompt in the app.
 func (m *Model) callMenuItems() (string, []contextMenuItem) {
-	ctrl := m.callController
+	ctrl := m.daemon
 	if ctrl == nil {
 		return "", nil
 	}
 	var devices []contextMenuItem
-	if m.audioDevices != nil {
-		devices = []contextMenuItem{{label: "Audio devices", key: callKeyDevices, run: (*Model).requestAudioDevices}}
-	}
+	devices = []contextMenuItem{{label: "Audio devices", key: callKeyDevices, run: (*Model).requestAudioDevices}}
 	c := m.call
 	if c == nil || !m.callInProgress() {
 		chat, ok := m.currentChat()
@@ -457,11 +452,8 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 // is built from - enumerating devices is a round trip to the daemon's audio
 // backend, so the menu opens once handleAudioDevicesMsg has the answer.
 func (m *Model) requestAudioDevices() tea.Cmd {
-	if m.audioDevices == nil {
-		return nil
-	}
 	m.audioDevicesPending = true
-	ctrl := m.audioDevices
+	ctrl := m.daemon
 	return ctrl.ListAudioDevices
 }
 
@@ -494,7 +486,7 @@ func (m *Model) handleAudioDevicesMsg(msg AudioDevicesMsg) tea.Cmd {
 // device that isn't connected right now is still listed (calls fall back to
 // the default while it's gone) so it's clear why the default is playing.
 func (m *Model) openAudioDevicePicker(title string, output bool, devices []AudioDevice, current string) {
-	ctrl := m.audioDevices
+	ctrl := m.daemon
 	pick := func(label, name string) contextMenuItem {
 		label = audioDeviceLabel(label)
 		if name == current {
@@ -530,7 +522,7 @@ func audioDeviceLabel(name string) string {
 // stop it if it's what we're already sending, or switch to it from the
 // other one (the daemon swaps the capture in place - see
 // callSession.switchVideoSource).
-func videoMenuItem(ctrl CallController, accountIdx int, current, source, start, stop, switchTo string, key rune) contextMenuItem {
+func videoMenuItem(ctrl Daemon, accountIdx int, current, source, start, stop, switchTo string, key rune) contextMenuItem {
 	useCamera := source == "camera"
 	label, sharing := start, true
 	switch current {
@@ -551,53 +543,53 @@ func videoMenuItem(ctrl CallController, accountIdx int, current, source, start, 
 // act on.
 
 func (m *Model) answerRingingCall() tea.Cmd {
-	if m.callController == nil || m.call == nil {
+	if m.call == nil {
 		return nil
 	}
-	ctrl, accountIdx := m.callController, m.call.accountIdx
+	ctrl, accountIdx := m.daemon, m.call.accountIdx
 	return func() tea.Msg { return ctrl.AnswerCall(accountIdx) }
 }
 
 func (m *Model) rejectRingingCall() tea.Cmd {
-	if m.callController == nil || m.call == nil {
+	if m.call == nil {
 		return nil
 	}
-	ctrl, accountIdx := m.callController, m.call.accountIdx
+	ctrl, accountIdx := m.daemon, m.call.accountIdx
 	return func() tea.Msg { return ctrl.RejectCall(accountIdx) }
 }
 
 func (m *Model) hangupCurrentCall() tea.Cmd {
-	if m.callController == nil || m.call == nil {
+	if m.call == nil {
 		return nil
 	}
-	ctrl, accountIdx := m.callController, m.call.accountIdx
+	ctrl, accountIdx := m.daemon, m.call.accountIdx
 	return func() tea.Msg { return ctrl.HangupCall(accountIdx) }
 }
 
 // stopSendingVideo stops sending our camera (or screen) on the current call.
 func (m *Model) stopSendingVideo(camera bool) tea.Cmd {
-	if m.callController == nil || m.call == nil {
+	if m.call == nil {
 		return nil
 	}
-	ctrl, accountIdx := m.callController, m.call.accountIdx
+	ctrl, accountIdx := m.daemon, m.call.accountIdx
 	return func() tea.Msg { return ctrl.ScreenShare(accountIdx, false, camera) }
 }
 
 // toggleDesktopAudio flips whether sharing the screen also sends desktop
 // audio.
 func (m *Model) toggleDesktopAudio() tea.Cmd {
-	if m.callController == nil || m.call == nil {
+	if m.call == nil {
 		return nil
 	}
-	ctrl, enable := m.callController, !m.call.desktopAudioEnabled
+	ctrl, enable := m.daemon, !m.call.desktopAudioEnabled
 	return func() tea.Msg { return ctrl.SetDesktopAudio(enable) }
 }
 
 // toggleMuteCall flips the mic mute on the current (connected) call.
 func (m *Model) toggleMuteCall() tea.Cmd {
-	if m.callController == nil || m.call == nil {
+	if m.call == nil {
 		return nil
 	}
-	ctrl, accountIdx, muted := m.callController, m.call.accountIdx, !m.call.muted
+	ctrl, accountIdx, muted := m.daemon, m.call.accountIdx, !m.call.muted
 	return func() tea.Msg { return ctrl.MuteCall(accountIdx, muted) }
 }

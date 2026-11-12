@@ -198,7 +198,7 @@ var DefaultKeyMap = KeyMap{
 // single-letter binding it prefers the layout-independent PC-101 base key
 // (populated only under the Kitty keyboard protocol, e.g. kitty, wezterm,
 // ghostty, foot) over the literal typed character, so bindings like "c" for
-// ContactManager still fire when the active keyboard layout produces a
+// Daemon still fire when the active keyboard layout produces a
 // different character for that physical key (e.g. Cyrillic). Falls back to
 // key.Matches (which compares msg.String(), the typed character) when no
 // base code is available — the same behavior as before this existed.

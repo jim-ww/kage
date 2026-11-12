@@ -145,7 +145,7 @@ func SetDefaultAccount(path, jid string) error {
 
 // SetSidebarWidth sets (or updates) the sidebar width in the state file next
 // to path, preserving everything else — called after the user finishes
-// dragging the sidebar border (see ui.SidebarWidthSetter).
+// dragging the sidebar border (see ui.Daemon.SetSidebarWidth).
 func SetSidebarWidth(path string, width int) error {
 	return updateStateFile(path, func(st *State) error {
 		st.SidebarWidth = width
@@ -188,7 +188,7 @@ func SetScreenShareAudioVolume(path string, percent int) error {
 
 // SetInputHeight sets (or updates) the input height in the state file next
 // to path, preserving everything else — called after the user finishes
-// dragging the compose box's top border (see ui.InputHeightSetter).
+// dragging the compose box's top border (see ui.Daemon.SetInputHeight).
 func SetInputHeight(path string, height int) error {
 	return updateStateFile(path, func(st *State) error {
 		st.InputHeight = height
@@ -198,7 +198,7 @@ func SetInputHeight(path string, height int) error {
 
 // SetSidebarHidden sets (or updates) the sidebar-hidden flag in the state
 // file next to path, preserving everything else — called whenever the user
-// toggles the chat list (see ui.SidebarHiddenSetter).
+// toggles the chat list (see ui.Daemon.SetSidebarHidden).
 func SetSidebarHidden(path string, hidden bool) error {
 	return updateStateFile(path, func(st *State) error {
 		st.SidebarHidden = hidden
@@ -209,7 +209,7 @@ func SetSidebarHidden(path string, hidden bool) error {
 // SetFilePickerSort sets (or updates) the file-picker sort field/direction
 // in the state file next to path, preserving everything else — called
 // whenever the user cycles the attach-file picker's sort order (see
-// ui.FilePickerSortSetter).
+// ui.Daemon.SetFilePickerSort).
 func SetFilePickerSort(path string, field string, ascending bool) error {
 	return updateStateFile(path, func(st *State) error {
 		st.FilePickerSortField = field
@@ -221,7 +221,7 @@ func SetFilePickerSort(path string, field string, ascending bool) error {
 // SetLastChat sets (or updates) the last-opened-chat account/address in the
 // state file next to path, preserving everything else — called whenever the
 // user opens a chat, so it can be reopened on startup when open_last_chat is
-// set (see ui.LastChatSetter).
+// set (see ui.Daemon.SetLastChat).
 func SetLastChat(path, accountJID, chatAddress string) error {
 	return updateStateFile(path, func(st *State) error {
 		st.LastChatAccount = accountJID
@@ -232,7 +232,7 @@ func SetLastChat(path, accountJID, chatAddress string) error {
 
 // RecordReactionEmojiUsage bumps the sent-count for each emoji in emojis by
 // one in the state file next to path, preserving everything else — called
-// every time the user sends a reaction (see ui.ReactionEmojiUsageRecorder),
+// every time the user sends a reaction (see ui.Daemon.RecordReactionEmojiUsage),
 // so the quick-pick default suggestions converge on what this user actually
 // reaches for.
 func RecordReactionEmojiUsage(path string, emojis []string) error {
@@ -296,7 +296,7 @@ func writeFileConfig(path string, cfg Config) error {
 // SetChatHidden adds or removes one chat from the hidden list for an
 // account in the state file next to path, preserving everything else —
 // called when the user hides a chat or unhides it from the contact manager
-// (see ui.ChatHiddenSetter). Hiding is local only: nothing is removed from
+// (see ui.Daemon.SetChatHidden). Hiding is local only: nothing is removed from
 // the roster or from storage.
 func SetChatHidden(path, accountJID, chatAddress string, hidden bool) error {
 	return setChatListFlag(path, accountJID, chatAddress, hidden, "hiding",
@@ -305,7 +305,7 @@ func SetChatHidden(path, accountJID, chatAddress string, hidden bool) error {
 }
 
 // SetChatPinned adds or removes one chat from the pinned list for an
-// account in the state file next to path (see ui.ChatPinnedSetter).
+// account in the state file next to path (see ui.Daemon.SetChatPinned).
 // Pinning is local and only affects the chat list's order.
 func SetChatPinned(path, accountJID, chatAddress string, pinned bool) error {
 	return setChatListFlag(path, accountJID, chatAddress, pinned, "pinning",
@@ -314,7 +314,7 @@ func SetChatPinned(path, accountJID, chatAddress string, pinned bool) error {
 }
 
 // SetChatMuted adds or removes one chat from the muted list for an account
-// in the state file next to path (see ui.ChatMutedSetter). Muting only
+// in the state file next to path (see ui.Daemon.SetChatMuted). Muting only
 // silences desktop notifications for the chat.
 func SetChatMuted(path, accountJID, chatAddress string, muted bool) error {
 	return setChatListFlag(path, accountJID, chatAddress, muted, "muting",

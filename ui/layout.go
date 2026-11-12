@@ -146,8 +146,8 @@ func (m Model) sidebarWidth() int {
 // list) — an ephemeral, unpersisted choice driven by the current terminal
 // size, mirroring how opening a chat already replaces the list. At normal
 // width it flips sidebarHidden and persists the choice (if a
-// SidebarHiddenSetter is wired up) so it survives across launches like the
-// dragged sidebar width does — see SidebarHiddenSetter.
+// Daemon is wired up) so it survives across launches like the
+// dragged sidebar width does — see Daemon.
 func (m Model) toggleSidebar() (Model, tea.Cmd) {
 	if m.narrow() {
 		if m.selectedView == viewChat {
@@ -164,10 +164,7 @@ func (m Model) toggleSidebar() (Model, tea.Cmd) {
 	// while some other setSelectedView call ran updateSizes in between),
 	// leaving the list rendering empty even though its selection still moves.
 	m.updateSizes()
-	if m.sidebarHiddenSetter == nil {
-		return m, nil
-	}
-	if err := m.sidebarHiddenSetter.SetSidebarHidden(m.sidebarHidden); err != nil {
+	if err := m.daemon.SetSidebarHidden(m.sidebarHidden); err != nil {
 		return m, m.showNotification("saving chat list visibility: " + err.Error())
 	}
 	return m, nil

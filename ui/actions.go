@@ -74,9 +74,9 @@ func (m *Model) jumpToLatestMessage() tea.Cmd {
 	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
 		return nil
 	}
-	if m.accounts[m.currentAccount].HistoryNewer[chatIdx] && m.historyLoader != nil && !m.loadingHistoryWindow[chatIdx] {
+	if m.accounts[m.currentAccount].HistoryNewer[chatIdx] && !m.loadingHistoryWindow[chatIdx] {
 		if chat, ok := m.currentChat(); ok {
-			if cmd := m.historyLoader.LoadHistoryWindow(m.currentAccount, chat.Address, nil); cmd != nil {
+			if cmd := m.daemon.LoadHistoryWindow(m.currentAccount, chat.Address, nil); cmd != nil {
 				m.markHistoryWindowLoading(chatIdx, "")
 				return cmd
 			}
@@ -96,10 +96,10 @@ func (m *Model) jumpToLatestMessage() tea.Cmd {
 }
 
 func (m *Model) actionMakeDefaultAccount(index int) tea.Cmd {
-	if index < 0 || index >= len(m.accounts) || m.defaultAccountSetter == nil {
+	if index < 0 || index >= len(m.accounts) {
 		return nil
 	}
-	if err := m.defaultAccountSetter.SetDefaultAccount(m.accounts[index].Name); err != nil {
+	if err := m.daemon.SetDefaultAccount(m.accounts[index].Name); err != nil {
 		return m.showNotification(fmt.Sprintf("setting default account: %v", err))
 	}
 	return m.showNotification("Default account set")
@@ -129,7 +129,7 @@ var encryptionModes = []string{"omemo-v1", "omemo-v2", "gpg", "none"}
 func (m *Model) actionOpenEncryptionMenu() tea.Cmd {
 	idx := m.currentChatIndex()
 	items := m.chats.Items()
-	if idx < 0 || idx >= len(items) || m.chatEncryptionSetter == nil {
+	if idx < 0 || idx >= len(items) {
 		return m.showNotification("no chat selected")
 	}
 	chat, ok := items[idx].(Chat)
@@ -161,7 +161,7 @@ func (m *Model) actionOpenEncryptionMenu() tea.Cmd {
 func (m *Model) actionSetChatEncryption(mode string) tea.Cmd {
 	idx := m.currentChatIndex()
 	items := m.chats.Items()
-	if idx < 0 || idx >= len(items) || m.chatEncryptionSetter == nil {
+	if idx < 0 || idx >= len(items) {
 		return m.showNotification("no chat selected")
 	}
 	chat, ok := items[idx].(Chat)
@@ -169,7 +169,7 @@ func (m *Model) actionSetChatEncryption(mode string) tea.Cmd {
 		return nil
 	}
 
-	if err := m.chatEncryptionSetter.SetChatEncryption(m.currentAccount, chat.Address, mode); err != nil {
+	if err := m.daemon.SetChatEncryption(m.currentAccount, chat.Address, mode); err != nil {
 		return m.showNotification("setting encryption: " + err.Error())
 	}
 	chat.EncryptionMode = mode

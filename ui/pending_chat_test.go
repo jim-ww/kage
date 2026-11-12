@@ -9,8 +9,8 @@ import (
 // newSnapshotTestModel builds a model the way runTUI does: no accounts yet
 // (the snapshot is a round trip to the daemon, so the first frame can't wait
 // on it) and, optionally, a last-opened chat address to restore.
-func newSnapshotTestModel(sender MessageSender, openLast string) Model {
-	m := New(nil, 0, DefaultKeyMap, DefaultTheme(), sender, nil, true, 0, false, openLast, 0, nil, DisplayOptions{}, nil)
+func newSnapshotTestModel(sender Daemon, openLast string) Model {
+	m := New(nil, 0, DefaultKeyMap, DefaultTheme(), sender, true, 0, false, openLast, 0, nil, DisplayOptions{}, nil)
 	m.width, m.height = 80, 24
 	m.updateSizes()
 	return m
@@ -92,7 +92,7 @@ func TestSnapshotClearsUnreadOnTheChatItLandsIn(t *testing.T) {
 func TestInitSkipsEmptyFocusReportWhileAChatIsPending(t *testing.T) {
 	m := newSnapshotTestModel(&fakeSuccessSender{}, "bob@example.test")
 	reporter := &recordingFocusReporter{}
-	m.focusReporter = reporter
+	m.daemon = reporter
 
 	drainCmds(m.Init())
 	if len(reporter.calls) != 0 {

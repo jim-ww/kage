@@ -11,7 +11,7 @@ import (
 
 var errTestSend = errors.New("simulated send failure")
 
-type fakeSuccessSender struct{}
+type fakeSuccessSender struct{ stubDaemon }
 
 func (f *fakeSuccessSender) Send(int, string, string, SendOptions) (string, error) {
 	return "msg-id", nil
@@ -23,7 +23,10 @@ func (f *fakeSuccessSender) PurgeMessage(int, string, string) error  { return ni
 
 // fakeErrSender always fails/queues Send with a fixed err, for exercising
 // sendCurrentInput's non-success paths.
-type fakeErrSender struct{ err error }
+type fakeErrSender struct {
+	stubDaemon
+	err error
+}
 
 func (f *fakeErrSender) Send(int, string, string, SendOptions) (string, error) { return "", f.err }
 func (f *fakeErrSender) SetTyping(int, string, bool) error                     { return nil }
@@ -35,6 +38,7 @@ func (f *fakeErrSender) PurgeMessage(int, string, string) error                {
 // Ctrl+Shift+D on a Pending message goes through the sender rather than
 // just quietly disappearing from the local view.
 type fakeDeleteQueuedSender struct {
+	stubDaemon
 	lastAccountIdx int
 	lastLocalID    string
 	calls          int
@@ -56,7 +60,7 @@ func (f *fakeDeleteQueuedSender) DeleteQueued(accountIdx int, localID string) er
 // TestDeleteUnsentMessageRemovesItOutright checks that confirming a delete
 // (Ctrl+Shift+D, then y) on a still-Pending or a Failed message - both never
 // actually sent, both backed by an outbox row - calls
-// MessageSender.DeleteQueued and removes the message from local history
+// Daemon.DeleteQueued and removes the message from local history
 // entirely, unlike a normal delete, which only flags Retracted and keeps
 // the row: a message that was never actually sent has no server-side copy
 // worth preserving a record of.
@@ -108,38 +112,8 @@ func TestDeleteUnsentMessageRemovesItOutright(t *testing.T) {
 	}
 }
 
-// TestSendCurrentInputNeverEchoesWithoutASend guards against the bug where a
-// message the app never actually handed to MessageSender.Send (chat/sender
-// unavailable) still showed up in the local chat history as if it had been
-// sent — indistinguishable on screen from a message that really went out,
-// and permanently missing on the recipient's side since nothing was ever
-// transmitted. No local message must be created in that case, and the
-// problem must be surfaced instead of silently swallowed.
-func TestSendCurrentInputNeverEchoesWithoutASend(t *testing.T) {
-	m := newTestModelWithSender(nil, nil) // sender == nil
-	chat := Chat{Address: "bob@example.test"}
-	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
-	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
-		_ = cmd()
-	}
-	m.chats.Select(0)
-	m.input.SetValue("hello")
-
-	cmd := m.sendCurrentInput()
-
-	if msgs := m.currentMessages(); len(msgs) != 0 {
-		t.Fatalf("currentMessages() has %d entries, want 0 (nothing was ever sent)", len(msgs))
-	}
-	if cmd == nil {
-		t.Fatal("sendCurrentInput() returned a nil cmd, want a notification surfacing the failure")
-	}
-	if got := m.input.Value(); got != "hello" {
-		t.Fatalf("input.Value() = %q, want the typed text preserved for a retry", got)
-	}
-}
-
 // TestSendCurrentInputMarksQueuedPending guards against a queued (offline)
-// send being locally echoed as if fully delivered - MessageSender.Send
+// send being locally echoed as if fully delivered - Daemon.Send
 // returning ErrQueued must leave the message visibly Pending (not encrypted,
 // not carrying a real ID) until MessageSendResolvedMsg reconciles it, never
 // indistinguishable from an actually-sent message.
@@ -340,10 +314,11 @@ func TestSendCurrentInputMarksLocalEchoEncrypted(t *testing.T) {
 	}
 }
 
-// fakeHistorySearcher is a stub HistorySearcher for testing search-in-chat
+// fakeHistorySearcher is a stub Daemon for testing search-in-chat
 // without any real storage/decrypt dependency: SearchHistory just returns
 // whatever messages/matches were configured for the query it's asked about.
 type fakeHistorySearcher struct {
+	stubDaemon
 	messages []Message
 	matches  []int
 }
@@ -354,12 +329,23 @@ func (f *fakeHistorySearcher) SearchHistory(accountIdx int, to, query string) te
 	}
 }
 
+// searchAndLoad is a fake daemon that searches with one fake and loads
+// history windows with another.
+type searchAndLoad struct {
+	*fakeHistoryLoader
+	searcher *fakeHistorySearcher
+}
+
+func (s searchAndLoad) SearchHistory(accountIdx int, to, query string) tea.Cmd {
+	return s.searcher.SearchHistory(accountIdx, to, query)
+}
+
 // newTestModelWithMessages builds a model with a single open chat containing
 // msgs (as the chat's currently-loaded window) and searcher wired up as its
-// HistorySearcher, for tests exercising search-in-chat.
-func newTestModelWithMessages(msgs []Message, searcher HistorySearcher) Model {
+// Daemon, for tests exercising search-in-chat.
+func newTestModelWithMessages(msgs []Message, searcher Daemon) Model {
 	m := newTestModelWithSender(nil, nil)
-	m.historySearcher = searcher
+	m.daemon = searcher
 	chat := Chat{Address: "bob@example.test"}
 	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{0: msgs}}}
 	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
@@ -373,7 +359,7 @@ func newTestModelWithMessages(msgs []Message, searcher HistorySearcher) Model {
 
 // TestSearchChatOpensPromptRunsSearchAndJumpsToResult guards the full
 // search-in-chat flow: Ctrl+/ opens the query prompt, enter submits it and
-// runs HistorySearcher.SearchHistory (whose result — the chat's entire
+// runs Daemon.SearchHistory (whose result — the chat's entire
 // history, since a real implementation scans everything, plus which indices
 // matched — arrives as HistorySearchResultMsg), the results popup opens
 // showing those matches, and picking one loads it as the chat's in-memory
@@ -390,7 +376,7 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 		fakeSuccessSender: &fakeSuccessSender{},
 		response:          HistoryWindowMsg{Messages: fullHistory},
 	}
-	m.historyLoader = loader
+	m.daemon = searchAndLoad{loader, searcher}
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl})
 	m = next.(Model)
@@ -448,6 +434,7 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 // delete on an already-retracted message really goes through the daemon
 // instead of only vanishing from the local view.
 type fakePurgeSender struct {
+	stubDaemon
 	lastAccountIdx int
 	lastTo, lastID string
 	calls          int

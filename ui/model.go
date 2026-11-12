@@ -32,7 +32,7 @@ type Model struct {
 	// accounts[i].Messages[chatIdx] — older messages are trimmed off as new
 	// ones are appended at the live tail (see appendAndTrim in
 	// update_messages.go), and it's the window size every
-	// HistoryLoader.LoadHistoryWindow request asks for. <= 0 means no cap.
+	// Daemon.LoadHistoryWindow request asks for. <= 0 means no cap.
 	maxMessagesPerChat int
 
 	// mouseEnabled gates all mouse handling: when false, MouseMode is left
@@ -110,6 +110,9 @@ type Model struct {
 	// it never touches the persisted config value.
 	composeExpanded           bool
 	composeHeightBeforeExpand int
+
+	// daemon is the kage daemon everything the UI does goes through.
+	daemon Daemon
 
 	accounts       []Account
 	currentAccount int
@@ -217,33 +220,6 @@ type Model struct {
 	lastClickedMsgIdx int       // index of the last clicked message (for double-click detection)
 	lastClickTime     time.Time // time of the last message click (for double-click detection)
 
-	// double-click detection for the file picker
-
-	sender                     MessageSender
-	fileSender                 FileSender
-	accountAdder               AccountAdder
-	deviceManager              OmemoDeviceManager
-	contactManager             ContactManager
-	renamer                    ContactRenamer
-	defaultAccountSetter       DefaultAccountSetter
-	sidebarWidthSetter         SidebarWidthSetter
-	reactionEmojiUsageRecorder ReactionEmojiUsageRecorder
-	sidebarHiddenSetter        SidebarHiddenSetter
-	inputHeightSetter          InputHeightSetter
-	filePickerSortSetter       FilePickerSortSetter
-	chatEncryptionSetter       ChatEncryptionSetter
-	lastChatSetter             LastChatSetter
-	historyLoader              HistoryLoader
-	historySearcher            HistorySearcher
-	accountStatusSetter        AccountStatusSetter
-	accountRemover             AccountRemover
-	chatReadTracker            ChatReadTracker
-	draftSaver                 DraftSaver
-	storagePasswordChanger     StoragePasswordChanger
-	avatarPublisher            AvatarPublisher
-	chatHiddenSetter           ChatHiddenSetter
-	chatPinnedSetter           ChatPinnedSetter
-	chatMutedSetter            ChatMutedSetter
 	// hiddenChats holds the chats kept out of each account's list, keyed
 	// by account index then lowercased bare JID — see ui/hidden_chats.go.
 	hiddenChats map[int]map[string]hiddenChat
@@ -253,20 +229,14 @@ type Model struct {
 	// hoverSelectDisabled: see DisplayOptions.HoverSelectDisabled.
 	hoverSelectDisabled bool
 	// autofocus: see DisplayOptions.Autofocus.
-	autofocus     Autofocus
-	focusReporter FocusReporter
+	autofocus Autofocus
 	// landedOnce marks the one-time startup landing as done - see
 	// Model.landedInChat. Whichever message first brings the current
 	// account's chats in gets to put the view on the newest message; every
 	// later arrival (AccountLiveMsg fires on each reconnect) must leave the
 	// viewport where the user left it.
-	landedOnce     bool
-	callController CallController
-	// audioDevices lists/picks call microphone and speaker; nil hides the
-	// call menu's "Audio devices". audioDevicesPending is set while a
-	// listing it asked for is in flight, so a late answer only opens the
-	// picker if it was actually asked for.
-	audioDevices        AudioDeviceController
+	landedOnce bool
+	// audioDevicesPending is set while the audio devices are being listed.
 	audioDevicesPending bool
 
 	// focused tracks whether the terminal currently has OS focus, reported
@@ -277,7 +247,7 @@ type Model struct {
 
 	// idle tracks whether notifyIdleTimeout has elapsed since the last
 	// keyboard/mouse activity — reported to the daemon alongside focused
-	// (see FocusReporter) so a chat left open and untouched for a long
+	// (see Daemon) so a chat left open and untouched for a long
 	// stretch doesn't permanently blackhole notifications for whichever
 	// chat happened to be on screen when the user actually stepped away.
 	// idleGen is bumped on every activity so a stale idleMsg from before
@@ -286,7 +256,7 @@ type Model struct {
 	idleGen int
 
 	// loadingHistoryWindow marks chat indices with a
-	// HistoryLoader.LoadHistoryWindow fetch currently in flight, so
+	// Daemon.LoadHistoryWindow fetch currently in flight, so
 	// scrolling/MsgUp near the edge of a long history doesn't fire duplicate
 	// requests while the first is still pending.
 	loadingHistoryWindow map[int]bool
@@ -351,7 +321,7 @@ type DisplayOptions struct {
 	FilePickerDirsFirst   bool          // group directories before files in the attach-file picker regardless of sort order
 	// FilePickerSortField/FilePickerSortAscending seed the attach-file
 	// picker's initial sort, persisted from the last selection (see
-	// FilePickerSortSetter). "" (or any value other than "created")
+	// Daemon). "" (or any value other than "created")
 	// resolves to updated/mtime; see filepicker.ParseSortField.
 	FilePickerSortField     string
 	FilePickerSortAscending bool
@@ -374,7 +344,7 @@ type DisplayOptions struct {
 // persistent call bar immediately - used when the TUI (re)attaches to a
 // daemon that already has a call in progress, so the bar shows up without
 // waiting for the next live CallStateMsg transition.
-func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender MessageSender, accountAdder AccountAdder, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, initialReactionEmojiUsage map[string]int, display DisplayOptions, initialCallState *CallStateMsg) Model {
+func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon Daemon, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, initialReactionEmojiUsage map[string]int, display DisplayOptions, initialCallState *CallStateMsg) Model {
 	setAvatarsEnabled(!display.AvatarsDisabled)
 	styles := newUIStyles(theme)
 	zm := zone.New()
@@ -433,32 +403,6 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	picker.SortAscending = display.FilePickerSortAscending
 	applyFilePickerStyles(&picker, styles.colors)
 	vp := viewport.New()
-	fileSender, _ := sender.(FileSender)
-	renamer, _ := sender.(ContactRenamer)
-	defaultAccountSetter, _ := sender.(DefaultAccountSetter)
-	chatEncryptionSetter, _ := sender.(ChatEncryptionSetter)
-	sidebarWidthSetter, _ := sender.(SidebarWidthSetter)
-	reactionEmojiUsageRecorder, _ := sender.(ReactionEmojiUsageRecorder)
-	sidebarHiddenSetter, _ := sender.(SidebarHiddenSetter)
-	inputHeightSetter, _ := sender.(InputHeightSetter)
-	filePickerSortSetter, _ := sender.(FilePickerSortSetter)
-	lastChatSetter, _ := sender.(LastChatSetter)
-	chatReadTracker, _ := sender.(ChatReadTracker)
-	draftSaver, _ := sender.(DraftSaver)
-	storagePasswordChanger, _ := sender.(StoragePasswordChanger)
-	avatarPublisher, _ := sender.(AvatarPublisher)
-	chatHiddenSetter, _ := sender.(ChatHiddenSetter)
-	chatPinnedSetter, _ := sender.(ChatPinnedSetter)
-	chatMutedSetter, _ := sender.(ChatMutedSetter)
-	historyLoader, _ := sender.(HistoryLoader)
-	historySearcher, _ := sender.(HistorySearcher)
-	deviceManager, _ := sender.(OmemoDeviceManager)
-	contactManager, _ := sender.(ContactManager)
-	accountStatusSetter, _ := sender.(AccountStatusSetter)
-	accountRemover, _ := sender.(AccountRemover)
-	focusReporter, _ := sender.(FocusReporter)
-	callController, _ := sender.(CallController)
-	audioDevices, _ := sender.(AudioDeviceController)
 
 	noticeDuration := display.NoticeDuration
 	if noticeDuration <= 0 {
@@ -466,75 +410,48 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 	}
 
 	m := Model{
-		selectedView:               viewChat,
-		keys:                       &keys,
-		theme:                      theme,
-		styles:                     styles,
-		zone:                       zm,
-		modals:                     newModalStack(zm, styles.colors),
-		mouseEnabled:               mouseEnabled,
-		maxMessagesPerChat:         display.MaxMessagesPerChat,
-		icons:                      display.Icons,
-		showEncryptedIcon:          display.ShowEncryptedIcon,
-		useGPG:                     display.UseGPG,
-		defaultEncryptionMode:      display.DefaultEncryptionMode,
-		noticeDuration:             noticeDuration,
-		timeLayout:                 display.TimeLayout,
-		hover:                      hv,
-		accounts:                   accounts,
-		autoUnhideDisabled:         display.AutoUnhideDisabled,
-		hoverSelectDisabled:        display.HoverSelectDisabled,
-		autofocus:                  display.Autofocus,
-		currentAccount:             startAccount,
-		chats:                      &l,
-		sidebarRenderCache:         &sidebarCacheEntry{},
-		viewportFrameCache:         &viewportFrameCacheEntry{},
-		msgRowCache:                newMsgRowCacheState(),
-		chatListViewCache:          &chatListCacheEntry{},
-		input:                      &ti,
-		draftHistory:               []string{""},
-		viewport:                   &vp,
-		selectedAttachment:         -1,
-		flashMsgIdx:                -1,
-		expandedMsgs:               make(map[string]bool),
-		lastClickedMsgIdx:          -1,
-		sender:                     sender,
-		fileSender:                 fileSender,
-		accountAdder:               accountAdder,
-		deviceManager:              deviceManager,
-		contactManager:             contactManager,
-		renamer:                    renamer,
-		defaultAccountSetter:       defaultAccountSetter,
-		chatEncryptionSetter:       chatEncryptionSetter,
-		sidebarWidthSetter:         sidebarWidthSetter,
-		reactionEmojiUsageRecorder: reactionEmojiUsageRecorder,
-		sidebarHiddenSetter:        sidebarHiddenSetter,
-		inputHeightSetter:          inputHeightSetter,
-		filePickerSortSetter:       filePickerSortSetter,
-		lastChatSetter:             lastChatSetter,
-		historyLoader:              historyLoader,
-		historySearcher:            historySearcher,
-		accountStatusSetter:        accountStatusSetter,
-		accountRemover:             accountRemover,
-		chatReadTracker:            chatReadTracker,
-		draftSaver:                 draftSaver,
-		storagePasswordChanger:     storagePasswordChanger,
-		avatarPublisher:            avatarPublisher,
-		chatHiddenSetter:           chatHiddenSetter,
-		chatPinnedSetter:           chatPinnedSetter,
-		chatMutedSetter:            chatMutedSetter,
-		focusReporter:              focusReporter,
-		callController:             callController,
-		audioDevices:               audioDevices,
-		focused:                    true,
-		openChatAccountIdx:         -1,
-		loadingHistoryWindow:       make(map[int]bool),
-		pendingOpenChatAddress:     openLastChatAddress,
-		sidebarWidthOverride:       initialSidebarWidth,
-		reactionEmojiUsage:         copyEmojiUsage(initialReactionEmojiUsage),
-		sidebarHidden:              initialSidebarHidden,
-		inputHeightOverride:        initialInputHeight,
-		filePicker:                 &picker,
+		selectedView:           viewChat,
+		keys:                   &keys,
+		theme:                  theme,
+		styles:                 styles,
+		zone:                   zm,
+		modals:                 newModalStack(zm, styles.colors),
+		daemon:                 daemon,
+		mouseEnabled:           mouseEnabled,
+		maxMessagesPerChat:     display.MaxMessagesPerChat,
+		icons:                  display.Icons,
+		showEncryptedIcon:      display.ShowEncryptedIcon,
+		useGPG:                 display.UseGPG,
+		defaultEncryptionMode:  display.DefaultEncryptionMode,
+		noticeDuration:         noticeDuration,
+		timeLayout:             display.TimeLayout,
+		hover:                  hv,
+		accounts:               accounts,
+		autoUnhideDisabled:     display.AutoUnhideDisabled,
+		hoverSelectDisabled:    display.HoverSelectDisabled,
+		autofocus:              display.Autofocus,
+		currentAccount:         startAccount,
+		chats:                  &l,
+		sidebarRenderCache:     &sidebarCacheEntry{},
+		viewportFrameCache:     &viewportFrameCacheEntry{},
+		msgRowCache:            newMsgRowCacheState(),
+		chatListViewCache:      &chatListCacheEntry{},
+		input:                  &ti,
+		draftHistory:           []string{""},
+		viewport:               &vp,
+		selectedAttachment:     -1,
+		flashMsgIdx:            -1,
+		expandedMsgs:           make(map[string]bool),
+		lastClickedMsgIdx:      -1,
+		focused:                true,
+		openChatAccountIdx:     -1,
+		loadingHistoryWindow:   make(map[int]bool),
+		pendingOpenChatAddress: openLastChatAddress,
+		sidebarWidthOverride:   initialSidebarWidth,
+		reactionEmojiUsage:     copyEmojiUsage(initialReactionEmojiUsage),
+		sidebarHidden:          initialSidebarHidden,
+		inputHeightOverride:    initialInputHeight,
+		filePicker:             &picker,
 	}
 	m.installAccounts(accounts, startAccount)
 	if initialCallState != nil {
@@ -596,10 +513,10 @@ func (m Model) Init() tea.Cmd {
 	// already reported from config - re-opening the notification window this
 	// report exists to close. The snapshot that loads the accounts reports
 	// the real state a moment later either way.
-	if m.focusReporter != nil && (len(m.accounts) > 0 || m.pendingOpenChatAddress == "") {
+	if len(m.accounts) > 0 || m.pendingOpenChatAddress == "" {
 		accountJID, chatAddress := m.activeChatKey()
 		focused := m.focused && !m.idle
-		reporter := m.focusReporter
+		reporter := m.daemon
 		cmds = append(cmds, func() tea.Msg {
 			_ = reporter.SetFocusState(accountJID, chatAddress, focused)
 			return nil

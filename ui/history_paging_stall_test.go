@@ -22,7 +22,7 @@ func TestNilFetchDoesNotStallPagingForever(t *testing.T) {
 	// A loader that hands back no command at all, so no HistoryWindowMsg can
 	// ever come back to clear the marker.
 	loader := &nilCmdLoader{}
-	m.historyLoader = loader
+	m.daemon = loader
 
 	m.maybeLoadOlderHistory()
 	if loader.calls != 1 {
@@ -41,7 +41,10 @@ func TestNilFetchDoesNotStallPagingForever(t *testing.T) {
 // nilCmdLoader models the daemon-side loader refusing a fetch outright -
 // adapter.LoadHistoryWindow returns a nil tea.Cmd for an account that
 // hasn't finished connecting yet.
-type nilCmdLoader struct{ calls int }
+type nilCmdLoader struct {
+	stubDaemon
+	calls int
+}
 
 func (l *nilCmdLoader) LoadHistoryWindow(int, string, *HistoryAnchor) tea.Cmd {
 	l.calls++
@@ -127,7 +130,7 @@ func TestFailedFetchRetriesAfterRecovery(t *testing.T) {
 		fakeSuccessSender: &fakeSuccessSender{},
 		reply:             HistoryWindowMsg{AccountIdx: 0, From: "bob@example.com", Err: errors.New("ipc: connection reset")},
 	}
-	m.historyLoader = loader
+	m.daemon = loader
 
 	m.maybeLoadOlderHistory()
 	if loader.calls != 1 {
@@ -138,7 +141,7 @@ func TestFailedFetchRetriesAfterRecovery(t *testing.T) {
 	}
 
 	next := updated(t, *m, loader.reply)
-	next.historyLoader = loader
+	next.daemon = loader
 	next.maybeLoadOlderHistory()
 	if loader.calls != 2 {
 		t.Errorf("loader called %d times after the failure, want 2 - the retry never fired", loader.calls)

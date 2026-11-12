@@ -17,72 +17,6 @@ import (
 // reports what eventually happens to a queued send.
 var ErrQueued = errors.New("account offline; message queued for delivery")
 
-// MessageSender delivers an outgoing message for the given account to "to"
-// (a bare/full JID), returning the ID it was sent with. Implemented outside
-// ui — by an adapter that knows about the xmpp session and any per-peer
-// encryption — so ui stays decoupled from both. A non-nil err is either
-// ErrQueued (see its doc comment) or a real failure - the caller must not
-// treat the two the same way.
-type MessageSender interface {
-	Send(accountIdx int, to, body string, opts SendOptions) (id string, err error)
-
-	// MarkRetracted flags a message as locally deleted without sending
-	// anything over the network — used when deleting someone else's message
-	// (XEP-0424 retraction can only be attempted on our own messages). The
-	// message's content is never removed from storage, only flagged.
-	MarkRetracted(accountIdx int, to, id string) error
-
-	// SetTyping sends a XEP-0085 chat state notification: composing=true
-	// while the user is actively typing to "to", false once they stop
-	// (cleared the input or sent) or navigate away.
-	SetTyping(accountIdx int, to string, composing bool) error
-
-	// DeleteQueued permanently discards a still-Pending message (localID,
-	// see Message.LocalID) without ever sending it - the user explicitly
-	// deleting a queued send, as opposed to MarkRetracted/a XEP-0424
-	// retraction which only flags an already-sent message. Not an error if
-	// localID no longer matches anything queued (e.g. it was actually sent,
-	// or already deleted, in the meantime) - the caller only needs to know
-	// the message is gone from the outbox one way or another.
-	DeleteQueued(accountIdx int, localID string) error
-
-	// PurgeMessage erases an already-retracted message (and its reactions)
-	// from local storage outright - the second step of the two-step delete,
-	// reached only when the user deletes a message that MarkRetracted/a
-	// XEP-0424 retraction already flagged. Local-only: there is no stanza
-	// for erasing a message from the peer's or server's copy. Not an error
-	// if nothing matches id any more.
-	PurgeMessage(accountIdx int, to, id string) error
-}
-
-// FileSender uploads a local file and sends its download URL to a chat. It is
-// separate from MessageSender so text-only senders remain compatible. opts
-// carries the same reply/correction metadata as MessageSender.Send — only
-// ReplyToID/QuotedAuthor/QuotedBody are meaningful here.
-type FileSender interface {
-	SendFile(accountIdx int, to, path string, opts SendOptions) tea.Msg
-
-	// UploadFile uploads a local file (applying the same peer encryption
-	// policy as SendFile) without sending it as a message — used to stage a
-	// pending attachment above the compose box, so several files can be
-	// attached to a single outgoing message. to is the peer JID the
-	// eventual message will go to, needed to resolve the encryption policy.
-	// text/opts carry what the follow-up message for this file would say if
-	// the account were online (only meaningful for the offline case below):
-	// if the account has no live connection, the upload+send is queued
-	// whole (text, opts and all) instead of failing outright, and the
-	// result comes back with Queued set rather than an error - the caller
-	// must not also call MessageSender.Send for this file, since there's no
-	// URL yet to send.
-	UploadFile(accountIdx int, to, path, text string, opts SendOptions) tea.Msg
-
-	// CancelUpload aborts the in-flight SendFile/UploadFile upload for path,
-	// if any - a no-op if it already finished. path is the same local file
-	// path used as the FileTransferProgressMsg/FileTransferDoneMsg ID for an
-	// upload, so it doubles as the cancellation key.
-	CancelUpload(path string)
-}
-
 // uploadCanceledMsg is the exact text adapter.errUploadCanceled formats to
 // (see kage's adapter.go) - errors cross the daemon/TUI IPC boundary as
 // plain strings, so this is how FileSendResultMsg/FileUploadResultMsg.Err
@@ -91,7 +25,7 @@ type FileSender interface {
 // errors.Is since the RPC layer doesn't preserve error identity.
 const uploadCanceledMsg = "upload canceled"
 
-// HistoryAnchor pins a HistoryLoader.LoadHistoryWindow request to a specific
+// HistoryAnchor pins a Daemon.LoadHistoryWindow request to a specific
 // message — Delay/StoreID are exactly Message.SentAt.Unix()/Message.StoreID
 // of whichever currently-loaded message triggered the fetch (the one at the
 // edge of the window that was reached). A nil anchor means "no message to
@@ -102,20 +36,7 @@ type HistoryAnchor struct {
 	StoreID int64
 }
 
-// HistoryLoader fetches a window of a chat's persisted history centered on
-// anchor — half the window older than it, half newer-or-equal — implemented
-// outside ui by an adapter that knows about local storage, kept off the main
-// goroutine as a tea.Cmd since it's a disk read plus decrypt of up to a
-// window's worth of messages. "to" is the chat's peer address (bare or full
-// JID, whatever the chat is keyed by). This one method covers every way a
-// chat's loaded window changes: paging up/down, jumping to the latest
-// message, and jumping to a search result — they differ only in which
-// anchor (or none) they pass.
-type HistoryLoader interface {
-	LoadHistoryWindow(accountIdx int, to string, anchor *HistoryAnchor) tea.Cmd
-}
-
-// HistoryWindowMsg reports the result of HistoryLoader.LoadHistoryWindow:
+// HistoryWindowMsg reports the result of Daemon.LoadHistoryWindow:
 // Messages (chronological order) entirely replaces whatever was loaded for
 // the chat matching AccountIdx/From — this is a fresh window, not a page to
 // merge with the old one. HasOlder/HasNewer report whether more history
@@ -137,22 +58,12 @@ type HistoryWindowMsg struct {
 	Err error `json:"-"`
 }
 
-// HistorySearcher searches a chat's entire persisted history for messages
-// whose content contains a substring, implemented outside ui (main.go's
-// adapter, backed by storage) so ui stays decoupled from the storage/crypto
-// layers. Runs as a tea.Cmd, off the Bubble Tea event loop's goroutine, since
-// (unlike HistoryLoader's single page) it has to decrypt and scan the whole
-// chat history.
-type HistorySearcher interface {
-	SearchHistory(accountIdx int, to, query string) tea.Cmd
-}
-
-// HistorySearchResultMsg reports the result of HistorySearcher.SearchHistory.
+// HistorySearchResultMsg reports the result of Daemon.SearchHistory.
 // Messages is the chat's entire persisted history, already decrypted and in
 // chronological order, and Matches indexes into it for every message whose
 // content contains Query (case-insensitive) — used only to list/preview
 // matches in the results popup. Selecting one fires a fresh
-// HistoryLoader.LoadHistoryWindow anchored on that message rather than using
+// Daemon.LoadHistoryWindow anchored on that message rather than using
 // Messages/Matches directly, so the loaded window stays consistent with how
 // every other window load works (and paging up/down from it afterward is
 // ordinary storage-backed paging, not a special in-memory case).
@@ -165,33 +76,14 @@ type HistorySearchResultMsg struct {
 	Err        error
 }
 
-// ContactRenamer sets a custom display name for a contact — a roster set
-// (RFC 6121), persisted server-side and mirrored to local storage — so ui
-// stays decoupled from the XMPP/storage layers. Called synchronously from
-// Update(), like MessageSender.Send/SetTyping: renaming isn't a bulk
-// operation and doesn't need its own async result message.
-type ContactRenamer interface {
-	RenameContact(accountIdx int, address, name string) error
-}
-
-// ContactManager adds/removes roster contacts (RFC 6121 roster set/delete
-// plus the matching presence subscribe/unsubscribe), implemented outside ui
-// (main.go's adapter) so ui stays decoupled from the XMPP layer. Both run as
-// a tea.Cmd like AccountAdder.AddAccount since they're network I/O.
-type ContactManager interface {
-	AddContact(accountIdx int, address string) tea.Msg
-	RemoveContact(accountIdx int, address string) tea.Msg
-	ResubscribeContact(accountIdx int, address string) tea.Msg
-}
-
-// ContactAddedMsg reports the result of ContactManager.AddContact.
+// ContactAddedMsg reports the result of Daemon.AddContact.
 type ContactAddedMsg struct {
 	AccountIdx int
 	Address    string
 	Err        error
 }
 
-// ContactRemovedMsg reports the result of ContactManager.RemoveContact.
+// ContactRemovedMsg reports the result of Daemon.RemoveContact.
 type ContactRemovedMsg struct {
 	AccountIdx int
 	Address    string
@@ -227,7 +119,7 @@ type ChatRemovedMsg struct {
 	Address    string
 }
 
-// ContactResubscribedMsg reports the result of ContactManager.ResubscribeContact.
+// ContactResubscribedMsg reports the result of Daemon.ResubscribeContact.
 type ContactResubscribedMsg struct {
 	AccountIdx int
 	Address    string
@@ -269,7 +161,7 @@ type FileSendResultMsg struct {
 	Err        error
 }
 
-// FileUploadResultMsg reports completion of FileSender.UploadFile — a file
+// FileUploadResultMsg reports completion of Daemon.UploadFile — a file
 // staged as a pending attachment, not yet sent as a message. AttachID
 // correlates it back to the pendingAttachment it was started for, since the
 // same path can be staged more than once.
@@ -303,7 +195,7 @@ type ComposedSendResultMsg struct {
 	// queued, so the handler can show a local Pending placeholder for it —
 	// the same local-echo treatment a plain-text queued send already gets
 	// in sendCurrentInput — instead of just a toast. QueuedLocalID also
-	// carries through to the outbox row (FileSender.UploadFile passes it
+	// carries through to the outbox row (Daemon.UploadFile passes it
 	// on), so adapter.flushOutbox can resolve this exact placeholder by
 	// LocalID once the queued upload+send actually happens.
 	QueuedLocalID string
@@ -397,7 +289,7 @@ type MessageSendResolvedMsg struct {
 }
 
 // OutboxDeletedMsg is sent into the Bubble Tea loop when a still-Pending
-// message is permanently discarded (MessageSender.DeleteQueued) - by this
+// message is permanently discarded (Daemon.DeleteQueued) - by this
 // client or, since more than one TUI can attach to the same daemon, another
 // one. The Pending placeholder (found by LocalID, same as
 // MessageSendResolvedMsg) is removed from the chat outright rather than
@@ -409,7 +301,7 @@ type OutboxDeletedMsg struct {
 }
 
 // MessagePurgedMsg is sent into the Bubble Tea loop when an already-retracted
-// message is erased from storage outright (MessageSender.PurgeMessage) - by
+// message is erased from storage outright (Daemon.PurgeMessage) - by
 // this client or another TUI attached to the same daemon. Unlike
 // MessageRetractedMsg, the message is removed from the chat entirely; there
 // is nothing left to show.
@@ -473,12 +365,6 @@ type PresenceMsg struct {
 	Resource   string // resource part of the full JID the presence stanza came from; "" if it had none
 }
 
-// ChatHiddenSetter persists whether a chat is hidden from the chat list,
-// per account. Hiding is local and reversible — see Chat.Hidden.
-type ChatHiddenSetter interface {
-	SetChatHidden(accountJID, chatAddress string, hidden bool) error
-}
-
 // ChatSettingMsg reports one chat's setting changed - by any attached TUI,
 // this one included (for which it's a no-op, already applied) - so every
 // TUI shows the same thing. Setting is "encryption" (Mode carries it),
@@ -503,27 +389,7 @@ type AccountStatusChangedMsg struct {
 	NewHistoryMore map[int]bool
 }
 
-// ChatMutedSetter persists whether a chat's incoming messages raise desktop
-// notifications, per account — see Chat.Muted.
-type ChatMutedSetter interface {
-	SetChatMuted(accountJID, chatAddress string, muted bool) error
-}
-
-// ChatPinnedSetter persists whether a chat is pinned to the top of the chat
-// list, per account — see Chat.Pinned.
-type ChatPinnedSetter interface {
-	SetChatPinned(accountJID, chatAddress string, pinned bool) error
-}
-
-// AvatarPublisher publishes and removes this account's own avatar
-// (XEP-0084). Both calls reach the network, so callers run them as
-// commands rather than inline in Update.
-type AvatarPublisher interface {
-	SetOwnAvatar(accountIdx int, path string) error
-	RemoveOwnAvatar(accountIdx int) error
-}
-
-// AvatarPublishedMsg reports the result of an AvatarPublisher call.
+// AvatarPublishedMsg reports the result of an Daemon call.
 // Removed distinguishes the two operations so the notice can say which one
 // failed.
 type AvatarPublishedMsg struct {
@@ -720,17 +586,7 @@ func idleTimer(gen int) tea.Cmd {
 	})
 }
 
-// AccountAdder connects and persists a new XMPP account, implemented outside
-// ui (main.go's adapter) so ui stays decoupled from the network/config
-// layers. Runs on the Bubble Tea event loop's goroutine via a tea.Cmd, so it
-// may block on network I/O — ui always calls it that way, never inline.
-// register requests XEP-0077 in-band registration of a brand new account on
-// the server before logging in, instead of logging into an existing one.
-type AccountAdder interface {
-	AddAccount(jid, password, gpgKeyID string, register bool) tea.Msg
-}
-
-// AccountAddedMsg is sent into the Bubble Tea loop once AccountAdder.AddAccount
+// AccountAddedMsg is sent into the Bubble Tea loop once Daemon.AddAccount
 // has connected the new account and it's ready to show in the sidebar.
 type AccountAddedMsg struct {
 	Account Account
@@ -748,25 +604,14 @@ type AccountAppearedMsg struct {
 	Account Account
 }
 
-// AccountAddErrorMsg is sent into the Bubble Tea loop when AccountAdder.AddAccount
+// AccountAddErrorMsg is sent into the Bubble Tea loop when Daemon.AddAccount
 // fails; the add-account form stays open so the user can correct and retry.
 type AccountAddErrorMsg struct {
 	Err error
 }
 
-// AccountRemover disconnects an account and drops it from config.toml —
-// implemented outside ui (main.go's adapter) so ui stays decoupled from the
-// network/config layers. Runs on the Bubble Tea event loop's goroutine via a
-// tea.Cmd since it involves network I/O (purging the account's published
-// OMEMO device list before disconnecting). Never touches local storage — no
-// history, roster cache, or OMEMO identity/session state is deleted, only
-// the live connection and the config.toml entry.
-type AccountRemover interface {
-	RemoveAccount(accountIdx int) tea.Msg
-}
-
 // AccountRemovedMsg is sent into the Bubble Tea loop once
-// AccountRemover.RemoveAccount has disconnected accountIdx and dropped it
+// Daemon.RemoveAccount has disconnected accountIdx and dropped it
 // from config.toml. The account stays in the sidebar for the rest of this
 // run (indices must stay stable — see AccountConnectedMsg) but shows as
 // offline/removed and is excluded from switching; it's gone for good only
@@ -776,7 +621,7 @@ type AccountRemovedMsg struct {
 }
 
 // AccountRemoveErrorMsg is sent into the Bubble Tea loop when
-// AccountRemover.RemoveAccount fails.
+// Daemon.RemoveAccount fails.
 type AccountRemoveErrorMsg struct {
 	Index int
 	Err   error
@@ -884,18 +729,7 @@ type HistorySyncFinishedMsg struct {
 	AccountIdx int
 }
 
-// AccountStatusSetter changes and persists a configured account's own
-// presence status (online/away/offline), implemented outside ui (main.go's
-// adapter) so ui stays decoupled from the network/config layers. Setting
-// PresenceOffline disconnects the account entirely (no further traffic to
-// its server until switched back); setting Online/Away on a currently
-// offline account dials it. Runs on the Bubble Tea event loop's goroutine via
-// a tea.Cmd, like AccountAdder.AddAccount, since it may block on network I/O.
-type AccountStatusSetter interface {
-	SetAccountStatus(accountIdx int, status Presence) tea.Msg
-}
-
-// AccountStatusSetMsg reports the result of AccountStatusSetter.SetAccountStatus.
+// AccountStatusSetMsg reports the result of Daemon.SetAccountStatus.
 // NewChats/NewMessages/NewHistoryMore carry any contacts discovered while
 // bringing a previously-offline account online, indexed the same way as
 // AccountLiveMsg's — empty when no (re)connect was needed.
@@ -914,158 +748,10 @@ type AccountStatusSetMsg struct {
 	StateApplied   bool
 }
 
-// DefaultAccountSetter persists which account should be selected on startup,
-// implemented outside ui (main.go's adapter) so ui stays decoupled from the
-// config layer. It's a local file write, not network I/O, so ui calls it
-// inline like Send/SetTyping rather than through a tea.Cmd.
-type DefaultAccountSetter interface {
-	SetDefaultAccount(jid string) error
-}
-
-// ChatEncryptionSetter persists per-chat outgoing message encryption choice
-// ("omemo-v1", "omemo-v2", "gpg", or "none" - see
-// encryptionModes), implemented outside ui (main.go's adapter) so ui stays
-// decoupled from the storage layer. A local database write, called inline
-// like Send/SetTyping rather than through a tea.Cmd.
-type ChatEncryptionSetter interface {
-	SetChatEncryption(accountIdx int, peerJID, mode string) error
-}
-
-// SidebarWidthSetter persists the sidebar width the user last dragged it to,
-// implemented outside ui (main.go's adapter) so ui stays decoupled from the
-// config layer. A local file write, called inline like Send/SetTyping
-// rather than through a tea.Cmd.
-type SidebarWidthSetter interface {
-	SetSidebarWidth(width int) error
-}
-
-// SidebarHiddenSetter persists whether the chat list sidebar is currently
-// hidden, implemented outside ui (main.go's adapter) so ui stays decoupled
-// from the config layer. A local file write, called inline like Send/
-// SetTyping rather than through a tea.Cmd.
-type SidebarHiddenSetter interface {
-	SetSidebarHidden(hidden bool) error
-}
-
-// InputHeightSetter persists the compose box height the user last dragged
-// it to, implemented outside ui (main.go's adapter) so ui stays decoupled
-// from the config layer. A local file write, called inline like Send/
-// SetTyping rather than through a tea.Cmd.
-type InputHeightSetter interface {
-	SetInputHeight(height int) error
-}
-
-// ReactionEmojiUsageRecorder persists per-emoji reaction send counts,
-// implemented outside ui (main.go's adapter) so ui stays decoupled from the
-// config layer. A local file write, called inline like Send/SetTyping
-// rather than through a tea.Cmd — see rankReactionUsage, which ranks the
-// emoji picker's "recent" seed by these counts.
-type ReactionEmojiUsageRecorder interface {
-	RecordReactionEmojiUsage(emojis []string) error
-}
-
-// FilePickerSortSetter persists the attach-file picker's sort field
-// ("created"/"updated") and direction the user last selected, implemented
-// outside ui (main.go's adapter) so ui stays decoupled from the config
-// layer. A local file write, called inline like Send/SetTyping rather than
-// through a tea.Cmd.
-type FilePickerSortSetter interface {
-	SetFilePickerSort(field string, ascending bool) error
-}
-
-// StoragePasswordChanger re-encrypts every locally-encrypted message body
-// and draft under a new password, implemented outside ui (main.go's
-// adapter, backed by storage) so ui stays decoupled from the storage/crypto
-// layers. Unlike most setters here this runs as a tea.Cmd rather than being
-// called inline from Update — it walks and re-seals every encrypted row in
-// one transaction, slow enough on a large history to visibly block the UI
-// if done synchronously. See StoragePasswordChangedMsg for the result.
-type StoragePasswordChanger interface {
-	ChangeStoragePassword(newPassword string) error
-}
-
-// StoragePasswordChangedMsg reports the result of a StoragePasswordChanger
+// StoragePasswordChangedMsg reports the result of a Daemon
 // call, produced by the "change storage password" popup's submit action.
 type StoragePasswordChangedMsg struct {
 	Err error
-}
-
-// LastChatSetter persists which chat was last opened, implemented outside
-// ui (main.go's adapter) so ui stays decoupled from the config layer. A
-// local file write, called inline like Send/SetTyping rather than through a
-// tea.Cmd. Used to reopen the same chat on startup when configured.
-type LastChatSetter interface {
-	SetLastChat(accountJID, chatAddress string) error
-}
-
-// FocusReporter tells the daemon which chat (if any) is actively being
-// viewed and whether the terminal itself currently has OS focus,
-// implemented outside ui (main.go's adapter) so ui stays decoupled from the
-// notification layer. In-memory only on the daemon side — used to suppress
-// a desktop notification for a message that's already visible on screen.
-// Called inline like Send/SetTyping rather than through a tea.Cmd. An empty
-// chatAddress means no chat is currently open.
-type FocusReporter interface {
-	SetFocusState(accountJID, chatAddress string, focused bool) error
-}
-
-// ChatReadTracker reads and clears the local-only unread message counts per
-// chat, implemented outside ui (main.go's adapter, backed by storage) so ui
-// stays decoupled from the storage layer. Counting itself is the daemon's
-// (see ChatUnreadMsg): only it knows whether any attached TUI is looking at
-// the chat.
-type ChatReadTracker interface {
-	ResetChatUnread(accountJID, chatAddress string) error
-	ChatUnreadCounts(accountJID string) (map[string]int, error)
-}
-
-// DraftSaver persists the compose box's unsent text per chat, implemented
-// outside ui (main.go's adapter, backed by storage) so ui stays decoupled
-// from the storage layer. Called inline like Send/SetTyping rather than
-// through a tea.Cmd; a failure just means the in-memory draft (still updated
-// regardless) won't survive a restart. An empty text means "no draft" and
-// should clear any persisted row rather than storing an empty string.
-type DraftSaver interface {
-	SaveDraft(accountJID, chatAddress, text string) error
-}
-
-// CallController drives the daemon's voice call state machine
-// (callsession.go) for an account: placing/accepting/ending a XEP-0166/0167
-// call, implemented outside ui (main.go's adapter/ipcClient) so ui stays
-// decoupled from the XMPP/Jingle layers. Each call is a network round trip
-// through IPC to the daemon, so — like ContactManager.AddContact/RemoveContact
-// — these return tea.Msg rather than blocking Update synchronously.
-type CallController interface {
-	StartCall(accountIdx int, to string) tea.Msg
-	// StartVideoCall places a call the same way StartCall does, and starts
-	// sending our own video (camera or screen, see useCamera) the moment it
-	// connects - the call menu's video call, distinct from starting a plain
-	// call and separately toggling video mid-call via ScreenShare.
-	StartVideoCall(accountIdx int, to string, useCamera bool) tea.Msg
-	AnswerCall(accountIdx int) tea.Msg
-	HangupCall(accountIdx int) tea.Msg
-	RejectCall(accountIdx int) tea.Msg
-	MuteCall(accountIdx int, muted bool) tea.Msg
-	ScreenShare(accountIdx int, sharing, useCamera bool) tea.Msg
-	// ReopenVideo re-requests a keyframe for the current call's incoming
-	// video, reopening the mpv viewer if the peer closed it by accident -
-	// the video itself never stopped flowing, so this doesn't touch
-	// signaling, just prompts the encoder for a fresh keyframe.
-	ReopenVideo(accountIdx int) tea.Msg
-	// SetDesktopAudio sets whether sharing the screen also sends what other
-	// applications are playing - a setting, not per call, applied at once
-	// to a share in progress.
-	SetDesktopAudio(enabled bool) tea.Msg
-	// SetDesktopAudioVolume sets that desktop audio's volume, in percent.
-	SetDesktopAudioVolume(percent int) tea.Msg
-}
-
-// AudioDeviceController lists and picks the microphone/speaker calls use,
-// implemented outside ui (ipcClient) like CallController. Picking one also
-// moves a call in progress over to it.
-type AudioDeviceController interface {
-	ListAudioDevices() tea.Msg // AudioDevicesMsg
-	SetAudioDevice(output bool, name string) tea.Msg
 }
 
 // AudioDevice is one microphone or speaker, by the audio backend's name.
@@ -1074,7 +760,7 @@ type AudioDevice struct {
 	Default bool // the system's current default
 }
 
-// AudioDevicesMsg answers AudioDeviceController.ListAudioDevices: every
+// AudioDevicesMsg answers Daemon.ListAudioDevices: every
 // device available, and which input/output calls use ("" for the system
 // default).
 type AudioDevicesMsg struct {
@@ -1083,7 +769,7 @@ type AudioDevicesMsg struct {
 	Err             error
 }
 
-// CallActionResultMsg reports the result of a CallController method call
+// CallActionResultMsg reports the result of a Daemon method call
 // (StartCall/AnswerCall/HangupCall/RejectCall) failing to even reach or be
 // accepted by the daemon — the call's actual state transitions arrive
 // separately via CallStateMsg/IncomingCallMsg, broadcast from the daemon's
@@ -1097,7 +783,7 @@ type CallActionResultMsg struct {
 // IncomingCallMsg is sent into the Bubble Tea loop when a peer proposes a
 // voice call (XEP-0353) to one of the configured accounts. The daemon has
 // already answered <ringing/>; nothing further happens until the UI drives
-// CallController.AnswerCall or RejectCall.
+// Daemon.AnswerCall or RejectCall.
 type IncomingCallMsg struct {
 	AccountIdx int
 	From       string // bare JID

@@ -505,18 +505,12 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 	switch {
 	case m.resizingSidebar:
 		m.resizingSidebar = false
-		if m.sidebarWidthSetter == nil {
-			return m, nil
-		}
-		if err := m.sidebarWidthSetter.SetSidebarWidth(m.sidebarWidth()); err != nil {
+		if err := m.daemon.SetSidebarWidth(m.sidebarWidth()); err != nil {
 			return m, m.showNotification("saving sidebar width: " + err.Error())
 		}
 	case m.resizingInput:
 		m.resizingInput = false
-		if m.inputHeightSetter == nil {
-			return m, nil
-		}
-		if err := m.inputHeightSetter.SetInputHeight(m.inputHeightOverride); err != nil {
+		if err := m.daemon.SetInputHeight(m.inputHeightOverride); err != nil {
 			return m, m.showNotification("saving compose box height: " + err.Error())
 		}
 	}

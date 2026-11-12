@@ -9,6 +9,7 @@ import (
 )
 
 type fakeAudioDevices struct {
+	stubDaemon
 	list AudioDevicesMsg
 	set  []string
 }
@@ -39,7 +40,7 @@ func TestAudioDevicePicker(t *testing.T) {
 		Output:  "Headphones",
 	}}
 	m := callTestModel(&fakeCallController{})
-	m.audioDevices = devs
+	m.daemon = devs
 
 	m = pressAndDeliver(t, m, ctrlG)
 	m = pressAndDeliver(t, m, letter('d'))
@@ -67,7 +68,7 @@ func TestAudioDevicePicker(t *testing.T) {
 // unplugged still shows (checked), so it's clear why the default is in use.
 func TestAudioDevicePickerKeepsMissingChoice(t *testing.T) {
 	m := callTestModel(&fakeCallController{})
-	m.audioDevices = &fakeAudioDevices{}
+	m.daemon = &fakeAudioDevices{}
 	m.openAudioDevicePicker("Microphone", false, []AudioDevice{{Name: "Built-in Mic"}}, "USB Mic")
 	if got := strings.Join(callMenuLabels(m), "|"); got != "System default|Built-in Mic|✓ USB Mic (not connected)" {
 		t.Fatalf("picker: %s", got)
@@ -78,7 +79,7 @@ func TestAudioDevicePickerKeepsMissingChoice(t *testing.T) {
 // (or one arriving after the user moved on) doesn't pop a menu up.
 func TestAudioDevicesUnaskedListingIgnored(t *testing.T) {
 	m := callTestModel(&fakeCallController{})
-	m.audioDevices = &fakeAudioDevices{}
+	m.daemon = &fakeAudioDevices{}
 	next, _ := m.Update(AudioDevicesMsg{})
 	if menuOf(next.(Model)) != nil {
 		t.Fatal("unrequested device listing opened a menu")
@@ -89,8 +90,8 @@ func TestAudioDevicesUnaskedListingIgnored(t *testing.T) {
 // no chat to call.
 func TestCallMenuDevicesWithoutChat(t *testing.T) {
 	m := newTestModel(nil)
-	m.callController = &fakeCallController{}
-	m.audioDevices = &fakeAudioDevices{}
+	m.daemon = &fakeCallController{}
+	m.daemon = &fakeAudioDevices{}
 	m = press(t, m, ctrlG)
 	if got := strings.Join(callMenuLabels(m), "|"); got != "Audio devices" {
 		t.Fatalf("call menu without a chat: %q", got)
@@ -102,7 +103,7 @@ func TestCallMenuDevicesWithoutChat(t *testing.T) {
 func TestAudioDeviceLabelFlattensWhitespace(t *testing.T) {
 	devs := &fakeAudioDevices{}
 	m := callTestModel(&fakeCallController{})
-	m.audioDevices = devs
+	m.daemon = devs
 	raw := "HDA Intel PCH, ALC257\n\tFront output"
 	m.openAudioDevicePicker("Speaker", true, []AudioDevice{{Name: raw}}, "")
 	if got := callMenuLabels(m)[1]; got != "HDA Intel PCH, ALC257 Front output" {

@@ -80,9 +80,6 @@ func (m *Model) submitAddAccount(body *addAccountBody, values []string) tea.Cmd 
 	case jid == "":
 		body.SetError("JID is required")
 		return nil
-	case m.accountAdder == nil:
-		body.SetError("no account adder configured")
-		return nil
 	case body.register && password == "":
 		body.SetError("password is required to register")
 		return nil
@@ -95,7 +92,7 @@ func (m *Model) submitAddAccount(body *addAccountBody, values []string) tea.Cmd 
 	} else {
 		body.SetBusy("logging in…")
 	}
-	adder, register := m.accountAdder, body.register
+	adder, register := m.daemon, body.register
 	return func() tea.Msg { return adder.AddAccount(jid, password, gpgKeyID, register) }
 }
 

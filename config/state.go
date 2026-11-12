@@ -68,7 +68,7 @@ type State struct {
 	AccountStatuses map[string]string `toml:"account_statuses,omitempty"`
 	// ReactionEmojiUsage is emoji -> how many times the user has sent it as
 	// a reaction, incremented every time a reaction is sent (see
-	// ui.ReactionEmojiUsageRecorder). Ranked descending to build the
+	// ui.Daemon.SetFilePickerSort). Ranked descending to build the
 	// quick-pick default suggestions offered before any typing (see
 	// ui.defaultEmojiSuggestions) so the picker converges on what this user
 	// actually reaches for instead of a fixed list.

@@ -53,7 +53,7 @@ func (m *Model) submitChangePassword(form *modal.Form, values []string) tea.Cmd 
 }
 
 // startStoragePasswordChange kicks off the async re-encryption via
-// StoragePasswordChanger — the actual transactional rotation (and the
+// Daemon — the actual transactional rotation (and the
 // daemon-restart-required aftermath) lives entirely on the other side of
 // that interface; see main.go's adapter.ChangeStoragePassword. newPassword
 // may be "" to turn local storage encryption off (see submitChangePassword).
@@ -63,16 +63,12 @@ func (m *Model) startStoragePasswordChange(newPassword string) tea.Cmd {
 		return nil
 	}
 	form := md.Body.(*modal.Form)
-	if m.storagePasswordChanger == nil {
-		form.SetError("storage password changing isn't available")
-		return nil
-	}
 	if newPassword == "" {
 		form.SetBusy("disabling local storage encryption…")
 	} else {
 		form.SetBusy("re-encrypting local storage…")
 	}
-	changer := m.storagePasswordChanger
+	changer := m.daemon
 	return func() tea.Msg {
 		return StoragePasswordChangedMsg{Err: changer.ChangeStoragePassword(newPassword)}
 	}

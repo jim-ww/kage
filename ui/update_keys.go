@@ -166,9 +166,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		// nothing left for the branch above to remove — but the upload is
 		// still cancelable while it's in flight. Backspace on the still-empty
 		// compose box cancels the most recently started upload transfer.
-		if m.selectedView == viewChat && m.input.Value() == "" && m.fileSender != nil {
+		if m.selectedView == viewChat && m.input.Value() == "" {
 			if id, ok := m.mostRecentUploadTransfer(); ok {
-				m.fileSender.CancelUpload(id)
+				m.daemon.CancelUpload(id)
 				return m, nil, true
 			}
 		}
@@ -456,8 +456,8 @@ func (m *Model) deleteSelectedMessage() tea.Cmd {
 		target := msgs[m.selectedMsg]
 		switch {
 		case target.Pending, target.Failed:
-			if m.sender != nil && target.LocalID != "" {
-				if err := m.sender.DeleteQueued(m.currentAccount, target.LocalID); err != nil {
+			if target.LocalID != "" {
+				if err := m.daemon.DeleteQueued(m.currentAccount, target.LocalID); err != nil {
 					cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
 				}
 			}
@@ -465,12 +465,12 @@ func (m *Model) deleteSelectedMessage() tea.Cmd {
 			newMsgs, m.selectedMsg = removeMessageAt(msgs, m.selectedMsg, m.selectedMsg)
 			m.setCurrentMessages(newMsgs)
 		case target.ID != "":
-			if chat, ok := m.currentChat(); ok && chat.Address != "" && m.sender != nil {
+			if chat, ok := m.currentChat(); ok && chat.Address != "" {
 				if target.IsMe {
-					if _, err := m.sender.Send(m.currentAccount, chat.Address, "", SendOptions{RetractID: target.ID}); err != nil {
+					if _, err := m.daemon.Send(m.currentAccount, chat.Address, "", SendOptions{RetractID: target.ID}); err != nil {
 						cmds = append(cmds, m.showNotification("retract not delivered: "+err.Error()))
 					}
-				} else if err := m.sender.MarkRetracted(m.currentAccount, chat.Address, target.ID); err != nil {
+				} else if err := m.daemon.MarkRetracted(m.currentAccount, chat.Address, target.ID); err != nil {
 					cmds = append(cmds, m.showNotification("delete not saved: "+err.Error()))
 				}
 			}

@@ -10,6 +10,7 @@ import (
 )
 
 type fakeStoragePasswordChanger struct {
+	stubDaemon
 	calls []string
 	err   error
 }
@@ -47,8 +48,8 @@ func (f *fakeStoragePasswordChanger) ChangeStoragePassword(newPassword string) e
 	return f.err
 }
 
-// changer must satisfy both MessageSender (New's sender param type) and
-// StoragePasswordChanger (asserted out of it) — mirrors fakeDraftSaver in
+// changer must satisfy both Daemon (New's sender param type) and
+// Daemon (asserted out of it) — mirrors fakeDraftSaver in
 // draft_history_test.go.
 type fakeChangerSender struct {
 	fakeStoragePasswordChanger

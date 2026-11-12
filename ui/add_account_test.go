@@ -9,10 +9,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// fakeAccountAdder is a stub AccountAdder for testing the add-account form
+// fakeAccountAdder is a stub Daemon for testing the add-account form
 // without any real network/config dependency: AddAccount just records the
 // last call and returns whatever msg/err was configured.
 type fakeAccountAdder struct {
+	stubDaemon
 	lastJID, lastPassword, lastGPGKeyID string
 	lastRegister                        bool
 	calls                               int
@@ -45,12 +46,21 @@ func addAccountOf(m Model) *addAccountBody {
 	return nil
 }
 
-func newTestModel(adder AccountAdder) Model {
+func newTestModel(adder Daemon) Model {
 	return newTestModelWithSender(nil, adder)
 }
 
-func newTestModelWithSender(sender MessageSender, adder AccountAdder) Model {
-	m := New(nil, 0, DefaultKeyMap, DefaultTheme(), sender, adder, true, 0, false, "", 0, nil, DisplayOptions{}, nil)
+// newTestModelWithSender builds a model whose daemon is sender, or adder
+// when sender is nil, or a stubDaemon when both are.
+func newTestModelWithSender(sender, adder Daemon) Model {
+	d := sender
+	if d == nil {
+		d = adder
+	}
+	if d == nil {
+		d = stubDaemon{}
+	}
+	m := New(nil, 0, DefaultKeyMap, DefaultTheme(), d, true, 0, false, "", 0, nil, DisplayOptions{}, nil)
 	m.width, m.height = 80, 24
 	m.updateSizes()
 	return m
@@ -81,7 +91,7 @@ func TestAddAccountFormOpenAndCancel(t *testing.T) {
 
 // TestAddAccountFormFieldNavigationAndSubmit walks through typing a JID, tabbing
 // to the password and GPG key fields, and submitting — verifying the values
-// reach AccountAdder.AddAccount and a successful result appends the account
+// reach Daemon.AddAccount and a successful result appends the account
 // and closes the form.
 func TestAddAccountFormFieldNavigationAndSubmit(t *testing.T) {
 	adder := &fakeAccountAdder{}
@@ -179,7 +189,7 @@ func TestAddAccountFormSubmitErrorKeepsFormOpen(t *testing.T) {
 }
 
 // TestAddAccountFormRequiresJID checks submitting with an empty JID field is
-// rejected locally, without ever calling AccountAdder.
+// rejected locally, without ever calling Daemon.
 func TestAddAccountFormRequiresJID(t *testing.T) {
 	adder := &fakeAccountAdder{}
 	m := newTestModel(adder)

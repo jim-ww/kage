@@ -214,30 +214,28 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		}()
 	}
 
-	if m.focusReporter != nil {
-		defer func() {
-			rm, ok := retModel.(Model)
-			if !ok {
-				return
+	defer func() {
+		rm, ok := retModel.(Model)
+		if !ok {
+			return
+		}
+		newFocused := rm.focused && !rm.idle
+		newAccountJID, newChatAddress := rm.activeChatKey()
+		if newFocused == oldFocused && newAccountJID == oldAccountJID && newChatAddress == oldChatAddress {
+			return
+		}
+		reporter := rm.daemon
+		slog.Debug("ui: focus state changed, reporting to daemon", "oldFocused", oldFocused, "newFocused", newFocused, "accountJID", newAccountJID, "chatAddress", newChatAddress)
+		retCmd = tea.Batch(retCmd, func() tea.Msg {
+			start := time.Now()
+			if err := reporter.SetFocusState(newAccountJID, newChatAddress, newFocused); err != nil {
+				slog.Warn("ui: SetFocusState RPC failed", "err", err, "elapsed", time.Since(start))
+			} else {
+				slog.Debug("ui: SetFocusState RPC done", "elapsed", time.Since(start))
 			}
-			newFocused := rm.focused && !rm.idle
-			newAccountJID, newChatAddress := rm.activeChatKey()
-			if newFocused == oldFocused && newAccountJID == oldAccountJID && newChatAddress == oldChatAddress {
-				return
-			}
-			reporter := rm.focusReporter
-			slog.Debug("ui: focus state changed, reporting to daemon", "oldFocused", oldFocused, "newFocused", newFocused, "accountJID", newAccountJID, "chatAddress", newChatAddress)
-			retCmd = tea.Batch(retCmd, func() tea.Msg {
-				start := time.Now()
-				if err := reporter.SetFocusState(newAccountJID, newChatAddress, newFocused); err != nil {
-					slog.Warn("ui: SetFocusState RPC failed", "err", err, "elapsed", time.Since(start))
-				} else {
-					slog.Debug("ui: SetFocusState RPC done", "elapsed", time.Since(start))
-				}
-				return nil
-			})
-		}()
-	}
+			return nil
+		})
+	}()
 
 	msg = normalizeKey(msg)
 	var modalCmd tea.Cmd
@@ -365,9 +363,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 //     every tick) — just re-arm the pause timer so it doesn't fire early.
 //   - Input went empty: send "stopped" and don't arm a timer.
 func (m *Model) notifyTypingChanged(oldValue string) tea.Cmd {
-	if m.sender == nil {
-		return nil
-	}
 	chat, ok := m.currentChat()
 	if !ok || chat.Address == "" {
 		return nil
@@ -379,7 +374,7 @@ func (m *Model) notifyTypingChanged(oldValue string) tea.Cmd {
 
 	if newValue == "" {
 		if m.typingActiveTo == chat.Address {
-			if err := m.sender.SetTyping(m.currentAccount, chat.Address, false); err == nil {
+			if err := m.daemon.SetTyping(m.currentAccount, chat.Address, false); err == nil {
 				m.typingActiveTo = ""
 			}
 		}
@@ -387,7 +382,7 @@ func (m *Model) notifyTypingChanged(oldValue string) tea.Cmd {
 	}
 
 	if m.typingActiveTo != chat.Address {
-		if err := m.sender.SetTyping(m.currentAccount, chat.Address, true); err != nil {
+		if err := m.daemon.SetTyping(m.currentAccount, chat.Address, true); err != nil {
 			return nil
 		}
 		m.typingActiveTo = chat.Address
@@ -401,10 +396,10 @@ func (m *Model) notifyTypingChanged(oldValue string) tea.Cmd {
 // (message actually sent, reaction sent) or the user navigates away from the
 // chat, none of which go through notifyTypingChanged's normal keystroke path.
 func (m *Model) notifyTypingStopped() {
-	if m.sender == nil || m.typingActiveTo == "" {
+	if m.typingActiveTo == "" {
 		return
 	}
-	if err := m.sender.SetTyping(m.currentAccount, m.typingActiveTo, false); err == nil {
+	if err := m.daemon.SetTyping(m.currentAccount, m.typingActiveTo, false); err == nil {
 		m.typingActiveTo = ""
 	}
 }
