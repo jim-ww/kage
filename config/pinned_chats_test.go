@@ -1,18 +1,22 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/jim-ww/kage/ui"
+)
 
 func TestSetChatPinned(t *testing.T) {
 	path := hiddenChatsStatePath(t)
 
-	if err := SetChatPinned(path, "me@x", "b@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "b@x", ui.ChatPinned, true); err != nil {
 		t.Fatalf("pinning: %v", err)
 	}
-	if err := SetChatPinned(path, "me@x", "a@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "a@x", ui.ChatPinned, true); err != nil {
 		t.Fatalf("pinning a second: %v", err)
 	}
 	// Pinning the same chat twice must not duplicate it.
-	if err := SetChatPinned(path, "me@x", "a@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "a@x", ui.ChatPinned, true); err != nil {
 		t.Fatal(err)
 	}
 	st, err := loadState(path)
@@ -25,10 +29,10 @@ func TestSetChatPinned(t *testing.T) {
 
 	// Unpinning the last one drops the account key rather than leaving a
 	// dangling empty entry behind.
-	if err := SetChatPinned(path, "me@x", "A@X", false); err != nil {
+	if err := SetChatFlag(path, "me@x", "A@X", ui.ChatPinned, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetChatPinned(path, "me@x", "b@x", false); err != nil {
+	if err := SetChatFlag(path, "me@x", "b@x", ui.ChatPinned, false); err != nil {
 		t.Fatal(err)
 	}
 	st, err = loadState(path)
@@ -43,10 +47,10 @@ func TestSetChatPinned(t *testing.T) {
 // Pinning and hiding are separate lists; neither may clobber the other.
 func TestPinningAndHidingAreIndependent(t *testing.T) {
 	path := hiddenChatsStatePath(t)
-	if err := SetChatHidden(path, "me@x", "a@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "a@x", ui.ChatHidden, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetChatPinned(path, "me@x", "b@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "b@x", ui.ChatPinned, true); err != nil {
 		t.Fatal(err)
 	}
 	st, err := loadState(path)
@@ -63,17 +67,17 @@ func TestPinningAndHidingAreIndependent(t *testing.T) {
 
 func TestSetChatPinnedRejectsEmptyKeys(t *testing.T) {
 	path := hiddenChatsStatePath(t)
-	if err := SetChatPinned(path, "", "a@x", true); err == nil {
+	if err := SetChatFlag(path, "", "a@x", ui.ChatPinned, true); err == nil {
 		t.Fatal("pinning without an account should fail")
 	}
-	if err := SetChatPinned(path, "me@x", "", true); err == nil {
+	if err := SetChatFlag(path, "me@x", "", ui.ChatPinned, true); err == nil {
 		t.Fatal("pinning without a chat address should fail")
 	}
 }
 
 func TestSetChatMuted(t *testing.T) {
 	path := hiddenChatsStatePath(t)
-	if err := SetChatMuted(path, "me@x", "b@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "b@x", ui.ChatMuted, true); err != nil {
 		t.Fatal(err)
 	}
 	st, err := loadState(path)
@@ -83,7 +87,7 @@ func TestSetChatMuted(t *testing.T) {
 	if got := st.MutedChats["me@x"]; len(got) != 1 || got[0] != "b@x" {
 		t.Fatalf("muted = %v", got)
 	}
-	if err := SetChatMuted(path, "me@x", "B@X", false); err != nil {
+	if err := SetChatFlag(path, "me@x", "B@X", ui.ChatMuted, false); err != nil {
 		t.Fatal(err)
 	}
 	if st, err = loadState(path); err != nil {

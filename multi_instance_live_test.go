@@ -289,7 +289,7 @@ func TestSettingsReachOtherAttachedClients(t *testing.T) {
 	}
 	var setting ui.ChatSettingMsg
 	awaitEvent(t, eventsB, &setting, 5*time.Second)
-	if setting.Setting != "encryption" || setting.Mode != "none" || setting.ChatAddress != "bob@localhost" {
+	if setting.Setting != ui.ChatEncryption || setting.Mode != "none" || setting.ChatAddress != "bob@localhost" {
 		t.Fatalf("encryption seen by B: %+v", setting)
 	}
 

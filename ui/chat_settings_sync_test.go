@@ -14,16 +14,8 @@ type recordingSettingsSender struct {
 	persisted []string
 }
 
-func (r *recordingSettingsSender) SetChatPinned(_, addr string, _ bool) error {
-	r.persisted = append(r.persisted, "pinned "+addr)
-	return nil
-}
-func (r *recordingSettingsSender) SetChatMuted(_, addr string, _ bool) error {
-	r.persisted = append(r.persisted, "muted "+addr)
-	return nil
-}
-func (r *recordingSettingsSender) SetChatHidden(_, addr string, _ bool) error {
-	r.persisted = append(r.persisted, "hidden "+addr)
+func (r *recordingSettingsSender) SetChatFlag(_, addr string, flag ChatSetting, _ bool) error {
+	r.persisted = append(r.persisted, string(flag)+" "+addr)
 	return nil
 }
 
@@ -52,9 +44,9 @@ func TestChatSettingFromAnotherTUI(t *testing.T) {
 		m = next.(Model)
 	}
 
-	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "carol@x", Setting: "pinned", On: true})
-	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "carol@x", Setting: "muted", On: true})
-	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "carol@x", Setting: "encryption", Mode: "none"})
+	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "carol@x", Setting: ChatPinned, On: true})
+	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "carol@x", Setting: ChatMuted, On: true})
+	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "carol@x", Setting: ChatEncryption, Mode: "none"})
 	carol, _ := chatNamed(m, "carol@x")
 	if !carol.Pinned || !carol.Muted || carol.EncryptionMode != "none" {
 		t.Fatalf("carol after settings: %+v", carol)
@@ -63,13 +55,13 @@ func TestChatSettingFromAnotherTUI(t *testing.T) {
 		t.Fatalf("pinning didn't re-sort: first is %s", first.Address)
 	}
 
-	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "bob@x", Setting: "hidden", On: true})
+	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "bob@x", Setting: ChatHidden, On: true})
 	if _, ok := chatNamed(m, "bob@x"); ok || !m.isChatHidden(0, "bob@x") {
 		t.Fatal("hiding from another TUI didn't hide bob")
 	}
 	// A setting changed while hidden shows once it's unhidden.
-	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "bob@x", Setting: "muted", On: true})
-	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "bob@x", Setting: "hidden", On: false})
+	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "bob@x", Setting: ChatMuted, On: true})
+	apply(ChatSettingMsg{AccountJID: "me@x", ChatAddress: "bob@x", Setting: ChatHidden, On: false})
 	if bob, ok := chatNamed(m, "bob@x"); !ok || !bob.Muted {
 		t.Fatalf("bob after unhiding: %+v (found %v)", bob, ok)
 	}
@@ -78,7 +70,7 @@ func TestChatSettingFromAnotherTUI(t *testing.T) {
 		t.Fatalf("settings from another TUI were persisted again: %v", sender.persisted)
 	}
 	// Another account's setting leaves this one alone.
-	apply(ChatSettingMsg{AccountJID: "other@x", ChatAddress: "bob@x", Setting: "pinned", On: true})
+	apply(ChatSettingMsg{AccountJID: "other@x", ChatAddress: "bob@x", Setting: ChatPinned, On: true})
 	if bob, _ := chatNamed(m, "bob@x"); bob.Pinned {
 		t.Fatal("another account's pin applied here")
 	}

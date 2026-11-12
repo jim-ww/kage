@@ -16,6 +16,7 @@ import (
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/storage"
+	"github.com/jim-ww/kage/ui"
 )
 
 // notifyEnabled mirrors !cfg.NotificationsDisabled for handleIncomingMessage's
@@ -41,6 +42,8 @@ var (
 	// (handleIncomingMessage) - read here, daemon-side, since that's where
 	// notifications fire.
 	mutedChats chatFlags
+
+	chatFlagSets = map[ui.ChatSetting]*chatFlags{ui.ChatHidden: &hiddenChats, ui.ChatPinned: &pinnedChats, ui.ChatMuted: &mutedChats}
 )
 
 // chatFlags is a per-account set of flagged chat addresses, keyed by account

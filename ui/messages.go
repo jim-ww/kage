@@ -367,15 +367,28 @@ type PresenceMsg struct {
 
 // ChatSettingMsg reports one chat's setting changed - by any attached TUI,
 // this one included (for which it's a no-op, already applied) - so every
-// TUI shows the same thing. Setting is "encryption" (Mode carries it),
-// "hidden", "pinned" or "muted" (On carries it).
+// TUI shows the same thing. Mode carries ChatEncryption, On the rest.
 type ChatSettingMsg struct {
 	AccountJID  string
 	ChatAddress string
-	Setting     string
+	Setting     ChatSetting
 	Mode        string
 	On          bool
 }
+
+// ChatSetting is one of a chat's settings.
+type ChatSetting string
+
+const (
+	// ChatEncryption is the chat's outgoing encryption.
+	ChatEncryption ChatSetting = "encryption"
+	// ChatHidden keeps the chat out of the list, see Chat.Hidden.
+	ChatHidden ChatSetting = "hidden"
+	// ChatPinned sorts the chat to the top of the list.
+	ChatPinned ChatSetting = "pinned"
+	// ChatMuted stops the chat's messages raising notifications.
+	ChatMuted ChatSetting = "muted"
+)
 
 // AccountStatusChangedMsg reports an account's own status changed, by any
 // attached TUI - the state half of a status change, applied in every TUI

@@ -49,7 +49,7 @@ func (m *Model) applyChatSetting(msg ChatSettingMsg) tea.Cmd {
 	if accountIdx < 0 {
 		return nil
 	}
-	if msg.Setting == "hidden" {
+	if msg.Setting == ChatHidden {
 		if msg.On {
 			if idx := m.chatIndexByAddress(accountIdx, msg.ChatAddress); idx >= 0 {
 				_, cmd, _ := m.applyHideChat(accountIdx, idx)
@@ -79,7 +79,7 @@ func (m *Model) applyChatSetting(msg ChatSettingMsg) tea.Cmd {
 		return nil
 	}
 	m.accounts[accountIdx].Chats[idx] = updated
-	if msg.Setting == "pinned" {
+	if msg.Setting == ChatPinned {
 		return m.sortChatsByActivity(accountIdx)
 	}
 	if accountIdx == m.currentAccount {
@@ -91,11 +91,11 @@ func (m *Model) applyChatSetting(msg ChatSettingMsg) tea.Cmd {
 // withChatSetting returns chat with msg's setting applied.
 func withChatSetting(chat Chat, msg ChatSettingMsg) Chat {
 	switch msg.Setting {
-	case "encryption":
+	case ChatEncryption:
 		chat.EncryptionMode = msg.Mode
-	case "pinned":
+	case ChatPinned:
 		chat.Pinned = msg.On
-	case "muted":
+	case ChatMuted:
 		chat.Muted = msg.On
 	}
 	return chat

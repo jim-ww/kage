@@ -110,9 +110,7 @@ func init() {
 	handle(addContactReq{})
 	handle(removeContactReq{})
 	handle(resubscribeContactReq{})
-	handle(setChatHiddenReq{})
-	handle(setChatMutedReq{})
-	handle(setChatPinnedReq{})
+	handle(setChatFlagReq{})
 	handle(setChatEncryptionReq{})
 	handle(resetChatUnreadReq{})
 	handle(chatUnreadCountsReq{})
@@ -357,31 +355,14 @@ func (c resubscribeContactReq) run(d *daemonServer, _ ipc.ClientID) (none, error
 	return none{}, d.a.ResubscribeContact(c.AccountIdx, c.Address)
 }
 
-type setChatHiddenReq struct {
+type setChatFlagReq struct {
 	AccountJID, ChatAddress string
-	Hidden                  bool
+	Flag                    ui.ChatSetting
+	On                      bool
 }
 
-func (c setChatHiddenReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetChatHidden(c.AccountJID, c.ChatAddress, c.Hidden)
-}
-
-type setChatMutedReq struct {
-	AccountJID, ChatAddress string
-	Muted                   bool
-}
-
-func (c setChatMutedReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetChatMuted(c.AccountJID, c.ChatAddress, c.Muted)
-}
-
-type setChatPinnedReq struct {
-	AccountJID, ChatAddress string
-	Pinned                  bool
-}
-
-func (c setChatPinnedReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetChatPinned(c.AccountJID, c.ChatAddress, c.Pinned)
+func (c setChatFlagReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetChatFlag(c.AccountJID, c.ChatAddress, c.Flag, c.On)
 }
 
 type setChatEncryptionReq struct {

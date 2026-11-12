@@ -10,6 +10,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/zalando/go-keyring"
+
+	"github.com/jim-ww/kage/ui"
 )
 
 // DefaultWritePath returns where a newly generated config should be written:
@@ -213,44 +215,20 @@ func writeFileConfig(path string, cfg Config) error {
 	return writeFileAtomic(path, data, 0o600)
 }
 
-// SetChatHidden adds or removes one chat from the hidden list for an
-// account in the state file next to path, preserving everything else —
-// called when the user hides a chat or unhides it from the contact manager
-// (see ui.Daemon.SetChatHidden). Hiding is local only: nothing is removed from
-// the roster or from storage.
-func SetChatHidden(path, accountJID, chatAddress string, hidden bool) error {
-	return setChatListFlag(path, accountJID, chatAddress, hidden, "hiding",
-		func(st *State) map[string][]string { return st.HiddenChats },
-		func(st *State, m map[string][]string) { st.HiddenChats = m })
-}
-
-// SetChatPinned adds or removes one chat from the pinned list for an
-// account in the state file next to path (see ui.Daemon.SetChatPinned).
-// Pinning is local and only affects the chat list's order.
-func SetChatPinned(path, accountJID, chatAddress string, pinned bool) error {
-	return setChatListFlag(path, accountJID, chatAddress, pinned, "pinning",
-		func(st *State) map[string][]string { return st.PinnedChats },
-		func(st *State, m map[string][]string) { st.PinnedChats = m })
-}
-
-// SetChatMuted adds or removes one chat from the muted list for an account
-// in the state file next to path (see ui.Daemon.SetChatMuted). Muting only
-// silences desktop notifications for the chat.
-func SetChatMuted(path, accountJID, chatAddress string, muted bool) error {
-	return setChatListFlag(path, accountJID, chatAddress, muted, "muting",
-		func(st *State) map[string][]string { return st.MutedChats },
-		func(st *State, m map[string][]string) { st.MutedChats = m })
-}
-
-// setChatListFlag is the shared per-account chat-address set edit behind
-// SetChatHidden/SetChatPinned/SetChatMuted: both keep a sorted, case-insensitively
-// deduped list of bare JIDs under an account key in state.toml.
-func setChatListFlag(path, accountJID, chatAddress string, on bool, verb string, get func(*State) map[string][]string, set func(*State, map[string][]string)) error {
+// SetChatFlag adds or removes one chat from an account's list of chats with
+// flag in the state file next to path. Each list is sorted and
+// case-insensitively deduped.
+func SetChatFlag(path, accountJID, chatAddress string, flag ui.ChatSetting, on bool) error {
 	if accountJID == "" || chatAddress == "" {
-		return fmt.Errorf("%s a chat needs both an account and a chat address", verb)
+		return fmt.Errorf("flagging a chat %s needs both an account and a chat address", flag)
 	}
 	return updateStateFile(path, func(st *State) error {
-		existing := get(st)
+		lists := map[ui.ChatSetting]*map[string][]string{ui.ChatHidden: &st.HiddenChats, ui.ChatPinned: &st.PinnedChats, ui.ChatMuted: &st.MutedChats}
+		list, ok := lists[flag]
+		if !ok {
+			return fmt.Errorf("unknown chat flag %q", flag)
+		}
+		existing := *list
 		kept := make([]string, 0, len(existing[accountJID])+1)
 		for _, addr := range existing[accountJID] {
 			if !strings.EqualFold(addr, chatAddress) {
@@ -264,7 +242,7 @@ func setChatListFlag(path, accountJID, chatAddress string, on bool, verb string,
 
 		if existing == nil {
 			existing = map[string][]string{}
-			set(st, existing)
+			*list = existing
 		}
 		if len(kept) == 0 {
 			// Left as an empty entry, the account would keep a dangling key in

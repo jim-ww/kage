@@ -15,7 +15,7 @@ type fakeChatPinner struct {
 	err   error
 }
 
-func (f *fakeChatPinner) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
+func (f *fakeChatPinner) SetChatFlag(accountJID, chatAddress string, _ ChatSetting, pinned bool) error {
 	f.calls = append(f.calls, accountJID+":"+chatAddress+":"+map[bool]string{true: "pinned", false: "unpinned"}[pinned])
 	return f.err
 }

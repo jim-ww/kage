@@ -12,7 +12,7 @@ type fakeMuteSetter struct {
 	calls []string
 }
 
-func (f *fakeMuteSetter) SetChatMuted(accountJID, chatAddress string, muted bool) error {
+func (f *fakeMuteSetter) SetChatFlag(accountJID, chatAddress string, _ ChatSetting, muted bool) error {
 	f.calls = append(f.calls, accountJID+" "+chatAddress+" "+map[bool]string{true: "on", false: "off"}[muted])
 	return nil
 }

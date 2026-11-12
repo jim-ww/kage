@@ -63,13 +63,9 @@ type Daemon interface {
 	AddContact(accountIdx int, address string) tea.Msg
 	RemoveContact(accountIdx int, address string) tea.Msg
 	ResubscribeContact(accountIdx int, address string) tea.Msg
-	// SetChatHidden hides a chat from the list - local and reversible, see
-	// Chat.Hidden.
-	SetChatHidden(accountJID, chatAddress string, hidden bool) error
-	// SetChatMuted stops a chat's messages raising notifications.
-	SetChatMuted(accountJID, chatAddress string, muted bool) error
-	// SetChatPinned pins a chat to the top of the list.
-	SetChatPinned(accountJID, chatAddress string, pinned bool) error
+	// SetChatFlag turns a chat's ChatHidden, ChatPinned or ChatMuted on or
+	// off - all local and reversible.
+	SetChatFlag(accountJID, chatAddress string, flag ChatSetting, on bool) error
 	// SetChatEncryption sets a chat's outgoing encryption: "omemo-v1",
 	// "omemo-v2", "gpg" or "none" (see encryptionModes).
 	SetChatEncryption(accountIdx int, peerJID, mode string) error

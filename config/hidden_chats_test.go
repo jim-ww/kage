@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jim-ww/kage/ui"
 )
 
 func hiddenChatsStatePath(t *testing.T) string {
@@ -19,10 +21,10 @@ func hiddenChatsStatePath(t *testing.T) string {
 func TestSetChatHidden(t *testing.T) {
 	path := hiddenChatsStatePath(t)
 
-	if err := SetChatHidden(path, "me@x", "b@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "b@x", ui.ChatHidden, true); err != nil {
 		t.Fatalf("hiding: %v", err)
 	}
-	if err := SetChatHidden(path, "me@x", "a@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "a@x", ui.ChatHidden, true); err != nil {
 		t.Fatalf("hiding a second: %v", err)
 	}
 	st, err := loadState(path)
@@ -35,7 +37,7 @@ func TestSetChatHidden(t *testing.T) {
 	}
 
 	// Hiding the same chat twice must not duplicate it.
-	if err := SetChatHidden(path, "me@x", "a@x", true); err != nil {
+	if err := SetChatFlag(path, "me@x", "a@x", ui.ChatHidden, true); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ = loadState(path); len(st.HiddenChats["me@x"]) != 2 {
@@ -44,10 +46,10 @@ func TestSetChatHidden(t *testing.T) {
 
 	// Unhiding the last one drops the account's entry rather than leaving
 	// an empty list behind in the file.
-	if err := SetChatHidden(path, "me@x", "a@x", false); err != nil {
+	if err := SetChatFlag(path, "me@x", "a@x", ui.ChatHidden, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetChatHidden(path, "me@x", "B@X", false); err != nil {
+	if err := SetChatFlag(path, "me@x", "B@X", ui.ChatHidden, false); err != nil {
 		t.Fatal(err)
 	}
 	st, _ = loadState(path)
@@ -59,13 +61,13 @@ func TestSetChatHidden(t *testing.T) {
 func TestSetChatHiddenKeepsAccountsApart(t *testing.T) {
 	path := hiddenChatsStatePath(t)
 
-	if err := SetChatHidden(path, "one@x", "a@x", true); err != nil {
+	if err := SetChatFlag(path, "one@x", "a@x", ui.ChatHidden, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetChatHidden(path, "two@x", "a@x", true); err != nil {
+	if err := SetChatFlag(path, "two@x", "a@x", ui.ChatHidden, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetChatHidden(path, "one@x", "a@x", false); err != nil {
+	if err := SetChatFlag(path, "one@x", "a@x", ui.ChatHidden, false); err != nil {
 		t.Fatal(err)
 	}
 	st, err := loadState(path)
@@ -82,10 +84,10 @@ func TestSetChatHiddenKeepsAccountsApart(t *testing.T) {
 
 func TestSetChatHiddenRejectsEmptyKeys(t *testing.T) {
 	path := hiddenChatsStatePath(t)
-	if err := SetChatHidden(path, "", "a@x", true); err == nil {
+	if err := SetChatFlag(path, "", "a@x", ui.ChatHidden, true); err == nil {
 		t.Error("accepted an empty account JID")
 	}
-	if err := SetChatHidden(path, "me@x", "", true); err == nil {
+	if err := SetChatFlag(path, "me@x", "", ui.ChatHidden, true); err == nil {
 		t.Error("accepted an empty chat address")
 	}
 }

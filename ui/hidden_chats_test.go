@@ -14,7 +14,7 @@ type fakeChatHider struct {
 	err   error
 }
 
-func (f *fakeChatHider) SetChatHidden(accountJID, chatAddress string, hidden bool) error {
+func (f *fakeChatHider) SetChatFlag(accountJID, chatAddress string, _ ChatSetting, hidden bool) error {
 	f.calls = append(f.calls, accountJID+":"+chatAddress+":"+map[bool]string{true: "hidden", false: "shown"}[hidden])
 	return f.err
 }

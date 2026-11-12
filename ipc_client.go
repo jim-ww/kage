@@ -181,18 +181,8 @@ func (c *ipcClient) ResubscribeContact(accountIdx int, address string) tea.Msg {
 	return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
 }
 
-func (c *ipcClient) SetChatHidden(accountJID, chatAddress string, hidden bool) error {
-	_, err := do(c.conn, setChatHiddenReq{AccountJID: accountJID, ChatAddress: chatAddress, Hidden: hidden})
-	return err
-}
-
-func (c *ipcClient) SetChatMuted(accountJID, chatAddress string, muted bool) error {
-	_, err := do(c.conn, setChatMutedReq{AccountJID: accountJID, ChatAddress: chatAddress, Muted: muted})
-	return err
-}
-
-func (c *ipcClient) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
-	_, err := do(c.conn, setChatPinnedReq{AccountJID: accountJID, ChatAddress: chatAddress, Pinned: pinned})
+func (c *ipcClient) SetChatFlag(accountJID, chatAddress string, flag ui.ChatSetting, on bool) error {
+	_, err := do(c.conn, setChatFlagReq{AccountJID: accountJID, ChatAddress: chatAddress, Flag: flag, On: on})
 	return err
 }
 

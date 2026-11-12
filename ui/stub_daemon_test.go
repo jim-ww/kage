@@ -22,9 +22,7 @@ func (stubDaemon) RenameContact(int, string, string) error                     {
 func (stubDaemon) AddContact(int, string) tea.Msg                              { return nil }
 func (stubDaemon) RemoveContact(int, string) tea.Msg                           { return nil }
 func (stubDaemon) ResubscribeContact(int, string) tea.Msg                      { return nil }
-func (stubDaemon) SetChatHidden(string, string, bool) error                    { return nil }
-func (stubDaemon) SetChatMuted(string, string, bool) error                     { return nil }
-func (stubDaemon) SetChatPinned(string, string, bool) error                    { return nil }
+func (stubDaemon) SetChatFlag(string, string, ChatSetting, bool) error         { return nil }
 func (stubDaemon) SetChatEncryption(int, string, string) error                 { return nil }
 func (stubDaemon) ResetChatUnread(string, string) error                        { return nil }
 func (stubDaemon) ChatUnreadCounts(string) (map[string]int, error)             { return nil, nil }

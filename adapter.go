@@ -328,49 +328,34 @@ func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySea
 	return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Messages: msgs, Matches: matches}, nil
 }
 
-func (a *adapter) SetChatHidden(accountJID, chatAddress string, hidden bool) error {
-	if err := config.SetChatHidden(a.cfgPath, accountJID, chatAddress, hidden); err != nil {
+// SetChatFlag saves one of a chat's local flags and applies it right away.
+func (a *adapter) SetChatFlag(accountJID, chatAddress string, flag ui.ChatSetting, on bool) error {
+	flags, ok := chatFlagSets[flag]
+	if !ok {
+		return fmt.Errorf("unknown chat flag %q", flag)
+	}
+	if err := config.SetChatFlag(a.cfgPath, accountJID, chatAddress, flag, on); err != nil {
 		return err
 	}
 	// Also in memory, so an account that reconnects before the daemon
-	// restarts rebuilds its chat list with the same chats hidden.
-	hiddenChats.flag(accountJID, chatAddress, hidden)
-	// Re-evaluate the tray dot: a chat being hidden stops feeding it (see
-	// badgeable), and one being unhidden starts again with whatever count
-	// storage held all along.
-	count := 0
-	if !hidden {
-		if n, err := a.queries.GetChatUnread(context.Background(), storage.GetChatUnreadParams{
-			AccountJid: accountJID,
-			RosterJid:  chatAddress,
-		}); err == nil {
-			count = int(n)
+	// restarts rebuilds its chat list the same.
+	flags.flag(accountJID, chatAddress, on)
+	if flag == ui.ChatHidden {
+		// Re-evaluate the tray dot: a hidden chat stops feeding it (see
+		// badgeable), an unhidden one starts again with whatever count
+		// storage held all along.
+		count := 0
+		if !on {
+			if n, err := a.queries.GetChatUnread(context.Background(), storage.GetChatUnreadParams{
+				AccountJid: accountJID,
+				RosterJid:  chatAddress,
+			}); err == nil {
+				count = int(n)
+			}
 		}
+		unreadBadge.set(accountJID, chatAddress, count)
 	}
-	unreadBadge.set(accountJID, chatAddress, count)
-	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "hidden", On: hidden})
-	return nil
-}
-
-// SetChatPinned persists whether a chat is
-// pinned to the top of the chat list.
-func (a *adapter) SetChatPinned(accountJID, chatAddress string, pinned bool) error {
-	if err := config.SetChatPinned(a.cfgPath, accountJID, chatAddress, pinned); err != nil {
-		return err
-	}
-	pinnedChats.flag(accountJID, chatAddress, pinned)
-	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "pinned", On: pinned})
-	return nil
-}
-
-// SetChatMuted persists whether a chat's
-// messages raise desktop notifications, and applies it right away.
-func (a *adapter) SetChatMuted(accountJID, chatAddress string, muted bool) error {
-	if err := config.SetChatMuted(a.cfgPath, accountJID, chatAddress, muted); err != nil {
-		return err
-	}
-	mutedChats.flag(accountJID, chatAddress, muted)
-	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "muted", On: muted})
+	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: flag, On: on})
 	return nil
 }
 
@@ -969,7 +954,7 @@ func (a *adapter) SetChatEncryption(accountIdx int, peerJID, mode string) error 
 	}); err != nil {
 		return err
 	}
-	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: s.account.JID, ChatAddress: peerJID, Setting: "encryption", Mode: mode})
+	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: s.account.JID, ChatAddress: peerJID, Setting: ui.ChatEncryption, Mode: mode})
 	return nil
 }
 

@@ -49,7 +49,7 @@ func TestConcurrentWritesAcrossFields(t *testing.T) {
 		func() error {
 			return SaveState(path, ui.LastChat{AccountJID: "alice@localhost", ChatAddress: "bob@localhost"})
 		},
-		func() error { return SetChatPinned(path, "alice@localhost", "carol@localhost", true) },
+		func() error { return SetChatFlag(path, "alice@localhost", "carol@localhost", ui.ChatPinned, true) },
 		func() error { return WriteAccount(path, Account{JID: "alice@localhost"}) },
 	}
 	for _, edit := range edits {
