@@ -251,6 +251,20 @@ func (c Config) LastChatAccountIndex() int {
 	return 0
 }
 
+// File is name's path in kage's own directory under the user config dir,
+// created if need be - the database, socket, lock and logs all live there.
+func File(name string) (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	dir = filepath.Join(dir, "kage")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name), nil
+}
+
 func candidatePaths() []string {
 	paths := make([]string, 0, 3)
 	if env := strings.TrimSpace(os.Getenv("KAGE_CONFIG")); env != "" {

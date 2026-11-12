@@ -5,24 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"time"
 )
-
-// SocketPath returns the Unix domain socket path the daemon listens on and
-// clients dial — alongside daemon's existing lock file, in the same
-// per-user config directory.
-func SocketPath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	dir = filepath.Join(dir, "kage")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "kage.sock"), nil
-}
 
 // Listen opens the daemon's socket at path, removing a stale socket file left
 // behind by a previous, no-longer-running daemon. A "stale" socket is one

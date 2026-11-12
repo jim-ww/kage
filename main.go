@@ -51,17 +51,11 @@ func setupLog(debug bool) {
 		level = slog.LevelDebug
 	}
 
-	dir, err := os.UserConfigDir()
+	path, err := config.File("debug.log")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: determining config dir for log file: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: finding the log file: %v\n", err)
 		return
 	}
-	dir = filepath.Join(dir, "kage")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: creating %s: %v\n", dir, err)
-		return
-	}
-	path := filepath.Join(dir, "debug.log")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: opening %s: %v\n", path, err)
@@ -196,7 +190,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		historyPageSize = cfg.HistoryPageSize
 	}
 
-	sockPath, err := ipc.SocketPath()
+	sockPath, err := config.File("kage.sock")
 	if err != nil {
 		return err
 	}
@@ -418,20 +412,6 @@ func loadLocalKey(cfg config.StorageConfig, useKeyring bool, queries *storage.Qu
 	}
 
 	return localstore.DeriveKey(password, salt), nil
-}
-
-// dataFilePath returns the single database file every configured account's
-// data lives in, distinguished by an accountJID column on each table.
-func dataFilePath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	dir = filepath.Join(dir, "kage")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "kage.db"), nil
 }
 
 // loadLocalAvatars seeds the avatar store from disk at startup, from two

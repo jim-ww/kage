@@ -286,7 +286,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 		slog.Debug("background: ensureGPGKeys done", "elapsed", time.Since(start))
 	}
 
-	dbPath, err := dataFilePath()
+	dbPath, err := config.File("kage.db")
 	if err != nil {
 		slog.Error("background: resolving db path", "err", err)
 		return
@@ -335,7 +335,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 	}
 	ds := &daemonServer{a: a, srv: srv}
 
-	sockPath, err := ipc.SocketPath()
+	sockPath, err := config.File("kage.sock")
 	if err != nil {
 		slog.Error("background: resolving socket path", "err", err)
 		dbConn.Close()

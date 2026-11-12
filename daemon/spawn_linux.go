@@ -15,12 +15,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
 )
 
@@ -29,38 +29,6 @@ import (
 // doesn't send it a signal along the way.
 func detachedSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
-}
-
-// lockFilePath returns the flock-guarded file that marks "a daemon is
-// running for this user" — same directory kage's own data/debug files live
-// in, so it survives XDG_RUNTIME_DIR getting cleared between logins the
-// same way the rest of kage's state does.
-func lockFilePath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	dir = filepath.Join(dir, "kage")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "daemon.lock"), nil
-}
-
-// logFilePath returns the daemon's stdio-redirect log destination, the same
-// debug.log file main.go's setupLog wires slog to — so daemon stdout/stderr
-// (panics, third-party library output, anything not going through slog) ends
-// up interleaved with the daemon's own slog lines in one file.
-func logFilePath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	dir = filepath.Join(dir, "kage")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "debug.log"), nil
 }
 
 // acquireLock takes a non-blocking exclusive flock on path. ok is false
@@ -84,7 +52,7 @@ func acquireLock(path string) (f *os.File, ok bool, err error) {
 // see daemon_linux.go's sighup handling. A no-op (nil error) if no daemon
 // is running, or its recorded PID is stale.
 func SignalReload() error {
-	lockPath, err := lockFilePath()
+	lockPath, err := config.File("daemon.lock")
 	if err != nil {
 		return err
 	}
@@ -126,7 +94,7 @@ func probeSocket(sockPath string) bool {
 // Best-effort: any failure here is logged by the caller, never fatal to
 // starting the TUI.
 func EnsureRunning(cfgPath string, debug bool, debugXML bool) error {
-	sockPath, err := ipc.SocketPath()
+	sockPath, err := config.File("kage.sock")
 	if err != nil {
 		return fmt.Errorf("locating kage service socket: %w", err)
 	}
@@ -139,7 +107,7 @@ func EnsureRunning(cfgPath string, debug bool, debugXML bool) error {
 		return fmt.Errorf("locating kage binary: %w", err)
 	}
 
-	logPath, err := logFilePath()
+	logPath, err := config.File("debug.log")
 	if err != nil {
 		return fmt.Errorf("locating log file: %w", err)
 	}
@@ -195,7 +163,7 @@ func EnsureRunning(cfgPath string, debug bool, debugXML bool) error {
 // stalePID reads the PID the (possibly stale) lock file's holder recorded
 // when it started, for EnsureRunning's error message.
 func stalePID() (int, bool) {
-	lockPath, err := lockFilePath()
+	lockPath, err := config.File("daemon.lock")
 	if err != nil {
 		return 0, false
 	}
@@ -214,7 +182,7 @@ func stalePID() (int, bool) {
 // on the ipc socket, and its PID if the lock file names one (which may be
 // stale if the process died without releasing its flock).
 func Status() (running bool, pid int) {
-	sockPath, err := ipc.SocketPath()
+	sockPath, err := config.File("kage.sock")
 	if err != nil {
 		return false, 0
 	}
@@ -240,7 +208,7 @@ func Stop() (ok bool, err error) {
 		return false, err
 	}
 
-	sockPath, err := ipc.SocketPath()
+	sockPath, err := config.File("kage.sock")
 	if err != nil {
 		return true, nil
 	}

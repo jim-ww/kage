@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/daemon"
@@ -95,17 +94,11 @@ func setupXMLLog(debugXML bool) {
 	if !debugXML {
 		return
 	}
-	dir, err := os.UserConfigDir()
+	path, err := config.File("xml.log")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: determining config dir for xml log: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: finding the xml log: %v\n", err)
 		return
 	}
-	dir = filepath.Join(dir, "kage")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: creating %s: %v\n", dir, err)
-		return
-	}
-	path := filepath.Join(dir, "xml.log")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: opening %s: %v\n", path, err)

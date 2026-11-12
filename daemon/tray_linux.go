@@ -34,7 +34,7 @@ type Backend interface {
 // another instance already holds the lock, so callers can always invoke
 // this unconditionally in --background mode.
 func Run(cfg config.Config, backend Backend) error {
-	lockPath, err := lockFilePath()
+	lockPath, err := config.File("daemon.lock")
 	if err != nil {
 		return err
 	}

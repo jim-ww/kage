@@ -421,7 +421,7 @@ func openStorageForCLI(cfgPath string) (cfg config.Config, queries *storage.Quer
 	if err != nil {
 		return config.Config{}, nil, nil, nil, err
 	}
-	dbPath, err := dataFilePath()
+	dbPath, err := config.File("kage.db")
 	if err != nil {
 		return config.Config{}, nil, nil, nil, err
 	}
