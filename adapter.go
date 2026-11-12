@@ -987,16 +987,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 					})
 				}
 			default:
-				encrypted, method := false, ""
-				switch mode := resolveEncryptionMode(ctx, s, q.to); mode {
-				case "gpg":
-					encrypted, method = true, "gpg"
-				case "omemo-v1", "omemo-v2":
-					encrypted, method = true, mode
-				case "none", "":
-				default:
-					encrypted, method = true, "omemo"
-				}
+				encrypted, method := modeEncryption(resolveEncryptionMode(ctx, s, q.to))
 				if q.opts.LocalID != "" {
 					broadcast(a.srv, ui.MessageSendResolvedMsg{
 						AccountIdx: s.accountIdx,
@@ -1072,16 +1063,7 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 			// ID/Encrypted/EncMethod/Content/Attachments need to catch up now
 			// that the real URL is known.
 			if q.opts.LocalID != "" {
-				encrypted, method := false, ""
-				switch mode := resolveEncryptionMode(ctx, s, q.to); mode {
-				case "gpg":
-					encrypted, method = true, "gpg"
-				case "omemo-v1", "omemo-v2":
-					encrypted, method = true, mode
-				case "none", "":
-				default:
-					encrypted, method = true, "omemo"
-				}
+				encrypted, method := modeEncryption(resolveEncryptionMode(ctx, s, q.to))
 				broadcast(a.srv, ui.MessageSendResolvedMsg{
 					AccountIdx: s.accountIdx, To: q.to, LocalID: q.opts.LocalID,
 					ID: id, Encrypted: encrypted, EncMethod: method,
@@ -1090,6 +1072,18 @@ func (a *adapter) flushOutbox(ctx context.Context, s *accountSession) {
 			}
 		}
 	}
+}
+
+// modeEncryption is whether a message sent under encryption mode is
+// end-to-end encrypted, and how.
+func modeEncryption(mode string) (encrypted bool, method string) {
+	switch mode {
+	case "none", "":
+		return false, ""
+	case "gpg", "omemo-v1", "omemo-v2":
+		return true, mode
+	}
+	return true, "omemo"
 }
 
 // send is the context-aware implementation behind Send. File uploads use it
