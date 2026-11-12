@@ -208,6 +208,10 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 	slog.Debug("runTUI: ipc.Dial done", "elapsed", time.Since(start))
 	client.conn = conn
 	defer conn.Close()
+	versionNotice, err := checkDaemonVersion(conn)
+	if err != nil {
+		return err
+	}
 	quitting := make(chan struct{})
 	defer close(quitting)
 
@@ -316,6 +320,9 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 			StartAccount: startAccountIdx,
 			CallState:    initialCallState,
 		})
+		if versionNotice != "" {
+			p.Send(ui.NoticeMsg{Text: versionNotice})
+		}
 	}()
 	slog.Debug("runTUI: ready to start bubbletea program", "elapsed", time.Since(launchStart))
 
@@ -327,7 +334,11 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		select {
 		case <-conn.Done():
 			slog.Warn("runTUI: ipc connection to daemon closed (read error/EOF); quitting")
-			fmt.Fprintln(os.Stderr, "kage's background service disconnected; please restart kage")
+			if versionNotice != "" {
+				fmt.Fprintln(os.Stderr, "kage's background service, a different version, disconnected; "+daemonRestartHint)
+			} else {
+				fmt.Fprintln(os.Stderr, "kage's background service disconnected; please restart kage")
+			}
 			p.Send(tea.Quit())
 		case <-quitting:
 		}
@@ -341,6 +352,39 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		fm.FlushDraft()
 	}
 	return err
+}
+
+// versionCheckTimeout bounds waiting for a daemon that can't answer
+// checkDaemonVersion: one speaking an older protocol may never reply.
+var versionCheckTimeout = 3 * time.Second
+
+// daemonRestartHint tells the user how to get a daemon of this build.
+const daemonRestartHint = "restart it with: kage daemon stop"
+
+// checkDaemonVersion asks the daemon which build it is, returning a notice
+// for the user if it isn't this one. A daemon that can't answer at all is an
+// error: it doesn't speak this build's protocol, so nothing would work.
+func checkDaemonVersion(conn *ipc.Conn) (notice string, err error) {
+	reply := make(chan buildVersion, 1)
+	go func() {
+		if v, err := do(conn, versionReq{}); err == nil {
+			reply <- v
+		}
+		close(reply)
+	}()
+	select {
+	case v, ok := <-reply:
+		if !ok {
+			break
+		}
+		if v == thisBuild {
+			return "", nil
+		}
+		slog.Warn("daemon is a different build", "daemon", v, "tui", thisBuild)
+		return fmt.Sprintf("daemon is %s, this is %s - restart it: kage daemon stop", v, thisBuild), nil
+	case <-time.After(versionCheckTimeout):
+	}
+	return "", fmt.Errorf("the background service doesn't understand this version - %s", daemonRestartHint)
 }
 
 // loadLocalKey resolves the local storage password (config.ResolveStoragePassword:

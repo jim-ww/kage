@@ -1,13 +1,18 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/gob"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 
 	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/ui"
+	"github.com/jim-ww/kage/version"
 )
 
 // request is one call the TUI makes to the daemon, answered with an R. Each
@@ -28,11 +33,15 @@ func (e wireError) Error() string { return string(e) }
 // handlers maps each call's type to its daemon side.
 var handlers = map[reflect.Type]func(d *daemonServer, client ipc.ClientID, c any) (any, error){}
 
+// wireTypes is every type that crosses the socket, for protocolHash.
+var wireTypes []reflect.Type
+
 // handle registers c's type as a request and its reply type for gob.
 func handle[R any](c request[R]) {
 	var r R
 	gob.Register(c)
 	gob.Register(r)
+	wireTypes = append(wireTypes, reflect.TypeOf(c), reflect.TypeOf(&r).Elem())
 	handlers[reflect.TypeOf(c)] = func(d *daemonServer, client ipc.ClientID, c any) (any, error) {
 		return c.(request[R]).run(d, client)
 	}
@@ -77,8 +86,10 @@ func init() {
 	for _, ev := range events {
 		gob.Register(ev)
 		isEvent[reflect.TypeOf(ev)] = true
+		wireTypes = append(wireTypes, reflect.TypeOf(ev))
 	}
 
+	handle(versionReq{})
 	handle(sendReq{})
 	handle(markRetractedReq{})
 	handle(deleteQueuedReq{})
@@ -129,6 +140,73 @@ func init() {
 	handle(setDesktopAudioVolumeReq{})
 	handle(listAudioDevicesReq{})
 	handle(setAudioDeviceReq{})
+
+	thisBuild = buildVersion{Version: version.Version, Protocol: protocolHash()}
+}
+
+// ── Version ─────────────────────────────────────────────────────────────
+
+// versionReq asks the daemon which build it is, so a TUI talking to a
+// different one can say so. Never rename it or change its reply: an older
+// or newer daemon must still understand it.
+type versionReq struct{}
+
+// buildVersion identifies a build: its release, and a hash of every type
+// that crosses the socket, which tells apart two "dev" builds that would
+// misunderstand each other.
+type buildVersion struct {
+	Version  string
+	Protocol string
+}
+
+var thisBuild buildVersion
+
+func (versionReq) run(*daemonServer, ipc.ClientID) (buildVersion, error) {
+	return thisBuild, nil
+}
+
+func (v buildVersion) String() string { return v.Version + "/" + v.Protocol }
+
+// protocolHash hashes the shape (gob-visible fields, recursively) of every
+// wire type.
+func protocolHash() string {
+	descs := make([]string, len(wireTypes))
+	for i, t := range wireTypes {
+		descs[i] = describeType(t, map[reflect.Type]bool{})
+	}
+	slices.Sort(descs)
+	sum := sha256.Sum256([]byte(strings.Join(descs, "\n")))
+	return hex.EncodeToString(sum[:6])
+}
+
+var gobEncoder = reflect.TypeFor[gob.GobEncoder]()
+
+func describeType(t reflect.Type, seen map[reflect.Type]bool) string {
+	if t.Implements(gobEncoder) || reflect.PointerTo(t).Implements(gobEncoder) {
+		return t.String()
+	}
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		return t.Kind().String() + "(" + describeType(t.Elem(), seen) + ")"
+	case reflect.Map:
+		return "map(" + describeType(t.Key(), seen) + "," + describeType(t.Elem(), seen) + ")"
+	case reflect.Struct:
+		if seen[t] {
+			return t.String()
+		}
+		seen[t] = true
+		var b strings.Builder
+		b.WriteString(t.String() + "{")
+		for f := range t.Fields() {
+			if !f.IsExported() || f.Type.Kind() == reflect.Func || f.Type.Kind() == reflect.Chan {
+				continue
+			}
+			b.WriteString(f.Name + " " + describeType(f.Type, seen) + ";")
+		}
+		b.WriteString("}")
+		return b.String()
+	}
+	return t.String()
 }
 
 // ── Messages ────────────────────────────────────────────────────────────

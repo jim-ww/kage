@@ -627,6 +627,11 @@ type AccountRemoveErrorMsg struct {
 	Err   error
 }
 
+// NoticeMsg shows Text in the notice line, like the UI's own notices.
+type NoticeMsg struct {
+	Text string
+}
+
 // AccountsSnapshotMsg delivers the daemon's initial account snapshot after
 // the program is already running.
 //

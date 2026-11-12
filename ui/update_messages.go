@@ -936,6 +936,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, cmd, true
 
+	case NoticeMsg:
+		return m, m.showNotification(msg.Text), true
+
 	case AccountsSnapshotMsg:
 		if msg.Err != "" {
 			return m, m.showNotification("loading accounts: " + msg.Err), true
