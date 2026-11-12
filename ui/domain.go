@@ -478,18 +478,6 @@ const (
 	viewChat // viewport + input
 )
 
-type confirmTarget int
-
-const (
-	confirmNone confirmTarget = iota
-	confirmDeleteMessage
-	confirmPurgeMessage
-	confirmHideChat
-	confirmRemoveAccount
-	confirmQuit
-	confirmDisableStorageEncryption
-)
-
 // SendOptions carries optional wire metadata for MessageSender.Send — kept as
 // plain fields here (rather than importing the xmpp package's own type) so
 // ui stays decoupled from the network layer; the adapter implementing

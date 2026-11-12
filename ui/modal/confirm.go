@@ -13,6 +13,10 @@ type Confirm struct {
 	Detail string
 	Yes    key.Binding
 	No     key.Binding
+	// Match decides whether a key press is a binding's (key.Matches if
+	// nil) - for an embedder matching keys its own way, by physical key
+	// position, say.
+	Match func(tea.KeyMsg, key.Binding) bool
 
 	width int
 }
@@ -28,10 +32,14 @@ func NewConfirm(detail string) *Confirm {
 
 func (c *Confirm) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
+		match := c.Match
+		if match == nil {
+			match = func(k tea.KeyMsg, b key.Binding) bool { return key.Matches(k, b) }
+		}
 		switch {
-		case key.Matches(k, c.Yes):
+		case match(k, c.Yes):
 			return nil, Submit(true)
-		case key.Matches(k, c.No):
+		case match(k, c.No):
 			return nil, Cancel()
 		}
 	}

@@ -342,10 +342,10 @@ func (m Model) renderChatArea(colors uiColors) string {
 	// ── Viewport / popup ───────────────────────────────────────────────────
 	var viewportArea string
 	switch {
+	case m.modals.Open():
+		viewportArea = m.modals.View()
 	case m.contextMenu != nil:
 		viewportArea = m.renderContextMenuPopup()
-	case m.confirmTarget != confirmNone:
-		viewportArea = m.renderDeletePopup()
 	case m.showMsgInfo:
 		viewportArea = m.renderInfoPopup()
 	case m.showHelp:
@@ -362,10 +362,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.renderChangePasswordPopup()
 	case m.addingAccount:
 		viewportArea = m.renderAddAccountPopup()
-	case m.renamingChat:
-		viewportArea = m.renderRenameChatPopup()
-	case m.searchingChat:
-		viewportArea = m.renderSearchChatPopup()
 	case m.searchResults != nil:
 		viewportArea = m.renderSearchResultsPopup()
 	case m.savingAs:
@@ -692,59 +688,6 @@ func (m Model) deletePromptWidth() int {
 	return min(max(1, m.chatAreaWidth()-10), 50)
 }
 
-// renderDeletePopup renders a centered confirmation dialog inside the viewport
-// area instead of overlaying raw ANSI (simpler and more portable).
-func (m Model) renderDeletePopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.deletePrompt(m.deletePromptWidth()))
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-func (m Model) deletePrompt(width int) string {
-	switch m.confirmTarget {
-	case confirmQuit:
-		return m.styles.deletePrompt(width, "Quit kage?", "", m.confirmButtons())
-	case confirmHideChat:
-		detail := ""
-		if chat, ok := m.currentChat(); ok {
-			detail = chat.Name
-			if chat.Address != "" {
-				detail = fmt.Sprintf("%s <%s>", chat.Name, chat.Address)
-			}
-		}
-		return m.styles.deletePrompt(width, "Hide chat?", detail+"\nNothing is deleted — unhide it from the contact manager.", m.confirmButtons())
-	case confirmRemoveAccount:
-		detail := ""
-		if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
-			detail = m.accounts[m.currentAccount].DisplayName()
-		}
-		return m.styles.deletePrompt(width, "Remove account?", detail+" — disconnects and drops it from config; local history is kept", m.confirmButtons())
-	case confirmPurgeMessage:
-		detail := ""
-		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
-			msg := msgs[m.selectedMsg]
-			// The hidden original, not MessagePreviewContent's "message
-			// deleted" - truncated to previewLen like every other preview.
-			detail = fmt.Sprintf("%s: %s\n", msg.Author, previewText(messagePreviewBody(msg), previewLen))
-		}
-		return m.styles.deletePrompt(width, "Erase this message for good?",
-			detail+"Wipes the original from local storage. Can't be undone; the peer's copy stays.", m.confirmButtons())
-	case confirmDisableStorageEncryption:
-		return m.styles.deletePrompt(width, "Disable local storage encryption?",
-			"Every stored message and draft will be rewritten to disk in plain text.", m.confirmButtons())
-	default:
-		detail := ""
-		if msgs := m.currentMessages(); m.selectedMsg >= 0 && m.selectedMsg < len(msgs) {
-			msg := msgs[m.selectedMsg]
-			detail = fmt.Sprintf("%s: %s", msg.Author, previewText(MessagePreviewContent(msg), previewLen))
-		}
-		return m.styles.deletePrompt(width, "Delete message?", detail, m.confirmButtons())
-	}
-}
-
 // renderInfoPopup shows metadata about the currently selected message.
 func (m Model) renderInfoPopup() string {
 	cw := m.chatAreaWidth()
@@ -1036,18 +979,6 @@ func (m Model) renderChangePasswordPopup() string {
 
 	footer := "[tab] next field · [enter] change · [esc] cancel"
 	body := m.styles.listPopup("Change storage password", rows, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-// renderRenameChatPopup shows the single-field rename-contact prompt.
-func (m Model) renderRenameChatPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	footer := "[enter] save · [esc] cancel"
-	body := m.styles.listPopup("Rename chat", []string{m.popupInputView(m.renameInput)}, footer)
 	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
 
 	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)

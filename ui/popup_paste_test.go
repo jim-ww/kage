@@ -46,7 +46,7 @@ func TestPasteDoesNotLeakBehindPopups(t *testing.T) {
 	for name, open := range map[string]func(*Model){
 		"help":         func(m *Model) { m.showHelp = true },
 		"message info": func(m *Model) { m.showMsgInfo = true },
-		"confirm":      func(m *Model) { m.confirmTarget = confirmQuit },
+		"confirm":      func(m *Model) { m.confirm("Quit kage?", "", func(*Model) tea.Cmd { return tea.Quit }) },
 		"context menu": func(m *Model) {
 			m.openContextMenu("x", []contextMenuItem{{label: "a", run: func(*Model) tea.Cmd { return nil }}})
 		},
@@ -65,14 +65,14 @@ func TestPasteDoesNotLeakBehindPopups(t *testing.T) {
 func TestPasteIntoPromptInputs(t *testing.T) {
 	m := pasteTestModel(t)
 	m.actionRenameChat()
-	if m = paste(m, "Bobby"); m.renameInput.Value() != "Bobby" {
-		t.Errorf("rename: %q", m.renameInput.Value())
+	if m = paste(m, "Bobby"); modalInput(t, m).Model.Value() != "Bobby" {
+		t.Errorf("rename: %q", modalInput(t, m).Model.Value())
 	}
 
 	m = pasteTestModel(t)
 	m.actionSearchChat()
-	if m = paste(m, "needle"); m.searchInput.Value() != "needle" {
-		t.Errorf("search: %q", m.searchInput.Value())
+	if m = paste(m, "needle"); modalInput(t, m).Model.Value() != "needle" {
+		t.Errorf("search: %q", modalInput(t, m).Model.Value())
 	}
 
 	m = pasteTestModel(t)

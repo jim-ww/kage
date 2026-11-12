@@ -35,9 +35,6 @@ const (
 	zoneEmojiPickerPopup      = "emoji-picker-popup"
 	zoneDeviceListPopup       = "device-list-popup"
 	zoneSearchResultsPopup    = "search-results-popup"
-	zoneSearchChatPopup       = "search-chat-popup"
-	zoneSearchTabText         = "search-tab-text"
-	zoneSearchTabDate         = "search-tab-date"
 	zoneCallAnswer            = "call-answer-button"
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
@@ -330,10 +327,6 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 		m.filePicker.SelectRow(row)
 		return m, nil
-	}
-
-	if m.searchingChat {
-		return m.handleSearchChatMouse(msg)
 	}
 
 	if m.emojiPicker != nil {
@@ -683,10 +676,6 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.searchingChat {
-		return m.handleSearchChatMouse(msg)
-	}
-
 	if m.emojiPicker != nil {
 		return m.handleEmojiPickerClick(msg)
 	}
@@ -754,19 +743,9 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 }
 
 // confirmActions returns what the yes/no confirmation on screen does on
-// accept and on cancel, if one is: the main one (confirmTarget), or the
-// contact manager's or device list's own.
+// accept and on cancel, if one is: the contact manager's or device list's.
 func (m Model) confirmActions() (accept, cancel func(*Model) tea.Cmd, ok bool) {
 	switch {
-	case m.confirmTarget != confirmNone:
-		return func(m *Model) tea.Cmd {
-				next, cmd := m.acceptConfirm()
-				*m = next
-				return cmd
-			}, func(m *Model) tea.Cmd {
-				m.confirmTarget = confirmNone
-				return nil
-			}, true
 	case m.contactManagerState != nil && m.contactManagerState.pendingRemove != "" && !m.contactManagerState.busy:
 		return (*Model).acceptContactRemove, func(m *Model) tea.Cmd {
 			m.contactManagerState.pendingRemove = ""
@@ -1275,10 +1254,6 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 	if m.avatarPreview != nil {
 		return m, nil
-	}
-
-	if m.searchingChat {
-		return m.handleSearchChatMouse(msg)
 	}
 
 	if m.pickingFile {

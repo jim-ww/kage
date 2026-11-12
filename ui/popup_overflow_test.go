@@ -29,11 +29,15 @@ func TestPopupsFitChatArea(t *testing.T) {
 		},
 		"rename chat": func(m *Model) string {
 			m.actionRenameChat()
-			return m.renderRenameChatPopup()
+			return m.modals.View()
 		},
 		"search chat": func(m *Model) string {
 			m.actionSearchChat()
-			return m.renderSearchChatPopup()
+			return m.modals.View()
+		},
+		"confirm": func(m *Model) string {
+			m.actionHideChat()
+			return m.modals.View()
 		},
 	}
 

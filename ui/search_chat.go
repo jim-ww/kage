@@ -13,18 +13,6 @@ import (
 	"github.com/jim-ww/kage/ui/datepicker"
 )
 
-// searchTab is a tab of the search popup.
-type searchTab int
-
-const (
-	searchTabText searchTab = iota // a text query over the whole history
-	searchTabDate                  // a calendar: jump to the start of a day
-)
-
-// searchDateID names the search popup's calendar, for its zones and the
-// datepicker.PickedMsg it sends.
-const searchDateID = "search-date"
-
 // dateJump is a jump to the start of day in one chat, waiting on the
 // history window jumpToDate asked for.
 type dateJump struct {
@@ -33,116 +21,13 @@ type dateJump struct {
 	day         time.Time
 }
 
-// newSearchDatePicker builds the date tab's calendar on today. Future days
-// are disabled: there's nothing there to jump to.
-func (m Model) newSearchDatePicker() *datepicker.Model {
+// newSearchDatePicker is the search's go-to-date calendar, on today.
+// Future days are disabled: there's nothing there to jump to.
+func (m Model) newSearchDatePicker() datepicker.Model {
 	p := datepicker.New(time.Now())
 	p.Max = time.Now()
-	p.ID = searchDateID
-	if m.mouseEnabled {
-		p.Zone = m.zone
-	}
 	applyDatePickerStyles(&p, m.styles.colors)
-	return &p
-}
-
-// setSearchTab shows tab t of the search popup, the text field focused only
-// while its tab is showing.
-func (m *Model) setSearchTab(t searchTab) {
-	m.searchTab = t
-	if t == searchTabText {
-		m.searchInput.Focus()
-	} else {
-		m.searchInput.Blur()
-	}
-}
-
-// renderSearchChatPopup shows the search popup: a tab row - a text query,
-// submitted (enter) to search the chat's entire persisted history (see
-// submitSearchChat), or a calendar that jumps the chat to the start of the
-// picked day (see jumpToDate). Both tabs are the calendar's height, so
-// switching between them never moves the popup.
-func (m Model) renderSearchChatPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	// The same width on both tabs too, so the tabs stay put under the
-	// pointer.
-	width := max(datepicker.Width, min(m.popupWidth()-popupChromeWidth, searchPopupContentWidth))
-	var rows []string
-	var footer string
-	if m.searchTab == searchTabDate {
-		for _, line := range strings.Split(m.searchDate.View(), "\n") {
-			rows = append(rows, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
-		}
-		footer = "[tab] text · [enter] go · [pgup/pgdn] month · [t] today · [esc] cancel"
-	} else {
-		rows = append(rows, padLinesToWidth(m.popupInputView(m.searchInput), width))
-		for len(rows) < datepicker.Height {
-			rows = append(rows, "")
-		}
-		footer = "[tab] date · [enter] search · [esc] cancel"
-	}
-	footer = ansi.Truncate(footer, max(1, width-2), "…")
-	body := m.styles.listPopup(m.searchTabsRow(), rows, footer)
-	popup := m.zone.Mark(zoneSearchChatPopup, m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body))
-
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-// searchPopupContentWidth caps the search popup's content width: room for
-// a query and the date tab's key hints, no wider.
-const searchPopupContentWidth = 72
-
-// searchTabsRow is the popup's title row: its two tabs, the showing one
-// highlighted, each clickable.
-func (m Model) searchTabsRow() string {
-	tab := func(id, label string, active bool) string {
-		style := lipgloss.NewStyle().Foreground(m.styles.colors.time)
-		switch {
-		case active:
-			style = lipgloss.NewStyle().Foreground(m.styles.colors.borderA).Bold(true).Underline(true)
-		case m.isHovered(id):
-			style = style.Foreground(m.styles.colors.accentCyan).Background(m.styles.colors.rowHoverBg)
-		}
-		return m.zone.Mark(id, style.Render(label))
-	}
-	return tab(zoneSearchTabText, "Search text", m.searchTab == searchTabText) + "   " +
-		tab(zoneSearchTabDate, "Go to date", m.searchTab == searchTabDate)
-}
-
-// handleSearchChatMouse handles the mouse while the search popup is open:
-// the tabs hover and switch, the calendar gets everything over it, and a
-// click outside the popup closes it.
-func (m Model) handleSearchChatMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	tabUnder := ""
-	for _, id := range []string{zoneSearchTabText, zoneSearchTabDate} {
-		if m.zone.Get(id).InBounds(msg) {
-			tabUnder = id
-		}
-	}
-	if _, ok := msg.(tea.MouseMotionMsg); ok {
-		m.hover.id = tabUnder
-	}
-	if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft {
-		switch {
-		case tabUnder == zoneSearchTabText:
-			m.setSearchTab(searchTabText)
-			return m, nil
-		case tabUnder == zoneSearchTabDate:
-			m.setSearchTab(searchTabDate)
-			return m, nil
-		case !m.zone.Get(zoneSearchChatPopup).InBounds(msg):
-			m.searchingChat = false
-			return m, nil
-		}
-	}
-	if m.searchTab != searchTabDate {
-		return m, nil
-	}
-	var cmd tea.Cmd
-	*m.searchDate, cmd = m.searchDate.Update(msg)
-	return m, cmd
+	return p
 }
 
 // jumpToDate loads the current chat's history from the start of day on and

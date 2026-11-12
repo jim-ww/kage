@@ -16,8 +16,8 @@ func TestQuitAsksForConfirmation(t *testing.T) {
 
 	next, cmd := m.Update(keyText("q"))
 	nm := next.(Model)
-	if nm.confirmTarget != confirmQuit {
-		t.Fatalf("confirmTarget = %v, want confirmQuit", nm.confirmTarget)
+	if modalTitle(nm) != "Quit kage?" {
+		t.Fatalf("q opened %q, want the quit confirmation", modalTitle(nm))
 	}
 	if msg := nonIdleCmd(cmd); msg != nil {
 		t.Fatalf("expected no cmd while opening the quit popup, got %T", msg)
@@ -26,8 +26,8 @@ func TestQuitAsksForConfirmation(t *testing.T) {
 	// 'n' dismisses without quitting.
 	next, cmd = nm.Update(keyText("n"))
 	nm = next.(Model)
-	if nm.confirmTarget != confirmNone {
-		t.Fatalf("confirmTarget = %v after 'n', want confirmNone", nm.confirmTarget)
+	if nm.modals.Open() {
+		t.Fatal("the quit confirmation stayed open after 'n'")
 	}
 	if msg := nonIdleCmd(cmd); msg != nil {
 		t.Fatalf("expected no cmd after cancelling quit, got %T", msg)

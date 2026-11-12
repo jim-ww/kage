@@ -55,14 +55,14 @@ func TestSearchChatOpensOnAllCtrlSlashVariants(t *testing.T) {
 
 		next, _ := m.Update(open)
 		nm := next.(Model)
-		if !nm.searchingChat {
-			t.Fatalf("%q: searchingChat = false after pressing it, want true", open.String())
+		if modalTitle(nm) != "Search" {
+			t.Fatalf("%q opened %q, want the search", open.String(), modalTitle(nm))
 		}
 
 		next, _ = nm.Update(keyText("esc"))
 		nm = next.(Model)
-		if nm.searchingChat {
-			t.Fatalf("%q: searchingChat still true after esc, want false", open.String())
+		if nm.modals.Open() {
+			t.Fatalf("%q: the search stayed open after esc", open.String())
 		}
 	}
 }

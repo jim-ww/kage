@@ -9,9 +9,9 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/jim-ww/kage/ui/datepicker"
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
+	"github.com/jim-ww/kage/ui/modal"
 	"github.com/jim-ww/kage/ui/viewport"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
@@ -190,14 +190,16 @@ type Model struct {
 	// history load), either of which slides a remembered index onto a
 	// different message - so the reply went out quoting, and threaded to,
 	// whatever had taken that slot. Same reasoning as editingMsg.
-	replyTo                msgRef
-	reactingMsgIdx         int                // >= 0 while the emoji picker is open reacting to a message; -1 otherwise
-	flashMsgIdx            int                // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
-	expandedMsgs           map[string]bool    // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
-	flashGen               int                // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
-	emojiPicker            *emojipicker.Model // non-nil while the react-emoji picker popup is open (see ui/emojipicker)
-	reactionEmojiUsage     map[string]int     // emoji -> times sent as a reaction (in-memory mirror of config.State.ReactionEmojiUsage); ranked and passed to emojipicker.New as its "recent" seed
-	confirmTarget          confirmTarget
+	replyTo            msgRef
+	reactingMsgIdx     int                // >= 0 while the emoji picker is open reacting to a message; -1 otherwise
+	flashMsgIdx        int                // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
+	expandedMsgs       map[string]bool    // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
+	flashGen           int                // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
+	emojiPicker        *emojipicker.Model // non-nil while the react-emoji picker popup is open (see ui/emojipicker)
+	reactionEmojiUsage map[string]int     // emoji -> times sent as a reaction (in-memory mirror of config.State.ReactionEmojiUsage); ranked and passed to emojipicker.New as its "recent" seed
+	// modals are the open modals, the top one taking all input (see
+	// ui/modal and ui/modals.go).
+	modals                 modal.Stack[*Model]
 	contextMenu            *contextMenu // non-nil while a right-click action popup is open; see ui/contextmenu.go
 	showMsgInfo            bool         // true while the message-info popup is open
 	showHelp               bool         // true while the full-keybindings help popup (ctrl+h) is open
@@ -315,27 +317,6 @@ type Model struct {
 	// after the first attempt, whether or not a matching chat was found.
 	pendingOpenChatAddress string
 
-	// rename-chat prompt state, active while renamingChat is true. Opened by
-	// RenameChat (viewChats) or a chat-item context menu's "Rename", prefilled
-	// with the chat's custom name if it has one; submitting an empty value
-	// clears it (falls back to showing the JID).
-	renamingChat  bool
-	renameChatIdx int
-	renameInput   *textinput.Model
-
-	// search-in-chat query prompt state, active while searchingChat is true.
-	// Opened by SearchChat (Ctrl+/) while viewChat is focused; submitting
-	// (enter) runs historySearcher.SearchHistory as a tea.Cmd and opens
-	// searchResults once HistorySearchResultMsg arrives. Search runs across
-	// the chat's entire persisted history, not just what's currently loaded
-	// in memory — see searchResultsState.
-	searchingChat bool
-	searchInput   *textinput.Model
-	// searchTab is which of the search popup's tabs is showing: the text
-	// query, or searchDate - a calendar that jumps the chat to the start of
-	// the picked day (see jumpToDate).
-	searchTab  searchTab
-	searchDate *datepicker.Model
 	// pendingDateJump is the day jumpToDate is loading a history window
 	// for; the HistoryWindowMsg answering it scrolls to that day's first
 	// message.
@@ -542,6 +523,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		theme:                      theme,
 		styles:                     styles,
 		zone:                       zm,
+		modals:                     newModalStack(zm, styles.colors),
 		mouseEnabled:               mouseEnabled,
 		maxMessagesPerChat:         display.MaxMessagesPerChat,
 		icons:                      display.Icons,

@@ -300,8 +300,9 @@ func (m *Model) actionRemoveAccount(idx int) tea.Cmd {
 	if idx != m.currentAccount {
 		return nil
 	}
-	m.confirmTarget = confirmRemoveAccount
-	return nil
+	return m.confirm("Remove account?",
+		m.accounts[idx].DisplayName()+" — disconnects and drops it from config; local history is kept",
+		(*Model).removeCurrentAccount)
 }
 
 // removeCurrentAccount runs as a tea.Cmd since it purges the account's

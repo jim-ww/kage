@@ -274,9 +274,9 @@ func TestHideConfirmationMentionsNothingIsDeleted(t *testing.T) {
 	m := hiddenChatsModel(t, &fakeChatHider{}, Chat{Name: "a", Address: "a@x"})
 	m.width, m.height, m.termHeight = 120, 40, 40
 	m.updateSizes()
-	m.confirmTarget = confirmHideChat
+	m.actionHideChat()
 
-	prompt := m.deletePrompt(m.deletePromptWidth())
+	prompt := modalTitle(m) + "\n" + m.modals.Top().Body.View()
 	for _, want := range []string{"Hide chat?", "Nothing is deleted"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt %q is missing %q", prompt, want)

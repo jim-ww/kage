@@ -149,10 +149,10 @@ var (
 )
 
 // Open reports whether any modal is open.
-func (s *Stack[H]) Open() bool { return len(s.modals) > 0 }
+func (s Stack[H]) Open() bool { return len(s.modals) > 0 }
 
 // Top is the modal receiving input, or nil.
-func (s *Stack[H]) Top() *Modal[H] {
+func (s Stack[H]) Top() *Modal[H] {
 	if len(s.modals) == 0 {
 		return nil
 	}
@@ -455,7 +455,10 @@ func (s *Stack[H]) View() string {
 	cols, _ := s.chrome()
 	inner := max(1, width-cols)
 
-	body := strings.Split(top.Body.View(), "\n")
+	var body []string // none at all for an empty body: a question needing no detail
+	if view := top.Body.View(); view != "" {
+		body = strings.Split(view, "\n")
+	}
 	if len(body) > s.bodyHeight() {
 		end := min(len(body), top.scroll+s.bodyHeight())
 		body = body[top.scroll:end]

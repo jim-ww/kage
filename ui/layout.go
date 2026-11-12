@@ -55,6 +55,7 @@ func (m *Model) updateSizes() {
 
 	m.viewport.SetWidth(cw)
 	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
+	m.modals.SetSize(m.chatAreaWidth(), m.popupAreaHeight())
 }
 
 // buttonGap is the blank column separating the attach and send buttons —
@@ -94,10 +95,10 @@ func (m Model) narrow() bool { return m.width < narrowWidth }
 // picker). In narrow mode these need the full-width chat pane to render
 // into even while the chat list is the logically selected view.
 func (m Model) popupActive() bool {
-	return m.contextMenu != nil || m.confirmTarget != confirmNone || m.showMsgInfo || m.showHelp ||
-		m.addingAccount || m.renamingChat || m.savingAs || len(m.openItems) > 0 || m.pickingFile || m.deviceList != nil ||
+	return m.modals.Open() || m.contextMenu != nil || m.showMsgInfo || m.showHelp ||
+		m.addingAccount || m.savingAs || len(m.openItems) > 0 || m.pickingFile || m.deviceList != nil ||
 		m.avatarPreview != nil ||
-		m.searchingChat || m.searchResults != nil || (m.desktopVolumeOpen && m.call != nil)
+		m.searchResults != nil || (m.desktopVolumeOpen && m.call != nil)
 }
 
 // narrowShowChat reports, in narrow mode, whether the single visible pane

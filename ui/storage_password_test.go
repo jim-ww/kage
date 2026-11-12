@@ -67,7 +67,7 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	// calling the changer right away.
 	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
-	if m.confirmTarget != confirmDisableStorageEncryption {
+	if modalTitle(m) != "Disable local storage encryption?" {
 		t.Fatal("expected a confirmation popup for an empty password")
 	}
 	if len(changer.calls) != 0 {
@@ -77,7 +77,7 @@ func TestChangeStoragePasswordOpenValidateSubmit(t *testing.T) {
 	// Confirming calls through with an empty password.
 	next, disableCmd := m.Update(tea.KeyPressMsg{Code: 'y'})
 	m = next.(Model)
-	if m.confirmTarget != confirmNone {
+	if m.modals.Open() {
 		t.Fatal("confirmation popup should close after confirming")
 	}
 	if !m.changePasswordState.busy {

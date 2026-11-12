@@ -79,13 +79,13 @@ func TestDeleteUnsentMessageRemovesItOutright(t *testing.T) {
 				_ = cmd()
 			}
 			m.selectedMsg = 1
-			m.confirmTarget = confirmDeleteMessage
-
-			next, _, handled := m.updateKeyMsg(keyCode('y'))
-			if !handled {
-				t.Fatal("confirm-yes key was not handled")
+			m.actionDeleteMessage()
+			if modalTitle(m) != "Delete message?" {
+				t.Fatalf("delete opened %q, want the delete confirmation", modalTitle(m))
 			}
-			m = next
+
+			next, _ := m.Update(keyCode('y'))
+			m = next.(Model)
 
 			if sender.calls != 1 {
 				t.Fatalf("DeleteQueued calls = %d, want 1", sender.calls)
@@ -101,8 +101,8 @@ func TestDeleteUnsentMessageRemovesItOutright(t *testing.T) {
 			if got[0].Content != "hi" {
 				t.Errorf("remaining message = %+v, want the other (already-sent) one", got[0])
 			}
-			if m.confirmTarget != confirmNone {
-				t.Errorf("confirmTarget = %v, want confirmNone", m.confirmTarget)
+			if m.modals.Open() {
+				t.Error("the confirmation stayed open after y")
 			}
 		})
 	}
@@ -394,8 +394,8 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl})
 	m = next.(Model)
-	if !m.searchingChat {
-		t.Fatal("searchingChat = false after Ctrl+/, want true")
+	if modalTitle(m) != "Search" {
+		t.Fatalf("Ctrl+/ opened %q, want the search", modalTitle(m))
 	}
 
 	for _, r := range "hello" {
@@ -405,8 +405,8 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 
 	next, cmd := m.Update(keyText("enter"))
 	m = next.(Model)
-	if m.searchingChat {
-		t.Fatal("searchingChat still true after submitting, want false")
+	if m.modals.Open() {
+		t.Fatal("the search stayed open after submitting")
 	}
 	if m.searchResults == nil || !m.searchResults.busy {
 		t.Fatal("searchResults not opened in its busy state after submitting")
@@ -492,18 +492,13 @@ func TestDeleteRetractedMessagePurgesIt(t *testing.T) {
 	if cmd := m.actionDeleteMessage(); cmd != nil {
 		_ = cmd()
 	}
-	if m.confirmTarget != confirmPurgeMessage {
-		t.Fatalf("confirmTarget = %v, want confirmPurgeMessage", m.confirmTarget)
+	if modalTitle(m) != "Erase this message for good?" {
+		t.Fatalf("delete opened %q, want the purge confirmation", modalTitle(m))
 	}
 
-	next, cmd, handled := m.updateKeyMsg(keyCode('y'))
-	if !handled {
-		t.Fatal("confirm-yes key was not handled")
-	}
-	m = next
-	if cmd != nil {
-		_ = cmd()
-	}
+	next, cmd := m.Update(keyCode('y'))
+	m = next.(Model)
+	_ = nonIdleCmd(cmd)
 
 	if sender.calls != 1 {
 		t.Fatalf("PurgeMessage calls = %d, want 1", sender.calls)
@@ -519,8 +514,8 @@ func TestDeleteRetractedMessagePurgesIt(t *testing.T) {
 	if m.selectedMsg != 0 {
 		t.Errorf("selectedMsg = %d, want 0 (clamped to the new last message)", m.selectedMsg)
 	}
-	if m.confirmTarget != confirmNone {
-		t.Errorf("confirmTarget = %v, want confirmNone", m.confirmTarget)
+	if m.modals.Open() {
+		t.Error("the confirmation stayed open after y")
 	}
 	if last, ok := m.accounts[0].Chats[0].(Chat); !ok || last.LastMessage != "hi" {
 		t.Errorf("chat LastMessage = %q, want %q (the purged message is gone, not shown as deleted)", last.LastMessage, "hi")
@@ -545,12 +540,12 @@ func TestDeleteNotRetractedMessageAsksForRetraction(t *testing.T) {
 	if cmd := m.actionDeleteMessage(); cmd != nil {
 		_ = cmd()
 	}
-	if m.confirmTarget != confirmDeleteMessage {
-		t.Fatalf("confirmTarget = %v, want confirmDeleteMessage", m.confirmTarget)
+	if modalTitle(m) != "Delete message?" {
+		t.Fatalf("delete opened %q, want the retract-only confirmation", modalTitle(m))
 	}
 
-	next, _, _ := m.updateKeyMsg(keyCode('y'))
-	m = next
+	next, _ := m.Update(keyCode('y'))
+	m = next.(Model)
 
 	if sender.calls != 0 {
 		t.Errorf("PurgeMessage calls = %d, want 0 - a first delete never erases content", sender.calls)
@@ -605,9 +600,9 @@ func TestPurgePromptShowsOriginalPreview(t *testing.T) {
 		_ = cmd()
 	}
 	m.selectedMsg = 0
-	m.confirmTarget = confirmPurgeMessage
+	m.actionDeleteMessage()
 
-	got := m.deletePrompt(60)
+	got := m.modals.Top().Body.View()
 
 	if strings.Contains(got, retractedPreview) {
 		t.Errorf("purge prompt says %q instead of naming the message:\n%s", retractedPreview, got)

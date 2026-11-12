@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/jim-ww/kage/ui/datepicker"
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // TestSearchDateTabJumpsToStartOfDay drives the search popup's date tab:
@@ -34,33 +34,28 @@ func TestSearchDateTabJumpsToStartOfDay(t *testing.T) {
 
 	m.actionSearchChat()
 	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.searchTab != searchTabDate {
+	tabs := m.modals.Top().Body.(*modal.Tabs)
+	if tabs.Active() != 1 {
 		t.Fatal("tab didn't switch to the date tab")
 	}
 	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "Mo Tu We Th Fr Sa Su") {
 		t.Fatal("the date tab shows no calendar")
 	}
 
-	m.searchDate.SetCursor(day.Add(15 * time.Hour))
-	next, cmd := m.updateSearchChatForm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	tabs.Tabs[1].Body.(*modal.Date).Picker.SetCursor(day.Add(15 * time.Hour))
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model := next.(Model)
-	if cmd == nil {
-		t.Fatal("enter on a day picked nothing")
-	}
-	picked, ok := cmd().(datepicker.PickedMsg)
-	if !ok {
-		t.Fatalf("got %T, want datepicker.PickedMsg", cmd())
-	}
-
-	model, cmd, _ = model.handleEventMsg(picked)
-	if model.searchingChat {
+	if model.modals.Open() {
 		t.Fatal("the popup stayed open after picking a day")
+	}
+	if cmd == nil {
+		t.Fatal("picking a day loaded no history")
 	}
 	if loader.lastAnchor == nil || loader.lastAnchor.Delay != day.Unix() || loader.lastAnchor.StoreID != 0 {
 		t.Fatalf("anchor = %+v, want the start of 1 June", loader.lastAnchor)
 	}
 
-	model, _, _ = model.handleEventMsg(cmd())
+	model, _, _ = model.handleEventMsg(windowMsg(t, cmd))
 	if model.selectedMsg != 20 {
 		t.Fatalf("selectedMsg = %d, want 20, the first message of 1 June", model.selectedMsg)
 	}
@@ -70,4 +65,31 @@ func TestSearchDateTabJumpsToStartOfDay(t *testing.T) {
 	if model.pendingDateJump != nil {
 		t.Fatal("the jump is still pending after its window arrived")
 	}
+}
+
+// windowMsg runs cmd - a batch, possibly - and returns the HistoryWindowMsg
+// among what it produces.
+func windowMsg(t *testing.T, cmd tea.Cmd) HistoryWindowMsg {
+	t.Helper()
+	var find func(tea.Msg) (HistoryWindowMsg, bool)
+	find = func(msg tea.Msg) (HistoryWindowMsg, bool) {
+		switch msg := msg.(type) {
+		case HistoryWindowMsg:
+			return msg, true
+		case tea.BatchMsg:
+			for _, c := range msg {
+				if c != nil {
+					if w, ok := find(c()); ok {
+						return w, true
+					}
+				}
+			}
+		}
+		return HistoryWindowMsg{}, false
+	}
+	w, ok := find(cmd())
+	if !ok {
+		t.Fatal("no history window was loaded")
+	}
+	return w
 }

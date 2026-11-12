@@ -202,7 +202,9 @@ func TestOtherMessagesReachTheProgram(t *testing.T) {
 func TestFrameKeepsItsWidth(t *testing.T) {
 	s, _ := newStack(80, 24)
 	open(s, "Search", NewTabs(Tab{Title: "Text", Body: NewInput("", "")}, Tab{Title: "Go to date", Body: NewDate(datepicker.New(time.Now()))}))
-	width := func() int { return ansi.StringWidth(strings.TrimSpace(strings.Split(strings.TrimLeft(ansi.Strip(s.View()), "\n "), "\n")[0])) }
+	width := func() int {
+		return ansi.StringWidth(strings.TrimSpace(strings.Split(strings.TrimLeft(ansi.Strip(s.View()), "\n "), "\n")[0]))
+	}
 	before := width()
 	s.Update(&host{}, tabKey)
 	if after := width(); after != before {

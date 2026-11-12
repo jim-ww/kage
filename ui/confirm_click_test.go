@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // clickZone renders m, waits for zone id to be recorded and clicks it.
@@ -16,37 +19,66 @@ func clickZone(t *testing.T, m Model, id string) (Model, tea.Cmd) {
 	return next.(Model), cmd
 }
 
-// TestConfirmPopupClickable checks the delete confirmation's yes/no can be
+// modalInput is the text field in the modal on top - its body, or its
+// showing tab's.
+func modalInput(t *testing.T, m Model) *modal.Input {
+	t.Helper()
+	body := m.modals.Top().Body
+	if tabs, ok := body.(*modal.Tabs); ok {
+		body = tabs.Tabs[tabs.Active()].Body
+	}
+	in, ok := body.(*modal.Input)
+	if !ok {
+		t.Fatalf("modal body is %T, want a text field", body)
+	}
+	return in
+}
+
+// modalTitle is the title of the modal on top, or "" if none is open.
+func modalTitle(m Model) string {
+	if top := m.modals.Top(); top != nil {
+		return top.Title
+	}
+	return ""
+}
+
+// TestConfirmClickable checks the delete confirmation's yes/no can be
 // clicked, doing exactly what their keys do.
-func TestConfirmPopupClickable(t *testing.T) {
+func TestConfirmClickable(t *testing.T) {
 	m := pasteTestModel(t)
-	m.confirmTarget = confirmPurgeMessage
 	m.selectedMsg = 0
-	if view := m.View().Content; !strings.Contains(view, "[y] yes") || !strings.Contains(view, "[n] no") {
+	m.currentMessages()[0].Retracted = true
+	m.actionDeleteMessage()
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "y yes") || !strings.Contains(view, "n no") {
 		t.Fatal("confirmation has no yes/no buttons")
 	}
 
-	m, _ = clickZone(t, m, zoneConfirmNo)
-	if m.confirmTarget != confirmNone || len(m.currentMessages()) != 1 {
-		t.Fatalf("no: target=%v messages=%d, want closed and nothing erased", m.confirmTarget, len(m.currentMessages()))
+	m, _ = clickZone(t, m, "modal-hint-1")
+	if m.modals.Open() || len(m.currentMessages()) != 1 {
+		t.Fatalf("no: open=%v messages=%d, want closed and nothing erased", m.modals.Open(), len(m.currentMessages()))
 	}
 
-	m.confirmTarget = confirmPurgeMessage
-	m, _ = clickZone(t, m, zoneConfirmYes)
-	if m.confirmTarget != confirmNone || len(m.currentMessages()) != 0 {
-		t.Fatalf("yes: target=%v messages=%d, want closed and the message erased", m.confirmTarget, len(m.currentMessages()))
+	m.actionDeleteMessage()
+	m, _ = clickZone(t, m, "modal-hint-0")
+	if m.modals.Open() || len(m.currentMessages()) != 0 {
+		t.Fatalf("yes: open=%v messages=%d, want closed and the message erased", m.modals.Open(), len(m.currentMessages()))
 	}
 }
 
-// TestConfirmPopupIgnoresOtherClicks checks a click elsewhere neither
-// confirms nor reaches what's under the popup.
-func TestConfirmPopupIgnoresOtherClicks(t *testing.T) {
+// TestConfirmClickOutsideCancels checks a click elsewhere closes the
+// confirmation without acting on it, and reaches nothing under it.
+func TestConfirmClickOutsideCancels(t *testing.T) {
 	m := pasteTestModel(t)
-	m.confirmTarget = confirmQuit
+	m.selectedView = viewChats
+	m = run(t, m, keyText("q"))
+	if modalTitle(m) != "Quit kage?" {
+		t.Fatalf("q opened %q, want the quit confirmation", modalTitle(m))
+	}
 	_ = m.View()
+	awaitZone(t, m.zone, "modal-frame")
 	next, cmd := m.Update(tea.MouseClickMsg{X: 0, Y: 0, Button: tea.MouseLeft})
-	if next.(Model).confirmTarget != confirmQuit || nonIdleCmd(cmd) != nil {
-		t.Fatal("a click outside the buttons acted on the confirmation")
+	if next.(Model).modals.Open() || nonIdleCmd(cmd) != nil {
+		t.Fatal("a click outside should close the confirmation without acting")
 	}
 }
 

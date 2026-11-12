@@ -239,13 +239,26 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		}()
 	}
 
+	msg = normalizeKey(msg)
+	var modalCmd tea.Cmd
+	if m.modals.Open() {
+		// The top modal takes all input; everything else still reaches the
+		// rest of the app below.
+		var consumed bool
+		if modalCmd, consumed = m.modals.Update(&m, msg); consumed {
+			return m, modalCmd
+		}
+	}
+	if modalCmd != nil {
+		defer func() { retCmd = tea.Batch(retCmd, modalCmd) }()
+	}
+
 	if model, cmd, handled := m.handleEventMsg(msg); handled {
 		return model, cmd
 	}
 
 	var cmds []tea.Cmd
 
-	msg = normalizeKey(msg)
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		if model, cmd, handled := m.updateKeyMsg(keyMsg); handled {
 			return model, cmd
@@ -282,16 +295,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	if m.addingAccount {
 		var cmd tea.Cmd
 		m.addAccountInputs[m.addAccountFocus], cmd = m.addAccountInputs[m.addAccountFocus].Update(msg)
-		return m, tea.Batch(append(cmds, cmd)...)
-	}
-	if m.renamingChat {
-		var cmd tea.Cmd
-		*m.renameInput, cmd = m.renameInput.Update(msg)
-		return m, tea.Batch(append(cmds, cmd)...)
-	}
-	if m.searchingChat {
-		var cmd tea.Cmd
-		*m.searchInput, cmd = m.searchInput.Update(msg)
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
 	if m.searchResults != nil && m.searchResults.filtering {

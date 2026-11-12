@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 	"github.com/jim-ww/kage/ui/emojipicker"
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // localIDSeq backs newLocalID - only needs to be unique among messages
@@ -370,11 +371,25 @@ func (m *Model) actionDeleteMessage() tea.Cmd {
 	if len(msgs) == 0 {
 		return m.showNotification("no messages to delete")
 	}
-	m.confirmTarget = confirmDeleteMessage
-	if m.selectedMsg >= 0 && m.selectedMsg < len(msgs) && msgs[m.selectedMsg].Retracted {
-		m.confirmTarget = confirmPurgeMessage
+	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
+		return nil
 	}
-	return nil
+	msg := msgs[m.selectedMsg]
+	if msg.Retracted {
+		// Second delete on an already-retracted message: this one really
+		// erases it, here and in storage. The detail shows the hidden
+		// original, not MessagePreviewContent's "message deleted".
+		detail := fmt.Sprintf("%s: %s\n", msg.Author, previewText(messagePreviewBody(msg), previewLen))
+		return m.confirm("Erase this message for good?",
+			detail+"Wipes the original from local storage. Can't be undone; the peer's copy stays.",
+			func(m *Model) tea.Cmd {
+				cmd := m.purgeSelectedMsg()
+				m.refreshViewport()
+				return cmd
+			})
+	}
+	return m.confirm("Delete message?", fmt.Sprintf("%s: %s", msg.Author, previewText(MessagePreviewContent(msg), previewLen)),
+		(*Model).deleteSelectedMessage)
 }
 
 // actionRetryMessage re-sends the selected message after a failed send
@@ -459,11 +474,16 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 // actionLeaveChat opens the leave-chat confirmation popup for the selected
 // chat (viewChats' DeleteMsg / a chat-item context-menu's "Leave chat").
 func (m *Model) actionHideChat() tea.Cmd {
-	if m.currentChatIndex() < 0 {
+	chat, ok := m.currentChat()
+	if !ok {
 		return m.showNotification("no chat selected")
 	}
-	m.confirmTarget = confirmHideChat
-	return nil
+	detail := chat.Name
+	if chat.Address != "" {
+		detail = fmt.Sprintf("%s <%s>", chat.Name, chat.Address)
+	}
+	return m.confirm("Hide chat?", detail+"\nNothing is deleted — unhide it from the contact manager.",
+		(*Model).hideSelectedChat)
 }
 
 // actionRenameChat opens the rename-contact prompt for the selected chat
@@ -477,33 +497,26 @@ func (m *Model) actionRenameChat() tea.Cmd {
 		return m.showNotification("no chat selected")
 	}
 
-	ti := textinput.New()
-	ti.Prompt = "Name: "
-	ti.Placeholder = chat.Address
-	ti.KeyMap = m.keys.TextInputKeys
-	ti.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&ti, m.styles.colors)
+	value := ""
 	if chat.Name != chat.Address {
-		ti.SetValue(chat.Name)
+		value = chat.Name
 	}
-	ti.CursorEnd()
-	ti.Focus()
-
-	m.renameChatIdx = m.currentChatIndex()
-	m.renameInput = &ti
-	m.renamingChat = true
-	return textinput.Blink
+	idx := m.currentChatIndex()
+	return m.openModal(&modal.Modal[*Model]{
+		Title: "Rename chat",
+		Body:  m.newInput(value, chat.Address, "Name: ", "rename"),
+		OnSubmit: func(m *Model, v any) tea.Cmd {
+			return m.renameChat(idx, v.(string))
+		},
+	})
 }
 
-// submitRenameChat applies the rename-prompt's current value to the chat it
-// was opened for: pushes it to the server as a roster set and mirrors it
-// locally (see ContactRenamer), then updates the in-memory chat name shown
-// in the sidebar. An empty value clears the custom name — the chat falls
-// back to displaying its JID, matching what a fresh roster fetch would show.
-func (m *Model) submitRenameChat() tea.Cmd {
-	m.renamingChat = false
-
-	idx := m.renameChatIdx
+// renameChat names the chat at idx: pushes the name to the server as a
+// roster set and mirrors it locally (see ContactRenamer), then updates the
+// in-memory chat name shown in the sidebar. An empty name clears the custom
+// one — the chat falls back to displaying its JID, matching what a fresh
+// roster fetch would show.
+func (m *Model) renameChat(idx int, typed string) tea.Cmd {
 	items := m.chats.Items()
 	if idx < 0 || idx >= len(items) {
 		return nil
@@ -513,7 +526,7 @@ func (m *Model) submitRenameChat() tea.Cmd {
 		return nil
 	}
 
-	name := strings.TrimSpace(m.renameInput.Value())
+	name := strings.TrimSpace(typed)
 	if name == "" {
 		name = chat.Address
 	}
@@ -522,7 +535,7 @@ func (m *Model) submitRenameChat() tea.Cmd {
 	}
 
 	if m.renamer != nil && chat.Address != "" {
-		if err := m.renamer.RenameContact(m.currentAccount, chat.Address, strings.TrimSpace(m.renameInput.Value())); err != nil {
+		if err := m.renamer.RenameContact(m.currentAccount, chat.Address, strings.TrimSpace(typed)); err != nil {
 			return m.showNotification("rename failed: " + err.Error())
 		}
 	}
@@ -557,27 +570,29 @@ func (m *Model) actionSearchChat() tea.Cmd {
 		return m.showNotification("no chat selected")
 	}
 
-	ti := textinput.New()
-	ti.Prompt = "/ "
-	ti.Placeholder = "search messages"
-	ti.KeyMap = m.keys.TextInputKeys
-	ti.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&ti, m.styles.colors)
-	ti.Focus()
-
-	m.searchInput = &ti
-	m.searchingChat = true
-	m.searchTab = searchTabText
-	m.searchDate = m.newSearchDatePicker()
-	return textinput.Blink
+	date := modal.NewDate(m.newSearchDatePicker())
+	date.SubmitLabel = "go"
+	return m.openModal(&modal.Modal[*Model]{
+		Title: "Search",
+		Body: modal.NewTabs(
+			modal.Tab{Title: "Search text", Body: m.newInput("", "search messages", "/ ", "search")},
+			modal.Tab{Title: "Go to date", Body: date},
+		),
+		OnSubmit: func(m *Model, v any) tea.Cmd {
+			r := v.(modal.TabResult)
+			if day, ok := r.Value.(time.Time); ok {
+				return m.jumpToDate(day)
+			}
+			return m.searchChat(r.Value.(string))
+		},
+	})
 }
 
-// submitSearchChat closes the query prompt and kicks off
+// searchChat kicks off
 // historySearcher.SearchHistory as a tea.Cmd, opening searchResults in its
 // busy state so the popup shows immediately while the scan runs.
-func (m *Model) submitSearchChat() tea.Cmd {
-	m.searchingChat = false
-	query := strings.TrimSpace(m.searchInput.Value())
+func (m *Model) searchChat(query string) tea.Cmd {
+	query = strings.TrimSpace(query)
 	chat, ok := m.currentChat()
 	if !ok || query == "" || m.historySearcher == nil {
 		return nil

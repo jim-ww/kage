@@ -874,9 +874,9 @@ func TestDeletePromptShowsFilenameNotRawURLForAttachment(t *testing.T) {
 		_ = cmd()
 	}
 	m.selectedMsg = 0
-	m.confirmTarget = confirmDeleteMessage
+	m.actionDeleteMessage()
 
-	prompt := m.deletePrompt(60)
+	prompt := m.modals.Top().Body.View()
 	if strings.Contains(prompt, "https://") {
 		t.Fatalf("delete prompt leaked raw URL: %q", prompt)
 	}

@@ -110,8 +110,9 @@ func (m *Model) submitChangePassword() tea.Cmd {
 	}
 	if newPassword == "" {
 		s.err = ""
-		m.confirmTarget = confirmDisableStorageEncryption
-		return nil
+		return m.confirm("Disable local storage encryption?",
+			"Every stored message and draft will be rewritten to disk in plain text.",
+			func(m *Model) tea.Cmd { return m.startStoragePasswordChange("") })
 	}
 	return m.startStoragePasswordChange(newPassword)
 }
