@@ -14,63 +14,37 @@ import (
 type Message struct {
 	ID     string // stanza ID; enables XEP-0308 correction and XEP-0461 reply targeting
 	Author string
-	// StoreID is the message's storage rowid, zero for anything not loaded
-	// from (or not yet round-tripped through) storage — a locally-composed
-	// message before it's been persisted, for instance. Used purely as a
-	// pagination anchor (see HistoryAnchor) to ask storage for a fresh
-	// window of history centered on this exact message; never rendered.
+	// StoreID is the storage rowid, 0 if not loaded from storage; a paging
+	// anchor (see HistoryAnchor).
 	StoreID int64
 	Content string
 	SentAt  time.Time
 	IsMe    bool
-	// ReplyToID is the ID of the message this one replies to (XEP-0461),
-	// empty when it isn't a reply. Deliberately an ID and not an index into
-	// the message slice: that slice is rebuilt wholesale on every history
-	// window load and trimmed at the front as the tail grows, so a stored
-	// index silently comes to point at a different message.
+	// ReplyToID is the ID of the message this replies to (XEP-0461). An ID,
+	// not an index: the loaded slice is rebuilt and trimmed.
 	ReplyToID   string
 	Attachments []string // file paths or URLs attached to the message
 
-	// QuotedAuthor/QuotedPreview are a snapshot of the replied-to message's
-	// Author/preview text, captured when this message was persisted (see
-	// resolveReplyQuote in history.go). ReplyToID alone only lets the reply
-	// quote render when the target happens to still be in the chat's
-	// currently loaded in-memory window (messageIndexByID in
-	// ui/render_message.go) — these are the fallback used when it isn't,
-	// e.g. the target scrolled out of the live window or a TUI reconnect
-	// reseeded a narrower tail than before. Both empty means either this
-	// isn't a reply, or the target couldn't be resolved at persist time.
+	// QuotedAuthor/QuotedPreview are the replied-to message's author and
+	// preview as stored with the reply, shown when that message isn't
+	// loaded.
 	QuotedAuthor  string
 	QuotedPreview string
 
-	// LocalID is a client-generated correlation key set on a message the
-	// moment it's composed (sendCurrentInput), before the network even knows
-	// about it - ID stays empty until (if ever) a real send actually
-	// succeeds. Used to find and patch this exact placeholder row again once
-	// MessageSendResolvedMsg reports what really happened, since ID can't be
-	// used for that lookup yet. Empty for anything that wasn't optimistically
-	// echoed this way (incoming messages, history loaded from storage).
+	// LocalID identifies a message we composed before it has an ID, for
+	// MessageSendResolvedMsg to find it by.
 	LocalID string
 
-	// Pending is set on a message that's been queued for later delivery
-	// (Daemon.Send returned ErrQueued, e.g. the account is offline)
-	// rather than actually sent yet - see MessageSendResolvedMsg, which
-	// clears it once the queued send is actually attempted. Never true at
-	// the same time as Failed.
+	// Pending is set on a message queued to send (ErrQueued), until
+	// MessageSendResolvedMsg. Never with Failed.
 	Pending bool
 
-	// Failed is set on a message Daemon.Send (or its later queued
-	// retry) reported a real error for - kept visible rather than silently
-	// dropped, so what the user typed is never lost, but never rendered
-	// indistinguishably from an actually-delivered message. Never true at
-	// the same time as Pending.
+	// Failed is set on a message that failed to send; it's kept, marked.
+	// Never with Pending.
 	Failed bool
 
-	// PendingAttachmentPaths holds the local file path(s) still needing
-	// upload+send when this message is Failed - the file(s) staged for a
-	// startAttachedSend batch that never made it out. Kept so
-	// actionRetryMessage can re-attempt the upload without the user
-	// re-picking files. Always empty unless Failed is also true.
+	// PendingAttachmentPaths are a Failed attachment send's files, for
+	// actionRetryMessage.
 	PendingAttachmentPaths []string
 
 	// Encrypted is set when the message was end-to-end encrypted (OMEMO or
@@ -82,48 +56,30 @@ type Message struct {
 	// stored message), or "gpg". Empty when Encrypted is false.
 	EncMethod string
 
-	// Retracted is set when the sender attempted a XEP-0424 retraction of
-	// this message. Content is kept and still shown — we don't trust a
-	// remote retraction to erase what was said on our side — but flagged so
-	// the attempt is visible.
+	// Retracted is set when the sender retracted it (XEP-0424). Content is
+	// kept and shown, flagged.
 	Retracted bool
 
-	// Edited is set when this message's body was overwritten by a XEP-0308
-	// correction (ours or the peer's), rather than being the originally sent
-	// content.
+	// Edited is set when a XEP-0308 correction replaced the body.
 	Edited bool
 
-	// Delivered is set once the peer has acknowledged receipt of this message
-	// (XEP-0184). Only meaningful when IsMe is true — an outgoing message
-	// starts "sent" and flips to "delivered" when the receipt arrives.
+	// Delivered is set when the peer acknowledged our message (XEP-0184).
 	Delivered bool
 
-	// ServerAcked is set once our own server has confirmed (via a debounced
-	// XEP-0199 ping round trip - see account.go's
-	// trackForServerAck/confirmPendingAcks) that it actually received this
-	// message, as opposed to the local send call merely returning without an
-	// error. Only meaningful when IsMe is true and ID is set. Rendered as a
-	// single "✓" (vs. Delivered's "✓✓") - never shown until this is true, so
-	// a message the server never actually got (e.g. written into a socket
-	// buffer on a connection that was already silently dead) doesn't render
-	// identically to one that really went out.
+	// ServerAcked is set once our server confirmed it has our message (see
+	// the daemon's trackForServerAck): a send without error only reached the
+	// local socket. Shown as "✓", Delivered as "✓✓".
 	ServerAcked bool
 
 	// Reactions is the aggregate (XEP-0444) reaction state on this message
 	// across everyone who's reacted, one entry per distinct emoji.
 	Reactions []Reaction
 
-	// DecryptFailed is set when this message's Content is the
-	// "[message could not be decrypted: ...]" placeholder (lost/rotated
-	// OMEMO session, etc.) rather than the sender's actual content. Used to
-	// exclude it from unread counting: opening the chat will never reveal
-	// anything more, so it shouldn't inflate the badge.
+	// DecryptFailed is set when Content is a "could not be decrypted"
+	// placeholder; such messages don't count as unread.
 	DecryptFailed bool
 
-	// CallLog is set when this row is a call-log entry (a finished voice
-	// call recorded into the chat timeline, like a phone app's call
-	// history) rather than an ordinary sent/received message. nil for
-	// every normal message.
+	// CallLog is set when this is a finished call's log entry.
 	CallLog *CallLogInfo
 }
 
@@ -156,54 +112,30 @@ type Account struct {
 	// (the bare JID) in the account bar/list; empty means fall back to Name.
 	Alias string
 
-	// HistoryMore marks, per chat index, whether older messages exist in
-	// storage beyond the oldest message currently in Messages. HistoryNewer
-	// is its mirror for the newest message currently in Messages — false
-	// whenever Messages already reaches the live tail (the common case; only
-	// a mid-history window, from paging up or a search jump, can have this
-	// true). Both are set fresh by every Daemon.LoadHistoryWindow
-	// response, and are the *only* source of truth for "is there more to
-	// page into" in either direction — nothing else derives or overrides
-	// them, which is what keeps every window transition (paging,
-	// jump-to-latest, search jump) going through the same one code path
-	// instead of each needing its own bookkeeping.
+	// HistoryMore marks, per chat index, whether storage has older messages
+	// than Messages, HistoryNewer newer ones. Only history window loads set
+	// them.
 	HistoryMore  map[int]bool
 	HistoryNewer map[int]bool
 
-	// Connecting is true from New()/AddAccount until the account's dial,
-	// roster fetch, and local history load complete asynchronously in the
-	// background — see AccountConnectedMsg/AccountConnectErrorMsg.
+	// Connecting is set until the account is online or failed to connect.
 	Connecting bool
-	// ConnectError is set (and Connecting cleared) if the background connect
-	// failed; the account stays in the sidebar so the user can see which one
-	// is down rather than it silently vanishing.
+	// ConnectError is why the account failed to connect.
 	ConnectError string
 
-	// SyncingHistory is true while syncArchive is paging through XEP-0313
-	// MAM archives for this account's contacts, after Connecting clears.
-	// Purely informational — chats and messages already stream in as pages
-	// arrive, this just tells the user why more keep showing up.
+	// SyncingHistory is set while the archive is backfilled (XEP-0313).
 	SyncingHistory bool
 
-	// Status is this account's own configured presence: any Presence value
-	// (PresenceOnline by default). Distinct from Connecting - an offline
-	// account is never dialed at all, so it's never "connecting". Set by
-	// Daemon and persisted to config so it's restored on the
-	// next startup.
+	// Status is the account's own chosen presence. An offline one is never
+	// dialed, so never Connecting.
 	Status Presence
 
-	// SupportsInvisible is true once the server has been confirmed (via
-	// disco#info, XEP-0186) to support invisible presence. False until that
-	// check completes or if the server doesn't advertise it — the status
-	// picker uses this to decide whether to even offer PresenceInvisible.
+	// SupportsInvisible is set once the server is known to offer invisible
+	// presence (XEP-0186).
 	SupportsInvisible bool
 
-	// Removed is set once Daemon.RemoveAccount has disconnected this
-	// account and dropped it from config.toml. It stays in m.accounts (and
-	// so this slot in the sidebar) for the rest of this run — see
-	// AccountRemovedMsg for why indices can't shift — but is excluded from
-	// switching and shows as offline/removed until the next restart drops
-	// it from config entirely.
+	// Removed is set once the account is removed; it stays listed until
+	// restart, as indices can't shift (see AccountRemovedMsg).
 	Removed bool
 }
 
@@ -225,10 +157,8 @@ func (a Account) NameWithJID() string {
 	return a.Alias + " · " + a.Name
 }
 
-// StatusText is a plain-text description of the account's connection state,
-// for the account bar/list — connecting/offline/syncing take priority over
-// the configured presence since they describe why the account can't be used
-// right now, not what presence it will show once it can.
+// StatusText describes the account's state; connecting, offline and syncing
+// before its presence.
 func (a Account) StatusText() string {
 	switch {
 	case a.Removed:
@@ -249,9 +179,8 @@ func (a Account) StatusText() string {
 // type="unavailable" (a plain presence, absent <show/>, is PresenceOnline).
 type Presence int
 
-// Presence values, in ascending "how available" order. PresenceInvisible is
-// appended after the rest rather than inserted in "how available" order, so
-// existing values keep their numeric identity.
+// Presence values, in ascending "how available" order, but for
+// PresenceInvisible.
 const (
 	PresenceOffline Presence = iota // default: never seen online, or explicitly unavailable
 	PresenceDND                     // <show>dnd</show>: do not disturb
@@ -266,17 +195,9 @@ const (
 	PresenceInvisible
 )
 
-// resourceDisplayName turns a raw XMPP resource string into a short,
-// human-readable device label. Clients commonly suffix their resource with
-// a random per-session ID after a separator — "." (e.g.
-// "Conversations.aB3dE9kL"), or "-" (e.g. a server disambiguating a
-// requested resource that collided with another session of the same name,
-// producing "kage-aB3dE9kLm1n2"). That suffix is never meaningful to a
-// human, so everything from the first non-letter character on is dropped,
-// keeping just the client name. A resource that's nothing *but* an opaque
-// generated ID (no letters-only prefix at all, e.g. a bare hex/random
-// string) falls back to a generic label instead of dumping the raw ID in
-// the UI.
+// resourceDisplayName is a resource's leading letters, the client name
+// ("Conversations.aB3dE9kL", "kage-aB3d"), or a generic label for a resource
+// that's all generated ID.
 func resourceDisplayName(resource string) string {
 	end := len(resource)
 	for i, r := range resource {
@@ -294,18 +215,13 @@ func resourceDisplayName(resource string) string {
 	return resource
 }
 
-// ResourcePresence is one online device (full-JID resource) of a contact,
-// with that resource's own <show/> state — distinct from Chat.Presence,
-// which is just the bare-JID roster's last-known presence.
+// ResourcePresence is one online device (resource) of a contact.
 type ResourcePresence struct {
 	Resource string
 	Presence Presence
 
-	// Name is the human-readable client name this resource advertises via
-	// XEP-0030 disco#info (e.g. "kage", "Conversations", "Gajim") - resolved
-	// asynchronously after the resource is first seen online (see
-	// DeviceNameMsg) since it takes a round trip, so this starts "" and the
-	// UI falls back to resourceDisplayName(Resource) until it arrives.
+	// Name is the client name it advertises (XEP-0030), "" until known
+	// (see DeviceNameMsg).
 	Name string
 }
 
@@ -315,10 +231,7 @@ type Chat struct {
 	Address     string
 	LastMessage string
 
-	// LastActivity is when LastMessage was last set — a new message sent or
-	// received, essentially. The chat list is sorted by this, most recent
-	// first (see sortChatsByActivity); the zero value sorts last, which is
-	// right for a contact with no messages yet.
+	// LastActivity is the last message's time; the chat list sorts by it.
 	LastActivity time.Time
 
 	Presence Presence
@@ -332,46 +245,28 @@ type Chat struct {
 	Subscription        string
 	SubscriptionPending bool
 
-	// Muted marks a chat whose messages raise no desktop notification
-	// (they still count as unread). Local only, persisted via
-	// Daemon; the daemon is what actually stays quiet.
+	// Muted marks a chat whose messages raise no notification. They still
+	// count as unread.
 	Muted bool
 
-	// Resources lists this contact's currently online devices (full-JID
-	// resources), sorted by resource name. Populated from live
-	// xmpp.PresenceEvents (see PresenceMsg.Resource) — a resource is added
-	// on becoming available and removed on an unavailable presence for that
-	// same resource. Shown on chat-list row hover (see renderHoverChatRow).
+	// Resources are the contact's online devices, sorted by resource.
 	Resources []ResourcePresence
 
-	// EncryptionMode is this chat's outgoing message encryption:
-	// "omemo-v1" (default), "omemo-v2", "gpg", or "none". Set by
-	// Daemon.
+	// EncryptionMode is the chat's outgoing encryption: "omemo-v1",
+	// "omemo-v2", "gpg" or "none"; "" for the default.
 	EncryptionMode string
 
-	// Unread is a local-only count of messages received while this chat
-	// wasn't the actively-focused one, persisted via Daemon. Reset
-	// to zero when the chat is opened.
+	// Unread counts messages that arrived while nobody looked at the chat.
 	Unread int
 
-	// Hidden marks a chat the user has hidden from the list. Local and
-	// reversible: the contact stays in the roster, presence and messages
-	// keep arriving, storage is untouched, and the other side sees
-	// nothing. Persisted per account in state.toml; the TUI filters these
-	// out of the list it renders and keeps them aside so unhiding restores
-	// the chat exactly (see Model.hiddenChats).
+	// Hidden marks a chat hidden from the list, locally: nothing else
+	// changes. The TUI keeps hidden chats aside (see Model.hiddenChats).
 	Hidden bool
 
-	// Pinned marks a chat the user has pinned to the top of the chat list:
-	// it sorts above every unpinned chat regardless of activity (see
-	// sortChatsByActivity) and its row is marked with pinnedChatGlyph.
-	// Local-only and persisted per account in state.toml, like Hidden.
+	// Pinned marks a chat pinned to the top of the list.
 	Pinned bool
 
-	// Draft is the compose box's unsent text last recorded for this chat —
-	// loaded from storage when the account connects, kept in sync with
-	// m.input as the compose box switches between chats, and persisted via
-	// Daemon. Empty means no unsent draft.
+	// Draft is the chat's unsent text.
 	Draft string
 }
 
@@ -411,11 +306,8 @@ func (c Chat) Description() string {
 // FilterValue implements list.Item.
 func (c Chat) FilterValue() string { return c.Name }
 
-// withResource returns c with its Resources list updated for one contact
-// device: added/updated (kept sorted by resource name) if presence is
-// anything but offline, removed if the resource just went unavailable.
-// resource == "" (a presence stanza with no resource part) is a no-op —
-// nothing to key a device entry by.
+// withResource is c with resource set to presence in Resources, removed if
+// offline. Must match the daemon's withResource.
 func (c Chat) withResource(resource string, presence Presence) Chat {
 	if resource == "" {
 		return c
@@ -434,12 +326,8 @@ func (c Chat) withResource(resource string, presence Presence) Chat {
 	return c
 }
 
-// aggregatePresence derives a contact's overall presence from its currently
-// online resources - the highest (most available) one, per Presence's iota
-// ordering (Offline < XA < Away < Online < Chat), or PresenceOffline if none
-// are online. Must be derived rather than taken from the latest stanza: for
-// a multi-resource contact, one resource going offline should not clobber
-// the aggregate while another resource is still online.
+// aggregatePresence is a contact's most available resource's presence, so
+// one device going offline doesn't hide another that's online.
 func aggregatePresence(resources []ResourcePresence) Presence {
 	best := PresenceOffline
 	for _, r := range resources {
@@ -450,10 +338,7 @@ func aggregatePresence(resources []ResourcePresence) Presence {
 	return best
 }
 
-// withResourceName sets the disco#info-resolved display name for one of
-// c's already-known online resources (see DeviceNameMsg). A no-op if that
-// resource isn't (or is no longer) in c.Resources - e.g. the resolution
-// arrived after the resource already went offline.
+// withResourceName names one of c's online resources (see DeviceNameMsg).
 func (c Chat) withResourceName(resource, name string) Chat {
 	for i := range c.Resources {
 		if c.Resources[i].Resource != resource {
@@ -478,10 +363,7 @@ const (
 	viewChat // viewport + input
 )
 
-// SendOptions carries optional wire metadata for Daemon.Send — kept as
-// plain fields here (rather than importing the xmpp package's own type) so
-// ui stays decoupled from the network layer; the adapter implementing
-// Daemon translates these into XEP-0308/XEP-0461 elements.
+// SendOptions is what Daemon.Send sends besides a plain message.
 type SendOptions struct {
 	// ReplaceID, if set, marks this send as a correction of the earlier
 	// message with this ID (XEP-0308).
@@ -494,40 +376,23 @@ type SendOptions struct {
 	QuotedAuthor string
 	QuotedBody   string
 
-	// RetractID, if set, sends a XEP-0424 retraction of the earlier message
-	// with this ID instead of a normal message. Mutually exclusive with the
-	// other options above.
+	// RetractID, if set, retracts that message instead (XEP-0424).
 	RetractID string
 
-	// ReactionTargetID, if set, sends a XEP-0444 reaction-set update instead
-	// of a normal message: Reactions becomes our complete, current reaction
-	// set on the message with this ID (an empty-but-non-nil slice clears
-	// it). Mutually exclusive with the other options above.
+	// ReactionTargetID, if set, sends Reactions as our whole reaction set on
+	// that message instead (XEP-0444); empty clears it.
 	ReactionTargetID string
 	Reactions        []string
 
-	// OOBURLs marks each of these URLs (which must also appear in body, one
-	// per line) as a file attachment via XEP-0066, so receivers can tell
-	// "this is a file" from "the user pasted a link" instead of guessing
-	// from the body text alone.
+	// OOBURLs marks these URLs, also in the body, as files (XEP-0066), not
+	// links.
 	OOBURLs []string
 
-	// LocalID, for a plain new-message send, is the composing Message's own
-	// LocalID - carried through Daemon.Send (and, if the account is
-	// offline, the outbox replay that eventually calls Send again) purely so
-	// a later MessageSendResolvedMsg can report back which placeholder
-	// message to reconcile. Meaningless (and unused) for
-	// reaction/retraction/correction sends, which target an existing
-	// message's real ID instead.
+	// LocalID is a new message's Message.LocalID, carried through a queued
+	// send for MessageSendResolvedMsg.
 	LocalID string
 
-	// SupersedesID, for a manual retry (actionRetryMessage) of a message
-	// that already made it into storage under a real stanza ID before being
-	// flagged Failed (a confirmPendingAcks ack-timeout, as opposed to an
-	// offline/immediate failure that only ever lived in the outbox), is that
-	// old ID. The retry always gets its own fresh ID (there's no way to
-	// resend the exact same stanza), so once it succeeds the adapter deletes
-	// the old failed row rather than leaving it to reappear as a stale
-	// duplicate on every future reload.
+	// SupersedesID is the ID of the stored, failed message a retry resends;
+	// once the retry is sent, that message is deleted.
 	SupersedesID string
 }
