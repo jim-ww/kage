@@ -384,6 +384,8 @@ func applyKeybinds(keys ui.KeyMap, binds map[string]any) (ui.KeyMap, error) {
 			keys.InfoMsg = ui.NewBinding(override, "message info")
 		case "expand":
 			keys.ExpandMsg = ui.NewBinding(override, "expand/collapse message")
+		case "jump_latest":
+			keys.JumpLatest = ui.NewBinding(override, "jump to latest")
 		case "open":
 			keys.OpenMsg = ui.NewBinding(override, "open links/attachments")
 		case "save":

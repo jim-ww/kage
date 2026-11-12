@@ -354,7 +354,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 			content: m.viewport.View(),
 		}))
 		if m.currentChatIndex() >= 0 && m.scrolledPastFirstPage() {
-			btn := m.zone.Mark(zoneJumpToBottom, m.styles.renderJumpToBottomButton(m.isHovered(zoneJumpToBottom)))
+			btn := m.zone.Mark(zoneJumpToBottom, m.styles.renderJumpToBottomButton(m.isHovered(zoneJumpToBottom), caretKey(shortestKey(m.keys.JumpLatest))))
 			viewportArea = overlayBottomCenter(viewportArea, btn, 1)
 		}
 	}

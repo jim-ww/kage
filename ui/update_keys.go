@@ -393,6 +393,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionInfoMessage(), true
 		}
 
+	case matchesKey(msg, m.keys.JumpLatest):
+		if m.selectedView == viewChat {
+			return m, m.jumpToLatestMessage(), true
+		}
+
 	case matchesKey(msg, m.keys.ExpandMsg):
 		if m.selectedView == viewChat {
 			return m, m.actionToggleExpandMessage(), true

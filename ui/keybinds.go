@@ -30,6 +30,7 @@ type KeyMap struct {
 	RetryMsg            key.Binding // Ctrl+Shift+T — retry a failed send
 	InfoMsg             key.Binding // Ctrl+I — show message info popup
 	ExpandMsg           key.Binding // Ctrl+X — expand/collapse a long message
+	JumpLatest          key.Binding // Ctrl+End — scroll the chat to its latest message
 	OpenMsg             key.Binding // Ctrl+O — open links/attachments in selected message
 	SaveMsg             key.Binding // Ctrl+S — save links/attachments in selected message to disk
 	SaveMsgAs           key.Binding // Ctrl+Shift+S — save links/attachments, prompting for a destination path first
@@ -79,6 +80,9 @@ func defaultInputAreaKeys() textarea.KeyMap {
 	// ctrl+left/right).
 	km.WordBackward.SetKeys(append(km.WordBackward.Keys(), "ctrl+left")...)
 	km.WordForward.SetKeys(append(km.WordForward.Keys(), "ctrl+right")...)
+	// ctrl+end is the chat's jump to the latest message; the compose box
+	// keeps alt+> for the end of what's typed.
+	km.InputEnd.SetKeys("alt+>")
 	return km
 }
 
@@ -90,6 +94,9 @@ func caretKey(k string) string {
 	rest, ok := strings.CutPrefix(k, "ctrl+")
 	if !ok {
 		return k
+	}
+	if len(rest) > 1 { // a named key: ^End, not ^END
+		return "^" + strings.ToUpper(rest[:1]) + rest[1:]
 	}
 	return "^" + strings.ToUpper(rest)
 }
@@ -119,6 +126,7 @@ var DefaultKeyMap = KeyMap{
 	RetryMsg:     NewBinding([]string{"ctrl+shift+t"}, "retry"),
 	InfoMsg:      NewBinding([]string{"ctrl+i"}, "message info"),
 	ExpandMsg:    NewBinding([]string{"ctrl+x"}, "expand/collapse message"),
+	JumpLatest:   NewBinding([]string{"ctrl+end"}, "jump to latest"),
 	OpenMsg:      NewBinding([]string{"ctrl+o"}, "open links/attachments"),
 	SaveMsg:      NewBinding([]string{"ctrl+s"}, "save links/attachments"),
 	SaveMsgAs:    NewBinding([]string{"ctrl+shift+s"}, "save links/attachments as"),
@@ -291,6 +299,7 @@ func (k *KeyMap) viewEntries(view selectedView, hasPendingAttachments bool) []he
 			{k.YankMsg, "yank"},
 			{k.InfoMsg, "info"},
 			{k.ExpandMsg, "expand"},
+			{k.JumpLatest, "latest"},
 			{k.OpenMsg, "open"},
 			{k.SaveMsg, "save"},
 			{k.SaveMsgAs, "save as"},

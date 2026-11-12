@@ -394,8 +394,8 @@ func (s *uiStyles) renderSidebarToggleButton(hidden, hovered bool) string {
 // reads as a translucent hint rather than competing with the message text
 // it floats over ("half-transparent" being an approximation a terminal can
 // actually render); full brightness and reversed on hover, like every other
-// button here.
-func (s *uiStyles) renderJumpToBottomButton(hovered bool) string {
+// button here. keyLabel, the key doing the same, follows its text.
+func (s *uiStyles) renderJumpToBottomButton(hovered bool, keyLabel string) string {
 	st := lipgloss.NewStyle().
 		Foreground(s.colors.themFg).
 		Background(s.colors.buttonBg).
@@ -404,7 +404,11 @@ func (s *uiStyles) renderJumpToBottomButton(hovered bool) string {
 	if hovered {
 		st = st.Faint(false).Reverse(true)
 	}
-	return st.Render("↓ jump to latest")
+	label := "↓ jump to latest"
+	if keyLabel != "" {
+		label += " " + keyLabel
+	}
+	return st.Render(label)
 }
 
 // contextMenuRow renders one action label, padded/highlighted to width so

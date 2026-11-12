@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func expandModel() Model {
@@ -56,5 +57,28 @@ func TestExpandMessageFromKeyboard(t *testing.T) {
 	}
 	if labels := strings.Join(msgMenuLabels(m, 1), ","); strings.Contains(labels, "Expand") {
 		t.Fatalf("short message's menu = %s, want no Expand item", labels)
+	}
+}
+
+func TestComposePromptOnFirstLineOnly(t *testing.T) {
+	m := expandModel()
+	m.input.SetValue("one\ntwo\nthree")
+	m.updateSizes()
+	if got := strings.Count(ansi.Strip(m.input.View()), strings.TrimSpace(inputPrompt)); got != 1 {
+		t.Fatalf("prompt shown on %d lines, want only the first:\n%s", got, ansi.Strip(m.input.View()))
+	}
+}
+
+func TestCtrlEndJumpsToLatest(t *testing.T) {
+	m := expandModel()
+	for range 30 {
+		m.appendAndTrim(0, 0, Message{ID: "x", Author: "Bob", Content: "hi", SentAt: time.Now()})
+	}
+	m.refreshViewport()
+	m.viewport.GotoTop()
+	m.input.Focus()
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyEnd, Mod: tea.ModCtrl})
+	if !m.viewport.AtBottom() {
+		t.Fatal("ctrl+end didn't jump to the latest message")
 	}
 }
