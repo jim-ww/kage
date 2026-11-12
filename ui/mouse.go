@@ -352,6 +352,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	m.hover.y = msg.Mouse().Y
 
 	newHoverID := m.zoneUnderMouse(msg)
+	prevHoverID := m.hover.id
 	var hoverCmd tea.Cmd
 	if newHoverID != m.hover.id {
 		m.hover.id = newHoverID
@@ -399,7 +400,20 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		// visibly lagging a fast sweep.
 		var changed []int
 
-		if idx, ok := messageIndexFromZone(m.hover.id); ok && idx != m.selectedMsg {
+		// The hovered row's tint follows the pointer even when the
+		// selection doesn't (hoverSelectDisabled).
+		prevRow, prevOK := messageIndexFromZone(prevHoverID)
+		newRow, newOK := messageIndexFromZone(m.hover.id)
+		if prevOK != newOK || prevRow != newRow {
+			if prevOK {
+				changed = append(changed, prevRow)
+			}
+			if newOK {
+				changed = append(changed, newRow)
+			}
+		}
+
+		if idx, ok := messageIndexFromZone(m.hover.id); ok && idx != m.selectedMsg && !m.hoverSelectDisabled {
 			changed = append(changed, m.selectedMsg, idx)
 			m.selectedMsg = idx
 			m.lastClickedMsgIdx = -1

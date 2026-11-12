@@ -243,6 +243,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		FilePickerSortAscending: cfg.State.FilePickerSortAscending,
 		AvatarsDisabled:         cfg.AvatarsDisabled,
 		AutoUnhideDisabled:      cfg.AutoUnhideDisabled,
+		HoverSelectDisabled:     cfg.HoverSelectDisabled,
 	}
 	// Deliberately constructed with no accounts: fetching them is a round
 	// trip to the daemon that reads and decrypts a page of history per chat

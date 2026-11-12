@@ -96,6 +96,9 @@ type Config struct {
 	// avatars at all; off (avatars shown) by default. Independent of
 	// ContactColors, which is its own opt-in.
 	AvatarsDisabled bool `toml:"avatars_disabled,omitempty"`
+	// HoverSelectDisabled stops hovering a message from selecting it, so
+	// only a click (or the keyboard) does; off (hover selects) by default.
+	HoverSelectDisabled bool `toml:"hover_select_disabled,omitempty"`
 	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
 	// off by default.
 	ShowEncryptedIcon bool `toml:"show_encrypted_icon,omitempty"`

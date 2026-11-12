@@ -261,7 +261,9 @@ type Model struct {
 	// autoUnhideDisabled keeps a hidden chat hidden when a message arrives
 	// from it (config's auto_unhide_disabled).
 	autoUnhideDisabled bool
-	focusReporter      FocusReporter
+	// hoverSelectDisabled: see DisplayOptions.HoverSelectDisabled.
+	hoverSelectDisabled bool
+	focusReporter       FocusReporter
 	// landedOnce marks the one-time startup landing as done - see
 	// Model.landedInChat. Whichever message first brings the current
 	// account's chats in gets to put the view on the newest message; every
@@ -437,6 +439,9 @@ type DisplayOptions struct {
 	// from it. Named the same way and for the same reason: the zero value
 	// is the default, which is to bring the chat back.
 	AutoUnhideDisabled bool
+	// HoverSelectDisabled stops hovering a message from selecting it; a
+	// click still does. Named the same way: hover selects by default.
+	HoverSelectDisabled bool
 }
 
 // New builds the initial Model. initialCallState, if non-nil, seeds the
@@ -544,6 +549,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		hover:                      hv,
 		accounts:                   accounts,
 		autoUnhideDisabled:         display.AutoUnhideDisabled,
+		hoverSelectDisabled:        display.HoverSelectDisabled,
 		currentAccount:             startAccount,
 		chats:                      &l,
 		sidebarRenderCache:         &sidebarCacheEntry{},
