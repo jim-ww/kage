@@ -25,6 +25,21 @@ func newLocalID() string {
 	return fmt.Sprintf("local-%d-%d", time.Now().UnixNano(), localIDSeq.Add(1))
 }
 
+// trimComposed drops the blank lines and trailing whitespace around what
+// was typed, but keeps the first line's indentation: trimmed like the rest
+// of the text, a pasted indented block would come out with its first line
+// shifted left of the others.
+func trimComposed(s string) string {
+	s = strings.TrimRight(s, " \t\r\n")
+	for {
+		line, rest, ok := strings.Cut(s, "\n")
+		if !ok || strings.TrimSpace(line) != "" {
+			return s
+		}
+		s = rest
+	}
+}
+
 // sendCurrentInput performs the SelectSend action for viewChat: sends the
 // composed message (wired as an edit/reply/reaction as appropriate given
 // the current compose state), clears the input, and refreshes the
@@ -33,7 +48,7 @@ func newLocalID() string {
 func (m *Model) sendCurrentInput() tea.Cmd {
 	var cmds []tea.Cmd
 
-	text := strings.TrimSpace(m.input.Value())
+	text := trimComposed(m.input.Value())
 	hasAttachments := len(m.pendingAttachments) > 0 && m.editingMsg.empty()
 	if text == "" && !hasAttachments {
 		return nil
