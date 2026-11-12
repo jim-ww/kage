@@ -130,6 +130,7 @@ func primeGPGAgent(ctx context.Context, queries *storage.Queries, accounts []con
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "kage:", err)
 		os.Exit(1)
 	}
 }
