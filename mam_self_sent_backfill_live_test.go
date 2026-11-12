@@ -104,7 +104,7 @@ func TestMAMBackfillsOwnMessagesSentFromAnotherDeviceWhileOffline(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ListMessagesByRoster: %v", err)
 	}
-	var rows []storage.ListMessagesByRosterRow
+	var rows []storage.Message
 	for _, r := range allRows {
 		if strings.HasPrefix(r.Body.String, prefix) {
 			rows = append(rows, r)

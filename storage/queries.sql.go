@@ -1632,30 +1632,7 @@ func (q *Queries) ListMamSyncCursors(ctx context.Context, accountJid string) ([]
 }
 
 const listMessagesByRoster = `-- name: ListMessagesByRoster :many
-SELECT
-	id,
-	sent,
-	toAttr,
-	fromAttr,
-	idAttr,
-	body,
-	encrypted,
-	e2eEncrypted,
-	e2eeMethod,
-	stanzaType,
-	delay,
-	replyToIdAttr,
-	replyQuoteAuthor,
-	replyQuotePreview,
-	retracted,
-	edited,
-	delivered,
-	serverAcked,
-	sendFailed,
-	oobURLs,
-	callDirection,
-	callOutcome,
-	callDurationSecs
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1672,43 +1649,18 @@ type ListMessagesByRosterParams struct {
 	StanzaType interface{}    `db:"stanza_type"`
 }
 
-type ListMessagesByRosterRow struct {
-	ID                int64          `db:"id"`
-	Sent              bool           `db:"sent"`
-	Toattr            sql.NullString `db:"toattr"`
-	Fromattr          sql.NullString `db:"fromattr"`
-	Idattr            sql.NullString `db:"idattr"`
-	Body              sql.NullString `db:"body"`
-	Encrypted         bool           `db:"encrypted"`
-	E2eencrypted      bool           `db:"e2eencrypted"`
-	E2eemethod        sql.NullString `db:"e2eemethod"`
-	Stanzatype        string         `db:"stanzatype"`
-	Delay             int64          `db:"delay"`
-	Replytoidattr     sql.NullString `db:"replytoidattr"`
-	Replyquoteauthor  sql.NullString `db:"replyquoteauthor"`
-	Replyquotepreview sql.NullString `db:"replyquotepreview"`
-	Retracted         bool           `db:"retracted"`
-	Edited            bool           `db:"edited"`
-	Delivered         bool           `db:"delivered"`
-	Serveracked       bool           `db:"serveracked"`
-	Sendfailed        bool           `db:"sendfailed"`
-	Ooburls           sql.NullString `db:"ooburls"`
-	Calldirection     sql.NullString `db:"calldirection"`
-	Calloutcome       sql.NullString `db:"calloutcome"`
-	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
-}
-
-func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]ListMessagesByRosterRow, error) {
+func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRosterParams) ([]Message, error) {
 	rows, err := q.db.QueryContext(ctx, listMessagesByRoster, arg.AccountJid, arg.RosterJid, arg.StanzaType)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListMessagesByRosterRow
+	var items []Message
 	for rows.Next() {
-		var i ListMessagesByRosterRow
+		var i Message
 		if err := rows.Scan(
 			&i.ID,
+			&i.Accountjid,
 			&i.Sent,
 			&i.Toattr,
 			&i.Fromattr,
@@ -1717,8 +1669,12 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Encrypted,
 			&i.E2eencrypted,
 			&i.E2eemethod,
+			&i.Originid,
 			&i.Stanzatype,
+			&i.Received,
 			&i.Delay,
+			&i.Rosterjid,
+			&i.Archiveid,
 			&i.Replytoidattr,
 			&i.Replyquoteauthor,
 			&i.Replyquotepreview,
@@ -1746,30 +1702,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 }
 
 const listMessagesByRosterAtOrAfter = `-- name: ListMessagesByRosterAtOrAfter :many
-SELECT
-	id,
-	sent,
-	toAttr,
-	fromAttr,
-	idAttr,
-	body,
-	encrypted,
-	e2eEncrypted,
-	e2eeMethod,
-	stanzaType,
-	delay,
-	replyToIdAttr,
-	replyQuoteAuthor,
-	replyQuotePreview,
-	retracted,
-	edited,
-	delivered,
-	serverAcked,
-	sendFailed,
-	oobURLs,
-	callDirection,
-	callOutcome,
-	callDurationSecs
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1794,32 +1727,6 @@ type ListMessagesByRosterAtOrAfterParams struct {
 	PageLimit  int64          `db:"page_limit"`
 }
 
-type ListMessagesByRosterAtOrAfterRow struct {
-	ID                int64          `db:"id"`
-	Sent              bool           `db:"sent"`
-	Toattr            sql.NullString `db:"toattr"`
-	Fromattr          sql.NullString `db:"fromattr"`
-	Idattr            sql.NullString `db:"idattr"`
-	Body              sql.NullString `db:"body"`
-	Encrypted         bool           `db:"encrypted"`
-	E2eencrypted      bool           `db:"e2eencrypted"`
-	E2eemethod        sql.NullString `db:"e2eemethod"`
-	Stanzatype        string         `db:"stanzatype"`
-	Delay             int64          `db:"delay"`
-	Replytoidattr     sql.NullString `db:"replytoidattr"`
-	Replyquoteauthor  sql.NullString `db:"replyquoteauthor"`
-	Replyquotepreview sql.NullString `db:"replyquotepreview"`
-	Retracted         bool           `db:"retracted"`
-	Edited            bool           `db:"edited"`
-	Delivered         bool           `db:"delivered"`
-	Serveracked       bool           `db:"serveracked"`
-	Sendfailed        bool           `db:"sendfailed"`
-	Ooburls           sql.NullString `db:"ooburls"`
-	Calldirection     sql.NullString `db:"calldirection"`
-	Calloutcome       sql.NullString `db:"calloutcome"`
-	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
-}
-
 // ListMessagesByRosterAtOrAfter is ListMessagesByRosterBefore's mirror: one
 // page of a chat's history at-or-newer than the (after_delay, after_id)
 // cursor, oldest-first, keyset-paginated the same way. Together, the two
@@ -1827,7 +1734,7 @@ type ListMessagesByRosterAtOrAfterRow struct {
 // message: this one gets everything from the anchor forward,
 // ListMessagesByRosterBefore gets everything strictly before it - see
 // loadHistoryWindow in history.go, which is the only caller of either.
-func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMessagesByRosterAtOrAfterParams) ([]ListMessagesByRosterAtOrAfterRow, error) {
+func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMessagesByRosterAtOrAfterParams) ([]Message, error) {
 	rows, err := q.db.QueryContext(ctx, listMessagesByRosterAtOrAfter,
 		arg.AccountJid,
 		arg.RosterJid,
@@ -1840,11 +1747,12 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListMessagesByRosterAtOrAfterRow
+	var items []Message
 	for rows.Next() {
-		var i ListMessagesByRosterAtOrAfterRow
+		var i Message
 		if err := rows.Scan(
 			&i.ID,
+			&i.Accountjid,
 			&i.Sent,
 			&i.Toattr,
 			&i.Fromattr,
@@ -1853,8 +1761,12 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 			&i.Encrypted,
 			&i.E2eencrypted,
 			&i.E2eemethod,
+			&i.Originid,
 			&i.Stanzatype,
+			&i.Received,
 			&i.Delay,
+			&i.Rosterjid,
+			&i.Archiveid,
 			&i.Replytoidattr,
 			&i.Replyquoteauthor,
 			&i.Replyquotepreview,
@@ -1882,30 +1794,7 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 }
 
 const listMessagesByRosterBefore = `-- name: ListMessagesByRosterBefore :many
-SELECT
-	id,
-	sent,
-	toAttr,
-	fromAttr,
-	idAttr,
-	body,
-	encrypted,
-	e2eEncrypted,
-	e2eeMethod,
-	stanzaType,
-	delay,
-	replyToIdAttr,
-	replyQuoteAuthor,
-	replyQuotePreview,
-	retracted,
-	edited,
-	delivered,
-	serverAcked,
-	sendFailed,
-	oobURLs,
-	callDirection,
-	callOutcome,
-	callDurationSecs
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1930,32 +1819,6 @@ type ListMessagesByRosterBeforeParams struct {
 	PageLimit   int64          `db:"page_limit"`
 }
 
-type ListMessagesByRosterBeforeRow struct {
-	ID                int64          `db:"id"`
-	Sent              bool           `db:"sent"`
-	Toattr            sql.NullString `db:"toattr"`
-	Fromattr          sql.NullString `db:"fromattr"`
-	Idattr            sql.NullString `db:"idattr"`
-	Body              sql.NullString `db:"body"`
-	Encrypted         bool           `db:"encrypted"`
-	E2eencrypted      bool           `db:"e2eencrypted"`
-	E2eemethod        sql.NullString `db:"e2eemethod"`
-	Stanzatype        string         `db:"stanzatype"`
-	Delay             int64          `db:"delay"`
-	Replytoidattr     sql.NullString `db:"replytoidattr"`
-	Replyquoteauthor  sql.NullString `db:"replyquoteauthor"`
-	Replyquotepreview sql.NullString `db:"replyquotepreview"`
-	Retracted         bool           `db:"retracted"`
-	Edited            bool           `db:"edited"`
-	Delivered         bool           `db:"delivered"`
-	Serveracked       bool           `db:"serveracked"`
-	Sendfailed        bool           `db:"sendfailed"`
-	Ooburls           sql.NullString `db:"ooburls"`
-	Calldirection     sql.NullString `db:"calldirection"`
-	Calloutcome       sql.NullString `db:"calloutcome"`
-	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
-}
-
 // ListMessagesByRosterBefore returns one page of a chat's history older
 // than the (before_delay, before_id) cursor, newest-first (the caller
 // reverses rows back to chronological order for display). Pass
@@ -1966,7 +1829,7 @@ type ListMessagesByRosterBeforeRow struct {
 // between messages sharing the same delay (second-granularity timestamp).
 // Used instead of ListMessagesByRoster to avoid loading/decrypting an
 // entire multi-thousand message history at once.
-func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessagesByRosterBeforeParams) ([]ListMessagesByRosterBeforeRow, error) {
+func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessagesByRosterBeforeParams) ([]Message, error) {
 	rows, err := q.db.QueryContext(ctx, listMessagesByRosterBefore,
 		arg.AccountJid,
 		arg.RosterJid,
@@ -1979,11 +1842,12 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListMessagesByRosterBeforeRow
+	var items []Message
 	for rows.Next() {
-		var i ListMessagesByRosterBeforeRow
+		var i Message
 		if err := rows.Scan(
 			&i.ID,
+			&i.Accountjid,
 			&i.Sent,
 			&i.Toattr,
 			&i.Fromattr,
@@ -1992,8 +1856,12 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Encrypted,
 			&i.E2eencrypted,
 			&i.E2eemethod,
+			&i.Originid,
 			&i.Stanzatype,
+			&i.Received,
 			&i.Delay,
+			&i.Rosterjid,
+			&i.Archiveid,
 			&i.Replytoidattr,
 			&i.Replyquoteauthor,
 			&i.Replyquotepreview,

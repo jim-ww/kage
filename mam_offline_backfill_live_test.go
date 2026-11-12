@@ -66,7 +66,7 @@ func sendAll(t *testing.T, ctx context.Context, client *xmpp.Client, peerJID str
 
 // storedBodies returns the bodies of alice's stored messages with bob that
 // carry prefix, oldest first.
-func storedBodies(t *testing.T, ctx context.Context, sess *accountSession, prefix string) []storage.ListMessagesByRosterRow {
+func storedBodies(t *testing.T, ctx context.Context, sess *accountSession, prefix string) []storage.Message {
 	t.Helper()
 	rows, err := sess.db.ListMessagesByRoster(ctx, storage.ListMessagesByRosterParams{
 		AccountJid: "alice@localhost",
@@ -75,7 +75,7 @@ func storedBodies(t *testing.T, ctx context.Context, sess *accountSession, prefi
 	if err != nil {
 		t.Fatalf("ListMessagesByRoster: %v", err)
 	}
-	var got []storage.ListMessagesByRosterRow
+	var got []storage.Message
 	for _, r := range rows {
 		if strings.HasPrefix(r.Body.String, prefix) {
 			got = append(got, r)

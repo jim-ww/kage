@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/jim-ww/kage/storage"
@@ -17,40 +17,12 @@ import (
 // account's real JID.
 const meReactorJID = "me"
 
-// historyRow is the subset of a messages row loadHistory/loadHistoryWindow
-// need, shared between ListMessagesByRoster/ListMessagesByRosterBefore/
-// ListMessagesByRosterAtOrAfter's (differently-shaped, sqlc-generated) row
-// types so the decrypt/build logic below isn't duplicated per query.
-type historyRow struct {
-	ID                int64
-	Sent              bool
-	Idattr            sql.NullString
-	Body              sql.NullString
-	Encrypted         bool
-	E2eencrypted      bool
-	E2eemethod        sql.NullString
-	Delay             int64
-	Replytoidattr     sql.NullString
-	Replyquoteauthor  sql.NullString
-	Replyquotepreview sql.NullString
-	Retracted         bool
-	Edited            bool
-	Delivered         bool
-	Serveracked       bool
-	Sendfailed        bool
-	Ooburls           sql.NullString
-	Stanzatype        string
-	Calldirection     sql.NullString
-	Calloutcome       sql.NullString
-	Calldurationsecs  sql.NullInt64
-}
-
 // readStoredBody returns row's plaintext body, decrypting it if row.Encrypted
 // is set — that fails if no local storage password is configured. A
 // plaintext row read while a password *is* now available gets
 // opportunistically re-sealed and written back, so it only sits unencrypted
 // until the next time it's read.
-func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row historyRow) (string, error) {
+func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row storage.Message) (string, error) {
 	if !row.Encrypted {
 		if s.localKey != nil {
 			sealedBody, encrypted := encryptForStorage(s, row.Body.String)
@@ -75,7 +47,7 @@ func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row
 // buildMessages decrypts and converts rows (already in chronological, oldest
 // first, order) into ui.Message. Rows with no body (encryption failed at
 // write time) are skipped since there is nothing to recover.
-func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName string, rows []historyRow) []ui.Message {
+func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName string, rows []storage.Message) []ui.Message {
 	msgs := make([]ui.Message, 0, len(rows))
 	replyTo := make([]string, 0, len(rows)) // parallel to msgs: each entry's ReplyToIdAttr
 	for _, row := range rows {
@@ -186,43 +158,12 @@ func loadHistory(ctx context.Context, s *accountSession, chatAddr, chatName stri
 		return nil
 	}
 
-	hrows := make([]historyRow, len(rows))
-	for i, r := range rows {
-		hrows[i] = historyRow{
-			ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
-			E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Replyquoteauthor: r.Replyquoteauthor, Replyquotepreview: r.Replyquotepreview, Retracted: r.Retracted,
-			Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
-			Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
-		}
-	}
-	return buildMessages(ctx, s, chatAddr, chatName, hrows)
+	return buildMessages(ctx, s, chatAddr, chatName, rows)
 }
 
 // historyPageSize messages are fetched at a time by loadHistoryWindow; set
 // from config.Config.HistoryPageSize by main before any account connects.
 var historyPageSize = 200
-
-// beforeRowToHistoryRow and afterRowToHistoryRow convert
-// ListMessagesByRosterBefore/AtOrAfter's (identically-shaped but distinctly
-// typed, since sqlc generates one row type per query) rows to the common
-// historyRow shape loadHistoryWindow builds a window out of.
-func beforeRowToHistoryRow(r storage.ListMessagesByRosterBeforeRow) historyRow {
-	return historyRow{
-		ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
-		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Replyquoteauthor: r.Replyquoteauthor, Replyquotepreview: r.Replyquotepreview, Retracted: r.Retracted,
-		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
-		Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
-	}
-}
-
-func afterRowToHistoryRow(r storage.ListMessagesByRosterAtOrAfterRow) historyRow {
-	return historyRow{
-		ID: r.ID, Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted,
-		E2eencrypted: r.E2eencrypted, E2eemethod: r.E2eemethod, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Replyquoteauthor: r.Replyquoteauthor, Replyquotepreview: r.Replyquotepreview, Retracted: r.Retracted,
-		Edited: r.Edited, Delivered: r.Delivered, Serveracked: r.Serveracked, Sendfailed: r.Sendfailed, Ooburls: r.Ooburls,
-		Stanzatype: r.Stanzatype, Calldirection: r.Calldirection, Calloutcome: r.Calloutcome, Calldurationsecs: r.Calldurationsecs,
-	}
-}
 
 // loadHistoryWindow loads a fresh window of chatAddr's history: up to limit
 // messages, entirely replacing whatever the caller had loaded before (see
@@ -248,11 +189,8 @@ func loadHistoryWindow(ctx context.Context, s *accountSession, chatAddr, chatNam
 			slog.Warn("loading history window", "chat", chatAddr, "err", err)
 			return nil, false, false
 		}
-		hrows := make([]historyRow, len(rows))
-		for i, r := range rows {
-			hrows[len(rows)-1-i] = beforeRowToHistoryRow(r) // rows arrive newest-first
-		}
-		return buildMessages(ctx, s, chatAddr, chatName, hrows), len(rows) == limit, false
+		slices.Reverse(rows) // rows arrive newest-first
+		return buildMessages(ctx, s, chatAddr, chatName, rows), len(rows) == limit, false
 	}
 
 	newerHalf := max(1, limit/2) // >=1 so the anchor itself (always matched by AtOrAfter) has a slot
@@ -275,14 +213,9 @@ func loadHistoryWindow(ctx context.Context, s *accountSession, chatAddr, chatNam
 		return nil, false, false
 	}
 
-	hrows := make([]historyRow, 0, len(olderRows)+len(newerRows))
-	for i := len(olderRows) - 1; i >= 0; i-- { // olderRows arrive newest-first
-		hrows = append(hrows, beforeRowToHistoryRow(olderRows[i]))
-	}
-	for _, r := range newerRows { // newerRows already arrive oldest-first
-		hrows = append(hrows, afterRowToHistoryRow(r))
-	}
-	return buildMessages(ctx, s, chatAddr, chatName, hrows), len(olderRows) == olderHalf && olderHalf > 0, len(newerRows) == newerHalf
+	slices.Reverse(olderRows) // olderRows arrive newest-first, newerRows oldest-first
+	rows := slices.Concat(olderRows, newerRows)
+	return buildMessages(ctx, s, chatAddr, chatName, rows), len(olderRows) == olderHalf && olderHalf > 0, len(newerRows) == newerHalf
 }
 
 // resolveReplyQuote looks up the message replyToID refers to in chatAddr's
@@ -308,7 +241,7 @@ func resolveReplyQuote(ctx context.Context, s *accountSession, chatAddr, chatNam
 	if err != nil {
 		return "", ""
 	}
-	pt, err := readStoredBody(ctx, s, chatAddr, historyRow{
+	pt, err := readStoredBody(ctx, s, chatAddr, storage.Message{
 		ID: row.ID, Sent: row.Sent, Idattr: row.Idattr, Body: row.Body, Encrypted: row.Encrypted,
 	})
 	if err != nil {

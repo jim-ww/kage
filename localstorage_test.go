@@ -362,7 +362,7 @@ func TestReadStoredBodyErrorsWithoutKey(t *testing.T) {
 		t.Fatalf("ListMessagesByRoster: %d rows, err %v", len(rows), err)
 	}
 	r := rows[0]
-	hrow := historyRow{Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted, E2eencrypted: r.E2eencrypted, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted}
+	hrow := storage.Message{Sent: r.Sent, Idattr: r.Idattr, Body: r.Body, Encrypted: r.Encrypted, E2eencrypted: r.E2eencrypted, Delay: r.Delay, Replytoidattr: r.Replytoidattr, Retracted: r.Retracted}
 	if _, err := readStoredBody(ctx, unkeyed, chatAddr, hrow); err == nil {
 		t.Fatal("expected readStoredBody to fail decrypting an encrypted row with no key available")
 	}

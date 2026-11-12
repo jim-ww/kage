@@ -214,30 +214,7 @@ WHERE accountJID = sqlc.arg(account_jid)
 
 
 -- name: ListMessagesByRoster :many
-SELECT
-	id,
-	sent,
-	toAttr,
-	fromAttr,
-	idAttr,
-	body,
-	encrypted,
-	e2eEncrypted,
-	e2eeMethod,
-	stanzaType,
-	delay,
-	replyToIdAttr,
-	replyQuoteAuthor,
-	replyQuotePreview,
-	retracted,
-	edited,
-	delivered,
-	serverAcked,
-	sendFailed,
-	oobURLs,
-	callDirection,
-	callOutcome,
-	callDurationSecs
+SELECT *
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -258,30 +235,7 @@ ORDER BY delay ASC;
 -- Used instead of ListMessagesByRoster to avoid loading/decrypting an
 -- entire multi-thousand message history at once.
 -- name: ListMessagesByRosterBefore :many
-SELECT
-	id,
-	sent,
-	toAttr,
-	fromAttr,
-	idAttr,
-	body,
-	encrypted,
-	e2eEncrypted,
-	e2eeMethod,
-	stanzaType,
-	delay,
-	replyToIdAttr,
-	replyQuoteAuthor,
-	replyQuotePreview,
-	retracted,
-	edited,
-	delivered,
-	serverAcked,
-	sendFailed,
-	oobURLs,
-	callDirection,
-	callOutcome,
-	callDurationSecs
+SELECT *
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -305,30 +259,7 @@ LIMIT sqlc.arg(page_limit);
 -- ListMessagesByRosterBefore gets everything strictly before it - see
 -- loadHistoryWindow in history.go, which is the only caller of either.
 -- name: ListMessagesByRosterAtOrAfter :many
-SELECT
-	id,
-	sent,
-	toAttr,
-	fromAttr,
-	idAttr,
-	body,
-	encrypted,
-	e2eEncrypted,
-	e2eeMethod,
-	stanzaType,
-	delay,
-	replyToIdAttr,
-	replyQuoteAuthor,
-	replyQuotePreview,
-	retracted,
-	edited,
-	delivered,
-	serverAcked,
-	sendFailed,
-	oobURLs,
-	callDirection,
-	callOutcome,
-	callDurationSecs
+SELECT *
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
