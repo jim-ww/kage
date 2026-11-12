@@ -92,8 +92,6 @@ type Daemon interface {
 	// SetAccountStatus sets and saves an account's own presence:
 	// PresenceOffline disconnects it, anything else connects it if needed.
 	SetAccountStatus(accountIdx int, status Presence) tea.Msg
-	// SetDefaultAccount saves which account is selected on startup.
-	SetDefaultAccount(jid string) error
 	// SetOwnAvatar publishes the account's avatar (XEP-0084);
 	// RemoveOwnAvatar removes it.
 	SetOwnAvatar(accountIdx int, path string) error
@@ -108,14 +106,7 @@ type Daemon interface {
 
 	// ── UI state, saved for the next start ──────────────────────────────
 
-	SetSidebarWidth(width int) error
-	SetSidebarHidden(hidden bool) error
-	SetInputHeight(height int) error
-	SetFilePickerSort(field string, ascending bool) error
-	SetLastChat(accountJID, chatAddress string) error
-	// RecordReactionEmojiUsage counts reactions sent, which rank the emoji
-	// picker's suggestions (see rankReactionUsage).
-	RecordReactionEmojiUsage(emojis []string) error
+	SaveState(change StateChange) error
 	// SetFocusState tells the daemon which chat ("" for none) is on screen
 	// and whether the terminal has focus, so it doesn't notify about what's
 	// already being read.
@@ -144,3 +135,31 @@ type Daemon interface {
 	ListAudioDevices() tea.Msg
 	SetAudioDevice(output bool, name string) tea.Msg
 }
+
+// StateChange is one piece of UI state the daemon saves for the next start.
+type StateChange interface{ stateChange() }
+
+type (
+	SidebarWidth   int
+	SidebarHidden  bool
+	InputHeight    int
+	FilePickerSort struct {
+		Field     string
+		Ascending bool
+	}
+	// LastChat is the chat open last, reopened on startup.
+	LastChat struct{ AccountJID, ChatAddress string }
+	// DefaultAccount is the account selected on startup.
+	DefaultAccount string
+	// ReactionsSent counts reactions sent, which rank the emoji picker's
+	// suggestions (see rankReactionUsage).
+	ReactionsSent []string
+)
+
+func (SidebarWidth) stateChange()   {}
+func (SidebarHidden) stateChange()  {}
+func (InputHeight) stateChange()    {}
+func (FilePickerSort) stateChange() {}
+func (LastChat) stateChange()       {}
+func (DefaultAccount) stateChange() {}
+func (ReactionsSent) stateChange()  {}

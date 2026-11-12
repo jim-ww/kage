@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/version"
@@ -83,6 +84,11 @@ var isEvent = map[reflect.Type]bool{}
 func init() {
 	gob.Register(ui.Chat{}) // list.Item, in Account.Chats and friends
 	gob.Register(wireError(""))
+	for _, ch := range []ui.StateChange{ui.SidebarWidth(0), ui.SidebarHidden(false), ui.InputHeight(0),
+		ui.FilePickerSort{}, ui.LastChat{}, ui.DefaultAccount(""), ui.ReactionsSent(nil)} {
+		gob.Register(ch)
+		wireTypes = append(wireTypes, reflect.TypeOf(ch))
+	}
 	for _, ev := range events {
 		gob.Register(ev)
 		isEvent[reflect.TypeOf(ev)] = true
@@ -115,18 +121,12 @@ func init() {
 	handle(addAccountReq{})
 	handle(removeAccountReq{})
 	handle(setAccountStatusReq{})
-	handle(setDefaultAccountReq{})
 	handle(setOwnAvatarReq{})
 	handle(removeOwnAvatarReq{})
 	handle(fetchOwnDeviceListReq{})
 	handle(purgeOwnDeviceListReq{})
 	handle(changeStoragePasswordReq{})
-	handle(setSidebarWidthReq{})
-	handle(setSidebarHiddenReq{})
-	handle(setInputHeightReq{})
-	handle(setFilePickerSortReq{})
-	handle(setLastChatReq{})
-	handle(recordReactionEmojiUsageReq{})
+	handle(saveStateReq{})
 	handle(setFocusStateReq{})
 	handle(callStateReq{})
 	handle(startCallReq{})
@@ -445,12 +445,6 @@ func (c setAccountStatusReq) run(d *daemonServer, _ ipc.ClientID) (none, error) 
 	return none{}, d.a.SetAccountStatus(c.AccountIdx, c.Status)
 }
 
-type setDefaultAccountReq struct{ JID string }
-
-func (c setDefaultAccountReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetDefaultAccount(c.JID)
-}
-
 type setOwnAvatarReq struct {
 	AccountIdx int
 	Path       string
@@ -489,43 +483,11 @@ func (c changeStoragePasswordReq) run(d *daemonServer, _ ipc.ClientID) (none, er
 
 // ── UI state ────────────────────────────────────────────────────────────
 
-type setSidebarWidthReq struct{ Width int }
+// saveStateReq saves a piece of UI state for the next start.
+type saveStateReq struct{ Change ui.StateChange }
 
-func (c setSidebarWidthReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetSidebarWidth(c.Width)
-}
-
-type setSidebarHiddenReq struct{ Hidden bool }
-
-func (c setSidebarHiddenReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetSidebarHidden(c.Hidden)
-}
-
-type setInputHeightReq struct{ Height int }
-
-func (c setInputHeightReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetInputHeight(c.Height)
-}
-
-type setFilePickerSortReq struct {
-	Field     string
-	Ascending bool
-}
-
-func (c setFilePickerSortReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetFilePickerSort(c.Field, c.Ascending)
-}
-
-type setLastChatReq struct{ AccountJID, ChatAddress string }
-
-func (c setLastChatReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SetLastChat(c.AccountJID, c.ChatAddress)
-}
-
-type recordReactionEmojiUsageReq struct{ Emojis []string }
-
-func (c recordReactionEmojiUsageReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.RecordReactionEmojiUsage(c.Emojis)
+func (c saveStateReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, config.SaveState(d.a.cfgPath, c.Change)
 }
 
 type setFocusStateReq struct {

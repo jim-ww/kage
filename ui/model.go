@@ -106,7 +106,7 @@ type Model struct {
 	// inputHeightOverride held before expanding (0 if the box was at its
 	// default size, or a user drag) in composeHeightBeforeExpand so toggling
 	// back restores exactly that instead of always dropping to the default —
-	// unlike a drag, this never calls inputHeightSetter.SetInputHeight, so
+	// unlike a drag, this never calls SaveState, so
 	// it never touches the persisted config value.
 	composeExpanded           bool
 	composeHeightBeforeExpand int

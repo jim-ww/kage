@@ -59,8 +59,8 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 	client.conn = conn
 
-	if err := client.SetSidebarWidth(42); err != nil {
-		t.Fatalf("SetSidebarWidth: %v", err)
+	if err := client.SaveState(ui.SidebarWidth(42)); err != nil {
+		t.Fatalf("SaveState: %v", err)
 	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {

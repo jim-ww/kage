@@ -243,11 +243,6 @@ func (c *ipcClient) SetAccountStatus(accountIdx int, status ui.Presence) tea.Msg
 	return ui.AccountStatusSetMsg{Index: accountIdx, Status: status, Err: err}
 }
 
-func (c *ipcClient) SetDefaultAccount(jid string) error {
-	_, err := do(c.conn, setDefaultAccountReq{JID: jid})
-	return err
-}
-
 func (c *ipcClient) SetOwnAvatar(accountIdx int, path string) error {
 	_, err := do(c.conn, setOwnAvatarReq{AccountIdx: accountIdx, Path: path})
 	return err
@@ -279,33 +274,8 @@ func (c *ipcClient) ChangeStoragePassword(newPassword string) error {
 	return err
 }
 
-func (c *ipcClient) SetSidebarWidth(width int) error {
-	_, err := do(c.conn, setSidebarWidthReq{Width: width})
-	return err
-}
-
-func (c *ipcClient) SetSidebarHidden(hidden bool) error {
-	_, err := do(c.conn, setSidebarHiddenReq{Hidden: hidden})
-	return err
-}
-
-func (c *ipcClient) SetInputHeight(height int) error {
-	_, err := do(c.conn, setInputHeightReq{Height: height})
-	return err
-}
-
-func (c *ipcClient) SetFilePickerSort(field string, ascending bool) error {
-	_, err := do(c.conn, setFilePickerSortReq{Field: field, Ascending: ascending})
-	return err
-}
-
-func (c *ipcClient) SetLastChat(accountJID, chatAddress string) error {
-	_, err := do(c.conn, setLastChatReq{AccountJID: accountJID, ChatAddress: chatAddress})
-	return err
-}
-
-func (c *ipcClient) RecordReactionEmojiUsage(emojis []string) error {
-	_, err := do(c.conn, recordReactionEmojiUsageReq{Emojis: emojis})
+func (c *ipcClient) SaveState(change ui.StateChange) error {
+	_, err := do(c.conn, saveStateReq{Change: change})
 	return err
 }
 

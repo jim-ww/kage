@@ -134,25 +134,6 @@ func SetAccountStatus(path, jid, status string) error {
 	})
 }
 
-// SetDefaultAccount sets (or updates) the default account in the state file
-// next to path, preserving everything else.
-func SetDefaultAccount(path, jid string) error {
-	return updateStateFile(path, func(st *State) error {
-		st.DefaultAccount = jid
-		return nil
-	})
-}
-
-// SetSidebarWidth sets (or updates) the sidebar width in the state file next
-// to path, preserving everything else — called after the user finishes
-// dragging the sidebar border (see ui.Daemon.SetSidebarWidth).
-func SetSidebarWidth(path string, width int) error {
-	return updateStateFile(path, func(st *State) error {
-		st.SidebarWidth = width
-		return nil
-	})
-}
-
 // SetAudioDevices sets (or updates) the call microphone/speaker in the
 // state file next to path, preserving everything else - called whenever
 // either is picked in the call menu ("" is the system default).
@@ -181,67 +162,6 @@ func SetScreenShareAudioVolume(path string, percent int) error {
 		st.ScreenShareAudioVolume = percent
 		if percent == 100 {
 			st.ScreenShareAudioVolume = 0
-		}
-		return nil
-	})
-}
-
-// SetInputHeight sets (or updates) the input height in the state file next
-// to path, preserving everything else — called after the user finishes
-// dragging the compose box's top border (see ui.Daemon.SetInputHeight).
-func SetInputHeight(path string, height int) error {
-	return updateStateFile(path, func(st *State) error {
-		st.InputHeight = height
-		return nil
-	})
-}
-
-// SetSidebarHidden sets (or updates) the sidebar-hidden flag in the state
-// file next to path, preserving everything else — called whenever the user
-// toggles the chat list (see ui.Daemon.SetSidebarHidden).
-func SetSidebarHidden(path string, hidden bool) error {
-	return updateStateFile(path, func(st *State) error {
-		st.SidebarHidden = hidden
-		return nil
-	})
-}
-
-// SetFilePickerSort sets (or updates) the file-picker sort field/direction
-// in the state file next to path, preserving everything else — called
-// whenever the user cycles the attach-file picker's sort order (see
-// ui.Daemon.SetFilePickerSort).
-func SetFilePickerSort(path string, field string, ascending bool) error {
-	return updateStateFile(path, func(st *State) error {
-		st.FilePickerSortField = field
-		st.FilePickerSortAscending = ascending
-		return nil
-	})
-}
-
-// SetLastChat sets (or updates) the last-opened-chat account/address in the
-// state file next to path, preserving everything else — called whenever the
-// user opens a chat, so it can be reopened on startup when open_last_chat is
-// set (see ui.Daemon.SetLastChat).
-func SetLastChat(path, accountJID, chatAddress string) error {
-	return updateStateFile(path, func(st *State) error {
-		st.LastChatAccount = accountJID
-		st.LastChatAddress = chatAddress
-		return nil
-	})
-}
-
-// RecordReactionEmojiUsage bumps the sent-count for each emoji in emojis by
-// one in the state file next to path, preserving everything else — called
-// every time the user sends a reaction (see ui.Daemon.RecordReactionEmojiUsage),
-// so the quick-pick default suggestions converge on what this user actually
-// reaches for.
-func RecordReactionEmojiUsage(path string, emojis []string) error {
-	return updateStateFile(path, func(st *State) error {
-		if st.ReactionEmojiUsage == nil {
-			st.ReactionEmojiUsage = make(map[string]int, len(emojis))
-		}
-		for _, e := range emojis {
-			st.ReactionEmojiUsage[e]++
 		}
 		return nil
 	})

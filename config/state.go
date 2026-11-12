@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/jim-ww/kage/ui"
 )
 
 // State holds settings the app itself persists at runtime - dragged sidebar
@@ -67,8 +69,7 @@ type State struct {
 	// rather than living on the Account struct.
 	AccountStatuses map[string]string `toml:"account_statuses,omitempty"`
 	// ReactionEmojiUsage is emoji -> how many times the user has sent it as
-	// a reaction, incremented every time a reaction is sent (see
-	// ui.Daemon.SetFilePickerSort). Ranked descending to build the
+	// a reaction (see ui.ReactionsSent). Ranked descending to build the
 	// quick-pick default suggestions offered before any typing (see
 	// ui.defaultEmojiSuggestions) so the picker converges on what this user
 	// actually reaches for instead of a fixed list.
@@ -145,4 +146,34 @@ func writeState(st State) error {
 		return fmt.Errorf("marshal state: %w", err)
 	}
 	return writeFileAtomic(st.Path, data, 0o600)
+}
+
+// SaveState applies one piece of UI state to the state file next to path.
+func SaveState(path string, change ui.StateChange) error {
+	return updateStateFile(path, func(st *State) error {
+		switch c := change.(type) {
+		case ui.SidebarWidth:
+			st.SidebarWidth = int(c)
+		case ui.SidebarHidden:
+			st.SidebarHidden = bool(c)
+		case ui.InputHeight:
+			st.InputHeight = int(c)
+		case ui.FilePickerSort:
+			st.FilePickerSortField, st.FilePickerSortAscending = c.Field, c.Ascending
+		case ui.LastChat:
+			st.LastChatAccount, st.LastChatAddress = c.AccountJID, c.ChatAddress
+		case ui.DefaultAccount:
+			st.DefaultAccount = string(c)
+		case ui.ReactionsSent:
+			if st.ReactionEmojiUsage == nil {
+				st.ReactionEmojiUsage = make(map[string]int, len(c))
+			}
+			for _, e := range c {
+				st.ReactionEmojiUsage[e]++
+			}
+		default:
+			return fmt.Errorf("unknown state change %T", change)
+		}
+		return nil
+	})
 }

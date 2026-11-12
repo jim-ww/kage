@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/jim-ww/kage/ui"
 )
 
 // Every Set* helper is a load-edit-write of the whole file, and the daemon
@@ -19,8 +21,8 @@ func TestConcurrentStateWritesKeepEveryEdit(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := RecordReactionEmojiUsage(path, []string{"👍"}); err != nil {
-				t.Errorf("RecordReactionEmojiUsage: %v", err)
+			if err := SaveState(path, ui.ReactionsSent{"👍"}); err != nil {
+				t.Errorf("SaveState: %v", err)
 			}
 		}()
 	}
@@ -43,8 +45,10 @@ func TestConcurrentWritesAcrossFields(t *testing.T) {
 
 	var wg sync.WaitGroup
 	edits := []func() error{
-		func() error { return SetSidebarWidth(path, 42) },
-		func() error { return SetLastChat(path, "alice@localhost", "bob@localhost") },
+		func() error { return SaveState(path, ui.SidebarWidth(42)) },
+		func() error {
+			return SaveState(path, ui.LastChat{AccountJID: "alice@localhost", ChatAddress: "bob@localhost"})
+		},
 		func() error { return SetChatPinned(path, "alice@localhost", "carol@localhost", true) },
 		func() error { return WriteAccount(path, Account{JID: "alice@localhost"}) },
 	}
@@ -86,7 +90,7 @@ func TestConcurrentWritesAcrossFields(t *testing.T) {
 func TestWriteFileAtomicLeavesNoTempFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	if err := SetSidebarWidth(path, 7); err != nil {
+	if err := SaveState(path, ui.SidebarWidth(7)); err != nil {
 		t.Fatalf("SetSidebarWidth: %v", err)
 	}
 

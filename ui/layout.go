@@ -164,7 +164,7 @@ func (m Model) toggleSidebar() (Model, tea.Cmd) {
 	// while some other setSelectedView call ran updateSizes in between),
 	// leaving the list rendering empty even though its selection still moves.
 	m.updateSizes()
-	if err := m.daemon.SetSidebarHidden(m.sidebarHidden); err != nil {
+	if err := m.daemon.SaveState(SidebarHidden(m.sidebarHidden)); err != nil {
 		return m, m.showNotification("saving chat list visibility: " + err.Error())
 	}
 	return m, nil
@@ -248,7 +248,7 @@ func (m Model) expandedComposeHeight() int {
 // to grow the compose box to expandedComposeHeight for pasting/editing a
 // longer message, and shrink it back on a second press. It reuses
 // inputHeightOverride (the same field a mouse-drag on the box's top border
-// sets) but, unlike a drag, never calls inputHeightSetter.SetInputHeight —
+// sets) but, unlike a drag, never calls SaveState —
 // this is a transient view state, not a persisted preference, so
 // composeHeightBeforeExpand remembers whatever override (if any) was in
 // place before expanding rather than always reverting to the default.

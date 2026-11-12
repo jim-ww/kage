@@ -135,7 +135,7 @@ func (m *Model) confirmEmojiPick(idx int, picked []string) tea.Cmd {
 		for _, e := range picked {
 			m.reactionEmojiUsage[e]++
 		}
-		_ = m.daemon.RecordReactionEmojiUsage(picked)
+		_ = m.daemon.SaveState(ReactionsSent(picked))
 	}
 	cmds = append(cmds, m.sendReaction(idx, picked))
 	m.refreshViewport()

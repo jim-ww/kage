@@ -963,7 +963,7 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	}
 	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) {
 		if chat, ok := m.currentChat(); ok {
-			_ = m.daemon.SetLastChat(m.accounts[m.currentAccount].Name, chat.Address)
+			_ = m.daemon.SaveState(LastChat{AccountJID: m.accounts[m.currentAccount].Name, ChatAddress: chat.Address})
 		}
 	}
 	draftCmd := m.swapComposeDraft(m.currentAccount, m.currentChatIndex())

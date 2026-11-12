@@ -99,7 +99,7 @@ func (m *Model) actionMakeDefaultAccount(index int) tea.Cmd {
 	if index < 0 || index >= len(m.accounts) {
 		return nil
 	}
-	if err := m.daemon.SetDefaultAccount(m.accounts[index].Name); err != nil {
+	if err := m.daemon.SaveState(DefaultAccount(m.accounts[index].Name)); err != nil {
 		return m.showNotification(fmt.Sprintf("setting default account: %v", err))
 	}
 	return m.showNotification("Default account set")

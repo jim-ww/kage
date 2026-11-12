@@ -299,7 +299,7 @@ func ctrlBacktickKey() tea.KeyMsg { return tea.KeyPressMsg{Code: '`', Mod: tea.M
 // TestComposeToggleExpand checks ctrl+` grows the compose box to roughly
 // half the chat pane and a second press shrinks it back — and that it
 // restores a pre-existing user drag (inputHeightOverride) rather than always
-// dropping to the default, without ever calling inputHeightSetter (this is
+// dropping to the default, without ever saving it (this is
 // transient view state, not a persisted config value).
 func TestComposeToggleExpand(t *testing.T) {
 	m := newTestModel(&fakeAccountAdder{})

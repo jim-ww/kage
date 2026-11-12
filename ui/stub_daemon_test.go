@@ -32,18 +32,12 @@ func (stubDaemon) SaveDraft(string, string, string) error                      {
 func (stubDaemon) AddAccount(string, string, string, bool) tea.Msg             { return nil }
 func (stubDaemon) RemoveAccount(int) tea.Msg                                   { return nil }
 func (stubDaemon) SetAccountStatus(int, Presence) tea.Msg                      { return nil }
-func (stubDaemon) SetDefaultAccount(string) error                              { return nil }
 func (stubDaemon) SetOwnAvatar(int, string) error                              { return nil }
 func (stubDaemon) RemoveOwnAvatar(int) error                                   { return nil }
 func (stubDaemon) FetchOwnDeviceList(int) tea.Msg                              { return nil }
 func (stubDaemon) PurgeOwnDeviceList(int, []OmemoDevice) tea.Msg               { return nil }
 func (stubDaemon) ChangeStoragePassword(string) error                          { return nil }
-func (stubDaemon) SetSidebarWidth(int) error                                   { return nil }
-func (stubDaemon) SetSidebarHidden(bool) error                                 { return nil }
-func (stubDaemon) SetInputHeight(int) error                                    { return nil }
-func (stubDaemon) SetFilePickerSort(string, bool) error                        { return nil }
-func (stubDaemon) SetLastChat(string, string) error                            { return nil }
-func (stubDaemon) RecordReactionEmojiUsage([]string) error                     { return nil }
+func (stubDaemon) SaveState(StateChange) error                                 { return nil }
 func (stubDaemon) SetFocusState(string, string, bool) error                    { return nil }
 func (stubDaemon) StartCall(int, string) tea.Msg                               { return nil }
 func (stubDaemon) StartVideoCall(int, string, bool) tea.Msg                    { return nil }

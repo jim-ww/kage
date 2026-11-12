@@ -328,30 +328,6 @@ func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySea
 	return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Messages: msgs, Matches: matches}, nil
 }
 
-// SetDefaultAccount persists jid as the
-// account selected on startup.
-func (a *adapter) SetDefaultAccount(jid string) error {
-	return config.SetDefaultAccount(a.cfgPath, jid)
-}
-
-// SetSidebarWidth persists the
-// user-dragged sidebar width so it's restored on the next launch.
-func (a *adapter) SetSidebarWidth(width int) error {
-	return config.SetSidebarWidth(a.cfgPath, width)
-}
-
-// RecordReactionEmojiUsage persists per-emoji reaction send counts so the quick-pick suggestions
-// converge on what this user actually reaches for.
-func (a *adapter) RecordReactionEmojiUsage(emojis []string) error {
-	return config.RecordReactionEmojiUsage(a.cfgPath, emojis)
-}
-
-// SetSidebarHidden persists the chat
-// list's visibility so it's restored on the next launch.
-func (a *adapter) SetSidebarHidden(hidden bool) error {
-	return config.SetSidebarHidden(a.cfgPath, hidden)
-}
-
 func (a *adapter) SetChatHidden(accountJID, chatAddress string, hidden bool) error {
 	if err := config.SetChatHidden(a.cfgPath, accountJID, chatAddress, hidden); err != nil {
 		return err
@@ -396,25 +372,6 @@ func (a *adapter) SetChatMuted(accountJID, chatAddress string, muted bool) error
 	mutedChats.flag(accountJID, chatAddress, muted)
 	broadcast(a.srv, ui.ChatSettingMsg{AccountJID: accountJID, ChatAddress: chatAddress, Setting: "muted", On: muted})
 	return nil
-}
-
-// SetInputHeight persists the user-dragged
-// compose box height so it's restored on the next launch.
-func (a *adapter) SetInputHeight(height int) error {
-	return config.SetInputHeight(a.cfgPath, height)
-}
-
-// SetFilePickerSort persists the
-// attach-file picker's sort field/direction so it's restored on the next
-// launch.
-func (a *adapter) SetFilePickerSort(field string, ascending bool) error {
-	return config.SetFilePickerSort(a.cfgPath, field, ascending)
-}
-
-// SetLastChat persists which chat was last
-// opened so it can be reopened on startup when open_last_chat is set.
-func (a *adapter) SetLastChat(accountJID, chatAddress string) error {
-	return config.SetLastChat(a.cfgPath, accountJID, chatAddress)
 }
 
 // SetFocusState records whether the calling
