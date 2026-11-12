@@ -442,7 +442,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		lines = append(lines, pad+m.zone.Mark(zoneMessageExpand(msgIdx), m.styles.renderMsgExpandButton(expanded, expandHovered)))
 	}
 
-	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, isSelected))
+	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, rowHovered))
 
 	// The left-edge bar (thick, red) marks selection only; it must sit flush
 	// against the pane's own left edge - not indented behind a padding
@@ -489,10 +489,10 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 
 // renderMessageStatusLine renders the line under a message's body: dimmed
 // time/date, then an edited marker, (for our own messages) the
-// send/delivery status glyph, then - only while the message is selected -
-// the "↩" (reply)/"+" (react) buttons, and finally any reactions on the
-// message.
-func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool) string {
+// send/delivery status glyph, then - only while the pointer is over the
+// message (they're mouse buttons; the keyboard has its own keys) - the "↩"
+// (reply)/"+" (react) buttons, and finally any reactions on the message.
+func (m Model) renderMessageStatusLine(msg Message, msgIdx int, rowHovered bool) string {
 	timeLabel := m.styles.messageTime.Render(m.formatMessageTime(msg.SentAt))
 	parts := []string{timeLabel}
 
@@ -551,7 +551,7 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, isSelected bool)
 		parts = append(parts, strings.Join(badges, " "))
 	}
 
-	if isSelected {
+	if rowHovered {
 		replyKey := m.zone.Mark(zoneMessageReplyKey(msgIdx), m.styles.renderMsgActionKey("↩", m.isReplyKeyHovered(msgIdx)))
 		reactKey := m.zone.Mark(zoneMessageReactKey(msgIdx), m.styles.renderMsgActionKey("+", m.isReactKeyHovered(msgIdx)))
 		replyBtn := m.zone.Mark(zoneMessageReplyBtn(msgIdx), replyKey)

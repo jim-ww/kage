@@ -36,7 +36,7 @@ func TestReplyKeyHoverRegistersOnSingleCellGlyph(t *testing.T) {
 	m.refreshViewport()
 
 	// Hover the row first so the reply/react buttons render at all (they're
-	// only drawn for the selected message).
+	// only drawn for the hovered message).
 	_ = m.View()
 	var vp = m.zone.Get(zonePaneViewport)
 	for range 100 {
