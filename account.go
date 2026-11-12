@@ -26,10 +26,9 @@ import (
 	omemolib "github.com/jim-ww/omemo-go"
 )
 
-// accountSession bundles everything needed to send/receive/persist for one
-// configured account. client is swapped out on reconnect, so it's stored
-// behind an atomic pointer — Send (called from the Bubble Tea event loop)
-// and the reconnect supervisor (its own goroutine) touch it concurrently.
+// accountSession is everything needed to send, receive and persist for one
+// configured account. client is swapped on reconnect while RPCs read it, so
+// it's an atomic pointer.
 type accountSession struct {
 	account    config.Account
 	accountIdx int // index into adapter.sessions; set once at connect time, needed to replay queued sends via adapter.send
@@ -39,104 +38,62 @@ type accountSession struct {
 	gpg        gpg.Encrypter
 	useGPG     bool // mirrors config.UseGPG; gates gpg encrypt/decrypt on incoming/outgoing messages
 	useKeyring bool // mirrors config.UseKeyring; gates whether ResolvePassword tries the OS keyring
-	// omemoMgrV2/omemoMgrV1 hold nil until connectAccountLive sets them up
-	// (needs a dialed client for its Transport). Both run concurrently: this
-	// account maintains a separate identity/device pool per OMEMO protocol
-	// version, since a chat can be pinned to either "omemo-v1" (the default,
-	// ui.encryptionModes) or "omemo-v2".
+	// omemoMgrV2/omemoMgrV1 are nil until setupOmemo builds them on a dialed
+	// client. Each protocol has its own identity and device pool.
 	//
-	// Atomic for the same reason client is: reconnectWithBackoff rebuilds
-	// both from its own goroutine (their Transport is bound to the client
-	// that just died) while the account's event loop, the MAM backfill
-	// goroutines and every Send RPC read them. Always read through
-	// omemoV1/omemoV2, and read once per operation - a manager that was
-	// non-nil when checked and got swapped a moment later is fine, one
-	// re-read halfway through an encrypt is not.
+	// Atomic because reconnects rebuild them while the event loop, MAM
+	// backfill and sends read them. Read through omemoV1/omemoV2, once per
+	// operation: never re-read halfway through an encrypt.
 	omemoMgrV2 atomic.Pointer[omemolib.Manager]
 	omemoMgrV1 atomic.Pointer[omemolib.Manager]
 
-	// omemoReady is closed once setupOmemo has finished its first run for
-	// this account, so an OMEMO message arriving in the window between the
-	// account going live and that setup completing can wait for it instead
-	// of being treated as undecryptable (see waitOmemoReady). nil for a
-	// session nothing will ever signal - a test fixture, or any session not
-	// built by connectAccountLocal - in which case waiting is skipped.
+	// omemoReady is closed once setupOmemo first finishes, so an OMEMO message
+	// arriving before that can wait instead of being undecryptable (see
+	// waitOmemoReady). nil skips waiting.
 	omemoReady     chan struct{}
 	omemoReadyOnce sync.Once
 
-	// omemoWaitGaveUp latches once waitOmemoReady has timed out, so an
-	// account whose OMEMO setup never succeeds stalls the event loop for the
-	// grace period once rather than on every incoming message - the loop is
-	// sequential, so that delay would otherwise also hold up presence and
-	// call signalling for the account. A later successful setup still
-	// closes omemoReady, which waitOmemoReady checks first.
+	// omemoWaitGaveUp latches once waitOmemoReady timed out, so an account
+	// whose OMEMO setup never succeeds stalls its (sequential) event loop
+	// once, not on every message.
 	omemoWaitGaveUp atomic.Bool
 
-	// peerDeviceSyncedAt records, per protocol+peer, when that peer's OMEMO
-	// device list was last re-fetched on a send, so a busy conversation
-	// doesn't put a PEP IQ in front of every message. In memory only:
-	// losing it on restart just means one extra fetch per peer, and
-	// connectAccountLive resyncs the whole roster anyway.
+	// peerDeviceSyncedAt is when each protocol+peer's OMEMO device list was
+	// last re-fetched on a send, so not every message waits on a PEP IQ.
 	peerDeviceSyncedAt map[string]time.Time
 	peerDeviceSyncMu   sync.Mutex
 
-	// localKey is the AES-256 key message bodies are sealed under at rest
-	// (crypto/localstore), derived once in main from the local storage
-	// password and shared by every account.
+	// localKey seals message bodies at rest (crypto/localstore); shared by
+	// every account.
 	localKey []byte
 
 	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
 
-	// rosterMu serializes the read-copy-modify-write cycles that update
-	// roster. The atomic pointer alone makes each individual Load/Store
-	// safe, but not the cycle between them: presence stanzas (one per
-	// contact resource, arriving in bursts), disco#info device-name
-	// resolution and avatar sync all run on their own goroutines and all
-	// rewrite the whole map, so two overlapping cycles silently drop one of
-	// the two updates. The symptom is a contact stuck at a stale presence -
-	// most visibly stuck offline while they're online - with nothing in the
-	// log to show it, since each cycle individually succeeded.
+	// rosterMu serializes roster's copy-modify-store cycles (see
+	// mutateRoster): presence, device names and avatars update it from
+	// separate goroutines, and overlapping cycles would drop updates.
 	rosterMu sync.Mutex
 
-	// omemoMu serializes OMEMO decrypt+persist across the live path
-	// (events.go's handleIncomingMessage) and MAM backfill
-	// (syncArchiveForContact's processMAMItem): both run as separate
-	// goroutines against the same double-ratchet/prekey state in storage,
-	// and without this lock a message arriving live while backfill is still
-	// catching up on the same conversation can get decrypted twice
-	// concurrently - the first decrypt consumes the one-time prekey (or the
-	// cached skipped-message-key), and the second then fails with "no rows
-	// in result set" or "no message key is cached" instead of finding the
-	// row the first decrypt is about to insert.
+	// omemoMu serializes OMEMO decrypt+persist between the live path and MAM
+	// backfill: decrypting one message twice concurrently consumes its
+	// prekey or cached message key in the first, failing the second.
 	omemoMu sync.Mutex
 
-	// callMu guards call, the one voice call this account can have in flight
-	// (see callsession.go). One at a time is enough: there's no call waiting.
+	// callMu guards call, the account's one call in progress (callsession.go).
 	callMu sync.Mutex
 	call   *callSession
 
-	// ackMu guards ackPending/ackTimer: messages sent since the last
-	// confirmPendingAcks flush, waiting on a debounced XEP-0199 ping to
-	// confirm the server actually received them - see
-	// trackForServerAck/confirmPendingAcks.
+	// ackMu guards ackPending/ackTimer, see trackForServerAck.
 	ackMu      sync.Mutex
 	ackPending []pendingAck
 	ackTimer   *time.Timer
 
-	// archiveSyncing gates syncArchive so only one backfill runs at a time
-	// per session - see triggerArchiveSync. Several callers can race to ask
-	// for one (every attaching TUI client's listAccounts, a detected
-	// reconnect, ...); without this a burst of them would each page through
-	// every contact's MAM archive concurrently for no benefit, since they'd
-	// all converge on the same already-caught-up cursor anyway.
+	// archiveSyncing keeps to one backfill at a time, see triggerArchiveSync.
 	archiveSyncing atomic.Bool
 }
 
-// triggerArchiveSync runs syncArchive for s unless a backfill is already in
-// flight, in which case it's a no-op - the in-flight one will pick up
-// anything a concurrent caller wanted synced too, since MAM cursors only
-// move forward. Safe to call from any number of goroutines at once (see
-// archiveSyncing).
+// triggerArchiveSync runs syncArchive for s unless one is already running,
+// which covers what this caller wanted too: MAM cursors only move forward.
 func triggerArchiveSync(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
 	if !s.archiveSyncing.CompareAndSwap(false, true) {
 		return
@@ -148,26 +105,17 @@ func triggerArchiveSync(ctx context.Context, srv *ipc.Server, accountIdx int, s 
 	broadcast(srv, ui.HistorySyncFinishedMsg{AccountIdx: accountIdx})
 }
 
-// pendingAck is one send queued in accountSession.ackPending, waiting on
-// confirmPendingAcks's debounced ping.
 type pendingAck struct {
 	to, id string
 }
 
-// ackDebounce is how long trackForServerAck waits after the most recently
-// queued send before actually pinging the server. Sending several messages
-// in a burst (e.g. typing quickly) shares a single ping/pong round trip to
-// confirm all of them at once rather than paying one per message - the same
-// reason real XEP-0198 doesn't require a stream-management ack request
-// after every single stanza either.
+// ackDebounce is how long trackForServerAck waits after the last send before
+// pinging, so a burst of messages shares one ping.
 const ackDebounce = 500 * time.Millisecond
 
-// trackForServerAck queues (to, id) - a message adapter.send just handed
-// off successfully - to be confirmed against the server by a debounced ping
-// (see ackDebounce and confirmPendingAcks). A local Send() call returning
-// without an error only proves the write reached the local socket buffer,
-// not that the server ever processed it (see Message.ServerAcked's doc
-// comment) - this is what actually closes that gap.
+// trackForServerAck queues a sent message to be confirmed by a debounced
+// XEP-0199 ping: a send without error only means it reached the local
+// socket buffer, not the server (see Message.ServerAcked).
 func (s *accountSession) trackForServerAck(a *adapter, accountIdx int, to, id string) {
 	s.ackMu.Lock()
 	defer s.ackMu.Unlock()
@@ -180,12 +128,9 @@ func (s *accountSession) trackForServerAck(a *adapter, accountIdx int, to, id st
 	})
 }
 
-// confirmPendingAcks is trackForServerAck's debounced timer callback: pings
-// the server once and, only if that round trip actually succeeds, marks
-// every message queued since the last flush as ServerAcked together -
-// rather than confirming (or guessing) each individually. Runs detached on
-// its own goroutine (via time.AfterFunc, same as resolveDeviceName's
-// pattern for background PEP work), so it recovers its own panics.
+// confirmPendingAcks pings the server once and marks every queued message
+// ServerAcked if it answers. Runs on its own goroutine (time.AfterFunc), so
+// it recovers its own panics.
 func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server, accountIdx int) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -204,39 +149,18 @@ func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server
 
 	client, err := s.liveClient()
 	if err != nil {
-		// Already offline by the time the debounce fired - nothing to ping,
-		// and this batch stays unacked (no ✓) rather than guessing either
-		// way. Whatever eventually reconnects and sends something new starts
-		// a fresh batch.
-		return
+		return // offline: the batch stays unacked rather than guessed
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx); err != nil {
-		// The server never actually answered for this batch - exactly the
-		// silent-drop scenario a bare "the local write returned no error"
-		// can't detect on its own (a half-open TCP connection a NAT/
-		// middlebox dropped silently: writes still succeed into the local
-		// socket buffer, but nothing ever answers). Two things follow from
-		// that, not just leaving the batch unacked as before:
-		//
-		//  1. Every message in this batch gets flagged Failed rather than
-		//     sitting forever with no status glyph at all - the user typed
-		//     it, we have positive evidence it never reached the server, so
-		//     say so instead of staying silent (see Message.Failed's doc
-		//     comment on why an ambiguous non-status is worse than a ✗).
-		//  2. Kill the connection so superviseAccount's normal
-		//     disconnect-detection path (which otherwise only fires once a
-		//     read or write actually errors - which a half-open connection
-		//     may never do on its own) notices right away and starts
-		//     reconnecting, instead of leaving every subsequent send in the
-		//     same boat until something else eventually surfaces the drop.
+		// No answer: likely a half-open connection, where writes still
+		// succeed locally. Mark the batch failed, and kill the connection so
+		// superviseAccount reconnects - a half-open one may never error on
+		// its own.
 		slog.Warn("confirming server ack failed; marking batch failed and forcing reconnect", "jid", s.account.JID, "batch", len(pending), "err", err)
-		// ctx's 10s deadline just expired inside client.Ping above - reusing it
-		// here would make every MarkMessageSendFailed call fail immediately
-		// with the same "context deadline exceeded", silently dropping the
-		// failure write (see commit fixing the resulting no-glyph-forever bug).
+		// A fresh context: ctx's deadline likely just expired in Ping.
 		persistCtx, persistCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer persistCancel()
 		for _, p := range pending {
@@ -276,26 +200,18 @@ func (s *accountSession) confirmPendingAcks(ctx context.Context, srv *ipc.Server
 	}
 }
 
-// queuedSend is one send loaded from the outbox table (see its schema doc
-// comment) for replay by adapter.flushOutbox. filePath is empty for a plain
-// message/reaction/retraction/correction (replayed through adapter.send
-// verbatim); non-empty for a staged attachment (replayed through
-// adapter.flushOutbox's upload-then-send, body used as the message text).
+// queuedSend is one outbox row for adapter.flushOutbox to replay. filePath
+// is set for a staged attachment (uploaded, then sent with body as text).
 type queuedSend struct {
-	dbID     int64 // storage.Outbox.ID - the row to delete once this entry is actually attempted, not before (see flushOutbox)
+	dbID     int64 // storage.Outbox.ID
 	to, body string
 	opts     ui.SendOptions
 	filePath string
 }
 
-// enqueueOutbox persists a send to the outbox table for later replay by
-// adapter.flushOutbox — real storage, not an in-memory slice, so a
-// crash/restart while offline doesn't silently lose it the way the
-// in-memory version this replaced did. Reactions/retractions/corrections
-// carry a target ID from an earlier send, so replaying them later is safe
-// *unless* that target message was itself still queued (empty ID) when the
-// user reacted/retracted/corrected it - see adapter.send's early return for
-// queued sends, which is the source of that gap.
+// enqueueOutbox stores a send for adapter.flushOutbox to replay once online.
+// A reaction, retraction or correction of a message that was itself still
+// queued has no target ID yet - see adapter.send.
 func (s *accountSession) enqueueOutbox(ctx context.Context, to, body string, opts ui.SendOptions) error {
 	return s.enqueueOutboxRow(ctx, to, body, opts, "")
 }
@@ -311,17 +227,9 @@ func (s *accountSession) enqueueOutboxRow(ctx context.Context, to, body string, 
 	return err
 }
 
-// markOutboxFailed persists a real (non-queued, non-offline) send failure -
-// e.g. adapter.send's "omemo not ready" - as a durable failed=true row,
-// exactly like enqueueOutbox does for the offline/queued case. Without this,
-// a Failed message only ever lived in whichever TUI process's in-memory
-// Model happened to render the ✗ marker: restarting just that process (not
-// the daemon) rebuilds its view from storage via listAccounts, which had no
-// record of the failure at all, and the message silently vanished. Always a
-// fresh row, never an update to an existing one: by the time this runs, any
-// outbox row this attempt came from (a flushOutbox replay) has already been
-// deleted (see flushOutbox's doc comment), and a live first attempt from
-// sendCurrentInput never had one to begin with.
+// markOutboxFailed stores a real send failure as a failed outbox row, so a
+// restarted TUI still shows the message as failed. Always a new row: a
+// replayed one was already deleted before its attempt (see flushOutbox).
 func (s *accountSession) markOutboxFailed(ctx context.Context, to, body string, opts ui.SendOptions, errText string) error {
 	_, err := s.insertOutboxEntry(ctx, to, body, opts, "", true, errText)
 	return err
@@ -349,19 +257,10 @@ func (s *accountSession) insertOutboxEntry(ctx context.Context, to, body string,
 	})
 }
 
-// pendingOutboxMessagesByPeer loads every plain new-message or
-// staged-attachment send currently sitting in the outbox - both
-// still-queued (Pending) and given-up (Failed) - and groups them by
-// recipient (toAttr), oldest first, as ui.Messages ready to append onto
-// that chat's already-loaded history. The DB-backed outbox's rows are
-// otherwise invisible to the chat view until a queued one is actually sent
-// (MessageSendResolvedMsg) or the app happens to be running when
-// flushOutbox gets to it, and a failed one is never otherwise reported at
-// all once the TUI process that saw it live is gone - see
-// markOutboxFailed's doc comment. Reactions/retractions/corrections are
-// skipped: they don't correspond to a new chat-history row, they target one
-// that's already showing - markOutboxFailed never writes one of these
-// anyway, only enqueueOutbox does.
+// pendingOutboxMessagesByPeer is every queued or failed new message and
+// attachment in the outbox, by recipient, oldest first, to show at the end
+// of their chat. Reactions, retractions and corrections are skipped: they
+// change a message already shown.
 func pendingOutboxMessagesByPeer(ctx context.Context, queries *storage.Queries, acct config.Account, localKey []byte) (map[string][]ui.Message, error) {
 	rows, err := queries.ListOutboxByAccount(ctx, acct.JID)
 	if err != nil {
@@ -377,12 +276,8 @@ func pendingOutboxMessagesByPeer(ctx context.Context, queries *storage.Queries, 
 	return byPeer, nil
 }
 
-// loadOutbox returns every send still eligible for an automatic retry in
-// this account's outbox (i.e. failed = FALSE - see outbox.failed's doc
-// comment), oldest first (replay order), decrypting each body with
-// s.localKey the same way loadDraft does for a stored draft. Used by
-// flushOutbox, which must never resurrect a send the user already saw
-// marked Failed.
+// loadOutbox is every not-failed outbox send, oldest first, for flushOutbox
+// - which must never resend one the user already saw fail.
 func (s *accountSession) loadOutbox(ctx context.Context) ([]queuedSend, error) {
 	rows, err := s.db.ListPendingOutboxByAccount(ctx, s.account.JID)
 	if err != nil {
@@ -411,20 +306,12 @@ func (s *accountSession) loadOutbox(ctx context.Context) ([]queuedSend, error) {
 	return queued, nil
 }
 
-// deleteOutboxRow removes one outbox entry by its storage id, once
-// flushOutbox has actually attempted it (successfully or not) - see
-// flushOutbox's doc comment for why this happens before the send attempt,
-// not after.
 func (s *accountSession) deleteOutboxRow(ctx context.Context, dbID int64) error {
 	return s.db.DeleteOutboxEntry(ctx, dbID)
 }
 
-// deleteOutboxByLocalID permanently removes a still-queued send by its
-// client-generated LocalID without ever sending it - the user explicitly
-// discarding a Pending message (Ctrl+Shift+D), as opposed to a normal
-// message delete which only flags Retracted. found is false (with a nil
-// error) if no matching row existed - e.g. it lost a race with flushOutbox
-// actually sending it in the meantime - in which case to is meaningless.
+// deleteOutboxByLocalID discards a queued send unsent. found is false if it's
+// gone already, e.g. flushOutbox sent it meanwhile.
 func (s *accountSession) deleteOutboxByLocalID(ctx context.Context, localID string) (to string, found bool, err error) {
 	to, err = s.db.DeleteOutboxEntryByLocalID(ctx, storage.DeleteOutboxEntryByLocalIDParams{
 		AccountJid: s.account.JID,
@@ -436,8 +323,7 @@ func (s *accountSession) deleteOutboxByLocalID(ctx context.Context, localID stri
 	return to, err == nil, err
 }
 
-// rosterEntry is a contact's cached roster state, refreshed at connect time
-// and kept in sync locally by RenameContact.
+// rosterEntry is a contact's cached roster state.
 type rosterEntry struct {
 	Name      string
 	Subs      string
@@ -446,35 +332,21 @@ type rosterEntry struct {
 	Resources []ui.ResourcePresence // currently online devices (full-JID resources), sorted by resource name
 }
 
-// setRosterPresence records bareJID's live presence into the cached roster
-// so a client that attaches (or re-attaches) after this account's initial
-// presence burst still sees current status via listAccounts, instead of
-// only ever learning it from a live PresenceEvent it happened to be
-// connected in time to receive. resource (the full JID's resource part,
-// "" if it had none) is folded into Resources the same way ui.Chat's own
-// copy is - see Chat.withResource.
+// setRosterPresence records bareJID's live presence in the roster cache, so
+// a TUI attaching later gets it from listAccounts. resource ("" if none) is
+// folded into Resources.
 func (s *accountSession) setRosterPresence(bareJID, resource string, presence ui.Presence) {
 	s.mutateRoster(func(entries map[string]rosterEntry) {
 		e := entries[bareJID]
 		was := e.Presence
 		e.Resources = withResource(e.Resources, resource, presence)
 		if resource == "" {
-			// No resource part to track individually - this stanza is the
-			// whole story, same as before resource-aware aggregation
-			// existed.
 			e.Presence = presence
 		} else {
 			e.Presence = aggregatePresence(e.Resources)
 		}
-		// The aggregate state is what the chat list actually shows, so log
-		// the transition rather than every presence stanza: a contact
-		// wrongly stuck offline is a question about what this resolved to
-		// and when, and a per-stanza log buries that under the ones that
-		// changed nothing. Compared *after* aggregation, not against the
-		// incoming stanza's own presence - one resource going offline while
-		// another stays online changes nothing, and logging it as
-		// "from=online to=offline" sent an earlier investigation chasing a
-		// presence bug that wasn't there.
+		// Logs changes of the aggregate, which the chat list shows, not of
+		// each stanza.
 		if was != e.Presence {
 			slog.Debug("contact presence changed", "jid", s.account.JID, "contact", bareJID,
 				"resource", resource, "resource_presence", presence, "from", was, "to", e.Presence)
@@ -483,13 +355,9 @@ func (s *accountSession) setRosterPresence(bareJID, resource string, presence ui
 	})
 }
 
-// resolveDeviceName looks up (via XEP-0030 disco#info) and caches the
-// human-readable client name for one contact's freshly-online resource,
-// then broadcasts it to any attached UI once known. Runs detached from the
-// PresenceEvent that triggered it, on its own goroutine and a bounded
-// timeout: many clients answer disco#info slowly or not at all, and
-// presence handling shouldn't wait on it - the UI just shows a
-// resourcepart-derived fallback name until (if ever) this arrives.
+// resolveDeviceName looks up a contact resource's client name (XEP-0030
+// disco#info), caches and broadcasts it. Runs on its own goroutine: many
+// clients answer slowly or never, and the UI shows the resource until then.
 func (s *accountSession) resolveDeviceName(ctx context.Context, srv *ipc.Server, accountIdx int, bareJID, resource string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -509,9 +377,7 @@ func (s *accountSession) resolveDeviceName(ctx context.Context, srv *ipc.Server,
 
 	s.mutateRoster(func(entries map[string]rosterEntry) {
 		e := entries[bareJID]
-		// Copied before mutating: Resources is shared with whatever snapshot
-		// a concurrent reader already Loaded, so writing through the slice
-		// would mutate it out from under them.
+		// Copied: concurrent readers share the old slice.
 		e.Resources = slices.Clone(e.Resources)
 		for i := range e.Resources {
 			if e.Resources[i].Resource == resource {
@@ -529,12 +395,8 @@ func (s *accountSession) resolveDeviceName(ctx context.Context, srv *ipc.Server,
 	})
 }
 
-// aggregatePresence derives a contact's overall presence from its currently
-// online resources - the highest (most available) one, per Presence's iota
-// ordering (Offline < XA < Away < Online < Chat), or PresenceOffline if none
-// are online. Must be derived rather than taken from the latest stanza: for
-// a multi-resource contact, one resource going offline should not clobber
-// the aggregate while another resource is still online.
+// aggregatePresence is a contact's most available resource's presence, so
+// one device going offline doesn't hide another that's online.
 func aggregatePresence(resources []ui.ResourcePresence) ui.Presence {
 	best := ui.PresenceOffline
 	for _, r := range resources {
@@ -545,10 +407,8 @@ func aggregatePresence(resources []ui.ResourcePresence) ui.Presence {
 	return best
 }
 
-// withResource is rosterEntry's version of ui.Chat.withResource - kept
-// separate since account.go can't depend on ui's unexported helper, but the
-// two must behave identically or the daemon's cache and a freshly-attached
-// UI's initial snapshot would disagree about which devices are online.
+// withResource is resources with resource set to presence, sorted. Must
+// match ui.Chat.withResource, or the daemon and a TUI disagree on devices.
 func withResource(resources []ui.ResourcePresence, resource string, presence ui.Presence) []ui.ResourcePresence {
 	if resource == "" {
 		return resources
@@ -573,11 +433,7 @@ func derefRoster(m *map[string]rosterEntry) map[string]rosterEntry {
 	return *m
 }
 
-// liveClient returns the account's client, or an error if the account is
-// currently offline (never dialed, or explicitly disconnected via
-// PresenceOffline) — every adapter entrypoint that talks to the network
-// calls this instead of s.client.Load() directly, since that would panic
-// dereferencing a nil client.
+// liveClient is the account's client, or an error while it's offline.
 func (s *accountSession) liveClient() (*xmpp.Client, error) {
 	client := s.client.Load()
 	if client == nil || client.Closed() {
@@ -586,8 +442,7 @@ func (s *accountSession) liveClient() (*xmpp.Client, error) {
 	return client, nil
 }
 
-// rosterName returns bareJID's roster nickname, or bareJID itself if the
-// contact has none (or isn't in the roster at all).
+// rosterName is bareJID's roster name, or bareJID if it has none.
 func (s *accountSession) rosterName(bareJID string) string {
 	entries := s.roster.Load()
 	if entries == nil {
@@ -609,14 +464,10 @@ func (s *accountSession) inRoster(bareJID string) bool {
 	return ok
 }
 
-// ownResources returns the resource parts of this account's other currently
-// online devices (e.g. "kage-a1b2", a phone's "Conversations.xyz") - learned
-// the same way any contact's resources are, via setRosterPresence, since a
-// server sends an account presence about its own other connected resources
-// (RFC 6121 §4.4.2) same as for a roster contact's. Used by
-// rejectAndNotifyOwnDevices to reach every sibling resource directly, since
-// a message addressed only to our bare JID isn't reliably fanned out to all
-// of them by every server.
+// ownResources is this account's other online devices' resources, known
+// from their presence like a contact's (RFC 6121 §4.4.2). Lets
+// rejectAndNotifyOwnDevices address each one: not every server fans a
+// bare-JID message out to all of them.
 func (s *accountSession) ownResources() []string {
 	entries := s.roster.Load()
 	if entries == nil {
@@ -635,12 +486,8 @@ func (s *accountSession) ownResources() []string {
 	return resources
 }
 
-// connectAndSuperviseAccount loads one configured account's local
-// roster/history from disk first — fast, no network — and reports it to the
-// UI immediately so local chats/messages appear on screen right away. Only
-// then does it dial and fetch the live roster in the background, backfill
-// anything missed via XEP-0313 MAM, and fall into the normal
-// event-listen/reconnect supervisor loop.
+// connectAndSuperviseAccount reports an account's stored chats first, then
+// connects, backfills through MAM (XEP-0313) and supervises the connection.
 func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, idx int, acct config.Account, queries *storage.Queries, localKey []byte) {
 	slog.Debug("connectAccountLocal starting", "jid", acct.JID)
 	start := time.Now()
@@ -655,20 +502,13 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	sess.useKeyring = a.useKeyring
 	slog.Debug("connectAccountLocal done", "jid", acct.JID, "elapsed", time.Since(start), "chats", len(uiAcct.Chats))
 
-	// Register the session as soon as local (no-network) state is loaded,
-	// not after connectAccountLive resolves below - that dial can sit for a
-	// long time waiting on a DNS/connect timeout while genuinely offline,
-	// and a.session(idx) must already succeed during that whole window so
-	// a send attempted meanwhile queues onto sess.outbox instead of failing
-	// with "unknown account" (there was nothing to look up yet).
+	// Registered before dialing, which can take long offline: a send
+	// meanwhile must find the session and queue.
 	a.mu.Lock()
 	a.sessions[idx] = sess
 	a.mu.Unlock()
 
 	if uiAcct.Status == ui.PresenceOffline {
-		// Configured offline: never dial at all - not even to fetch a live
-		// roster - so nothing about this account touches the network until
-		// Daemon switches it back on.
 		uiAcct.Connecting = false
 		broadcast(srv, ui.AccountConnectedMsg{Index: idx, Account: uiAcct})
 		return
@@ -686,23 +526,13 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	}
 	slog.Debug("connectAccountLive done", "jid", acct.JID, "elapsed", time.Since(start), "new_chats", len(newChats))
 
-	// Replay anything left in the DB-backed outbox from a previous run that
-	// crashed/was killed before it got a chance to reconnect and flush -
-	// otherwise a message queued while offline, then the whole app closed
-	// before coming back online, would just sit in storage forever, never
-	// retried, with the local UI (once restarted) having no idea it never
-	// went out.
+	// Sends queued by a previous run.
 	a.flushOutbox(ctx, sess)
 
 	broadcast(srv, ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
 
-	// Start listening (and reconnecting on drop) right away, concurrently
-	// with syncArchive below - not after it. c.serve() has been reading the
-	// stream since Dial regardless (SendIQ needs it to unblock), so presence/
-	// messages arriving during the MAM backfill were already being queued up
-	// on Client.events; running listen sequentially after syncArchive just
-	// left them sitting there unprocessed (roster presence looked stuck
-	// offline) until the backfill finished, sometimes tens of seconds later.
+	// Alongside syncArchive, not after it: events arriving during a long
+	// backfill would wait unprocessed.
 	go superviseAccount(ctx, srv, a, idx, sess)
 
 	slog.Debug("syncArchive starting", "jid", acct.JID)
@@ -713,15 +543,9 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	slog.Debug("syncArchive done", "jid", acct.JID, "elapsed", time.Since(start))
 }
 
-// retryInitialConnect keeps retrying connectAccountLive with exponential
-// backoff (capped at 60s) after the very first attempt failed - e.g. the app
-// started with no network yet, or the user flipped an offline account back
-// online while still offline. Unlike reconnectWithBackoff, which only
-// redials a client that was live before, this repeats the full first-time
-// setup (publish key, OMEMO, roster diff) since none of it ran yet. Once it
-// succeeds, this mirrors the rest of connectAndSuperviseAccount: broadcast
-// the new chats, flush anything queued via the outbox while offline, start
-// the normal supervisor, and backfill via MAM.
+// retryInitialConnect retries connectAccountLive with backoff after the first
+// attempt failed. Unlike reconnectWithBackoff it repeats the whole first-time
+// setup, then carries on as connectAndSuperviseAccount does.
 func retryInitialConnect(ctx context.Context, srv *ipc.Server, a *adapter, idx int, sess *accountSession, existingChatCount int, show string) {
 	const maxBackoff = 60 * time.Second
 	backoff := time.Second
@@ -754,11 +578,8 @@ func retryInitialConnect(ctx context.Context, srv *ipc.Server, a *adapter, idx i
 	}
 }
 
-// connectAccountLocal loads acct's cached roster + history from the shared
-// database — no network involved, so this is as fast as local SQLite reads
-// and AES decrypts allow, letting local chats/messages appear instantly
-// instead of waiting on connectAccountLive. The returned ui.Account has
-// Connecting set; the caller clears it once connectAccountLive finishes.
+// connectAccountLocal loads acct's stored roster and history, no network.
+// The returned ui.Account has Connecting set.
 func connectAccountLocal(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte) (*accountSession, ui.Account, error) {
 	sess := &accountSession{
 		account:    acct,
@@ -782,11 +603,8 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	for _, r := range unreadRows {
 		unread[r.Rosterjid] = int(r.Count)
 	}
-	// The badge only gets the counts belonging to chats the list below
-	// actually builds: a stored count for a JID the roster no longer holds
-	// (a contact removed from another client, say) has no chat row to open
-	// and so nothing that would ever clear it, leaving the tray dot lit for
-	// good.
+	// Only chats in the roster count towards the badge: a count without a
+	// chat row could never be cleared.
 	badge := make(map[string]int, len(unread))
 	for _, r := range rows {
 		if n := unread[r.Jid]; n > 0 {
@@ -815,10 +633,6 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	entries := make(map[string]rosterEntry, len(rows))
 	for i, r := range rows {
 		entries[r.Jid] = rosterEntry{Name: r.Name, Subs: r.Subs}
-		// Still-queued sends left over from before the app last closed (see
-		// pendingOutboxMessagesByPeer's doc comment) belong at the tail,
-		// after everything already delivered - flushOutbox will actually
-		// attempt them again once this account reconnects.
 		chat, hist, hasMore := sess.newChat(ctx, r.Jid, r.Name, pendingByPeer[r.Jid])
 		chat.Unread, chat.Draft, chat.Subscription = unread[r.Jid], drafts[r.Jid], r.Subs
 		if len(hist) > 0 {
@@ -827,24 +641,15 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		chats = append(chats, chat)
 		historyMore[i] = hasMore
 	}
-	// The one direct Store (everything else goes through mutateRoster):
-	// this is the initial seed, running before sess is handed to anything
-	// that could be updating it concurrently.
+	// Stored directly: nothing else has sess yet.
 	sess.roster.Store(&entries)
 
 	return sess, ui.Account{Name: acct.JID, Alias: acct.Alias, Chats: chats, Messages: messages, HistoryMore: historyMore, Connecting: true, Status: accountStatus(acct.Status)}, nil
 }
 
-// connectAccountLive dials sess's account, publishes our GPG key, and fetches
-// the live roster, merging it into sess's already-loaded (by
-// connectAccountLocal) roster cache. Existing contacts' chat/history entries
-// are left completely untouched — they're already showing, and anything
-// missed while offline is backfilled separately via syncArchive — only
-// contacts the local snapshot didn't know about (added from another device)
-// get a fresh history load here. The returned chats/messages are new
-// entries only, with message indices relative to a Chats slice that starts
-// right after existingChatCount, so the caller can append rather than
-// replace what's already displayed.
+// connectAccountLive dials sess's account, sets up GPG and OMEMO, and merges
+// the live roster into sess's. It returns chats only for contacts new to
+// it, indexed from existingChatCount, for the caller to append.
 func connectAccountLive(ctx context.Context, sess *accountSession, existingChatCount int, show string) ([]list.Item, map[int][]ui.Message, map[int]bool, error) {
 	slog.Debug("resolving password", "jid", sess.account.JID)
 	start := time.Now()
@@ -854,7 +659,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 	slog.Debug("password resolved", "jid", sess.account.JID, "elapsed", time.Since(start))
 
-	var tlsConfig *tls.Config // nil: Dial's default verified config; future config.toml option could set a custom RootCAs pool here
+	var tlsConfig *tls.Config // nil: Dial's default verified config
 	slog.Debug("dialing", "jid", sess.account.JID)
 	start = time.Now()
 	client, err := xmpp.Dial(ctx, sess.account.JID, password, tlsConfig)
@@ -872,9 +677,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		}
 	}
 
-	// GPG key publish, OMEMO setup, and the roster fetch don't depend on each
-	// other - only on the client dialed above - so they run concurrently
-	// instead of paying each one's full network round-trip back to back.
+	// GPG, OMEMO and the roster fetch are independent, so run concurrently.
 	var wg sync.WaitGroup
 	if sess.useGPG && sess.account.GPGKeyID != "" {
 		wg.Add(1)
@@ -896,9 +699,8 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		slog.Debug("setupOmemo done", "jid", sess.account.JID, "elapsed", time.Since(start))
 	}()
 
-	// Warmed here, in the background with everything else, so listAccounts
-	// never has to make this disco#info round trip itself - a TUI blocks on
-	// that call before it can draw its first frame.
+	// Warmed here so listAccounts, which a starting TUI waits on, doesn't
+	// make this round trip.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -963,14 +765,8 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 		newChats = append(newChats, chat)
 		newHistoryMore[idx] = hasMore
 	}
-	// The roster IQ fetch above (and loadHistoryWindow's DB round-trips) can
-	// take long enough for this account's own event-loop goroutine to
-	// process live PresenceEvents for these contacts concurrently. So only
-	// the fields the roster IQ is actually authoritative for (name and
-	// subscription) are written here, onto whatever presence state those
-	// stanzas have meanwhile established - rather than storing a map built
-	// from a snapshot taken before the fetch, which would silently roll
-	// that presence back to stale/zero until it happened to change again.
+	// Presence may have arrived during the fetch, so only the fields the
+	// roster is authoritative for are written onto the current entries.
 	merged := sess.mutateRoster(func(entries map[string]rosterEntry) {
 		for _, c := range contacts {
 			e := entries[c.JID]
@@ -994,21 +790,15 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	}
 
 	resyncPeerDeviceLists(ctx, sess, merged)
-	// Same healing refreshRoster does on reconnect - needed here too, since
-	// this is the path a fresh daemon start takes and a contact stuck at
-	// subscription=from would otherwise stay invisible until the first
-	// reconnect happened to fix it.
+	// As refreshRoster does on reconnect.
 	healLopsidedSubscriptions(ctx, sess, contacts, client.ResubscribeContact)
 	probeRosterPresence(ctx, client, merged)
 
 	return newChats, newMessages, newHistoryMore, nil
 }
 
-// probeRosterPresence explicitly re-requests presence for every roster
-// contact on connect instead of trusting the server's initial-presence-burst
-// push to have reached us - see Client.ProbePresence. Best-effort: a probe
-// failure just leaves that contact at its last-known (possibly stale)
-// presence, same as before this existed.
+// probeRosterPresence asks for every contact's presence rather than relying
+// on the server's initial burst (see Client.ProbePresence). Best-effort.
 func probeRosterPresence(ctx context.Context, client *xmpp.Client, roster map[string]rosterEntry) {
 	for peerJID := range roster {
 		if err := client.ProbePresence(ctx, peerJID); err != nil {
@@ -1017,21 +807,12 @@ func probeRosterPresence(ctx context.Context, client *xmpp.Client, roster map[st
 	}
 }
 
-// resyncPeerDeviceLists re-fetches every roster contact's OMEMO device list
-// (both protocol versions) on every connect, rather than trusting whatever
-// was last cached in storage. Manager.devicesFor only self-refreshes a
-// cached list when it's completely empty - otherwise it relies solely on a
-// contact's DeviceListChangedEvent (XEP-0163 PEP push) ever reaching us, and
-// that push can be missed (e.g. both sides reconnecting around the same
-// time). A contact who rotated devices - most commonly by wiping their own
-// local database and getting a fresh device ID - would otherwise stay
-// silently unreachable until something happens to empty our cache of them.
-// Best-effort and run once per connect, same cost class as setupOmemo's own
-// startup fetch; failures are logged, not fatal.
+// resyncPeerDeviceLists re-fetches every contact's OMEMO device lists on
+// connect. The manager only refreshes an empty cached list by itself and
+// otherwise relies on PEP pushes, which can be missed while offline.
+// Best-effort.
 func resyncPeerDeviceLists(ctx context.Context, s *accountSession, roster map[string]rosterEntry) {
-	// Read once, outside the loop: both are atomics a concurrent reconnect
-	// can swap, and resyncing half the roster against one manager and half
-	// against another would leave an arbitrary subset unsynced.
+	// Read once: a reconnect can swap them mid-loop.
 	v2, v1 := s.omemoV2(), s.omemoV1()
 	for peerJID := range roster {
 		if v2 != nil {
@@ -1049,11 +830,8 @@ func resyncPeerDeviceLists(ctx context.Context, s *accountSession, roster map[st
 	}
 }
 
-// connectAccount runs connectAccountLocal then connectAccountLive back to
-// back and merges the result into one ready-to-show ui.Account — used by
-// AddAccount, where the account is brand new (no local history to show
-// instantly) and the whole connect already runs off the Bubble Tea event
-// loop via a tea.Cmd, so there's nothing to gain from doing it in two steps.
+// connectAccount is connectAccountLocal and connectAccountLive in one, for a
+// newly added account, which has no stored history to show first.
 func connectAccount(ctx context.Context, acct config.Account, queries *storage.Queries, localKey []byte, useGPG, useKeyring bool) (*accountSession, ui.Account, error) {
 	sess, uiAcct, err := connectAccountLocal(ctx, acct, queries, localKey)
 	if err != nil {
@@ -1086,10 +864,8 @@ func connectAccount(ctx context.Context, acct config.Account, queries *storage.Q
 	return sess, uiAcct, nil
 }
 
-// superviseAccount runs listen for s, and on an unexpected disconnect (the
-// Events channel closing without Close having been called), reconnects with
-// exponential backoff and resumes. Returns once the client is intentionally
-// closed (app shutdown).
+// superviseAccount runs listen for s, reconnecting after an unexpected
+// disconnect, until the client is closed on purpose.
 func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountIdx int, s *accountSession) {
 	go keepAlive(ctx, s, keepAliveInterval)
 
@@ -1106,53 +882,29 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountI
 			return
 		}
 
-		// Anything sent/received by us or a peer while this account was
-		// disconnected never arrived over the (dead) stream, so it has to
-		// be picked up from the archive - same as the initial connect does -
-		// or it silently never shows up until the whole app is restarted.
+		// What was sent while disconnected is only in the archive.
 		triggerArchiveSync(ctx, srv, accountIdx, s)
 	}
 }
 
 const (
-	// keepAliveInterval is how often each connected account pings its own
-	// server. It has to be short enough to sit under the idle timeout of the
-	// least patient NAT/middlebox on the path, since the whole point is to
-	// notice a connection that died without telling us.
+	// keepAliveInterval is how often each account pings its server: under
+	// the idle timeout of NATs on the path.
 	keepAliveInterval = 60 * time.Second
 
-	// keepAliveTimeout bounds one keepalive round trip. Generous, because a
-	// false positive here costs a full reconnect (and a MAM resync with it).
+	// keepAliveTimeout is generous: a false positive costs a reconnect and a
+	// MAM resync.
 	keepAliveTimeout = 20 * time.Second
 )
 
-// keepAlive pings s's server on a timer for as long as ctx lives, killing the
-// connection when a ping goes unanswered so superviseAccount reconnects.
+// keepAlive pings s's server on a timer, killing the connection when a ping
+// goes unanswered so superviseAccount reconnects. A half-open TCP connection
+// (NAT timeout, sleep) never errors on read, and writes still succeed
+// locally, so an idle account wouldn't notice otherwise.
 //
-// Nothing else does this while an account sits idle. listen only returns once
-// the stream errors, and a half-open TCP connection - one a NAT, a VPN flap,
-// or a sleeping laptop dropped without either side sending a FIN - produces
-// no read error at all: reads simply block forever. Writes keep "succeeding"
-// into the local socket buffer too, so the drop stayed invisible until
-// something happened to need a round trip, which for a user who is only
-// receiving is never. The observed shape was an account that looked connected
-// for minutes while every message sent to it went to the archive and nowhere
-// else, surfacing only when an unrelated write finally returned EPIPE.
-//
-// confirmPendingAcks already does exactly this check, but only right after we
-// send something - which is no help to the receive-only case this covers.
-//
-// A ticker only tells us wall-clock time passed once something actually
-// schedules it - a suspended process (laptop sleep, not just a dropped
-// connection) doesn't run at all for the duration, so time.Ticker just
-// delivers its one pending tick late instead of catching us up. That's
-// indistinguishable here from an on-time tick unless we check the wall clock
-// ourselves: without it, a resume where the TCP connection happens to still
-// work (WiFi never actually dropped) sails through this ping with no error
-// and no reconnect, even though every message a peer sent while we were
-// frozen went to the archive and nowhere else - see syncArchive's callers,
-// none of which run for a "successful" ping. suspendGapThreshold catches
-// that case and forces the same reconnect+resync a failed ping would.
+// A tick arriving long after the last one means the process was suspended:
+// messages sent meanwhile are only in the archive, so that forces a
+// reconnect and resync too, even if the connection still works.
 func keepAlive(ctx context.Context, s *accountSession, interval time.Duration) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1223,21 +975,10 @@ func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 					}
 				}
 				s.client.Store(client)
-				// setupOmemo builds s.omemoV1()/V2 with a Transport closure bound
-				// to whatever *xmpp.Client was live at the time - and that client
-				// is now dead (this is a reconnect after the previous one broke).
-				// Without rebuilding them here, every OMEMO device-list/bundle
-				// fetch or publish (including the resync below, and any later
-				// DeviceListChangedEvent handling) silently keeps trying to write
-				// to the closed session and failing, so a peer whose device list
-				// changed during the outage - or was never learned because the
-				// outage swallowed the one sync that would have caught it - stays
-				// invisible until the app is fully restarted.
+				// The OMEMO managers' Transport is bound to the dead client.
 				setupOmemo(ctx, s)
-				// Before anything that reads the roster cache below, and
-				// not just to refresh it: see refreshRoster for why a
-				// reconnected stream is deaf to roster pushes until it has
-				// asked for the roster once.
+				// First: a new stream gets no roster pushes until it asked
+				// for the roster (see refreshRoster).
 				refreshRoster(ctx, a.srv, s.accountIdx, s, client)
 				resyncPeerDeviceLists(ctx, s, derefRoster(s.roster.Load()))
 				probeRosterPresence(ctx, client, derefRoster(s.roster.Load()))
@@ -1260,20 +1001,16 @@ func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 	}
 }
 
-// listen bridges one account's xmpp events into the Bubble Tea program.
-// Returns when the current client's Events channel closes (client swapped
-// out from under it, e.g. by a reconnect, or the client was closed).
+// listen handles one account's xmpp events until its client's Events
+// channel closes.
 func listen(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
 	for ev := range s.client.Load().Events() {
 		dispatchEvent(ctx, srv, accountIdx, s, ev)
 	}
 }
 
-// dispatchEvent handles one xmpp.Event under a recover, so a bug in any one
-// handler (e.g. the call/Jingle plumbing) logs a full stack trace and drops
-// that one event instead of taking down the whole daemon - listen's for
-// range loop has no other panic boundary, and an unrecovered panic in any
-// goroutine kills the entire process.
+// dispatchEvent handles one xmpp.Event. Its recover is the only panic
+// boundary for event handling: one bad event mustn't kill the daemon.
 func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, ev xmpp.Event) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1285,10 +1022,6 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		from := bareJID(ev.From)
 		resource := resourcePart(ev.From)
 		presence := mapPresence(ev)
-		// A contact stuck showing offline is otherwise undiagnosable from the
-		// log: presence either never arrives (no subscription, so the probe on
-		// connect goes unanswered) or arrives and is mapped to the wrong
-		// state, and nothing here distinguished the two.
 		slog.Debug("presence received", "jid", s.account.JID, "from", from, "resource", resource, "presence", presence, "available", ev.Available, "show", ev.Show)
 		s.setRosterPresence(from, resource, presence)
 		if !ev.Available && resource != "" {
@@ -1302,10 +1035,8 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		})
 		if presence != ui.PresenceOffline && resource != "" {
 			go s.resolveDeviceName(ctx, srv, accountIdx, from, resource)
-			// A contact coming online is the cheapest reliable moment to
-			// discover an avatar we've never fetched: no roster-wide
-			// storm on connect, and a contact we never see online is one
-			// whose picture nothing would have rendered anyway.
+			// Avatars are fetched as contacts come online, rather than
+			// for the whole roster on connect.
 			go s.syncAvatarOnce(ctx, srv, accountIdx, from)
 		}
 	case xmpp.SubscriptionRequestEvent:
@@ -1343,21 +1074,13 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 	case xmpp.AvatarChangedEvent:
 		from := bareJID(ev.From)
 		slog.Debug("received avatar PEP push", "from", from, "jid", s.account.JID)
-		// Not syncAvatarOnce: this push is the contact saying the avatar
-		// changed, which is exactly the case the once-guard exists to skip.
+		// Not syncAvatarOnce: the avatar changed.
 		go s.syncAvatar(ctx, srv, accountIdx, from)
 	case xmpp.DeviceListChangedEvent:
 		from := bareJID(ev.From)
-		// An empty from (some servers omit the attribute on self-pushes)
-		// can't be resolved to any JID at all, so there's nothing to
-		// resync. But from == our own bare JID must NOT be skipped: this
-		// same push fires on every connected resource of the account, not
-		// just the one that just published, so another one of our own
-		// clients (a second kage instance, a reinstalled Conversations,
-		// ...) adding or rotating a device shows up as a self-JID push
-		// here too. Skipping it left our cached self-device list stale,
-		// so messages silently never got a key for that device - it
-		// would never decrypt on that client, with no error anywhere.
+		// Our own JID must not be skipped: it's how our other clients'
+		// device changes arrive, and without them our messages carry no
+		// key for those devices.
 		slog.Debug("received omemo device-list PEP push", "protocol", ev.Protocol, "from", from, "jid", s.account.JID)
 		if from == "" {
 			return
@@ -1369,11 +1092,7 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		if mgr == nil {
 			return
 		}
-		// SyncDevices does a network round-trip (an IQ fetch) - run it
-		// off to the side rather than blocking this loop, which is the
-		// same serial dispatch path every other event for this account
-		// (chat messages included) goes through. A slow or hanging
-		// fetch here must never stall message delivery.
+		// Off the event loop: a slow fetch mustn't hold up messages.
 		go func() {
 			if err := mgr.SyncDevices(ctx, from); err != nil {
 				slog.Warn("resyncing omemo device list after PEP push", "protocol", ev.Protocol, "from", from, "err", err)
@@ -1424,11 +1143,9 @@ func mapPresence(ev xmpp.PresenceEvent) ui.Presence {
 	return ui.PresenceOnline
 }
 
-// syncArchive backfills every roster contact's history via XEP-0313 (MAM),
-// catching up on messages sent/received on another device or while this
-// client wasn't running — something local storage alone can never have. Runs
-// once, right after an account finishes connecting; best-effort per contact,
-// since not every server (or every contact's account) offers MAM.
+// syncArchive backfills every contact's history from the server archive
+// (XEP-0313 MAM): what was sent from other devices or while offline.
+// Best-effort per contact, since not every server offers MAM.
 func syncArchive(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession) {
 	client := s.client.Load()
 
@@ -1451,20 +1168,16 @@ func syncArchive(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 	}
 }
 
-// mamCursor is how far peerJID's archive has been backfilled: the archive id
-// to resume after, plus the wall-clock time of the item it points at (0 if
-// unknown). The timestamp is carried alongside rather than looked up from
-// the messages table because the cursor is deliberately allowed to sit on an
-// item that never got a row - see mamSyncCursor's schema comment and
-// recoverMAMCursor.
+// mamCursor is how far a contact's archive has been backfilled: the archive
+// id to resume after and its item's time (0 if unknown). The time is kept
+// with it because the cursor may sit on an item that has no messages row
+// (see recoverMAMCursor).
 type mamCursor struct {
 	archiveID string
 	sentAt    int64
 }
 
-// unixOrZero returns t as a Unix timestamp, or 0 for the zero time - which
-// Unix() would otherwise render as a large negative number, indistinguishable
-// from a real (if absurd) timestamp once stored.
+// unixOrZero is t as a Unix timestamp, 0 for the zero time.
 func unixOrZero(t time.Time) int64 {
 	if t.IsZero() {
 		return 0
@@ -1472,9 +1185,8 @@ func unixOrZero(t time.Time) int64 {
 	return t.Unix()
 }
 
-// syncArchiveForContact pages through peerJID's MAM archive strictly newer
-// than cursor until the server reports the page set complete, persisting and
-// forwarding each message to the UI as it's fetched.
+// syncArchiveForContact pages through peerJID's archive after cursor,
+// storing and broadcasting each page.
 func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client, peerJID string, cursor mamCursor) {
 	const pageSize = 50
 	const maxPages = 200 // guards against a misbehaving server never reporting complete
@@ -1482,14 +1194,8 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 	ownBare := bareJID(s.account.JID)
 	name := s.rosterName(peerJID)
 
-	// A broken session surfaces as one failure per backfilled message from
-	// the same sender device (the PreKeyMessage that exposed it, then every
-	// ratchet message that followed it before we noticed) - healing on
-	// every single one would fire that many redundant reset+key-transport
-	// round trips for what's really one broken session. healed remembers
-	// which sender devices this sync already healed, across every page of
-	// this contact's backfill, so only the first failure per device
-	// triggers it.
+	// healed is the sender devices this sync already healed a broken session
+	// with: one broken session fails every message after it.
 	healed := make(map[omemolib.Device]bool)
 
 	for page := 0; page < maxPages; page++ {
@@ -1501,19 +1207,11 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		cancel()
 		slog.Debug("mam page fetched", "jid", s.account.JID, "peer", peerJID, "page", page, "elapsed", time.Since(pageStart), "after", prev.archiveID, "items", len(res.Items), "last", res.Last, "complete", res.Complete, "err", err)
 		if err != nil {
-			// MAM isn't universally supported (by the server or by the peer's
-			// own account) — not an error worth surfacing per contact.
-			break
+			break // no MAM here
 		}
 		if len(res.Items) == 0 && res.Last == "" {
-			// cursor.archiveID itself may have stopped resolving to anything on
-			// the server despite the archive genuinely holding newer messages
-			// for this peer (observed live: no <item-not-found/>, just a
-			// permanently empty page) - try once from the same point via a
-			// <start> date filter instead of the RSM <after> id before giving
-			// up on this contact. Only worth trying on a cursor we actually
-			// had (empty archiveID here legitimately means "archive is
-			// empty", nothing to recover).
+			// A server can stop resolving an old cursor id and answer with
+			// an empty page; retry from its time instead.
 			if cursor.archiveID == "" {
 				break
 			}
@@ -1540,36 +1238,20 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		}
 		if len(newMsgs) > 0 {
 			broadcast(srv, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
-			// MAM catch-up delivers messages that arrived while we were
-			// offline, not just a replay of what was already seen, so these
-			// count as unread exactly like a live one would - see
-			// countUnread.
+			// Messages that arrived while offline count as unread.
 			countUnread(ctx, srv, s, peerJID, newMsgs)
 		}
 		// Resume from where the server says the page ended, not from the last
-		// item that survived filtering. Chat states, receipts and markers are
-		// archived alongside real messages and dropped by
-		// dispatchArchiveResult, so the two differ constantly - and a page
-		// made up entirely of them yields no items at all, which read as "the
-		// archive ends here" and stranded the whole contact just before
-		// whatever came after that run. The timestamp deliberately stays that
-		// of the last item actually seen: it's only ever used as a <start>
-		// anchor for recovery, where erring older re-fetches a little and
-		// erring newer would skip.
+		// item kept: chat states and receipts are archived too and filtered
+		// out, so a page can yield no items without being the end. The time
+		// stays the last seen item's: as a recovery <start>, older is safe
+		// and newer would skip.
 		if !stop && res.Last != "" {
 			cursor.archiveID = res.Last
 		}
-		// Advance the cursor even when nothing in this page got a messages
-		// row (e.g. every item was ErrOwnDeviceKeyMissing) - otherwise a
-		// permanently-undecryptable item is re-fetched and re-attempted on
-		// every single future sync, forever (see mamSyncCursor's schema
-		// comment). Its timestamp goes with it precisely so that parking
-		// here stays recoverable without a messages row to look up.
-		//
-		// Written when only the timestamp changed too: a recovery walk that
-		// ends back on the id it started from has still learned that id's
-		// timestamp, and recording it is what stops the next sync from
-		// having to walk the whole archive again to learn the same thing.
+		// Advanced even when no item got a messages row, or an undecryptable
+		// one would be retried on every sync. Also written when only the
+		// time changed, so a recovery walk isn't repeated.
 		if cursor != prev {
 			if err := s.db.UpsertMamSyncCursor(ctx, storage.UpsertMamSyncCursorParams{
 				AccountJid: s.account.JID,
@@ -1586,29 +1268,12 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 	}
 }
 
-// recoverMAMCursor re-fetches from the exact point cursor represents, using
-// an XEP-0313 <start> date filter instead of RSM <after>, for when the
-// normal <after> query above came back empty despite the server having
-// accepted the id (no <item-not-found/> — see FetchArchive's caller). start
-// is the SentAt of the item the cursor points at, so this covers exactly the
-// range the broken <after> query was supposed to and can't skip anything
-// between the old cursor and now.
-//
-// That timestamp comes from the cursor itself. It used to be looked up in
-// the messages table by archive id, which could not work for the cursors
-// that need recovering most: syncArchiveForContact parks the cursor on
-// items that never got a messages row (ErrOwnDeviceKeyMissing and friends),
-// so that lookup returned no rows for precisely those, and the whole
-// recovery silently no-opped — leaving the contact's backfill wedged
-// forever on a cursor the server had quietly stopped resolving.
-//
-// A cursor persisted before lastSentAt existed has no timestamp; the
-// messages-table lookup is still tried for it, and failing that the archive
-// is re-walked from the start (zero since, empty after). Re-walking is safe
-// — processMAMItem dedupes on archive id and stanza id — and happens at most
-// once per stuck cursor, since the walk re-establishes one that does carry
-// its timestamp. ok is false only if the request failed or came back empty
-// too, meaning the original empty page was legitimate after all.
+// recoverMAMCursor re-fetches from cursor's time with an XEP-0313 <start>
+// filter, for when the RSM <after> query came back empty though the server
+// accepted the id. Without a time (a cursor stored before it was recorded),
+// it's looked up from the messages table, and failing that the archive is
+// re-walked from the start - safe, since processMAMItem dedupes. ok is false
+// if this comes back empty too, so the empty page was real.
 func (s *accountSession) recoverMAMCursor(ctx context.Context, client *xmpp.Client, peerJID string, cursor mamCursor, max uint64) (page xmpp.ArchivePage, ok bool) {
 	var since time.Time
 	if cursor.sentAt > 0 {
@@ -1630,29 +1295,20 @@ func (s *accountSession) recoverMAMCursor(ctx context.Context, client *xmpp.Clie
 	return page, true
 }
 
-// mamItemOutcome reports what syncArchiveForContact's caller should do with
-// one processed archive item: append msg to the page's batch of new
-// messages, and/or stop paging (stopSync, on an archiveID conflict meaning
-// this item was already stored by an earlier run).
+// mamItemOutcome is one archive item's result: a new message to report,
+// and/or stopSync once an item turned out already stored.
 type mamItemOutcome struct {
 	msg      *ui.Message
 	stopSync bool
 }
 
-// processMAMItem decrypts, persists, and reports the outcome for a single
-// MAM archive item. Held under s.omemoMu for its whole body — see that
-// field's doc comment — so it can't decrypt the same OMEMO ciphertext
-// concurrently with the live path in handleIncomingMessage (events.go).
+// processMAMItem decrypts and stores one archive item, under s.omemoMu.
 func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, accountIdx int, peerJID, ownBare, name string, am xmpp.ArchivedMessage, healed map[omemolib.Device]bool) mamItemOutcome {
 	s.omemoMu.Lock()
 	defer s.omemoMu.Unlock()
 
-	// A page re-fetched after a stale cursor (e.g. the previous run
-	// crashed mid-backfill before advancing lastArchiveID) would
-	// otherwise re-run OMEMO decrypt on ciphertext already stored -
-	// wasteful at best, and for a message key already consumed out
-	// of the double ratchet's skip buffer, not guaranteed to fail
-	// cleanly the second time. Check storage before decrypting.
+	// Checked before decrypting: an OMEMO message can't be decrypted twice,
+	// its key is consumed. Stored already by an earlier sync...
 	if exists, err := s.db.MessageExistsByArchiveID(ctx, storage.MessageExistsByArchiveIDParams{
 		AccountJid: s.account.JID,
 		ArchiveID:  nullString(am.ArchiveID),
@@ -1660,10 +1316,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		return mamItemOutcome{}
 	}
 
-	// The same message can also already be stored via the live path
-	// (events.go), which has no archiveID to match against - check
-	// its dedup key too, or a MAM resync re-decrypts ciphertext whose
-	// ratchet key the live path already consumed (see comment above).
+	// ...or by the live path, which has no archive id...
 	if am.ID != "" {
 		if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
 			AccountJid: s.account.JID,
@@ -1674,13 +1327,8 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		}
 	}
 
-	// A correction's own idAttr/archiveID is never inserted as a message row
-	// (only the target message's body gets rewritten below), so neither check
-	// above ever catches a correction MAM already applied - via an earlier
-	// sync or the live path. Without this, reopening kage and triggering a
-	// fresh MAM catch-up re-decrypts the correction's ciphertext against an
-	// already-consumed ratchet key and stomps the already-correct body with
-	// a decrypt failure. See appliedCorrections's doc comment in schema.sql.
+	// ...or a correction already applied, which has no row of its own (see
+	// appliedCorrections in schema.sql).
 	if am.ArchiveID != "" {
 		if exists, err := s.db.CorrectionAppliedByArchiveID(ctx, storage.CorrectionAppliedByArchiveIDParams{
 			AccountJid: s.account.JID,
@@ -1699,13 +1347,8 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		}
 	}
 
-	// Retractions/reactions/corrections backfilled via MAM (i.e. they
-	// happened while offline, so the live path in handleIncomingMessage
-	// never saw them) apply to a message already persisted - by this
-	// same sync, an earlier one, or the live path - rather than
-	// inserting a row of their own. Applied inline, immediately, same
-	// as the live path, instead of batched into newMsgs/HistorySyncedMsg
-	// below - the target message may already be on screen.
+	// Retractions, reactions and corrections change a stored message, which
+	// may be on screen, so they're applied and broadcast right away.
 	if am.RetractID != "" {
 		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
 			AccountJid: s.account.JID,
@@ -1730,10 +1373,6 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		return mamItemOutcome{}
 	}
 
-	// Belt-and-suspenders alongside dispatchArchiveResult's own
-	// filtering (xmpp/mam.go) - a plain message with neither body nor
-	// an OMEMO payload has nothing to show, matching
-	// handleIncomingMessage's live-path guard (events.go).
 	if am.Body == "" && am.Encrypted == nil && am.EncryptedV1 == nil && am.ReplaceID == "" {
 		return mamItemOutcome{}
 	}
@@ -1772,33 +1411,17 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			body = "[message could not be decrypted: " + decodeErr.Error() + "]"
 			decryptFailed = true
 		} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
-			// Not a real failure - see handleIncomingMessage's live-path
-			// comment. Quietly skip instead of storing a noise row.
+			// Not for this device; see handleIncomingMessage.
 			slog.Debug("mam: omemo message has no key for this device, skipping", "archive_id", am.ArchiveID, "from", am.From)
 			return mamItemOutcome{}
 		} else if err != nil {
-			// Logged at the same level as the live path's equivalent
-			// (events.go): a backfilled message that won't decrypt shows up
-			// in the chat as a "[could not be decrypted]" row, and without
-			// this the *only* record of it is that row - which makes a
-			// history full of them impossible to explain from the log alone.
-			// sent_at is what tells the two causes apart: a recent item means
-			// a genuinely broken session, an old one means the archive item
-			// simply outlived the ratchet keys that could have read it.
+			// sent_at tells a broken session (recent) from an item older than
+			// the ratchet keys that could read it.
 			slog.Warn("mam: decrypting omemo message failed", "jid", s.account.JID, "peer", peerJID, "archive_id", am.ArchiveID, "from", am.From, "sent_at", am.SentAt, "err", err)
 			body = "[message could not be decrypted: " + err.Error() + "]"
 			decryptFailed = true
 			if (errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound)) && !healed[enc.Sender] {
-				// Same healing as handleIncomingMessage's live path
-				// (events.go) - and just as needed here, arguably more so:
-				// this is exactly the path a peer's messages take while we
-				// were offline, so without this the broken session would
-				// otherwise only ever get fixed by chance, on whatever the
-				// next *live* failure from the same sender happens to be.
-				// A whole backfill batch from one broken sender device
-				// fails the same way message after message though - healed
-				// caps it at one reset+key-transport round trip per device
-				// per sync instead of one per failed message.
+				// As handleIncomingMessage does, once per device per sync.
 				healed[enc.Sender] = true
 				healBrokenSession(ctx, s, mgr, protocol, enc.Sender, bareJID(am.From))
 			}
@@ -1812,11 +1435,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			body = pt
 		}
 	}
-	// stripReplyQuote is a no-op on a body that doesn't start with a quote
-	// block (the in-band fallback quote some peers send alongside <reply/>
-	// instead of relying on it - see handleIncomingMessage), so applying it
-	// unconditionally is safe and still fixes attachment identification for
-	// backfilled replies.
+	// The in-band fallback quote some clients add to replies.
 	body = stripReplyQuote(body)
 	if len(oobURLs) == 0 {
 		oobURLs = aesgcmURLsInBody(body)
@@ -1880,8 +1499,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "archiveID") {
-			// Already stored, and results arrive chronologically —
-			// everything after it is too.
+			// Already stored, and so is everything after it.
 			return mamItemOutcome{stopSync: true}
 		}
 		slog.Warn("persisting mam history", "peer", peerJID, "err", err)
@@ -1908,8 +1526,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 	}}
 }
 
-// bareJID strips the resource part (after "/") from a full JID, matching the
-// bare-JID form roster entries and stored messages are keyed by.
+// bareJID strips a JID's resource.
 func bareJID(addr string) string {
 	if i := strings.IndexByte(addr, '/'); i >= 0 {
 		return addr[:i]
@@ -1917,8 +1534,7 @@ func bareJID(addr string) string {
 	return addr
 }
 
-// resourcePart returns the resource part (after "/") of a full JID, or ""
-// if addr has none.
+// resourcePart is a JID's resource, "" if none.
 func resourcePart(addr string) string {
 	if i := strings.IndexByte(addr, '/'); i >= 0 {
 		return addr[i+1:]
@@ -1926,14 +1542,9 @@ func resourcePart(addr string) string {
 	return ""
 }
 
-// mutateRoster applies fn to the cached roster under rosterMu, publishing
-// the result atomically. fn receives a fresh copy it may modify freely, and
-// must not block on anything slow (least of all network or disk) - every
-// presence stanza for this account funnels through here.
-//
-// Every update to s.roster goes through this. Doing the copy-modify-store
-// cycle by hand at each call site is what made concurrent presence updates
-// lose each other; see rosterMu.
+// mutateRoster applies fn to a copy of the cached roster and stores it, under
+// rosterMu. Every roster update goes through here. fn must not block: every
+// presence stanza does this.
 func (s *accountSession) mutateRoster(fn func(entries map[string]rosterEntry)) map[string]rosterEntry {
 	s.rosterMu.Lock()
 	defer s.rosterMu.Unlock()
@@ -1976,21 +1587,11 @@ func (s *accountSession) handleBounce(ctx context.Context, srv *ipc.Server, acco
 	})
 }
 
-// approveAndReciprocate answers an inbound subscription request from peer by
-// approving it and, unless we already have their presence, asking for theirs
-// in return.
-//
-// Approving alone only sends <presence type="subscribed">, which grants peer
-// our presence and establishes nothing in the other direction - the result
-// is a lopsided subscription="from" where we never see whether the contact
-// is online. Every mainstream client (Conversations, Dino, Gajim) sends its
-// own <presence type="subscribe"> back at this point, and until this did
-// too, a contact who added us first showed as permanently offline with no
-// way to tell from the UI that anything was missing.
-//
-// Skipped when we already have "to" or "both": the request would be
-// harmless (the server just re-confirms) but it makes peer's client show a
-// pointless approval prompt.
+// approveAndReciprocate approves peer's subscription request and, unless we
+// already have their presence, asks for it in return, as other clients do:
+// approving alone leaves a one-sided subscription="from", where peer looks
+// offline to us. Not asked when we already have it, which would prompt peer
+// for nothing.
 func (s *accountSession) approveAndReciprocate(ctx context.Context, peer string) {
 	client := s.client.Load()
 	if client == nil {
@@ -2013,18 +1614,8 @@ func (s *accountSession) approveAndReciprocate(ctx context.Context, peer string)
 	slog.Debug("approved subscription request and requested peer's presence in return", "from", peer, "jid", s.account.JID, "subs", subs)
 }
 
-// handleRosterPush applies an RFC 6121 §2.1.6 roster push to the cached
-// roster, local storage and any attached UI.
-//
-// This is the only way a client learns about a roster change it didn't make
-// itself: a contact accepting our subscription request, another of our own
-// clients adding or renaming someone, or our own server auto-creating an
-// item because we just approved an inbound request. Without it the roster
-// is only ever as fresh as the full fetch at connect time, so a contact who
-// appears mid-session isn't in the chat list (their messages arrive and
-// notify, but land in a chat with no row) and a subscription that completes
-// mid-session leaves them looking offline - both until the next reconnect,
-// which is why restarting the daemon "fixed" it.
+// handleRosterPush applies an RFC 6121 §2.1.6 roster push - a roster change
+// this client didn't make - to the cache, storage and attached TUIs.
 func (s *accountSession) handleRosterPush(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.RosterPushEvent) {
 	peer := bareJID(ev.JID)
 	if peer == s.account.JID {
@@ -2058,16 +1649,12 @@ func (s *accountSession) handleRosterPush(ctx context.Context, srv *ipc.Server, 
 		slog.Warn("persisting roster entry after roster push", "contact", peer, "err", err)
 	}
 
-	// Broadcast even for an already-known contact: ChatAddedMsg is an
-	// upsert, so this is also how a rename made on another client, or a
-	// subscription changing (a request approved, still pending), reaches
-	// the chat list.
+	// For a known contact too: ChatAddedMsg is an upsert, carrying renames and
+	// subscription changes.
 	s.broadcastChat(ctx, srv, accountIdx, peer, ev.Name)
 
-	// A contact whose subscription just reached "to"/"both" has presence we
-	// can finally see, but the server only pushes it unprompted at our own
-	// next connect - a probe is what makes them show up online now rather
-	// than after a restart.
+	// The server only sends a newly visible contact's presence at our next
+	// connect, unless probed.
 	if !known || ev.Subscription == "to" || ev.Subscription == "both" {
 		if client := s.client.Load(); client != nil {
 			if err := client.ProbePresence(ctx, peer); err != nil {
@@ -2115,17 +1702,13 @@ func (s *accountSession) newChat(ctx context.Context, peer, name string, pending
 	return chat, hist, hasMore
 }
 
-// omemoSetupGrace bounds how long an incoming OMEMO message waits for
-// setupOmemo to finish before being recorded as undecryptable. Generous on
-// purpose: setupOmemo is several PEP round trips (bundle publish, prekey
-// check, device-list fetch and publish) and was measured at over five
-// seconds against a real server under load. The cost of waiting is one
-// delayed message; the cost of not waiting used to be losing it.
+// omemoSetupGrace is how long an incoming OMEMO message waits for setupOmemo
+// before being stored as undecryptable. Generous: setup is several PEP round
+// trips and can take seconds.
 const omemoSetupGrace = 15 * time.Second
 
 // signalOmemoReady marks this account's OMEMO setup as finished. Idempotent:
-// setupOmemo runs again on every reconnect, and only the first run is what
-// anything waits for.
+// setupOmemo runs on every reconnect.
 func (s *accountSession) signalOmemoReady() {
 	if s.omemoReady == nil {
 		return
@@ -2134,8 +1717,7 @@ func (s *accountSession) signalOmemoReady() {
 }
 
 // waitOmemoReady blocks until this account's OMEMO setup has completed, ctx
-// is done, or d elapses - whichever comes first. A session with no readiness
-// channel (see omemoReady) returns immediately rather than waiting out d.
+// is done, or d elapses.
 func (s *accountSession) waitOmemoReady(ctx context.Context, d time.Duration) {
 	if s.omemoReady == nil {
 		return
@@ -2160,27 +1742,12 @@ func (s *accountSession) waitOmemoReady(ctx context.Context, d time.Duration) {
 	}
 }
 
-// refreshRoster re-fetches the live roster onto an already-connected
-// session, reconciling the cache, local storage and any attached UI with
-// what the server actually holds.
+// refreshRoster re-fetches the roster on a reconnected stream, reconciling
+// the cache, storage and attached TUIs with the server, contacts it no longer
+// lists included (see staleRosterEntries).
 //
-// The refresh is the lesser half of why this exists. RFC 6121 §2.1.6 only
-// sends roster pushes to a connection's "interested resources" - a resource
-// becomes interested by asking for the roster at least once (§2.2), and a
-// stream that never does gets no pushes for its whole life. connectAccountLive
-// asks as part of building the initial chat list, so a first connection is
-// interested; reconnectWithBackoff builds a brand-new stream and did not,
-// so every reconnect used to permanently deafen the account to roster
-// changes. Reconnects are routine (a dropped keepalive is enough), which is
-// why a contact appearing or a subscription completing seemed to need a full
-// restart rather than just reconnecting.
-//
-// Contacts the server no longer lists are dropped, which is also how a
-// deletion made from another client while we were offline finally lands.
-// Entries with an empty subscription are left alone: those are the
-// local-only chat rows ensureChat creates for someone who messaged us
-// without being a contact, and they were never in the server's roster to
-// begin with.
+// It's also what gets the new stream roster pushes at all: RFC 6121 only
+// sends them to resources that asked for the roster (§2.1.6, §2.2).
 func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client) {
 	contacts, err := client.Roster(ctx)
 	if err != nil {
@@ -2198,9 +1765,8 @@ func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 	s.mutateRoster(func(entries map[string]rosterEntry) {
 		for _, c := range contacts {
 			e, known := entries[c.JID]
-			// Only the fields the roster IQ is authoritative for, so a
-			// presence stanza processed while the fetch was in flight isn't
-			// rolled back (same reasoning as connectAccountLive).
+			// Only what the roster is authoritative for, as in
+			// connectAccountLive.
 			e.Name, e.Subs = c.Name, c.Subscription
 			entries[c.JID] = e
 			if !known {
@@ -2238,24 +1804,10 @@ func refreshRoster(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 	}
 }
 
-// healLopsidedSubscriptions re-requests presence for every contact stuck at
-// subscription="from" - they can see us, we can't see them, so they show as
-// permanently offline.
-//
-// approveAndReciprocate already asks for presence the moment an inbound
-// request is approved, but that is a single attempt against a server
-// reconciling several subscription changes at once, and a request that gets
-// swallowed in that window leaves the contact looking offline forever with
-// nothing to retry it. Re-asking on every roster refresh (so: every connect
-// and every reconnect) makes the recovery idempotent instead of relying on
-// one stanza landing at the right moment.
-//
-// Only "from" is healed. A contact who actually declined us is left at
-// "none", so this can't turn into a request they get re-prompted for on
-// every reconnect, and "from" is not a state kage's own UI can otherwise
-// produce.
-// resubscribe is client.ResubscribeContact, taken as a parameter so the
-// selection rule can be tested without a live client.
+// healLopsidedSubscriptions re-requests presence on every connect from each
+// contact at subscription="from" (they see us, we don't see them), in case
+// approveAndReciprocate's request got lost. A contact who declined us is at
+// "none", so isn't asked again. resubscribe is client.ResubscribeContact.
 func healLopsidedSubscriptions(
 	ctx context.Context, s *accountSession, contacts []xmpp.Contact,
 	resubscribe func(context.Context, string) error,
@@ -2272,24 +1824,14 @@ func healLopsidedSubscriptions(
 	}
 }
 
-// staleRosterEntries returns the cached contacts that a freshly fetched
-// roster no longer lists, sorted for a stable order. live maps each fetched
-// contact's bare JID to its name.
+// staleRosterEntries is the cached contacts a fetched roster (live: bare JID
+// to name) no longer lists, sorted. Never stale:
 //
-// Two kinds of cached entry are never considered stale:
-//
-//   - one with an empty subscription. Those are the local-only chat rows
-//     ensureChat creates for someone who messaged us without being a
-//     contact; they were never in the server's roster to begin with, so its
-//     not listing them means nothing.
-//   - all of them, when the fetch came back with no contacts at all. "The
-//     user deleted every single contact" and "this response didn't actually
-//     carry the roster" look identical from here, and only one of them is
-//     plausible: kage doesn't request roster versioning (mellium's
-//     roster.Fetch sends no ver attribute, so the server always replies with
-//     the full list), but a future change there, or any server quirk, would
-//     otherwise silently wipe the whole roster. A genuinely emptied roster
-//     still reconciles through the removal pushes that emptied it.
+//   - entries with an empty subscription: local-only chats ensureChat made
+//     for someone who messaged us, never on the server's roster;
+//   - anything, when the fetch was empty: that's more likely a response
+//     without the roster than every contact deleted, which the removal
+//     pushes report anyway.
 func staleRosterEntries(cached map[string]rosterEntry, live map[string]string) []string {
 	if len(live) == 0 {
 		return nil
@@ -2306,8 +1848,7 @@ func staleRosterEntries(cached map[string]rosterEntry, live map[string]string) [
 }
 
 // invisibleSupported reports whether sess's server advertised XEP-0186, from
-// the cache connectAccountLive warmed - never a fresh round trip, since both
-// callers are on a broadcast path.
+// the cache connectAccountLive warmed, never a round trip.
 func invisibleSupported(sess *accountSession) bool {
 	client := sess.client.Load()
 	if client == nil {
