@@ -261,7 +261,7 @@ func applyDatePickerStyles(p *datepicker.Model, colors uiColors) {
 	p.Styles.Weekday = p.Styles.Weekday.Foreground(colors.time)
 	p.Styles.Day = p.Styles.Day.Foreground(colors.themFg)
 	p.Styles.Today = lipgloss.NewStyle().Foreground(colors.accentCyan).Bold(true)
-	p.Styles.Cursor = lipgloss.NewStyle().Foreground(colors.appBg).Background(colors.accentCyan).Bold(true)
+	p.Styles.Cursor = onAccent(colors.accentCyan).Bold(true)
 	p.Styles.Hover = lipgloss.NewStyle().Foreground(colors.themFg).Background(colors.rowHoverBg)
 	p.Styles.Disabled = p.Styles.Disabled.Foreground(colors.textMuted)
 }

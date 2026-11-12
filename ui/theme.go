@@ -74,7 +74,6 @@ func TerminalTheme() Theme {
 		FilterMatch: "3",
 		NickMe:      "6",
 		NickThem:    "5",
-		StatusFg:    "2",
 	}
 }
 

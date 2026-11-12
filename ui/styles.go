@@ -144,9 +144,7 @@ func newUIStyles(theme Theme) *uiStyles {
 		// callBar mirrors footer's plain look — it sits in the same kind of
 		// fixed layout row, just with an accent background so an in-progress
 		// call reads as a persistent status, not another hint line.
-		callBar: lipgloss.NewStyle().
-			Foreground(colors.appBg).
-			Background(colors.accentCyan).
+		callBar: onAccent(colors.accentCyan).
 			Padding(0, 1).
 			Bold(true),
 		accountNormal: lipgloss.NewStyle().
@@ -162,9 +160,7 @@ func newUIStyles(theme Theme) *uiStyles {
 			Foreground(colors.themFg).
 			Underline(true).
 			PaddingLeft(1),
-		sendButton: lipgloss.NewStyle().
-			Foreground(colors.panelEdge).
-			Background(colors.accentCyan).
+		sendButton: onAccent(colors.accentCyan).
 			Bold(true).
 			Padding(0, 1),
 		// attachButton is deliberately calmer than sendButton (send is the
@@ -172,7 +168,7 @@ func newUIStyles(theme Theme) *uiStyles {
 		// compete with it.
 		attachButton: lipgloss.NewStyle().
 			Foreground(colors.themFg).
-			Background(colors.borderD).
+			Background(colors.buttonBg).
 			Padding(0, 1),
 		// dimButton is the at-rest look for small in-row controls (expand
 		// toggle, reply/react glyphs before they're hovered) - dimmer than
@@ -185,9 +181,7 @@ func newUIStyles(theme Theme) *uiStyles {
 		contextMenuItem: lipgloss.NewStyle().
 			Foreground(colors.themFg).
 			PaddingLeft(1),
-		contextMenuItemHover: lipgloss.NewStyle().
-			Foreground(colors.panelEdge).
-			Background(colors.accentCyan).
+		contextMenuItemHover: onAccent(colors.accentCyan).
 			Bold(true).
 			PaddingLeft(1),
 	}
@@ -198,12 +192,21 @@ func newUIStyles(theme Theme) *uiStyles {
 // distinct rows rather than one block sharing a single background, since the
 // name row's accent color would otherwise bleed into (and clash with) the
 // status text below it — and so each can be marked as its own click zone.
-func (s *uiStyles) accountBarNameRow(width int, bg, fg color.Color, name string) string {
+func (s *uiStyles) accountBarNameRow(width int, st lipgloss.Style, name string) string {
 	return s.sidebarStatus.
+		Inherit(st).
 		Width(width).
-		Background(bg).
-		Foreground(fg).
 		Render(name)
+}
+
+// onAccent is the style for text on a block of accent: the accent as the
+// text color, reversed, so the terminal draws the block in it and the text
+// in its own background color - readable on any terminal theme, whose
+// accents are made to stand out on its background, where a palette text
+// color on a palette background is whatever two colors that theme happens
+// to put in those slots.
+func onAccent(accent color.Color) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(accent).Reverse(true)
 }
 
 // accountBarStatusRow renders just the account bar's status row, tinting it
@@ -303,7 +306,7 @@ func (s *uiStyles) renderStoragePasswordButton(icons, hovered bool) string {
 	}
 	st := lipgloss.NewStyle().
 		Foreground(s.colors.themFg).
-		Background(s.colors.borderD).
+		Background(s.colors.buttonBg).
 		Padding(0, 1)
 	if hovered {
 		st = st.Reverse(true)
@@ -396,7 +399,7 @@ func (s *uiStyles) renderSidebarToggleButton(hidden, hovered bool) string {
 func (s *uiStyles) renderJumpToBottomButton(hovered bool) string {
 	st := lipgloss.NewStyle().
 		Foreground(s.colors.themFg).
-		Background(s.colors.borderD).
+		Background(s.colors.buttonBg).
 		Padding(0, 1).
 		Faint(true)
 	if hovered {
@@ -411,12 +414,12 @@ func (s *uiStyles) renderJumpToBottomButton(hovered bool) string {
 // renderAccountMenuButton draws the account bar's menu affordance. Painted
 // with the account bar's own colors so it reads as part of that bar rather
 // than as something floating on top of it.
-func (s *uiStyles) renderAccountMenuButton(icons bool, bg, fg color.Color, hovered bool) string {
+func (s *uiStyles) renderAccountMenuButton(icons bool, row lipgloss.Style, hovered bool) string {
 	label := " ⋯ "
 	if !icons {
 		label = " ... "
 	}
-	st := lipgloss.NewStyle().Background(bg).Foreground(fg)
+	st := row
 	if hovered {
 		st = st.Foreground(s.colors.accentCyan).Bold(true)
 	}
@@ -561,9 +564,7 @@ func (s *uiStyles) callBarLine(width int, content string) string {
 // the outer callBarLine wrap only colors literal runs it's the sole
 // styler of, not text sandwiched between two already-rendered substrings.
 func (s *uiStyles) callBarText(text string) string {
-	return lipgloss.NewStyle().
-		Foreground(s.colors.appBg).
-		Background(s.colors.accentCyan).
+	return onAccent(s.colors.accentCyan).
 		Bold(true).
 		Render(text)
 }
@@ -572,12 +573,10 @@ func (s *uiStyles) callBarText(text string) string {
 // same small hover-reversed pattern as renderStoragePasswordButton, just
 // against callBar's background instead of the account bar's.
 func (s *uiStyles) renderCallBarButton(label string, hovered bool) string {
-	st := lipgloss.NewStyle().
-		Foreground(s.colors.appBg).
-		Background(s.colors.accentCyan).
+	st := onAccent(s.colors.accentCyan).
 		Bold(true)
 	if hovered {
-		st = st.Reverse(true)
+		st = st.Reverse(false)
 	}
 	return st.Render(label)
 }

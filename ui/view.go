@@ -29,15 +29,13 @@ func (m Model) View() tea.View {
 		sidebarBorder = colors.borderA
 	}
 	accountOpen := m.selectedView == viewAccounts
-	accountBg := colors.panelEdge
-	accountFg := colors.statusFg
-	if accountOpen {
-		accountBg = colors.borderA
-		accountFg = colors.appBg
-	}
+	accountRow := lipgloss.NewStyle().Background(colors.panelEdge).Foreground(colors.statusFg)
 	accountHovered := m.isHovered(zoneAccountBarName)
-	if accountHovered && !accountOpen {
-		accountFg = colors.accentCyan
+	switch {
+	case accountOpen:
+		accountRow = onAccent(colors.borderA)
+	case accountHovered:
+		accountRow = accountRow.Foreground(colors.accentCyan)
 	}
 	// The account menu's button sits on the name row rather than being
 	// hidden behind a right-click on a row of a panel that has to be
@@ -46,10 +44,10 @@ func (m Model) View() tea.View {
 	// columns the button leaves it, rather than against the full sidebar:
 	// padded to the wrong width, the name pushes the button sideways on
 	// hover, when it grows by the panel-toggle arrow.
-	menuBtn := m.zone.Mark(zoneAccountMenuButton, m.styles.renderAccountMenuButton(m.icons, accountBg, accountFg, m.isHovered(zoneAccountMenuButton)))
+	menuBtn := m.zone.Mark(zoneAccountMenuButton, m.styles.renderAccountMenuButton(m.icons, accountRow, m.isHovered(zoneAccountMenuButton)))
 	nameWidth := max(1, scw-lipgloss.Width(menuBtn))
 	accountName, accountStatus := m.renderAccountBar(nameWidth, scw, accountHovered, accountOpen)
-	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(nameWidth, accountBg, accountFg, accountName)) + menuBtn
+	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(nameWidth, accountRow, accountName)) + menuBtn
 	statusRow := ""
 	if accountOpen {
 		// Only shown while the accounts panel itself is open — it's an

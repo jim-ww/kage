@@ -107,6 +107,7 @@ type uiColors struct {
 	noticeBg    color.Color
 	noticeFg    color.Color
 	rowHoverBg  color.Color
+	buttonBg    color.Color
 	dimButtonBg color.Color
 }
 
@@ -157,17 +158,22 @@ func newUIColors(theme Theme) uiColors {
 		// borderD - just enough to read as "this is a button" without
 		// competing with the message text around it.
 		dimButtonBg: lipgloss.Color(tint(theme, 0.45)),
+		// buttonBg is a button's block: BorderD itself when that's a known
+		// color, else the background a step off (see tint) - never a
+		// palette color behind palette-colored text.
+		buttonBg: lipgloss.Color(tint(theme, 1)),
 	}
 }
 
 // tint is a background a shade off the app's own, t (0-1) of the way from
 // it toward BorderD - or, when BorderD is a palette color whose real value
 // isn't known, toward white on a dark background and black on a light one,
-// by a similarly small step. Without a known background at all it's
-// BorderD itself, the closest thing that still reads as a highlight.
+// by a similarly small step. Without a known background it's none at all:
+// a palette color behind palette-colored text is whatever pair the
+// terminal's theme happens to have in those slots, often unreadable.
 func tint(theme Theme, t float64) string {
 	if _, _, _, ok := parseHexRGB(theme.AppBg); !ok {
-		return theme.BorderD
+		return ""
 	}
 	if _, _, _, ok := parseHexRGB(theme.BorderD); ok {
 		return blendHex(theme.AppBg, theme.BorderD, t)

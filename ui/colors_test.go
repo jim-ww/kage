@@ -1,6 +1,11 @@
 package ui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"charm.land/lipgloss/v2"
+)
 
 func TestPresenceLabelInvisible(t *testing.T) {
 	if got, want := presenceLabel(PresenceInvisible), "invisible"; got != want {
@@ -39,10 +44,33 @@ func TestTintFollowsTheBackground(t *testing.T) {
 		t.Fatalf("tint on a light background = %q, want a slightly darker light shade", got)
 	}
 
-	if got := tint(TerminalTheme(), 0.5); got != TerminalTheme().BorderD {
-		t.Fatalf("tint without a known background = %q, want BorderD", got)
+	if got := tint(TerminalTheme(), 0.5); got != "" {
+		t.Fatalf("tint without a known background = %q, want none", got)
 	}
 	if got, want := tint(TokyoNightTheme(), 0.22), blendHex("#1a1b26", "#3b4261", 0.22); got != want {
 		t.Fatalf("Tokyo Night tint = %q, want the blend it always was, %q", got, want)
+	}
+}
+
+// TestTerminalThemeNeverStacksPaletteColors: with the terminal's colors, a
+// palette text color on a palette background is whatever pair the
+// terminal's theme has in those slots - bright gray under neon green, say.
+// Accent blocks are reverse video instead (the text is then the terminal's
+// own background), and without a known background nothing gets a block.
+func TestTerminalThemeNeverStacksPaletteColors(t *testing.T) {
+	s := newUIStyles(TerminalTheme()) // AppBg unknown
+	for name, out := range map[string]string{
+		"send button":    s.sendButton.Render("Send"),
+		"menu highlight": s.contextMenuItemHover.Render("Copy"),
+		"attach button":  s.attachButton.Render("+"),
+		"dim button":     s.dimButton.Render("▾"),
+		"account button": s.renderAccountMenuButton(true, lipgloss.NewStyle().Background(s.colors.panelEdge), false),
+	} {
+		if strings.Contains(out, "[4") || strings.Contains(out, ";4") || strings.Contains(out, "48;") || strings.Contains(out, "[10") {
+			t.Errorf("%s has a background color: %q", name, out)
+		}
+	}
+	if out := s.sendButton.Render("Send"); !strings.Contains(out, "7;") && !strings.Contains(out, ";7") {
+		t.Errorf("send button isn't reverse video: %q", out)
 	}
 }
