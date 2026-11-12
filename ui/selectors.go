@@ -429,14 +429,10 @@ func (r msgRef) index(msgs []Message) int {
 	if i := messageIndexByLocalID(msgs, r.localID); i >= 0 {
 		return i
 	}
-	if r.storeID != 0 {
-		for i, msg := range msgs {
-			if msg.StoreID == r.storeID {
-				return i
-			}
-		}
+	if r.storeID == 0 {
+		return -1
 	}
-	return -1
+	return slices.IndexFunc(msgs, func(msg Message) bool { return msg.StoreID == r.storeID })
 }
 
 // messageIndexByID returns the index of the message with the given stanza ID
@@ -445,12 +441,7 @@ func messageIndexByID(msgs []Message, id string) int {
 	if id == "" {
 		return -1
 	}
-	for i, msg := range msgs {
-		if msg.ID == id {
-			return i
-		}
-	}
-	return -1
+	return slices.IndexFunc(msgs, func(msg Message) bool { return msg.ID == id })
 }
 
 // messageIndexByLocalID returns the index of the message with the given
@@ -462,12 +453,7 @@ func messageIndexByLocalID(msgs []Message, localID string) int {
 	if localID == "" {
 		return -1
 	}
-	for i, msg := range msgs {
-		if msg.LocalID == localID {
-			return i
-		}
-	}
-	return -1
+	return slices.IndexFunc(msgs, func(msg Message) bool { return msg.LocalID == localID })
 }
 
 // removeMessageAt deletes the message at idx outright (as opposed to

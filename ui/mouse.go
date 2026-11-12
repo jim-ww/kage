@@ -597,26 +597,21 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.selectedView == viewChat {
 		msgs := m.currentMessages()
 		for i := range msgs {
-			if m.zone.Get(zoneMessageReplyBtn(i)).InBounds(msg) {
-				m.notifyTypingStopped()
-				m.lastClickedMsgIdx = -1
-				m.lastClickTime = time.Time{}
-				old := m.selectedMsg
-				m.selectedMsg = i
-				m.refreshViewportScrollTo(old, i)
-				return m, m.actionReplyMessage()
+			action := (*Model).actionReplyMessage
+			switch {
+			case m.zone.Get(zoneMessageReplyBtn(i)).InBounds(msg):
+			case m.zone.Get(zoneMessageReactBtn(i)).InBounds(msg):
+				action = (*Model).actionReactMessage
+			default:
+				continue
 			}
-		}
-		for i := range msgs {
-			if m.zone.Get(zoneMessageReactBtn(i)).InBounds(msg) {
-				m.notifyTypingStopped()
-				m.lastClickedMsgIdx = -1
-				m.lastClickTime = time.Time{}
-				old := m.selectedMsg
-				m.selectedMsg = i
-				m.refreshViewportScrollTo(old, i)
-				return m, m.actionReactMessage()
-			}
+			m.notifyTypingStopped()
+			m.lastClickedMsgIdx = -1
+			m.lastClickTime = time.Time{}
+			old := m.selectedMsg
+			m.selectedMsg = i
+			m.refreshViewportScrollTo(old, i)
+			return m, action(&m)
 		}
 		for i, mm := range msgs {
 			if m.zone.Get(zoneMessageExpand(i)).InBounds(msg) {
