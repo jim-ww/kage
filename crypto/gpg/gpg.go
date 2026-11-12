@@ -45,11 +45,11 @@ func (e Encrypter) Encrypt(plaintext string, recipientKeyID string) (string, err
 	if recipientKeyID == "" {
 		return "", fmt.Errorf("gpg: no recipient key id configured")
 	}
-	out, err := e.run(plaintext, "--batch", "--yes", "--armor", "--trust-model", "always", "--encrypt", "-r", recipientKeyID)
+	out, err := e.run([]byte(plaintext), "--batch", "--yes", "--armor", "--trust-model", "always", "--encrypt", "-r", recipientKeyID)
 	if err != nil {
 		return "", fmt.Errorf("gpg encrypt: %w", err)
 	}
-	return out, nil
+	return string(out), nil
 }
 
 // Decrypt decrypts an ASCII-armored ciphertext with the local keyring/agent.
@@ -57,11 +57,11 @@ func (e Encrypter) Encrypt(plaintext string, recipientKeyID string) (string, err
 // the message's recipient list itself) but kept for interface symmetry with
 // future Encrypter implementations that need it.
 func (e Encrypter) Decrypt(ciphertext string, _ string) (string, error) {
-	out, err := e.run(ciphertext, "--batch", "--yes", "--decrypt")
+	out, err := e.run([]byte(ciphertext), "--batch", "--yes", "--decrypt")
 	if err != nil {
 		return "", fmt.Errorf("gpg decrypt: %w", err)
 	}
-	return out, nil
+	return string(out), nil
 }
 
 // DefaultSecretKeyID picks a key ID to use when none is configured: the
@@ -149,7 +149,7 @@ func listSecretKeyFingerprints() ([]string, error) {
 // Export returns fingerprint's raw (not armored) OpenPGP transferable public
 // key, suitable for base64-encoding into a XEP-0373 <pubkey/> PEP item.
 func (e Encrypter) Export(fingerprint string) ([]byte, error) {
-	out, err := e.runBytes(nil, "--batch", "--export", fingerprint)
+	out, err := e.run(nil, "--batch", "--export", fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("gpg export: %w", err)
 	}
@@ -166,7 +166,7 @@ func (e Encrypter) Export(fingerprint string) ([]byte, error) {
 // node it came from, so without it a key published under the wrong
 // fingerprint would silently get used instead of detected as a mismatch.
 func (e Encrypter) Import(data []byte, expectedFingerprint string) error {
-	if _, err := e.runBytes(data, "--batch", "--yes", "--import"); err != nil {
+	if _, err := e.run(data, "--batch", "--yes", "--import"); err != nil {
 		return fmt.Errorf("gpg import: %w", err)
 	}
 	fprs, err := listKeyFingerprints(expectedFingerprint)
@@ -198,34 +198,8 @@ func listKeyFingerprints(query string) ([]string, error) {
 	return fprs, nil
 }
 
-func (e Encrypter) run(stdin string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), e.timeout())
-	defer cancel()
-
-	slog.Debug("gpg: running", "args", args, "stdin_bytes", len(stdin), "timeout", e.timeout())
-	start := time.Now()
-
-	cmd := exec.CommandContext(ctx, "gpg", args...)
-	cmd.Stdin = strings.NewReader(stdin)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	slog.Debug("gpg: finished", "args", args, "elapsed", time.Since(start), "err", err)
-	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg != "" {
-			return "", fmt.Errorf("%w: %s", err, msg)
-		}
-		return "", err
-	}
-	return stdout.String(), nil
-}
-
-// runBytes is like run but for binary input/output (key export/import),
-// rather than the text ciphertext/plaintext Encrypt/Decrypt deal in.
-func (e Encrypter) runBytes(stdin []byte, args ...string) ([]byte, error) {
+// run runs gpg with args, stdin as its input, returning its output.
+func (e Encrypter) run(stdin []byte, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout())
 	defer cancel()
 
@@ -241,8 +215,7 @@ func (e Encrypter) runBytes(stdin []byte, args ...string) ([]byte, error) {
 	err := cmd.Run()
 	slog.Debug("gpg: finished", "args", args, "elapsed", time.Since(start), "err", err)
 	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg != "" {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return nil, fmt.Errorf("%w: %s", err, msg)
 		}
 		return nil, err
