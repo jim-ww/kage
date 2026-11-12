@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"database/sql"
@@ -813,29 +814,15 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	historyMore := make(map[int]bool, len(rows))
 	entries := make(map[string]rosterEntry, len(rows))
 	for i, r := range rows {
-		name := r.Name
-		if name == "" {
-			name = r.Jid
-		}
 		entries[r.Jid] = rosterEntry{Name: r.Name, Subs: r.Subs}
-		mode, err := queries.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{AccountJid: acct.JID, RosterJid: r.Jid})
-		if err != nil {
-			mode = currentDefaultEncryptionMode()
-		}
-		histStart := time.Now()
-		hist, hasMore, _ := loadHistoryWindow(ctx, sess, r.Jid, name, nil, historyPageSize)
-		slog.Debug("loadHistoryWindow done", "jid", acct.JID, "peer", r.Jid, "elapsed", time.Since(histStart), "messages", len(hist), "more", hasMore)
 		// Still-queued sends left over from before the app last closed (see
 		// pendingOutboxMessagesByPeer's doc comment) belong at the tail,
 		// after everything already delivered - flushOutbox will actually
 		// attempt them again once this account reconnects.
-		hist = append(hist, pendingByPeer[r.Jid]...)
-		chat := ui.Chat{Name: name, Address: r.Jid, EncryptionMode: mode, Unread: unread[r.Jid], Draft: drafts[r.Jid], Hidden: hiddenChats.has(acct.JID, r.Jid), Pinned: pinnedChats.has(acct.JID, r.Jid), Muted: mutedChats.has(acct.JID, r.Jid),
-			Subscription: r.Subs}
+		chat, hist, hasMore := sess.newChat(ctx, r.Jid, r.Name, pendingByPeer[r.Jid])
+		chat.Unread, chat.Draft, chat.Subscription = unread[r.Jid], drafts[r.Jid], r.Subs
 		if len(hist) > 0 {
 			messages[i] = hist
-			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
-			chat.LastActivity = hist[len(hist)-1].SentAt
 		}
 		chats = append(chats, chat)
 		historyMore[i] = hasMore
@@ -956,10 +943,6 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	newMessages := make(map[int][]ui.Message)
 	newHistoryMore := make(map[int]bool)
 	for _, c := range contacts {
-		name := c.Name
-		if name == "" {
-			name = c.JID
-		}
 		prior, known := snapshot[c.JID]
 		if err := sess.db.UpsertRoster(ctx, storage.UpsertRosterParams{
 			AccountJid: sess.account.JID, Jid: c.JID, Name: c.Name, Subs: c.Subscription,
@@ -970,13 +953,11 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 			continue
 		}
 		idx := existingChatCount + len(newChats)
-		hist, hasMore, _ := loadHistoryWindow(ctx, sess, c.JID, name, nil, historyPageSize)
-		chat := ui.Chat{Name: name, Address: c.JID, Draft: drafts[c.JID], Presence: prior.Presence, Resources: prior.Resources, Hidden: hiddenChats.has(sess.account.JID, c.JID), Pinned: pinnedChats.has(sess.account.JID, c.JID), Muted: mutedChats.has(sess.account.JID, c.JID),
-			Subscription: c.Subscription, SubscriptionPending: c.Ask}
+		chat, hist, hasMore := sess.newChat(ctx, c.JID, c.Name, nil)
+		chat.Draft, chat.Presence, chat.Resources = drafts[c.JID], prior.Presence, prior.Resources
+		chat.Subscription, chat.SubscriptionPending = c.Subscription, c.Ask
 		if len(hist) > 0 {
 			newMessages[idx] = hist
-			chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
-			chat.LastActivity = hist[len(hist)-1].SentAt
 		}
 		newChatIdx[c.JID] = len(newChats)
 		newChats = append(newChats, chat)
@@ -2100,41 +2081,38 @@ func (s *accountSession) handleRosterPush(ctx context.Context, srv *ipc.Server, 
 // with whatever history storage holds for it. Safe to call for a chat a
 // client already shows: ui.ChatAddedMsg is an upsert.
 func (s *accountSession) broadcastChat(ctx context.Context, srv *ipc.Server, accountIdx int, peer, name string) {
-	display := name
-	if display == "" {
-		display = peer
-	}
-	mode, err := s.db.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{
-		AccountJid: s.account.JID, RosterJid: peer,
-	})
-	if err != nil {
-		mode = currentDefaultEncryptionMode()
-	}
+	chat, hist, _ := s.newChat(ctx, peer, name, nil)
 	entry := derefRoster(s.roster.Load())[peer]
-	unread, err := s.db.GetChatUnread(ctx, storage.GetChatUnreadParams{
+	chat.Presence, chat.Resources = entry.Presence, entry.Resources
+	chat.Subscription, chat.SubscriptionPending = entry.Subs, entry.Ask
+	if unread, err := s.db.GetChatUnread(ctx, storage.GetChatUnreadParams{
 		AccountJid: s.account.JID, RosterJid: peer,
-	})
-	if err != nil {
-		unread = 0 // no row yet simply means nothing unread
+	}); err == nil { // no row yet simply means nothing unread
+		chat.Unread = int(unread)
 	}
-	hist, _, _ := loadHistoryWindow(ctx, s, peer, display, nil, historyPageSize)
-	broadcast(srv, ui.ChatAddedMsg{
-		AccountIdx: accountIdx,
-		Chat: ui.Chat{
-			Name:           display,
-			Address:        peer,
-			EncryptionMode: mode,
-			Presence:       entry.Presence,
-			Resources:      entry.Resources,
-			Unread:         int(unread),
-			Pinned:         pinnedChats.has(s.account.JID, peer),
-			Muted:          mutedChats.has(s.account.JID, peer),
+	broadcast(srv, ui.ChatAddedMsg{AccountIdx: accountIdx, Chat: chat, Messages: hist})
+}
 
-			Subscription:        entry.Subs,
-			SubscriptionPending: entry.Ask,
-		},
-		Messages: hist,
-	})
+// newChat is peer's chat row as storage and the chat flags have it, with
+// its latest page of history and then pending appended. name is its roster
+// name, "" for none.
+func (s *accountSession) newChat(ctx context.Context, peer, name string, pending []ui.Message) (chat ui.Chat, hist []ui.Message, hasMore bool) {
+	name = cmp.Or(name, peer)
+	hist, hasMore, _ = loadHistoryWindow(ctx, s, peer, name, nil, historyPageSize)
+	hist = append(hist, pending...)
+	chat = ui.Chat{
+		Name:           name,
+		Address:        peer,
+		EncryptionMode: resolveEncryptionMode(ctx, s, peer),
+		Hidden:         hiddenChats.has(s.account.JID, peer),
+		Pinned:         pinnedChats.has(s.account.JID, peer),
+		Muted:          mutedChats.has(s.account.JID, peer),
+	}
+	if len(hist) > 0 {
+		chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
+		chat.LastActivity = hist[len(hist)-1].SentAt
+	}
+	return chat, hist, hasMore
 }
 
 // omemoSetupGrace bounds how long an incoming OMEMO message waits for
