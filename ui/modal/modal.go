@@ -414,6 +414,12 @@ func (s *Stack[H]) sizeTop() {
 	if sz, ok := top.Body.(Sizer); ok {
 		cols, _ := s.chrome()
 		sz.SetSize(max(1, top.width-cols), s.bodyHeight())
+		// How wide a body wants to be can depend on how tall it may be
+		// (Columns): asked again now that it knows.
+		if w := s.frameWidth(top); w != top.width {
+			top.width = w
+			sz.SetSize(max(1, w-cols), s.bodyHeight())
+		}
 	}
 	s.scrollBy(top, 0)
 }

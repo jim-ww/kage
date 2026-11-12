@@ -287,10 +287,17 @@ func TestColumnsUseTheWidth(t *testing.T) {
 		{Title: "Two", Lines: []string{"d", "e"}},
 		{Title: "Three", Lines: []string{"f"}},
 	}
+	// Room for two whole sections a column: two columns, nothing split.
 	wide := NewColumns(sections...)
-	wide.SetSize(80, 20)
-	if got := strings.Count(wide.View(), "\n") + 1; got > 4 {
-		t.Fatalf("wide: %d rows, want the 11 flowed over 3+ columns, at most 4 tall:\n%s", got, wide.View())
+	wide.SetSize(80, 9)
+	if view := wide.View(); strings.Count(view, "\n")+1 != 8 || !strings.Contains(strings.Split(view, "\n")[0], "Three") {
+		t.Fatalf("wide: want One and Two in the first column, Three beside them:\n%s", view)
+	}
+	// Shorter than a section: it goes on in the next column, titled again.
+	short := NewColumns(sections...)
+	short.SetSize(80, 3)
+	if view := short.View(); !strings.Contains(view, "One (cont.)") {
+		t.Fatalf("short: want One split with its title repeated:\n%s", view)
 	}
 	narrow := NewColumns(sections...)
 	narrow.SetSize(6, 20)

@@ -634,8 +634,8 @@ const infoModalID = "msg-info"
 
 // openHelp lists every keybinding grouped by which tab it applies to (plus
 // a Global section for bindings that work everywhere) — the full reference
-// behind the footer's necessarily-truncated one-line hint. It takes the
-// whole chat area, its sections side by side in as many columns as fit.
+// behind the footer's necessarily-truncated one-line hint, its sections in
+// as many columns as the chat area's height asks for and its width allows.
 func (m *Model) openHelp() tea.Cmd {
 	var sections []modal.Section
 	for _, section := range m.keys.helpSections() {
@@ -649,7 +649,9 @@ func (m *Model) openHelp() tea.Cmd {
 	}
 	body := modal.NewColumns(sections...)
 	body.TitleStyle = lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.accentCyan)
-	return m.openModal(&modal.Modal[*Model]{Title: "Help", Body: body, Fill: true})
+	// As wide as its columns, however many the height makes - not capped
+	// at a dialog's width.
+	return m.openModal(&modal.Modal[*Model]{Title: "Help", Body: body, MaxWidth: 1 << 16})
 }
 
 // renderAccountBar returns the account bar's name and status text
