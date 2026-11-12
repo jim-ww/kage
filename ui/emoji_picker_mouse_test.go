@@ -46,8 +46,7 @@ func TestEmojiPickerCellUnderMouseSnapsToNearestInRow(t *testing.T) {
 	picker.Columns = 4
 	picker.VisibleRows = 1
 
-	m := Model{zone: zm}
-	m.emojiPicker = &picker
+	body := &emojiPickerBody{picker: &picker, zone: zm}
 
 	cells := picker.VisibleCells()
 	if len(cells) < 2 {
@@ -69,7 +68,7 @@ func TestEmojiPickerCellUnderMouseSnapsToNearestInRow(t *testing.T) {
 	gapX := z0.EndX + 1 // strictly inside the gap, in neither box
 
 	click := tea.MouseClickMsg{X: gapX, Y: z0.StartY, Button: tea.MouseLeft}
-	i, ok := m.emojiPickerCellUnderMouse(click)
+	i, ok := body.cellUnderMouse(click)
 	if !ok {
 		t.Fatal("expected a hit via nearest-in-row fallback for a click in the gap")
 	}

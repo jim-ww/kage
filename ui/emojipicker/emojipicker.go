@@ -145,6 +145,12 @@ type Model struct {
 
 	Title string // e.g. "react to \"...\"" - shown above the query box; empty renders no title row
 
+	// Compact drops the blank lines between rows, the scroll indicator and
+	// the key hints (the embedder shows Hints where it shows its own), and
+	// shows the picked row only once something is picked - for a picker
+	// drawn as a small popup over other content.
+	Compact bool
+
 	// Zone/ID opt the picker into mouse support: when Zone is non-nil,
 	// every rendered grid cell is wrapped in a bubblezone mark (namespaced
 	// by ID, so multiple pickers - or other zone.Mark callers - can't
@@ -495,11 +501,68 @@ func (m *Model) View() string {
 	var b strings.Builder
 	if m.Title != "" {
 		b.WriteString(m.line(m.Styles.Title, m.Title))
-		b.WriteString("\n\n")
+		b.WriteString(m.gap())
 	}
 	b.WriteString(m.line(m.Styles.Query, m.query.View()))
-	b.WriteString("\n\n")
+	b.WriteString(m.gap())
+	if !m.Compact || len(m.picked) > 0 {
+		// Compact shows it with the first pick; there's nothing to show
+		// before that.
+		m.writePickedRow(&b)
+	}
 
+	totalRows := 0
+	if len(m.visible) > 0 && m.Columns > 0 {
+		totalRows = (len(m.visible) + m.Columns - 1) / m.Columns
+	}
+
+	if len(m.visible) == 0 {
+		b.WriteString(m.Styles.Placeholder.Render("no matches"))
+	} else {
+		startRow := m.scrollRow
+		endRow := min(startRow+m.VisibleRows, totalRows)
+		for r := startRow; r < endRow; r++ {
+			start := r * m.Columns
+			end := min(start+m.Columns, len(m.visible))
+			row := make([]string, 0, end-start)
+			for j := start; j < end; j++ {
+				row = append(row, m.renderCell(j))
+			}
+			if r > startRow {
+				b.WriteString("\n")
+			}
+			b.WriteString(strings.Join(row, ""))
+		}
+	}
+	if m.Compact {
+		return b.String()
+	}
+	b.WriteString("\n")
+
+	if totalRows > m.VisibleRows {
+		b.WriteString(m.line(m.Styles.Footer, fmt.Sprintf("rows %d-%d of %d", min(m.scrollRow+1, totalRows), min(m.scrollRow+m.VisibleRows, totalRows), totalRows)))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(m.line(m.Styles.Footer, Hints))
+	return b.String()
+}
+
+// Hints are the picker's keys, as its footer lists them.
+const Hints = "↑↓←→ move · tab multi · ctrl+x clear · enter confirm · esc cancel"
+
+// gap separates View's rows: a blank line, or just the line break when
+// Compact.
+func (m *Model) gap() string {
+	if m.Compact {
+		return "\n"
+	}
+	return "\n\n"
+}
+
+// writePickedRow writes the "Picked: ..." row and the gap after it.
+func (m *Model) writePickedRow(b *strings.Builder) {
 	// Always shown, separate from the (possibly filtered) grid below - a
 	// search query can easily hide cells that are already picked, and
 	// without this line there'd be no way to see the full multi-select set
@@ -512,39 +575,7 @@ func (m *Model) View() string {
 	} else {
 		b.WriteString(m.line(m.Styles.PickedRow, m.pickedRowText()))
 	}
-	b.WriteString("\n\n")
-
-	totalRows := 0
-	if len(m.visible) > 0 && m.Columns > 0 {
-		totalRows = (len(m.visible) + m.Columns - 1) / m.Columns
-	}
-
-	if len(m.visible) == 0 {
-		b.WriteString(m.Styles.Placeholder.Render("no matches"))
-		b.WriteString("\n")
-	} else {
-		startRow := m.scrollRow
-		endRow := min(startRow+m.VisibleRows, totalRows)
-		for r := startRow; r < endRow; r++ {
-			start := r * m.Columns
-			end := min(start+m.Columns, len(m.visible))
-			row := make([]string, 0, end-start)
-			for j := start; j < end; j++ {
-				row = append(row, m.renderCell(j))
-			}
-			b.WriteString(strings.Join(row, ""))
-			b.WriteString("\n")
-		}
-	}
-
-	if totalRows > m.VisibleRows {
-		b.WriteString(m.line(m.Styles.Footer, fmt.Sprintf("rows %d-%d of %d", min(m.scrollRow+1, totalRows), min(m.scrollRow+m.VisibleRows, totalRows), totalRows)))
-		b.WriteString("\n")
-	}
-
-	b.WriteString("\n")
-	b.WriteString(m.line(m.Styles.Footer, "↑↓←→ move · tab multi · ctrl+x clear · enter confirm · esc cancel"))
-	return b.String()
+	b.WriteString(m.gap())
 }
 
 // line truncates text to m.Width (with an ellipsis) before rendering it

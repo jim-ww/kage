@@ -30,11 +30,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m.updateDesktopVolumeKey(msg)
 	}
 
-	// ── Emoji-picker popup intercepts all input until dismissed ────────
-	if m.emojiPicker != nil {
-		return m.updateEmojiPickerKey(msg)
-	}
-
 	// ── OMEMO device-list popup intercepts all input until dismissed ───
 	if m.deviceList != nil {
 		return m.updateDeviceListKey(msg)
@@ -141,7 +136,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	case matchesKey(msg, m.keys.Back):
-		if !m.editingMsg.empty() || !m.replyTo.empty() || m.reactingMsgIdx >= 0 || m.emojiPicker != nil {
+		if !m.editingMsg.empty() || !m.replyTo.empty() {
 			m.cancelPending()
 			return m, nil, true
 		}

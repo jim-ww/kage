@@ -849,25 +849,16 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
 		return m.showNotification("no message selected")
 	}
-	if m.emojiPicker != nil && m.reactingMsgIdx == m.selectedMsg {
-		// Pressed/clicked again on the same message already being reacted
-		// to: close instead of restarting the same picker.
-		m.emojiPicker = nil
-		m.reactingMsgIdx = -1
-		return nil
-	}
+	idx := m.selectedMsg
 	picker := emojipicker.New(rankReactionUsage(m.reactionEmojiUsage))
-	picker.SetPicked(myReactionsEmoji(msgs[m.selectedMsg].Reactions))
-	picker.Title = fmt.Sprintf("react to %q", previewText(MessagePreviewContent(msgs[m.selectedMsg]), previewLen))
+	picker.SetPicked(myReactionsEmoji(msgs[idx].Reactions))
+	picker.Compact = true // the modal titles it and lists its keys
 	applyEmojiPickerStyles(&picker, m.styles.colors)
-	if m.mouseEnabled {
-		picker.Zone = m.zone
-		picker.ID = "emoji-picker"
-	}
-	m.emojiPicker = &picker
-	m.reactingMsgIdx = m.selectedMsg
-	m.sizeEmojiPicker()
-	return m.emojiPicker.Init()
+	return tea.Batch(picker.Init(), m.openModal(&modal.Modal[*Model]{
+		Title:    "React to: " + previewText(MessagePreviewContent(msgs[idx]), previewLen),
+		Body:     &emojiPickerBody{picker: &picker},
+		OnSubmit: func(m *Model, v any) tea.Cmd { return m.confirmEmojiPick(idx, v.([]string)) },
+	}))
 }
 
 // openPendingChat opens pendingOpenChatAddress (set from config's

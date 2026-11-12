@@ -35,7 +35,7 @@ func TestPasteIntoEmojiPickerSearch(t *testing.T) {
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("paste leaked into the compose box: %q", got)
 	}
-	if !strings.Contains(m.emojiPicker.View(), "fire") {
+	if !strings.Contains(m.modals.Top().Body.View(), "fire") {
 		t.Fatal("paste didn't reach the picker's search box")
 	}
 }

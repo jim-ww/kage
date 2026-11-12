@@ -2,62 +2,131 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/jim-ww/kage/ui/emojipicker"
+	"github.com/jim-ww/kage/ui/modal"
+	"github.com/lrstanley/bubblezone/v2"
 )
 
-// updateEmojiPickerKey routes a key to the open emoji picker popup: Confirm
-// sends the picked reaction set and closes it, Cancel just closes it,
-// anything else is forwarded to the picker's own Update (grid nav, typing
-// into its filter box, toggling a cell) — mirrors ui/filepicker's
-// DidSelectFile convention (re-check the same msg right after Update).
-func (m Model) updateEmojiPickerKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
-	if picked, ok := m.emojiPicker.DidConfirm(msg); ok {
-		model, cmd := m.confirmEmojiPick(picked)
-		return model, cmd, true
-	}
-	if m.emojiPicker.DidCancel(msg) {
-		m.emojiPicker = nil
-		m.reactingMsgIdx = -1
-		return m, nil, true
-	}
-	var cmd tea.Cmd
-	cmd = m.emojiPicker.Update(msg)
-	return m, cmd, true
+// emojiPickerBody is the reaction picker (ui/emojipicker) as a modal body:
+// it submits the picked emoji ([]string) on enter or a click on a cell.
+type emojiPickerBody struct {
+	picker *emojipicker.Model
+	zone   *zone.Manager
 }
 
-// handleEmojiPickerClick hit-tests msg against the currently-rendered grid
-// cells' zone marks (see emojipicker.Model's Zone/CellZoneID/VisibleCells)
-// and, on a hit, confirms exactly as if that cell had been reached via the
-// keyboard and Confirm pressed - see confirmEmojiPick.
-func (m Model) handleEmojiPickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if m.emojiPicker.Zone == nil {
-		return m, nil
+func (b *emojiPickerBody) Update(msg tea.Msg) (tea.Cmd, modal.Outcome) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		if picked, ok := b.picker.DidConfirm(msg); ok {
+			return nil, modal.Submit(picked)
+		}
+	case tea.MouseMotionMsg:
+		if i, ok := b.pickedUnderMouse(msg); ok {
+			b.picker.SetPickedHover(i)
+		} else {
+			b.picker.ClearPickedHover()
+			if i, ok := b.cellUnderMouse(msg); ok {
+				b.picker.SetCursor(i)
+			}
+		}
+		return nil, modal.Continue
+	case tea.MouseClickMsg:
+		// Checked before the grid: a picked emoji whose grid cell has
+		// scrolled out of view (query narrowed it away) is still shown in
+		// the "Picked:" row, and clicking it there removes it without
+		// touching the grid at all.
+		if i, ok := b.pickedUnderMouse(msg); ok {
+			b.picker.RemovePickedAt(i)
+			return nil, modal.Continue
+		}
+		if i, ok := b.cellUnderMouse(msg); ok {
+			return nil, modal.Submit(b.picker.ClickConfirm(i))
+		}
+		return nil, modal.Continue
 	}
-	// Checked before the grid: a picked emoji whose grid cell has scrolled
-	// out of view (query narrowed it away) is still shown in the "Picked:"
-	// row, and clicking it there removes it without touching the grid at
-	// all - doesn't confirm/close the picker, unlike a grid-cell click.
-	for i := range m.emojiPicker.Selection() {
-		if m.zone.Get(m.emojiPicker.PickedZoneID(i)).InBounds(msg) {
-			m.emojiPicker.RemovePickedAt(i)
-			return m, nil
+	return b.picker.Update(msg), modal.Continue
+}
+
+func (b *emojiPickerBody) View() string { return b.picker.View() }
+
+// SetSize fits the grid: up to 10 columns and 8 rows of emoji, less the
+// search and picked rows.
+func (b *emojiPickerBody) SetSize(width, height int) {
+	b.picker.Resize(clamp(width/emojipicker.CellWidth, 4, 10), clamp(height-2, 2, 8), width)
+}
+
+func (b *emojiPickerBody) PreferredWidth() int { return 10 * emojipicker.CellWidth }
+
+func (b *emojiPickerBody) Bind(z *zone.Manager, id string) {
+	b.zone, b.picker.Zone, b.picker.ID = z, z, id
+}
+
+func (b *emojiPickerBody) Hints() []modal.Hint {
+	return []modal.Hint{
+		modal.KeyHint(tea.KeyPressMsg{Code: tea.KeyEnter}, "react"),
+		modal.KeyHint(tea.KeyPressMsg{Code: tea.KeyTab}, "pick several"),
+		modal.KeyHint(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}, "clear"),
+	}
+}
+
+// pickedUnderMouse is the index into the picker's Selection() the mouse is
+// over, if it's over a picked chip - checked against the "Picked: ..."
+// row's zone marks (see emojipicker.Model.PickedZoneID).
+func (b *emojiPickerBody) pickedUnderMouse(msg tea.MouseMsg) (int, bool) {
+	if b.zone == nil {
+		return 0, false
+	}
+	for i := range b.picker.Selection() {
+		if b.zone.Get(b.picker.PickedZoneID(i)).InBounds(msg) {
+			return i, true
 		}
 	}
-	// emojiPickerCellUnderMouse (not a plain InBounds loop) so a click that
-	// lands just outside a mismeasured emoji's hitbox still snaps to it -
-	// see that function's doc for why that happens.
-	if i, ok := m.emojiPickerCellUnderMouse(msg); ok {
-		return m.confirmEmojiPick(m.emojiPicker.ClickConfirm(i))
-	}
-	return m, nil
+	return 0, false
 }
 
-// confirmEmojiPick is the shared tail of a confirmed emoji pick (via enter
-// or a click): record usage, send the reaction, and close the picker.
-// Shared so the two input paths can't drift.
-func (m Model) confirmEmojiPick(picked []string) (Model, tea.Cmd) {
+// cellUnderMouse is the visible grid cell the mouse is over, if any.
+//
+// Falls back to the nearest cell in the same row (by X-center distance) when
+// no zone's box strictly contains the point: many emoji (flags, ZWJ family/
+// skin-tone sequences, a bare codepoint missing its U+FE0F presentation
+// selector) render at a display width the terminal disagrees with versus
+// what Go's width-measuring libraries computed when bubblezone recorded the
+// cell's box, so a click aimed at the visibly-drawn glyph can land just
+// outside its (slightly mismeasured) hitbox - intermittently, only for the
+// specific glyphs affected. Snapping to the nearest same-row cell turns that
+// into "always picks the intended glyph" instead of "click does nothing".
+func (b *emojiPickerBody) cellUnderMouse(msg tea.MouseMsg) (int, bool) {
+	if b.zone == nil {
+		return 0, false
+	}
+	cells := b.picker.VisibleCells()
+	for _, i := range cells {
+		if b.zone.Get(b.picker.CellZoneID(i)).InBounds(msg) {
+			return i, true
+		}
+	}
+	y, x := msg.Mouse().Y, msg.Mouse().X
+	best, bestDist := -1, 0
+	for _, i := range cells {
+		z := b.zone.Get(b.picker.CellZoneID(i))
+		if z.IsZero() || y < z.StartY || y > z.EndY {
+			continue
+		}
+		dist := (z.StartX+z.EndX)/2 - x
+		if dist < 0 {
+			dist = -dist
+		}
+		if best < 0 || dist < bestDist {
+			best, bestDist = i, dist
+		}
+	}
+	return best, best >= 0
+}
+
+// confirmEmojiPick records a confirmed pick's usage and sends the reaction
+// to message idx.
+func (m *Model) confirmEmojiPick(idx int, picked []string) tea.Cmd {
 	var cmds []tea.Cmd
 	if len(picked) > 0 {
 		if m.reactionEmojiUsage == nil {
@@ -70,23 +139,9 @@ func (m Model) confirmEmojiPick(picked []string) (Model, tea.Cmd) {
 			_ = m.reactionEmojiUsageRecorder.RecordReactionEmojiUsage(picked)
 		}
 	}
-	cmds = append(cmds, m.sendReaction(m.reactingMsgIdx, picked))
-	m.emojiPicker = nil
-	m.reactingMsgIdx = -1
+	cmds = append(cmds, m.sendReaction(idx, picked))
 	m.refreshViewport()
-	return m, tea.Batch(cmds...)
-}
-
-// renderEmojiPickerPopup composites the emoji picker over the chat area,
-// centered the same way every other popup is (see renderContactManagerPopup
-// for the pattern this mirrors).
-func (m Model) renderEmojiPickerPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.emojiPicker.View())
-	popup = m.zone.Mark(zoneEmojiPickerPopup, popup)
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
+	return tea.Batch(cmds...)
 }
 
 // popupBorderWidth/popupBorderHeight are the chrome the "popup" style (see
@@ -97,19 +152,6 @@ const (
 	popupChromeWidth  = 2 + 4*2 // border (1 each side) + horizontal padding (4 each side)
 	popupChromeHeight = 2 + 1*2 // border (1 each side) + vertical padding (1 each side)
 )
-
-// emojiPickerCellWidth mirrors emojipicker.CellWidth - the picker forces
-// every cell to that fixed rendered width (see its doc for why), so the
-// columns-that-fit math here must agree with it or Resize would be handed a
-// Columns count that doesn't actually match the grid's real width.
-const emojiPickerCellWidth = emojipicker.CellWidth
-
-// emojiPickerChromeLines is everything in the picker's View() besides the
-// grid itself: title + blank, query + blank, picked-summary + blank, a
-// blank before the footer, the footer's main hint line, and a reserved line
-// for the "rows X-Y of Z" scroll indicator (only sometimes shown, but
-// reserving it either way keeps sizing math simple and on the safe side).
-const emojiPickerChromeLines = 9
 
 // filePickerChromeLines is everything in the file picker popup besides its
 // rows: the title, the blank line and footer listPopup puts under the rows,
@@ -126,20 +168,4 @@ const filePickerChromeLines = 3 + popupChromeHeight
 func (m *Model) sizeFilePicker() {
 	m.filePicker.SetHeight(max(1, m.popupAreaHeight()-filePickerChromeLines))
 	m.filePicker.SetMaxWidth(m.popupTextWidth())
-}
-
-// sizeEmojiPicker recomputes the open emoji picker's Columns/VisibleRows to
-// fit the current chat-area popup space instead of a fixed size that can
-// overflow a small terminal - called both when the picker first opens and
-// on every terminal resize (see the tea.WindowSizeMsg case).
-func (m *Model) sizeEmojiPicker() {
-	if m.emojiPicker == nil {
-		return
-	}
-	innerWidth := max(1, m.chatAreaWidth()-popupChromeWidth)
-	innerHeight := max(1, m.popupAreaHeight()-popupChromeHeight)
-
-	columns := clamp(innerWidth/emojiPickerCellWidth, 4, 10)
-	rows := clamp(innerHeight-emojiPickerChromeLines, 2, 8)
-	m.emojiPicker.Resize(columns, rows, innerWidth)
 }

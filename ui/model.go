@@ -9,7 +9,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
 	"github.com/jim-ww/kage/ui/modal"
 	"github.com/jim-ww/kage/ui/viewport"
@@ -191,12 +190,10 @@ type Model struct {
 	// different message - so the reply went out quoting, and threaded to,
 	// whatever had taken that slot. Same reasoning as editingMsg.
 	replyTo            msgRef
-	reactingMsgIdx     int                // >= 0 while the emoji picker is open reacting to a message; -1 otherwise
-	flashMsgIdx        int                // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
-	expandedMsgs       map[string]bool    // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
-	flashGen           int                // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
-	emojiPicker        *emojipicker.Model // non-nil while the react-emoji picker popup is open (see ui/emojipicker)
-	reactionEmojiUsage map[string]int     // emoji -> times sent as a reaction (in-memory mirror of config.State.ReactionEmojiUsage); ranked and passed to emojipicker.New as its "recent" seed
+	flashMsgIdx        int             // >= 0 while a message is briefly highlighted (e.g. after jumping to it via a reply quote); -1 otherwise
+	expandedMsgs       map[string]bool // keyed by msgKey(msg, idx); true once a long message's collapsed body has been manually expanded
+	flashGen           int             // bumped on every flash so a stale flashClearMsg from a superseded flash is ignored
+	reactionEmojiUsage map[string]int  // emoji -> times sent as a reaction (in-memory mirror of config.State.ReactionEmojiUsage); ranked and passed to emojipicker.New as its "recent" seed
 	// modals are the open modals, the top one taking all input (see
 	// ui/modal and ui/modals.go).
 	modals                 modal.Stack[*Model]
@@ -532,7 +529,6 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		draftHistory:               []string{""},
 		viewport:                   &vp,
 		selectedAttachment:         -1,
-		reactingMsgIdx:             -1,
 		flashMsgIdx:                -1,
 		expandedMsgs:               make(map[string]bool),
 		lastClickedMsgIdx:          -1,

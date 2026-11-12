@@ -193,8 +193,6 @@ func (m *Model) cancelPending() {
 	wasComposing := !m.editingMsg.empty()
 	m.editingMsg = msgRef{}
 	m.replyTo = msgRef{}
-	m.reactingMsgIdx = -1
-	m.emojiPicker = nil
 	m.lastClickedMsgIdx = -1
 	if wasComposing {
 		m.restoreStashedDraft()

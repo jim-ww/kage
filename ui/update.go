@@ -311,14 +311,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		return m, tea.Batch(append(cmds, cmd)...)
 	}
 	if _, ok := msg.(tea.PasteMsg); ok {
-		// The emoji picker's search box is what a paste is for while it's
-		// open; any other popup has nowhere to put one - and in both cases
-		// the compose box behind them must not get it. Only pastes: other
-		// non-key messages (the compose box's own cursor blink) still have
-		// to reach it below.
-		if m.emojiPicker != nil {
-			return m, tea.Batch(append(cmds, m.emojiPicker.Update(msg))...)
-		}
 		if m.popupActive() {
 			return m, tea.Batch(cmds...)
 		}
@@ -399,7 +391,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 			// Editing/reacting content isn't a new-message draft — don't let
 			// the debounce timer overwrite the chat's real stored Draft with
 			// it (see stashDraftForCompose/restoreStashedDraft instead).
-			if m.editingMsg.empty() && m.reactingMsgIdx < 0 {
+			if m.editingMsg.empty() {
 				if chat, ok := m.currentChat(); ok && chat.Address != "" {
 					m.draftSaveGen++
 					cmds = append(cmds, draftSaveTimer(m.currentAccount, chat.Address, m.draftSaveGen))
@@ -414,8 +406,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 
 // notifyTypingChanged reacts to a keystroke in the compose input by sending
 // a XEP-0085 chat-state update when needed, and returns a cmd that arms (or
-// re-arms) the pause timeout — see typingPauseTimer. Skipped while composing
-// a reaction (m.reactingMsgIdx >= 0): that's not really "typing a message".
+// re-arms) the pause timeout — see typingPauseTimer.
 //
 //   - Input went from empty to non-empty, or we'd previously paused/stopped
 //     (m.typingActiveTo isn't this chat): send "composing" and start the
@@ -425,7 +416,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 //     every tick) — just re-arm the pause timer so it doesn't fire early.
 //   - Input went empty: send "stopped" and don't arm a timer.
 func (m *Model) notifyTypingChanged(oldValue string) tea.Cmd {
-	if m.sender == nil || m.reactingMsgIdx >= 0 {
+	if m.sender == nil {
 		return nil
 	}
 	chat, ok := m.currentChat()
