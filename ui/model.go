@@ -8,7 +8,6 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	zone "github.com/lrstanley/bubblezone/v2"
 
 	"github.com/jim-ww/kage/ui/filepicker"
@@ -198,7 +197,6 @@ type Model struct {
 	// ui/modal and ui/modals.go).
 	modals                 modal.Stack[*Model]
 	filePicker             *filepicker.Model
-	pickingFile            bool                // true while the Bubble file picker is open
 	pendingAttachments     []pendingAttachment // files staged (via the file picker) to go out with the next sent message; nothing is uploaded until send
 	selectedAttachment     int                 // index into pendingAttachments highlighted for Tab/Backspace/ctrl+o; -1 when empty
 	msgOffsets             []int               // line offset of each message inside viewport content
@@ -219,8 +217,6 @@ type Model struct {
 	lastClickTime     time.Time // time of the last message click (for double-click detection)
 
 	// double-click detection for the file picker
-	lastFilePickerRow  int       // rendered row of the last clicked file-picker entry
-	lastFilePickerTime time.Time // time of the last file-picker click
 
 	sender                     MessageSender
 	fileSender                 FileSender
@@ -332,14 +328,6 @@ type Model struct {
 	// panel's full re-render so holding the cursor key doesn't re-render
 	// every chat skipped through along the way.
 	chatSwitchGen int
-
-	// pickingAvatar marks the file picker as having been opened to choose
-	// an avatar rather than to attach a file, since both share one picker.
-	pickingAvatar bool
-	// avatarPreview is non-nil while a picked avatar file is awaiting
-	// confirmation, on top of the still-open picker — see
-	// ui/avatar_preview.go.
-	avatarPreview *avatarPreviewState
 
 	// call is non-nil whenever this account has a voice call in flight or
 	// just ended (briefly, to show the reason) — see ui/call.go. nil means
@@ -502,7 +490,6 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, sender 
 		flashMsgIdx:                -1,
 		expandedMsgs:               make(map[string]bool),
 		lastClickedMsgIdx:          -1,
-		lastFilePickerRow:          -1,
 		sender:                     sender,
 		fileSender:                 fileSender,
 		accountAdder:               accountAdder,
@@ -579,32 +566,6 @@ func (m *Model) installAccounts(accounts []Account, startAccount int) tea.Cmd {
 
 // newAddAccountForm builds fresh, empty textinput.Model fields for the
 // add-account popup: JID, password (masked), and an optional GPG key ID.
-// addAccountFieldWidth is fixed rather than derived from terminal size — the
-// add-account popup isn't full-width like the main input box, and an unset
-// (zero) textinput.Width truncates the placeholder to a single character
-// (see textinput.Model.placeholderView's width-based truncation math), so
-// this must be at least as wide as the longest placeholder below.
-const addAccountFieldWidth = 42
-
-// popupInputView renders a popup's text field narrowed to whatever the
-// dialog has room for: addAccountFieldWidth is a fixed maximum (see above),
-// but prompt + field + the popup's own border/padding can be wider than the
-// chat area on a small terminal, and popupDialog would then wrap the
-// field's rendered line in half. The width is restored afterwards, keeping
-// this render-only, so the stored field's width survives the terminal
-// growing back.
-func (m Model) popupInputView(in *textinput.Model) string {
-	stored := in.Width()
-	defer in.SetWidth(stored)
-	avail := m.popupWidth() - popupChromeWidth - lipgloss.Width(in.Prompt)
-	in.SetWidth(clamp(avail, popupInputMinWidth, addAccountFieldWidth))
-	return in.View()
-}
-
-// popupInputMinWidth is the floor popupInputView clamps to — below this a
-// field is too cramped to type into, and letting the popup overflow a
-// terminal this small is the lesser evil.
-const popupInputMinWidth = 8
 
 // DefaultNoticeDuration is how long an in-app notification toast stays
 // visible before auto-dismissing when DisplayOptions.NoticeDuration is unset.

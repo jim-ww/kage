@@ -47,7 +47,7 @@ func TestFilePickerRowsFitSmallTerminal(t *testing.T) {
 			}
 			m := newMouseSweepBenchModel(30, 150)
 			m.filePicker.CurrentDirectory = dir
-			m.pickingFile = true
+			m.openFilePicker(false)
 			next, _ := m.Update(m.filePicker.Init()())
 			next, _ = next.(Model).Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 			m = next.(Model)
@@ -56,7 +56,7 @@ func TestFilePickerRowsFitSmallTerminal(t *testing.T) {
 			}
 
 			for row := range m.filePicker.Height() {
-				z := awaitZone(t, m.zone, zoneFilePickerRow(row))
+				z := awaitZone(t, m.zone, pickerRowZone(m, row))
 				if z.StartY != z.EndY {
 					t.Fatalf("row %d spans lines %d-%d, want one line", row, z.StartY, z.EndY)
 				}

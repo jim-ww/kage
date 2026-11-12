@@ -95,7 +95,7 @@ func (m Model) narrow() bool { return m.width < narrowWidth }
 // picker). In narrow mode these need the full-width chat pane to render
 // into even while the chat list is the logically selected view.
 func (m Model) popupActive() bool {
-	return m.modals.Open() || m.pickingFile || m.avatarPreview != nil
+	return m.modals.Open()
 }
 
 // narrowShowChat reports, in narrow mode, whether the single visible pane
@@ -199,25 +199,12 @@ func (m Model) chatAreaWidth() int {
 	return m.width - m.sidebarWidth()
 }
 
-// popupWidth is the widest a popup dialog may render: every popup is
-// lipgloss.Place'd into the chat area, and Place neither wraps nor clips a
-// child wider than the box it's placed in — it just lets it spill past the
-// terminal edge. popupDialog wraps content down to this.
-func (m Model) popupWidth() int { return m.chatAreaWidth() }
-
 // popupAreaHeight is the height of the chat area a popup replaces the
 // message viewport in: everything between the chat status line and the
 // compose box.
 func (m Model) popupAreaHeight() int {
 	return max(0, m.height-m.inputAreaHeight()-chatStatusHeight)
 }
-
-// popupTextWidth is how wide a line of popup body text may be — popupWidth
-// minus the dialog's own border and padding. Prose long enough to need
-// wrapping should be wrapped to this *before* being styled: popupDialog
-// wraps whatever it's handed as a safety net, but breaking an
-// already-rendered line drops its styling on every line after the first.
-func (m Model) popupTextWidth() int { return max(1, m.popupWidth()-popupChromeWidth) }
 
 // sidebarContentWidth is how wide content rendered *inside* the sidebar box
 // (the chat list, the account bar, the accounts list) may be — sidebarWidth

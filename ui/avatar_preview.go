@@ -9,8 +9,9 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // Avatar preview: the confirmation step between picking a file and
@@ -59,9 +60,15 @@ const avatarPreviewMaxPixels = 16 << 20
 // imports both.
 const AvatarMaxBytes = 1 << 20
 
-// avatarPreviewState is the picked-but-not-yet-published candidate. img is
-// nil until the decode lands — or forever, if it failed; err says why.
-type avatarPreviewState struct {
+// avatarPreviewModalID finds the open avatar preview, to show the picked
+// file once it's read.
+const avatarPreviewModalID = "avatar-preview"
+
+// avatarPreviewBody is a picked avatar file, shown before it's published:
+// the picture (when the space allows), name, format, size and dimensions,
+// or why it can't be used. enter or y publishes it; esc goes back to the
+// file picker, still where it was.
+type avatarPreviewBody struct {
 	accountIdx int
 	path       string
 	img        image.Image
@@ -71,6 +78,51 @@ type avatarPreviewState struct {
 	format     string
 	err        string
 	loading    bool
+	keys       *KeyMap
+	styles     *uiStyles
+	cols, rows int // the space it's shown in
+}
+
+func (b *avatarPreviewBody) Update(msg tea.Msg) (tea.Cmd, modal.Outcome) {
+	if k, ok := msg.(tea.KeyPressMsg); ok && b.img != nil &&
+		(matchesKey(k, b.keys.ConfirmYes) || matchesKey(k, b.keys.SelectSend)) {
+		return nil, modal.Submit(b.path)
+	}
+	return nil, modal.Continue
+}
+
+func (b *avatarPreviewBody) View() string {
+	textWidth := max(avatarPreviewMinCols, min(b.cols, avatarPreviewTextWidth))
+	name := ansi.Truncate(filepath.Base(b.path), textWidth, "…")
+	var rows []string
+	switch {
+	case b.loading:
+		rows = append(rows, ansi.Truncate("reading "+name+"…", textWidth, "…"))
+	case b.err != "":
+		// Wrapped, not cut: why a file can't be used is the point here.
+		rows = append(rows, b.styles.popupDanger.Width(textWidth).Render(name+": "+b.err))
+	default:
+		if cols, pictureRows := avatarPreviewSize(b.width, b.height, b.cols, b.rows-3); cols > 0 {
+			rows = append(rows, renderImageBlocks(b.img, cols, pictureRows), "")
+		}
+		rows = append(rows,
+			name,
+			b.styles.messageReply.Render(ansi.Truncate(fmt.Sprintf("%s · %d×%d · %s",
+				strings.ToUpper(b.format), b.width, b.height, humanBytes(b.size)), textWidth, "…")),
+		)
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (b *avatarPreviewBody) SetSize(width, height int) { b.cols, b.rows = width, height }
+
+func (b *avatarPreviewBody) PreferredWidth() int { return avatarPreviewTextWidth }
+
+func (b *avatarPreviewBody) Hints() []modal.Hint {
+	if b.img == nil {
+		return nil
+	}
+	return []modal.Hint{modal.KeyHint(tea.KeyPressMsg{Code: tea.KeyEnter}, "publish")}
 }
 
 // avatarPreviewLoadedMsg carries the decoded candidate back to the UI
@@ -88,8 +140,16 @@ type avatarPreviewLoadedMsg struct {
 
 // startAvatarPreview stages a picked file for confirmation.
 func (m *Model) startAvatarPreview(accountIdx int, path string) tea.Cmd {
-	m.avatarPreview = &avatarPreviewState{accountIdx: accountIdx, path: path, loading: true}
-	return loadAvatarPreviewCmd(path)
+	body := &avatarPreviewBody{accountIdx: accountIdx, path: path, loading: true, keys: m.keys, styles: m.styles}
+	return tea.Batch(loadAvatarPreviewCmd(path), m.openModal(&modal.Modal[*Model]{
+		ID:    avatarPreviewModalID,
+		Title: "Publish as avatar?",
+		Body:  body,
+		OnSubmit: func(m *Model, _ any) tea.Cmd {
+			m.modals.Remove(filePickerModalID)
+			return m.setOwnAvatarCmd(body.accountIdx, body.path)
+		},
+	}))
 }
 
 func loadAvatarPreviewCmd(path string) tea.Cmd {
@@ -153,40 +213,23 @@ func loadAvatarPreviewCmd(path string) tea.Cmd {
 // candidate, ignoring one for a file that is no longer the candidate (the
 // preview was canceled, or another file was picked while it decoded).
 func (m *Model) applyAvatarPreviewLoaded(msg avatarPreviewLoadedMsg) {
-	if m.avatarPreview == nil || m.avatarPreview.path != msg.path {
+	md := m.modals.Find(avatarPreviewModalID)
+	if md == nil {
 		return
 	}
-	m.avatarPreview.loading = false
-	m.avatarPreview.size = msg.size
-	m.avatarPreview.width, m.avatarPreview.height = msg.width, msg.height
-	m.avatarPreview.format = msg.format
+	b := md.Body.(*avatarPreviewBody)
+	if b.path != msg.path {
+		return
+	}
+	b.loading = false
+	b.size = msg.size
+	b.width, b.height = msg.width, msg.height
+	b.format = msg.format
 	if msg.err != nil {
-		m.avatarPreview.err = msg.err.Error()
+		b.err = msg.err.Error()
 		return
 	}
-	m.avatarPreview.img = msg.img
-}
-
-// updateAvatarPreviewKey handles input while the preview is up. Confirming
-// publishes and closes the picker with it; rejecting drops the candidate
-// and leaves the picker where it was.
-func (m Model) updateAvatarPreviewKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
-	preview := m.avatarPreview
-	switch {
-	case matchesKey(msg, m.keys.ConfirmYes), matchesKey(msg, m.keys.SelectSend):
-		if preview.img == nil {
-			// Nothing to confirm: the file is still decoding, or it never
-			// will decode. Publishing it would only fail in the daemon.
-			return m, nil, true
-		}
-		m.avatarPreview = nil
-		m.pickingFile = false
-		m.pickingAvatar = false
-		return m, m.setOwnAvatarCmd(preview.accountIdx, preview.path), true
-	case matchesKey(msg, m.keys.ConfirmNo), matchesKey(msg, m.keys.Back):
-		m.avatarPreview = nil
-	}
-	return m, nil, true
+	b.img = msg.img
 }
 
 // avatarPreviewSize is the picture's size in cells for a srcW x srcH
@@ -199,16 +242,10 @@ func (m Model) updateAvatarPreviewKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 // squashed into a square is a picture of something that isn't in the file.
 // A cell carries two pixels vertically, so a square image is half as many
 // rows as columns and a wide one fewer still.
-func (m Model) avatarPreviewSize(srcW, srcH int) (cols, rows int) {
+func avatarPreviewSize(srcW, srcH, maxCols, maxRows int) (cols, rows int) {
 	if srcW <= 0 || srcH <= 0 {
 		return 0, 0
 	}
-	// The popup's own chrome: border and padding, the title, the two
-	// detail lines, and the footer.
-	const chromeRows = 10
-	const chromeCols = 12
-	maxRows := m.popupAreaHeight() - chromeRows
-	maxCols := m.chatAreaWidth() - chromeCols
 	if maxRows < 1 || maxCols < avatarPreviewMinCols {
 		return 0, 0
 	}
@@ -222,43 +259,4 @@ func (m Model) avatarPreviewSize(srcW, srcH int) (cols, rows int) {
 	// a couple of rows, and truncating there halves the picture's height.
 	// A picture too wide even for one row still gets one.
 	return cols, max(1, (cols*srcH+srcW)/(2*srcW))
-}
-
-// renderAvatarPreviewPopup draws the candidate over the file picker.
-func (m Model) renderAvatarPreviewPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-	preview := m.avatarPreview
-
-	// Every line but the picture is truncated: the picture is what sets the
-	// dialog's width, and a 300-character filename — or a decoder error
-	// with a path in it — would otherwise stretch the popup past the
-	// terminal's edge, taking the dialog's right-hand border with it.
-	textWidth := max(avatarPreviewMinCols, min(cw-12, avatarPreviewTextWidth))
-	name := ansi.Truncate(filepath.Base(preview.path), textWidth, "…")
-
-	var rows []string
-	switch {
-	case preview.loading:
-		rows = append(rows, ansi.Truncate("reading "+name+"…", textWidth, "…"))
-	case preview.err != "":
-		rows = append(rows, m.styles.popupDanger.Render(ansi.Truncate(name+": "+preview.err, textWidth, "…")))
-	default:
-		if cols, pictureRows := m.avatarPreviewSize(preview.width, preview.height); cols > 0 {
-			rows = append(rows, renderImageBlocks(preview.img, cols, pictureRows), "")
-		}
-		rows = append(rows,
-			name,
-			m.styles.messageReply.Render(ansi.Truncate(fmt.Sprintf("%s · %d×%d · %s",
-				strings.ToUpper(preview.format), preview.width, preview.height, humanBytes(preview.size)), textWidth, "…")),
-		)
-	}
-
-	footer := "[esc] pick another"
-	if preview.img != nil {
-		footer = "[enter/y] publish · " + footer
-	}
-	body := m.styles.listPopup("Publish as avatar?", rows, footer)
-	popup := m.zone.Mark(zoneAvatarPreviewPopup, m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body))
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
 }

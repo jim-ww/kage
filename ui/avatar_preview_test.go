@@ -62,6 +62,32 @@ func writeNoisyPNG(t *testing.T, edge int) string {
 	return path
 }
 
+// previewOf is the open avatar preview, or nil.
+func previewOf(m Model) *avatarPreviewBody {
+	if md := m.modals.Find(avatarPreviewModalID); md != nil {
+		return md.Body.(*avatarPreviewBody)
+	}
+	return nil
+}
+
+// pickerOpen reports whether the file picker is open.
+func pickerOpen(m Model) bool { return m.modals.Find(filePickerModalID) != nil }
+
+// pickerRowZone is the zone of the open file picker's row i.
+func pickerRowZone(m Model, i int) string {
+	return m.modals.Find(filePickerModalID).Body.(*filePickerBody).rowID(i)
+}
+
+// loadedFrom runs startAvatarPreview's command and returns its decode.
+func loadedFrom(t *testing.T, cmd tea.Cmd) avatarPreviewLoadedMsg {
+	t.Helper()
+	loaded, ok := findMsg[avatarPreviewLoadedMsg](cmd)
+	if !ok {
+		t.Fatal("startAvatarPreview produced no load")
+	}
+	return loaded
+}
+
 func writePNGFile(t *testing.T, path string, img image.Image) {
 	t.Helper()
 	f, err := os.Create(path)
@@ -79,22 +105,22 @@ func writePNGFile(t *testing.T, path string, img image.Image) {
 func TestAvatarPreviewStagesWithoutPublishing(t *testing.T) {
 	pub := &fakeAvatarPublisher{}
 	m := avatarPreviewModel(t, pub)
-	m.pickingFile, m.pickingAvatar = true, true
+	m.openFilePicker(true)
 
 	cmd := m.startAvatarPreview(0, writeTestPNG(t, 32))
 	if cmd == nil {
 		t.Fatal("startAvatarPreview produced no load command")
 	}
-	if m.avatarPreview == nil || !m.avatarPreview.loading {
-		t.Fatalf("preview = %+v, want a loading candidate", m.avatarPreview)
+	if previewOf(m) == nil || !previewOf(m).loading {
+		t.Fatalf("preview = %+v, want a loading candidate", previewOf(m))
 	}
 	if pub.setCalls != 0 {
 		t.Errorf("SetOwnAvatar called %d times before confirmation, want 0", pub.setCalls)
 	}
 	// The picker stays open behind the preview, so rejecting the candidate
 	// lands back in the same directory.
-	if !m.pickingFile || !m.pickingAvatar {
-		t.Errorf("pickingFile=%v pickingAvatar=%v, want both still true", m.pickingFile, m.pickingAvatar)
+	if !pickerOpen(m) {
+		t.Error("the picker closed under the preview")
 	}
 }
 
@@ -103,18 +129,15 @@ func TestAvatarPreviewLoadDecodesTheFile(t *testing.T) {
 	path := writeTestPNG(t, 40)
 	cmd := m.startAvatarPreview(0, path)
 
-	loaded, ok := cmd().(avatarPreviewLoadedMsg)
-	if !ok {
-		t.Fatalf("load command returned %T, want avatarPreviewLoadedMsg", cmd())
-	}
+	loaded := loadedFrom(t, cmd)
 	if loaded.err != nil {
 		t.Fatalf("decoding a PNG failed: %v", loaded.err)
 	}
 	next := updated(t, m, loaded)
-	if next.avatarPreview == nil || next.avatarPreview.img == nil {
-		t.Fatalf("preview = %+v, want a decoded image", next.avatarPreview)
+	if previewOf(next) == nil || previewOf(next).img == nil {
+		t.Fatalf("preview = %+v, want a decoded image", previewOf(next))
 	}
-	p := next.avatarPreview
+	p := previewOf(next)
 	if p.loading || p.err != "" {
 		t.Errorf("preview = %+v, want it loaded and error-free", p)
 	}
@@ -131,18 +154,18 @@ func TestAvatarPreviewLoadDecodesTheFile(t *testing.T) {
 func TestAvatarPreviewConfirmPublishes(t *testing.T) {
 	pub := &fakeAvatarPublisher{}
 	m := avatarPreviewModel(t, pub)
-	m.pickingFile, m.pickingAvatar = true, true
+	m.openFilePicker(true)
 	path := writeTestPNG(t, 32)
 	cmd := m.startAvatarPreview(0, path)
-	m = updated(t, m, cmd())
+	m = updated(t, m, loadedFrom(t, cmd))
 
 	next, pubCmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(Model)
-	if got.avatarPreview != nil {
+	if previewOf(got) != nil {
 		t.Error("the preview stayed open after confirming")
 	}
-	if got.pickingFile || got.pickingAvatar {
-		t.Errorf("after publishing: pickingFile=%v pickingAvatar=%v, want both false", got.pickingFile, got.pickingAvatar)
+	if pickerOpen(got) {
+		t.Error("the picker stayed open after publishing")
 	}
 	if pubCmd == nil {
 		t.Fatal("confirming produced no publish command")
@@ -159,16 +182,16 @@ func TestAvatarPreviewConfirmPublishes(t *testing.T) {
 func TestAvatarPreviewRejectKeepsThePickerOpen(t *testing.T) {
 	pub := &fakeAvatarPublisher{}
 	m := avatarPreviewModel(t, pub)
-	m.pickingFile, m.pickingAvatar = true, true
+	m.openFilePicker(true)
 	cmd := m.startAvatarPreview(0, writeTestPNG(t, 32))
-	m = updated(t, m, cmd())
+	m = updated(t, m, loadedFrom(t, cmd))
 
 	next := updated(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if next.avatarPreview != nil {
+	if previewOf(next) != nil {
 		t.Error("esc left the preview open")
 	}
-	if !next.pickingFile || !next.pickingAvatar {
-		t.Errorf("after esc: pickingFile=%v pickingAvatar=%v, want both still true", next.pickingFile, next.pickingAvatar)
+	if !pickerOpen(next) {
+		t.Error("esc on the preview closed the picker too")
 	}
 	if pub.setCalls != 0 {
 		t.Errorf("SetOwnAvatar called %d times on a rejected candidate, want 0", pub.setCalls)
@@ -193,11 +216,11 @@ func TestAvatarPreviewRefusesUnpublishableFormats(t *testing.T) {
 	f.Close()
 
 	cmd := m.startAvatarPreview(0, path)
-	m = updated(t, m, cmd())
-	if m.avatarPreview == nil || m.avatarPreview.err == "" {
-		t.Fatalf("preview = %+v, want a refusal", m.avatarPreview)
+	m = updated(t, m, loadedFrom(t, cmd))
+	if previewOf(m) == nil || previewOf(m).err == "" {
+		t.Fatalf("preview = %+v, want a refusal", previewOf(m))
 	}
-	if m.avatarPreview.img != nil {
+	if previewOf(m).img != nil {
 		t.Error("a GIF was staged as publishable")
 	}
 
@@ -205,11 +228,11 @@ func TestAvatarPreviewRefusesUnpublishableFormats(t *testing.T) {
 	if pub.setCalls != 0 {
 		t.Errorf("SetOwnAvatar called %d times for an unpublishable file, want 0", pub.setCalls)
 	}
-	if next.avatarPreview == nil {
+	if previewOf(next) == nil {
 		t.Error("enter dismissed a preview it could not act on")
 	}
-	rendered := ansi.Strip(next.renderAvatarPreviewPopup())
-	if !strings.Contains(rendered, "PNG or JPEG") {
+	rendered := ansi.Strip(next.modals.View())
+	if !strings.Contains(rendered, "use PNG or") || !strings.Contains(rendered, "JPEG") {
 		t.Errorf("popup %q does not say why the file was refused", rendered)
 	}
 }
@@ -225,7 +248,7 @@ func TestAvatarPreviewConfirmWaitsForTheDecode(t *testing.T) {
 	if pub.setCalls != 0 {
 		t.Errorf("SetOwnAvatar called %d times while still loading, want 0", pub.setCalls)
 	}
-	if next.avatarPreview == nil {
+	if previewOf(next) == nil {
 		t.Error("enter dropped the candidate that was still loading")
 	}
 }
@@ -233,17 +256,17 @@ func TestAvatarPreviewConfirmWaitsForTheDecode(t *testing.T) {
 // A decode that lands after its candidate is gone belongs to nobody.
 func TestAvatarPreviewIgnoresStaleLoads(t *testing.T) {
 	m := avatarPreviewModel(t, &fakeAvatarPublisher{})
-	cmd := m.startAvatarPreview(0, writeTestPNG(t, 32))
-	loaded := cmd().(avatarPreviewLoadedMsg)
+	loaded := loadedFrom(t, m.startAvatarPreview(0, writeTestPNG(t, 32)))
 
-	m.avatarPreview = &avatarPreviewState{accountIdx: 0, path: "/other/face.png", loading: true}
+	m.modals.Close()
+	m.startAvatarPreview(0, "/other/face.png")
 	next := updated(t, m, loaded)
-	if next.avatarPreview.img != nil || !next.avatarPreview.loading {
-		t.Errorf("preview = %+v, want the other candidate untouched", next.avatarPreview)
+	if previewOf(next).img != nil || !previewOf(next).loading {
+		t.Errorf("preview = %+v, want the other candidate untouched", previewOf(next))
 	}
 
-	m.avatarPreview = nil
-	if next := updated(t, m, loaded); next.avatarPreview != nil {
+	m.modals.Close()
+	if next := updated(t, m, loaded); previewOf(next) != nil {
 		t.Error("a canceled preview was resurrected by its own load")
 	}
 }
@@ -253,9 +276,9 @@ func TestAvatarPreviewIgnoresStaleLoads(t *testing.T) {
 func TestAvatarPreviewRendersThePicture(t *testing.T) {
 	m := avatarPreviewModel(t, &fakeAvatarPublisher{})
 	cmd := m.startAvatarPreview(0, writeTestPNG(t, 64))
-	m = updated(t, m, cmd())
+	m = updated(t, m, loadedFrom(t, cmd))
 
-	raw := m.renderAvatarPreviewPopup()
+	raw := m.modals.View()
 	if !strings.Contains(raw, upperHalfBlock) {
 		t.Error("the popup rendered no picture cells")
 	}
@@ -271,9 +294,9 @@ func TestAvatarPreviewRendersThePicture(t *testing.T) {
 // opened from.
 func TestAvatarPreviewIsWhatTheChatAreaShows(t *testing.T) {
 	m := avatarPreviewModel(t, &fakeAvatarPublisher{})
-	m.pickingFile, m.pickingAvatar = true, true
+	m.openFilePicker(true)
 	cmd := m.startAvatarPreview(0, writeTestPNG(t, 32))
-	m = updated(t, m, cmd())
+	m = updated(t, m, loadedFrom(t, cmd))
 
 	if !m.popupActive() {
 		t.Error("popupActive() is false while the preview is up")
@@ -286,13 +309,10 @@ func TestAvatarPreviewIsWhatTheChatAreaShows(t *testing.T) {
 // A terminal too small for a picture still shows the file's details rather
 // than a smear of cells.
 func TestAvatarPreviewSizeGivesUpWhenTiny(t *testing.T) {
-	m := avatarPreviewModel(t, &fakeAvatarPublisher{})
-	m.width, m.height, m.termHeight = 20, 12, 12
-	m.updateSizes()
-	if cols, rows := m.avatarPreviewSize(64, 64); cols != 0 || rows != 0 {
+	if cols, rows := avatarPreviewSize(64, 64, 8, 2); cols != 0 || rows != 0 {
 		t.Errorf("avatarPreviewSize(64, 64) = (%d, %d) in a tiny terminal, want (0, 0)", cols, rows)
 	}
-	if cols, rows := m.avatarPreviewSize(0, 0); cols != 0 || rows != 0 {
+	if cols, rows := avatarPreviewSize(0, 0, 100, 30); cols != 0 || rows != 0 {
 		t.Errorf("avatarPreviewSize(0, 0) = (%d, %d), want (0, 0)", cols, rows)
 	}
 }
@@ -300,8 +320,8 @@ func TestAvatarPreviewSizeGivesUpWhenTiny(t *testing.T) {
 // The preview's job is to show what the file is, so it keeps the file's
 // proportions instead of stretching everything into a square.
 func TestAvatarPreviewSizeKeepsTheAspectRatio(t *testing.T) {
-	m := avatarPreviewModel(t, &fakeAvatarPublisher{})
-	maxCols, maxRows := m.avatarPreviewSize(64, 64)
+	const spaceCols, spaceRows = 100, 30
+	maxCols, maxRows := avatarPreviewSize(64, 64, spaceCols, spaceRows)
 	if maxCols == 0 {
 		t.Fatal("no room for a picture in a 120x40 terminal")
 	}
@@ -311,7 +331,7 @@ func TestAvatarPreviewSizeKeepsTheAspectRatio(t *testing.T) {
 
 	// A banner is drawn as a banner: it may use width the square couldn't,
 	// but it is nowhere near as tall.
-	wideCols, wideRows := m.avatarPreviewSize(4000, 200)
+	wideCols, wideRows := avatarPreviewSize(4000, 200, spaceCols, spaceRows)
 	if wideRows >= maxRows {
 		t.Errorf("a 20:1 image got %d rows, want fewer than a square image's %d", wideRows, maxRows)
 	}
@@ -324,7 +344,7 @@ func TestAvatarPreviewSizeKeepsTheAspectRatio(t *testing.T) {
 	}
 
 	// A tall image gives up width rather than overflowing the popup.
-	tallCols, tallRows := m.avatarPreviewSize(200, 4000)
+	tallCols, tallRows := avatarPreviewSize(200, 4000, spaceCols, spaceRows)
 	if tallCols >= maxCols {
 		t.Errorf("a 1:20 image got %d cols, want fewer than a square image's %d", tallCols, maxCols)
 	}
@@ -356,7 +376,7 @@ func TestAvatarPreviewRefusesHumongousImages(t *testing.T) {
 
 	m.startAvatarPreview(0, path)
 	m = updated(t, m, loaded)
-	if !strings.Contains(ansi.Strip(m.renderAvatarPreviewPopup()), "too large") {
+	if !strings.Contains(ansi.Strip(m.modals.View()), "too large") {
 		t.Error("the popup does not say the image was too large")
 	}
 }
@@ -385,7 +405,7 @@ func TestAvatarPreviewRefusesOversizeFiles(t *testing.T) {
 		t.Error("an unpublishable file was decoded anyway")
 	}
 	m = updated(t, m, loaded)
-	rendered := ansi.Strip(m.renderAvatarPreviewPopup())
+	rendered := ansi.Strip(m.modals.View())
 	if !strings.Contains(rendered, "limit") {
 		t.Errorf("popup %q does not mention the size limit", rendered)
 	}
@@ -403,7 +423,7 @@ func TestAvatarPreviewPopupStaysInsideTheChatArea(t *testing.T) {
 
 	widthOK := func(t *testing.T, m Model, state string) {
 		t.Helper()
-		raw := m.renderAvatarPreviewPopup()
+		raw := m.modals.View()
 		if w := lipgloss.Width(raw); w > m.chatAreaWidth() {
 			t.Errorf("%s: popup is %d wide, want at most the chat area's %d", state, w, m.chatAreaWidth())
 		}
@@ -428,8 +448,8 @@ func TestAvatarPreviewPopupStaysInsideTheChatArea(t *testing.T) {
 	writeSquarePNG(t, good, 64)
 	m.startAvatarPreview(0, good)
 	m = updated(t, m, loadAvatarPreviewCmd(good)())
-	if m.avatarPreview.img == nil {
-		t.Fatalf("preview = %+v, want a decoded image", m.avatarPreview)
+	if previewOf(m).img == nil {
+		t.Fatalf("preview = %+v, want a decoded image", previewOf(m))
 	}
 	widthOK(t, m, "loaded")
 }

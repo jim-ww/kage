@@ -125,7 +125,7 @@ func TestFilePickerReceivesAsyncDirectoryRead(t *testing.T) {
 	m := newTestModel(nil)
 	m.filePicker.CurrentDirectory = dir
 	m.filePicker.SetHeight(8)
-	m.pickingFile = true
+	m.openFilePicker(false)
 	cmd := m.filePicker.Init()
 	next, _ := m.Update(cmd())
 	m = next.(Model)
@@ -158,7 +158,7 @@ func TestFilePickerEnterStagesAttachmentWithoutUploading(t *testing.T) {
 	}
 	m.filePicker.CurrentDirectory = dir
 	m.filePicker.SetHeight(8)
-	m.pickingFile = true
+	m.openFilePicker(false)
 	next, _ := m.Update(m.filePicker.Init()())
 	m = next.(Model)
 
@@ -168,7 +168,7 @@ func TestFilePickerEnterStagesAttachmentWithoutUploading(t *testing.T) {
 	if msg := nonIdleCmd(cmd); msg != nil {
 		t.Fatalf("staging a file must not start any command — nothing uploads until send, got %T", msg)
 	}
-	if !m.pickingFile {
+	if !pickerOpen(m) {
 		t.Fatal("picker closed after selecting a file, want it to stay open for attaching more")
 	}
 	if len(m.pendingAttachments) != 1 || m.pendingAttachments[0].name != "report.pdf" {
@@ -221,8 +221,7 @@ func TestFilePickerPopupShrinksWhenAttachmentsRowAppears(t *testing.T) {
 		_ = cmd()
 	}
 	m.filePicker.CurrentDirectory = dir
-	m.pickingFile = true
-	m.sizeFilePicker()
+	m.openFilePicker(false)
 	next, _ := m.Update(m.filePicker.Init()())
 	m = next.(Model)
 

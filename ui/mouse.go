@@ -38,10 +38,6 @@ const (
 	zoneCallStopCamera        = "call-stop-camera-button"
 	zoneCallDesktopAudio      = "call-desktop-audio-button"
 	zoneJumpToBottom          = "jump-to-bottom-button"
-	zoneFilePickerPopup       = "file-picker-popup"
-	zoneFilePickerBack        = "file-picker-back-button"
-	zoneFilePickerForward     = "file-picker-forward-button"
-	zoneAvatarPreviewPopup    = "avatar-preview-popup"
 	zoneOpenPickerPopup       = "open-picker-popup"
 )
 
@@ -49,7 +45,6 @@ const (
 // compose box's cursor (and so its internal viewport) by.
 const inputWheelScrollLines = 2
 
-func zoneFilePickerRow(i int) string      { return fmt.Sprintf("file-picker-row-%d", i) }
 func zoneAccountRow(i int) string         { return fmt.Sprintf("account-row-%d", i) }
 func zoneChatItem(i int) string           { return fmt.Sprintf("chat-item-%d", i) }
 func zoneMessage(i int) string            { return fmt.Sprintf("msg-%d", i) }
@@ -114,21 +109,6 @@ func (m Model) messageIndexAtMouse(mouse tea.MouseMsg) (int, bool) {
 // without re-scanning the list.
 func chatIndexFromZone(id string) (int, bool) {
 	rest, ok := strings.CutPrefix(id, "chat-item-")
-	if !ok {
-		return 0, false
-	}
-	i, err := strconv.Atoi(rest)
-	if err != nil {
-		return 0, false
-	}
-	return i, true
-}
-
-// filePickerRowFromZone extracts i back out of a zoneFilePickerRow(i) ID,
-// for handleMouseMotion to follow the mouse without re-scanning every row's
-// zone bounds.
-func filePickerRowFromZone(id string) (int, bool) {
-	rest, ok := strings.CutPrefix(id, "file-picker-row-")
 	if !ok {
 		return 0, false
 	}
@@ -298,21 +278,6 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			m.inputHeightOverride = z.EndY - msg.Mouse().Y
 			m.updateSizes()
 		}
-		return m, nil
-	}
-
-	if m.avatarPreview != nil {
-		// The picker is still open underneath, but it isn't what's on
-		// screen — hovering must not move a cursor nobody can see.
-		return m, nil
-	}
-
-	if m.pickingFile {
-		row := m.filePickerRowUnderMouse(msg)
-		if row < 0 {
-			return m, nil
-		}
-		m.filePicker.SelectRow(row)
 		return m, nil
 	}
 
@@ -512,19 +477,6 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 // otherwise dispatches by button: left click acts directly, right click
 // opens a context menu of actions for whatever was clicked.
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if m.avatarPreview != nil {
-		// Clicking off the preview rejects the candidate and leaves the
-		// picker where it was, the same as esc.
-		if msg.Mouse().Button == tea.MouseLeft && !m.zone.Get(zoneAvatarPreviewPopup).InBounds(msg) {
-			m.avatarPreview = nil
-		}
-		return m, nil
-	}
-
-	if m.pickingFile {
-		return m.handleFilePickerClick(msg)
-	}
-
 	if msg.Mouse().Button == tea.MouseLeft {
 		if z := m.zone.Get(zonePaneSidebar); !z.IsZero() && msg.Mouse().X == z.EndX {
 			m.resizingSidebar = true
@@ -737,9 +689,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if m.currentChatIndex() < 0 {
 			return m, m.showNotification("no chat selected")
 		}
-		m.pickingFile = true
-		m.sizeFilePicker()
-		return m, m.filePicker.Init()
+		return m, m.openFilePicker(false)
 	}
 
 	if z := m.zone.Get(zoneInputTextarea); !z.IsZero() && z.InBounds(msg) {
@@ -869,91 +819,11 @@ func (m *Model) selectChatItem(i int) {
 	m.viewport.GotoBottom()
 }
 
-// filePickerRowUnderMouse returns the file-picker row the mouse is over, or
-// -1 if it isn't over any row. Checked against the picker's own zone marks
-// left over from its last render, rather than re-rendering View() here to
-// re-derive them — View() does symlink resolution and ANSI styling per row,
-// too expensive to redo on every mouse-motion event.
-func (m Model) filePickerRowUnderMouse(msg tea.MouseMsg) int {
-	for i := range m.filePicker.Height() {
-		if m.zone.Get(zoneFilePickerRow(i)).InBounds(msg) {
-			return i
-		}
-	}
-	return -1
-}
-
-// handleFilePickerClick selects the clicked file-picker row, and opens it
-// via a synthetic Enter routed through the normal pickingFile key
-// interception in update_keys.go (which already knows how to stage a
-// selected file) rather than duplicating that logic here. A single click on a directory opens it immediately, since a click
-// there can never be a final selection (Enter just navigates into it). A
-// second click on the already-selected row within the double-click window
-// opens it for anything else (i.e. files).
-func (m Model) handleFilePickerClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if msg.Mouse().Button != tea.MouseLeft {
-		return m, nil
-	}
-
-	targetRow := m.filePickerRowUnderMouse(msg)
-	if !m.zone.Get(zoneFilePickerPopup).InBounds(msg) {
-		m.pickingFile = false
-		return m, nil
-	}
-
-	if m.zone.Get(zoneFilePickerBack).InBounds(msg) {
-		if !m.filePicker.CanGoBack() {
-			return m, nil
-		}
-		// Routed as a synthetic backspace rather than calling into the
-		// picker directly, so a click behaves exactly like the keyboard
-		// Back binding (h/backspace/left) — that binding, not GoForward, is
-		// what already knows how to pop the cursor-position stack.
-		return m, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyBackspace} }
-	}
-	if m.zone.Get(zoneFilePickerForward).InBounds(msg) {
-		if !m.filePicker.CanGoForward() {
-			return m, nil
-		}
-		var cmd tea.Cmd
-		cmd = m.filePicker.GoForward()
-		return m, cmd
-	}
-	if targetRow < 0 {
-		return m, nil
-	}
-
-	clickTime := time.Now()
-	isDoubleClick := m.lastFilePickerRow == targetRow && !m.lastFilePickerTime.IsZero() && clickTime.Sub(m.lastFilePickerTime) < 500*time.Millisecond
-	m.lastFilePickerRow = targetRow
-	m.lastFilePickerTime = clickTime
-
-	m.filePicker.SelectRow(targetRow)
-	if isDoubleClick || m.filePicker.IsDirRow(targetRow) {
-		return m, func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} }
-	}
-	return m, nil
-}
-
 // handleMouseWheel scrolls whichever pane the wheel event landed over: the
 // chat list in the sidebar, or the message viewport. Swallowed entirely
 // while a context menu is open, so it can't scroll what's underneath it.
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
-
-	if m.avatarPreview != nil {
-		return m, nil
-	}
-
-	if m.pickingFile {
-		key := tea.KeyPressMsg{Code: tea.KeyDown}
-		if mouse.Button == tea.MouseWheelUp {
-			key = tea.KeyPressMsg{Code: tea.KeyUp}
-		}
-		var cmd tea.Cmd
-		cmd = m.filePicker.Update(key)
-		return m, cmd
-	}
 
 	if m.zone.Get(zonePaneSidebar).InBounds(msg) {
 		switch mouse.Button {

@@ -148,8 +148,8 @@ func TestAvatarMenuSetGoesThroughFilePicker(t *testing.T) {
 
 	idx := avatarMenuItem(t, m, "Set from file…")
 	menuOf(m).items[idx].run(&m)
-	if !m.pickingFile || !m.pickingAvatar {
-		t.Fatalf("pickingFile=%v pickingAvatar=%v, want both true", m.pickingFile, m.pickingAvatar)
+	if modalTitle(m) != "Choose an avatar" {
+		t.Fatalf("Set from file opened %q, want the file picker for an avatar", modalTitle(m))
 	}
 
 	cmd := m.setOwnAvatarCmd(0, "/tmp/face.png")
@@ -165,15 +165,19 @@ func TestAvatarMenuSetGoesThroughFilePicker(t *testing.T) {
 	}
 }
 
-// Cancelling the picker must clear the avatar mode too, or the next
-// attachment would publish itself as an avatar.
+// Cancelling the avatar picker closes it, and the attachment picker opened
+// next attaches rather than publishing an avatar.
 func TestCancellingAvatarPickerClearsMode(t *testing.T) {
 	m := avatarMenuModel(t, &fakeAvatarPublisher{})
-	m.pickingFile, m.pickingAvatar = true, true
+	m.openFilePicker(true)
 
 	next := updated(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if next.pickingFile || next.pickingAvatar {
-		t.Errorf("after esc: pickingFile=%v pickingAvatar=%v, want both false", next.pickingFile, next.pickingAvatar)
+	if pickerOpen(next) {
+		t.Error("esc left the avatar picker open")
+	}
+	next.openFilePicker(false)
+	if modalTitle(next) != "Attach file" {
+		t.Errorf("the next picker opened as %q, want Attach file", modalTitle(next))
 	}
 }
 

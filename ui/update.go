@@ -265,14 +265,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		}
 	}
 
-	if m.pickingFile {
-		// Directory reads are asynchronous messages, not key presses, so they
-		// bypass the key-interception block above and must still reach the
-		// picker. Without this, the picker remains permanently empty.
-		var cmd tea.Cmd
-		cmd = m.filePicker.Update(msg)
-		return m, tea.Batch(append(cmds, cmd)...)
-	}
 	if _, ok := msg.(tea.PasteMsg); ok {
 		if m.popupActive() {
 			return m, tea.Batch(cmds...)

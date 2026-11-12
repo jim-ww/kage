@@ -24,70 +24,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	}
 
-	// ── Avatar preview sits on top of the still-open picker ────────────
-	if m.avatarPreview != nil {
-		return m.updateAvatarPreviewKey(msg)
-	}
-
-	// ── File picker intercepts all input until selected or canceled ─────
-	if m.pickingFile {
-		if matchesKey(msg, m.keys.AttachFile) || matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) {
-			m.pickingFile = false
-			m.pickingAvatar = false
-			return m, nil, true
-		}
-		if matchesKey(msg, m.keys.SortFilePicker) {
-			var sortCmd tea.Cmd
-			sortCmd = m.filePicker.CycleSort()
-			if m.filePickerSortSetter != nil {
-				if err := m.filePickerSortSetter.SetFilePickerSort(m.filePicker.SortField.String(), m.filePicker.SortAscending); err != nil {
-					return m, tea.Batch(sortCmd, m.showNotification("saving file picker sort: "+err.Error())), true
-				}
-			}
-			return m, sortCmd, true
-		}
-		if matchesLetter(msg, '.') {
-			var hiddenCmd tea.Cmd
-			hiddenCmd = m.filePicker.ToggleHidden()
-			return m, hiddenCmd, true
-		}
-		var pickerCmd tea.Cmd
-		pickerCmd = m.filePicker.Update(msg)
-		if m.pickingAvatar {
-			if selected, path := m.filePicker.DidSelectFile(msg); selected {
-				// Not published yet: the file goes to a preview first, so
-				// what reaches every contact's roster was seen before it
-				// was sent. The picker stays open behind it so rejecting
-				// the candidate lands back in the same directory.
-				return m, m.startAvatarPreview(m.currentAccount, path), true
-			}
-			return m, pickerCmd, true
-		}
-		if selected, path := m.filePicker.DidSelectFile(msg); selected {
-			// Stage the file instead of uploading it immediately — nothing
-			// touches the network until the message is actually sent (see
-			// sendCurrentInput/startAttachedSend), and the picker stays open
-			// so it can be used again to attach more files first.
-			hadAttachments := len(m.pendingAttachments) > 0
-			m.stageAttachment(path)
-			if !hadAttachments {
-				// The staged-attachments row above the compose box just
-				// appeared for the first time, adding a row to
-				// inputAreaHeight() — the picker's own height was sized
-				// without it (see the AttachFile case below), so without
-				// this it now overflows the terminal by one row, pushing
-				// that new row (the only feedback that anything was
-				// attached) off screen until the picker closes.
-				m.sizeFilePicker()
-			}
-			return m, tea.Batch(cmds...), true
-		}
-		if disabled, _ := m.filePicker.DidSelectDisabledFile(msg); disabled {
-			cmds = append(cmds, m.showNotification("that file type cannot be selected"))
-		}
-		return m, tea.Batch(append(cmds, pickerCmd)...), true
-	}
-
 	switch {
 
 	// ── Global ────────────────────────────────────────────────────────
@@ -196,9 +132,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				cmds = append(cmds, m.showNotification("no chat selected"))
 				return m, tea.Batch(cmds...), true
 			}
-			m.pickingFile = true
-			m.sizeFilePicker()
-			return m, m.filePicker.Init(), true
+			return m, m.openFilePicker(false), true
 		}
 
 	case matchesKey(msg, m.keys.PasteImage):

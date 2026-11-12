@@ -178,11 +178,11 @@ func (s Stack[H]) Top() *Modal[H] {
 	return s.modals[len(s.modals)-1]
 }
 
-// Find is the open modal with id, or nil.
+// Find is the topmost open modal with id, or nil.
 func (s Stack[H]) Find(id string) *Modal[H] {
-	for _, m := range s.modals {
-		if m.ID == id {
-			return m
+	for i := len(s.modals) - 1; i >= 0; i-- {
+		if s.modals[i].ID == id {
+			return s.modals[i]
 		}
 	}
 	return nil
@@ -191,8 +191,8 @@ func (s Stack[H]) Find(id string) *Modal[H] {
 // Remove closes the modal with id wherever it is in the stack, without
 // running its callbacks - when what it shows is gone.
 func (s *Stack[H]) Remove(id string) tea.Cmd {
-	for i, m := range s.modals {
-		if m.ID != id {
+	for i := len(s.modals) - 1; i >= 0; i-- {
+		if s.modals[i].ID != id {
 			continue
 		}
 		if i == len(s.modals)-1 {

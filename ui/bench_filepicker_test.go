@@ -24,8 +24,7 @@ func newFilePickerBenchModel(b testing.TB, nFiles int) Model {
 	}
 	m := newMouseSweepBenchModel(30, 150)
 	m.filePicker.CurrentDirectory = dir
-	m.pickingFile = true
-	m.sizeFilePicker()
+	m.openFilePicker(false)
 	next, _ := m.Update(m.filePicker.Init()())
 	return next.(Model)
 }
@@ -37,7 +36,7 @@ func filePickerSweepPoints(b testing.TB, m *Model) []tea.Mouse {
 		_ = m.View()
 		var points []tea.Mouse
 		for i := range m.filePicker.Height() {
-			z := m.zone.Get(zoneFilePickerRow(i))
+			z := m.zone.Get(pickerRowZone(*m, i))
 			if z == nil || z.IsZero() {
 				continue
 			}

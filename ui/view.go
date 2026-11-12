@@ -346,10 +346,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 	switch {
 	case m.modals.Open():
 		viewportArea = m.modals.View()
-	case m.avatarPreview != nil:
-		viewportArea = m.renderAvatarPreviewPopup()
-	case m.pickingFile:
-		viewportArea = m.renderFilePickerPopup()
 	default:
 		viewportHeight := m.popupAreaHeight()
 		viewportArea = m.zone.Mark(zonePaneViewport, m.renderViewportFrame(viewportFrameCacheEntry{
@@ -655,74 +651,6 @@ func (m *Model) openHelp() tea.Cmd {
 		}
 	}
 	return m.openModal(&modal.Modal[*Model]{Title: "Help", Body: modal.TextLines(rows...)})
-}
-
-// renderFilePickerPopup marks each rendered row of the file picker with its
-// own zone (zoneFilePickerRow) so hover/click can map the pointer to a row
-// (filePicker.SelectRow).
-// Rows are padded to the widest row's width first so every row's click/hover
-// zone spans the full list width, not just its own text (see
-// padLinesToWidth).
-func (m Model) renderFilePickerPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	sortKey := caretKey(m.keys.SortFilePicker.Help().Key)
-	back := m.renderFilePickerNavButton("‹", zoneFilePickerBack, m.filePicker.CanGoBack())
-	forward := m.renderFilePickerNavButton("›", zoneFilePickerForward, m.filePicker.CanGoForward())
-	// Title and footer are kept to one line each (sizeFilePicker's height
-	// math depends on it): the directory is cut from the left, keeping its
-	// most specific end, and the footer from the right. listPopup indents
-	// the footer by 2.
-	title := back + " " + forward + "  Attach file — "
-	dir := m.filePicker.CurrentDirectory
-	if avail := m.popupTextWidth() - lipgloss.Width(title); lipgloss.Width(dir) > avail {
-		dir = ""
-		if avail > 1 {
-			dir = "…" + ansi.TruncateLeft(m.filePicker.CurrentDirectory, lipgloss.Width(m.filePicker.CurrentDirectory)-avail+1, "")
-		}
-	}
-	title += dir
-	footer := ansi.Truncate("[enter] open/select · ["+sortKey+"] sort: "+m.filePicker.SortLabel()+" · [esc] cancel", m.popupTextWidth()-2, "…")
-
-	// Set the picker's minimum row width to at least the title/footer's
-	// width so short filenames don't leave size/date stranded mid-line —
-	// the popup box always auto-sizes to whichever line (title, footer, or
-	// a row) is widest, so without this, rows narrower than the title got
-	// right-padded by padLinesToWidth *after* the date column instead of
-	// widening the name column in front of it.
-	m.filePicker.SetWidth(max(lipgloss.Width(title), lipgloss.Width(footer)))
-	lines := strings.Split(m.filePicker.View(), "\n")
-	width := 0
-	for _, line := range lines {
-		if w := lipgloss.Width(line); w > width {
-			width = w
-		}
-	}
-	lines = strings.Split(padLinesToWidth(strings.Join(lines, "\n"), width), "\n")
-	for i, line := range lines {
-		lines[i] = m.zone.Mark(zoneFilePickerRow(i), line)
-	}
-	body := m.styles.listPopup(title, []string{strings.Join(lines, "\n")}, footer)
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), body)
-	popup = m.zone.Mark(zoneFilePickerPopup, popup)
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-// renderFilePickerNavButton renders a back/forward glyph for the file
-// picker's title bar, zone-marked for a click only while enabled — matching
-// the picker's own CanGoBack/CanGoForward availability, so a click can never
-// fire a no-op navigation.
-func (m Model) renderFilePickerNavButton(glyph, zoneID string, enabled bool) string {
-	style := lipgloss.NewStyle().Foreground(m.styles.colors.time)
-	if enabled {
-		style = lipgloss.NewStyle().Foreground(m.styles.colors.themFg).Bold(true)
-	}
-	rendered := style.Render(glyph)
-	if !enabled {
-		return rendered
-	}
-	return m.zone.Mark(zoneID, rendered)
 }
 
 // renderAccountBar returns the account bar's name and status text

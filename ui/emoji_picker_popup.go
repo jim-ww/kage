@@ -143,29 +143,3 @@ func (m *Model) confirmEmojiPick(idx int, picked []string) tea.Cmd {
 	m.refreshViewport()
 	return tea.Batch(cmds...)
 }
-
-// popupBorderWidth/popupBorderHeight are the chrome the "popup" style (see
-// styles.go) always adds around its content - Border(RoundedBorder()) plus
-// Padding(1, 4) - subtracted from the available chat-area space to get the
-// emoji picker's actual content budget.
-const (
-	popupChromeWidth  = 2 + 4*2 // border (1 each side) + horizontal padding (4 each side)
-	popupChromeHeight = 2 + 1*2 // border (1 each side) + vertical padding (1 each side)
-)
-
-// filePickerChromeLines is everything in the file picker popup besides its
-// rows: the title, the blank line and footer listPopup puts under the rows,
-// and the dialog's border + vertical padding. renderFilePickerPopup keeps
-// title and footer to one line each, so this is exact.
-const filePickerChromeLines = 3 + popupChromeHeight
-
-// sizeFilePicker fits the file picker into the chat area's popup space -
-// called when the picker opens and on every terminal resize. Rows must
-// neither wrap (a wrapped row's hover/click zone collapses to a sliver
-// between its first line's start and last line's end) nor push the frame
-// past the terminal's height (shifting what's drawn away from where the
-// zones were recorded).
-func (m *Model) sizeFilePicker() {
-	m.filePicker.SetHeight(max(1, m.popupAreaHeight()-filePickerChromeLines))
-	m.filePicker.SetMaxWidth(m.popupTextWidth())
-}

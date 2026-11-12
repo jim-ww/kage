@@ -25,13 +25,9 @@ func (m *Model) openAvatarMenu() tea.Cmd {
 	}
 	m.openContextMenu("Avatar", []contextMenuItem{
 		{label: "Set from file…", run: func(m *Model) tea.Cmd {
-			// Hands off to the file picker already used for attachments
-			// rather than growing a second one; pickingAvatar is what
-			// tells its selection handler where the path is going.
-			m.pickingAvatar = true
-			m.pickingFile = true
-			m.sizeFilePicker()
-			return m.filePicker.Init()
+			// The file picker already used for attachments, rather than
+			// a second one.
+			return m.openFilePicker(true)
 		}},
 		{label: "Remove avatar", run: func(m *Model) tea.Cmd {
 			return m.removeOwnAvatarCmd(accountIdx)

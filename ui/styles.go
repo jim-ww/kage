@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -510,34 +509,6 @@ func (s *uiStyles) rootView(content string) string {
 	return s.root.Render(content)
 }
 
-// popupDialog frames a popup body in the bordered dialog box. maxWidth is
-// the width of the area the popup gets placed in (see Model.popupArea):
-// content wider than that is wrapped to fit instead of spilling past the
-// terminal edge, since lipgloss.Place neither wraps nor clips an oversized
-// child. A non-positive maxWidth means "don't constrain".
-func (s *uiStyles) popupDialog(border color.Color, maxWidth int, content string) string {
-	if maxWidth > 0 {
-		content = wrapToWidth(content, maxWidth-s.popup.GetHorizontalFrameSize())
-	}
-	return s.popup.BorderForeground(border).Render(content)
-}
-
-// wrapToWidth wraps every over-wide line of an already-rendered block to
-// width columns, leaving lines that already fit untouched so a small popup
-// keeps hugging its content.
-func wrapToWidth(content string, width int) string {
-	if width <= 0 {
-		return content
-	}
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if ansi.StringWidth(line) > width {
-			lines[i] = ansi.Wrap(line, width, "")
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 func (s *uiStyles) footerBar(width int, content string) string {
 	return s.footer.Width(width).Render(content)
 }
@@ -585,15 +556,6 @@ func (s *uiStyles) renderAccountRow(name string, selected, hovered bool) string 
 		style = style.Underline(true)
 	}
 	return style.Render(name)
-}
-
-func (s *uiStyles) listPopup(title string, rows []string, footer string) string {
-	body := lipgloss.NewStyle().Bold(true).Foreground(s.colors.borderA).Render(title)
-	for _, row := range rows {
-		body += "\n" + row
-	}
-	body += "\n\n  " + footer
-	return body
 }
 
 func (s *uiStyles) renderMessagePrefix(selected, hovered bool) string {
