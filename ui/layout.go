@@ -89,20 +89,11 @@ const narrowWidth = 60
 
 func (m Model) narrow() bool { return m.width < narrowWidth }
 
-// popupActive reports whether a popup/form is on screen that renders inside
-// the chat area regardless of which pane is logically focused (context menu,
-// delete/info dialogs, add-account/rename-chat forms, the open-item or file
-// picker). In narrow mode these need the full-width chat pane to render
-// into even while the chat list is the logically selected view.
-func (m Model) popupActive() bool {
-	return m.modals.Open()
-}
-
 // narrowShowChat reports, in narrow mode, whether the single visible pane
 // should be the chat (true) or the chat list (false). Meaningless outside
 // narrow mode, where both panes can be shown together.
 func (m Model) narrowShowChat() bool {
-	return m.selectedView == viewChat || m.popupActive()
+	return m.selectedView == viewChat || m.modals.Open()
 }
 
 // sidebarPeeking reports whether, at normal (non-narrow) width, a

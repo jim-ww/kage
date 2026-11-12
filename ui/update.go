@@ -265,12 +265,6 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		}
 	}
 
-	if _, ok := msg.(tea.PasteMsg); ok {
-		if m.popupActive() {
-			return m, tea.Batch(cmds...)
-		}
-	}
-
 	// Route remaining events to the focused component.
 	var cmd tea.Cmd
 	switch m.selectedView {
@@ -422,13 +416,4 @@ func isViewportPagingKey(msg tea.KeyMsg) bool {
 	default:
 		return false
 	}
-}
-
-// digitKey reports whether msg is a single '1'-'9' keypress, and which digit.
-func digitKey(msg tea.KeyMsg) (int, bool) {
-	s := msg.String()
-	if len(s) != 1 || s[0] < '1' || s[0] > '9' {
-		return 0, false
-	}
-	return int(s[0] - '0'), true
 }

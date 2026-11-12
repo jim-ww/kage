@@ -298,7 +298,7 @@ func TestAvatarPreviewIsWhatTheChatAreaShows(t *testing.T) {
 	cmd := m.startAvatarPreview(0, writeTestPNG(t, 32))
 	m = updated(t, m, loadedFrom(t, cmd))
 
-	if !m.popupActive() {
+	if !m.modals.Open() {
 		t.Error("popupActive() is false while the preview is up")
 	}
 	if !strings.Contains(ansi.Strip(m.View().Content), "Publish as avatar?") {

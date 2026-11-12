@@ -29,31 +29,6 @@ var urlPattern = regexp.MustCompile(`https?://\S+|aesgcm://\S+`)
 // Empty means the os.UserCacheDir()-based default.
 var AttachmentsDir string
 
-// openItemsPerPage caps how many open-picker entries are shown at once,
-// since only digits 1-9 are used to pick one; extra items page with left/right.
-const openItemsPerPage = 9
-
-// openPageBounds returns the [start, end) slice bounds of items on page.
-func openPageBounds(total, page int) (start, end int) {
-	start = page * openItemsPerPage
-	if start > total {
-		start = total
-	}
-	end = start + openItemsPerPage
-	if end > total {
-		end = total
-	}
-	return start, end
-}
-
-// openPageCount returns the number of pages needed for n items.
-func openPageCount(n int) int {
-	if n == 0 {
-		return 1
-	}
-	return (n + openItemsPerPage - 1) / openItemsPerPage
-}
-
 // openableItems returns every attachment path/URL plus every link found in
 // the message body, attachments first, deduplicated — a file we sent (or
 // received) has its URL in both Attachments and, since that URL is also the

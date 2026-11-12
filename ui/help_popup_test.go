@@ -22,7 +22,7 @@ func TestHelpPopupOpensAndCloses(t *testing.T) {
 	if msg := nonIdleCmd(cmd); msg != nil {
 		t.Fatalf("%q: expected no cmd while opening help, got %T", open.String(), msg)
 	}
-	if !nm.popupActive() {
+	if !nm.modals.Open() {
 		t.Fatalf("%q: popupActive() = false while help is open, want true", open.String())
 	}
 
