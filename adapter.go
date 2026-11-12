@@ -19,7 +19,6 @@ import (
 	"github.com/jim-ww/kage/call"
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/crypto/aesgcm"
-	"github.com/jim-ww/kage/crypto/localstore"
 	"github.com/jim-ww/kage/daemon"
 	"github.com/jim-ww/kage/ipc"
 	"github.com/jim-ww/kage/storage"
@@ -421,14 +420,7 @@ func (a *adapter) SaveDraft(accountJID, chatAddress, text string) error {
 			RosterJid:  chatAddress,
 		})
 	}
-	body, encrypted := text, false
-	if a.localKey != nil {
-		if ct, err := localstore.Seal(a.localKey, text); err == nil {
-			body, encrypted = ct, true
-		} else {
-			slog.Warn("encrypting draft for storage", "err", err)
-		}
-	}
+	body, encrypted := sealBody(a.localKey, text)
 	return a.queries.SetChatDraft(context.Background(), storage.SetChatDraftParams{
 		AccountJid: accountJID,
 		RosterJid:  chatAddress,

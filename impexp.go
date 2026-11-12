@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jim-ww/kage/config"
-	"github.com/jim-ww/kage/crypto/localstore"
 	"github.com/jim-ww/kage/storage"
 	"github.com/spf13/cobra"
 )
@@ -146,7 +145,7 @@ type exportFile struct {
 // jids is non-empty its RosterJID (the chat peer) must be in the list, so
 // combining both flags narrows to specific chats within specific accounts
 // rather than either one alone. skipped counts messages dropped because
-// they couldn't be decrypted (see decryptedBody), not messages excluded by
+// they couldn't be decrypted (see openBody), not messages excluded by
 // a filter.
 func buildExport(ctx context.Context, queries *storage.Queries, localKey []byte, accounts, jids []string) (exportFile, int, error) {
 	wantAccount := make(map[string]bool, len(accounts))
@@ -185,7 +184,7 @@ func buildExport(ctx context.Context, queries *storage.Queries, localKey []byte,
 		if len(wantJID) > 0 && !wantJID[bareJID(r.Rosterjid.String)] {
 			continue
 		}
-		body, err := decryptedBody(localKey, r.Body, r.Encrypted)
+		body, err := openBody(localKey, r.Body.String, r.Encrypted)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: skipping message %s/%s (undecryptable): %v\n", r.Accountjid, r.Idattr.String, err)
 			skipped++
@@ -251,23 +250,6 @@ func runExport(cfgPath string, accounts, jids []string, outPath string) error {
 	}
 	fmt.Println(".")
 	return nil
-}
-
-// decryptedBody returns body in plaintext, decrypting it with localKey if
-// encrypted is set. Mirrors readStoredBody's decrypt path but works from a
-// bare row (no accountSession) since export reads across every account at
-// once.
-func decryptedBody(localKey []byte, body sql.NullString, encrypted bool) (string, error) {
-	if !body.Valid {
-		return "", nil
-	}
-	if !encrypted {
-		return body.String, nil
-	}
-	if localKey == nil {
-		return "", fmt.Errorf("message is encrypted but no local storage password is available")
-	}
-	return localstore.Open(localKey, body.String)
 }
 
 // runImport reads an export JSON file (see runExport) and writes every
@@ -337,14 +319,14 @@ func runImport(cfgPath, inPath string, accountMap map[string]string) error {
 		if exists {
 			skipped++
 		} else {
-			body, encrypted := sealForStorage(localKey, m.Body)
+			body, encrypted := sealBody(localKey, m.Body)
 			if _, err := queries.InsertMessage(ctx, storage.InsertMessageParams{
 				AccountJid:    m.AccountJID,
 				Sent:          m.Sent,
 				ToAttr:        nullString(m.To),
 				FromAttr:      nullString(m.From),
 				IDAttr:        nullString(m.ID),
-				Body:          body,
+				Body:          sql.NullString{String: body, Valid: true},
 				Encrypted:     encrypted,
 				E2eEncrypted:  m.E2EEncrypted,
 				E2eeMethod:    nullString(m.E2EEMethod),
@@ -397,20 +379,6 @@ func runImport(cfgPath, inPath string, accountMap map[string]string) error {
 	}
 	fmt.Println(".")
 	return nil
-}
-
-// sealForStorage mirrors crypto_helpers.go's encryptForStorage, but works
-// without an accountSession since import runs before any account connects.
-func sealForStorage(localKey []byte, plaintext string) (body sql.NullString, encrypted bool) {
-	if localKey == nil {
-		return sql.NullString{String: plaintext, Valid: true}, false
-	}
-	ct, err := localstore.Seal(localKey, plaintext)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: encrypting message for storage: %v\n", err)
-		return sql.NullString{String: plaintext, Valid: true}, false
-	}
-	return sql.NullString{String: ct, Valid: true}, true
 }
 
 // openStorageForCLI loads config and opens the shared message database the

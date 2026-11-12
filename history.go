@@ -3,12 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log/slog"
 	"math"
 	"time"
 
-	"github.com/jim-ww/kage/crypto/localstore"
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 )
@@ -71,10 +69,7 @@ func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row
 		}
 		return row.Body.String, nil
 	}
-	if s.localKey == nil {
-		return "", fmt.Errorf("message is encrypted but no local storage password is available")
-	}
-	return localstore.Open(s.localKey, row.Body.String)
+	return openBody(s.localKey, row.Body.String, true)
 }
 
 // buildMessages decrypts and converts rows (already in chronological, oldest

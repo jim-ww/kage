@@ -25,73 +25,67 @@ import (
 // re-probes - a peer might upgrade clients between conversations.
 const omemoPeerProtocolTTL = 7 * 24 * time.Hour
 
-// encryptForStorage seals plaintext under the shared local storage key if
-// one is configured; with no key (no local storage password set) the body
-// is stored as-is, and encrypted comes back false.
-func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString, encrypted bool) {
-	if s.localKey == nil {
-		return sql.NullString{String: plaintext, Valid: true}, false
+// sealBody seals plaintext under localKey, the local storage key. With no
+// key (no local storage password set), or if sealing fails, the body is
+// stored as-is and encrypted comes back false.
+func sealBody(localKey []byte, plaintext string) (body string, encrypted bool) {
+	if localKey == nil {
+		return plaintext, false
 	}
-	ct, err := localstore.Seal(s.localKey, plaintext)
+	ct, err := localstore.Seal(localKey, plaintext)
 	if err != nil {
-		slog.Warn("encrypting message for storage", "err", err)
-		return sql.NullString{String: plaintext, Valid: true}, false
+		slog.Warn("encrypting for storage", "err", err)
+		return plaintext, false
 	}
-	return sql.NullString{String: ct, Valid: true}, true
+	return ct, true
 }
 
-// loadDraft returns row's plaintext draft body, decrypting it with localKey
-// (crypto/localstore) if it's stored encrypted. A plaintext row read while a
-// password *is* now available gets opportunistically re-sealed and written
-// back — same migration readStoredBody does for message bodies — so a draft
-// saved before a storage password was ever configured gets swept up the
-// next time it's loaded rather than sitting in plaintext forever. If a
-// decrypt is required but impossible (no key, or the key doesn't open it),
-// best-effort: yields an empty draft with a warning logged, rather than
-// failing whatever's loading the chat list.
+// openBody is sealBody's reverse.
+func openBody(localKey []byte, body string, encrypted bool) (string, error) {
+	if !encrypted {
+		return body, nil
+	}
+	if localKey == nil {
+		return "", errors.New("stored encrypted, but no local storage password is available")
+	}
+	return localstore.Open(localKey, body)
+}
+
+// encryptForStorage is sealBody for a message row's body.
+func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString, encrypted bool) {
+	ct, encrypted := sealBody(s.localKey, plaintext)
+	return sql.NullString{String: ct, Valid: true}, encrypted
+}
+
+// loadDraft returns row's plaintext draft body. A plaintext row read while
+// a password *is* now available gets re-sealed and written back - same
+// migration readStoredBody does for message bodies. One that can't be
+// opened yields an empty draft with a warning logged, rather than failing
+// whatever's loading the chat list.
 func loadDraft(ctx context.Context, queries *storage.Queries, accountJID string, row storage.ListChatDraftsRow, localKey []byte) string {
 	if !row.Encrypted {
-		if localKey != nil {
-			if ct, err := localstore.Seal(localKey, row.Body); err == nil {
-				if err := queries.SetChatDraft(ctx, storage.SetChatDraftParams{
-					AccountJid: accountJID, RosterJid: row.Rosterjid, Body: ct, Encrypted: true,
-				}); err != nil {
-					slog.Warn("encrypting stored draft", "err", err)
-				}
-			} else {
+		if ct, sealed := sealBody(localKey, row.Body); sealed {
+			if err := queries.SetChatDraft(ctx, storage.SetChatDraftParams{
+				AccountJid: accountJID, RosterJid: row.Rosterjid, Body: ct, Encrypted: true,
+			}); err != nil {
 				slog.Warn("encrypting stored draft", "err", err)
 			}
 		}
 		return row.Body
 	}
-	if localKey == nil {
-		slog.Warn("stored draft is encrypted but no local storage password is available")
-		return ""
-	}
-	pt, err := localstore.Open(localKey, row.Body)
+	pt, err := openBody(localKey, row.Body, true)
 	if err != nil {
 		slog.Warn("decrypting stored draft", "err", err)
-		return ""
 	}
 	return pt
 }
 
-// decryptOutboxBody returns row's plaintext body, decrypting it with
-// localKey (crypto/localstore) if it's stored encrypted - the outbox
-// table's counterpart to loadDraft, for the same reason (best-effort:
-// yields empty on failure rather than blocking startup/flush).
+// decryptOutboxBody returns row's plaintext body, or "" with a warning
+// logged if it can't be opened, rather than blocking startup/flush.
 func decryptOutboxBody(row storage.Outbox, localKey []byte) string {
-	if !row.Encrypted {
-		return row.Body
-	}
-	if localKey == nil {
-		slog.Warn("stored outbox entry is encrypted but no local storage password is available", "to", row.Toattr)
-		return ""
-	}
-	pt, err := localstore.Open(localKey, row.Body)
+	pt, err := openBody(localKey, row.Body, row.Encrypted)
 	if err != nil {
-		slog.Warn("decrypting stored outbox entry", "err", err)
-		return ""
+		slog.Warn("decrypting stored outbox entry", "to", row.Toattr, "err", err)
 	}
 	return pt
 }
