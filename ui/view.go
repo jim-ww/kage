@@ -346,8 +346,6 @@ func (m Model) renderChatArea(colors uiColors) string {
 	switch {
 	case m.modals.Open():
 		viewportArea = m.modals.View()
-	case m.searchResults != nil:
-		viewportArea = m.renderSearchResultsPopup()
 	case m.avatarPreview != nil:
 		viewportArea = m.renderAvatarPreviewPopup()
 	case m.pickingFile:

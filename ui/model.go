@@ -312,10 +312,6 @@ type Model struct {
 	// message.
 	pendingDateJump *dateJump
 
-	// searchResults is non-nil while the search-results popup (opened once a
-	// search-in-chat query completes) is showing. See searchResultsState.
-	searchResults *searchResultsState
-
 	// typingActiveTo is the address of the chat we're currently marked as
 	// "composing" to (empty if not composing to anyone). typingGen
 	// increments on every keystroke while composing, so a pending

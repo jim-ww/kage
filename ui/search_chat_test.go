@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 // fakeHistoryLoader stands in for a real HistoryLoader: records the anchor
@@ -51,12 +50,7 @@ func TestLoadSearchResultFiresAnchoredWindowLoad(t *testing.T) {
 	m := newTestModelWithMessages(fullHistory[:1], &fakeHistorySearcher{})
 	m.historyLoader = loader
 	m.maxMessagesPerChat = 100
-	m.searchResults = &searchResultsState{
-		accountIdx: 0, chatAddress: "bob@example.test",
-		messages: fullHistory, matches: []int{500},
-	}
-
-	cmd := m.loadSearchResult(500)
+	cmd := m.loadSearchResult(0, "bob@example.test", fullHistory[500])
 	if cmd == nil {
 		t.Fatal("loadSearchResult returned a nil cmd")
 	}
@@ -81,147 +75,100 @@ func TestLoadSearchResultFiresAnchoredWindowLoad(t *testing.T) {
 	}
 }
 
-// TestSearchResultsAuthorFilterCycles guards the 'a' keybind in the
-// search-results popup: it cycles all -> me -> them -> all, narrowing which
-// matches are shown/paginated/selectable without touching the underlying
-// (unfiltered) match set searchResults.matches itself.
+// searchResultsWith opens the search results for query over history,
+// with matches already in.
+func searchResultsWith(t *testing.T, history []Message, matches []int) Model {
+	t.Helper()
+	m := newTestModelWithMessages(history[:1], &fakeHistorySearcher{})
+	m.width, m.termHeight = 100, 30
+	m.updateSizes()
+	chat, _ := m.currentChat()
+	m.openSearchResults(0, chat, "q")
+	m, _, _ = m.handleEventMsg(HistorySearchResultMsg{AccountIdx: 0, From: chat.Address, Query: "q", Messages: history, Matches: matches})
+	return m
+}
+
+func resultsOf(m Model) *searchResultsBody {
+	if md := m.modals.Find(searchResultsModalID); md != nil {
+		return md.Body.(*searchResultsBody)
+	}
+	return nil
+}
+
+// TestSearchResultsAuthorFilterCycles guards the 'a' key: it cycles all ->
+// me -> them -> all, narrowing which matches are listed without touching
+// the underlying match set.
 func TestSearchResultsAuthorFilterCycles(t *testing.T) {
-	fullHistory := []Message{
+	history := []Message{
 		{Content: "hello from them", IsMe: false},
 		{Content: "hello from me", IsMe: true},
 		{Content: "hello again them", IsMe: false},
 	}
-	m := newTestModelWithMessages(fullHistory[:1], &fakeHistorySearcher{})
-	m.searchResults = &searchResultsState{
-		accountIdx: 0, chatAddress: "bob@example.test", query: "hello",
-		messages: fullHistory, matches: []int{0, 1, 2},
-	}
-
-	if got := m.searchResults.filteredMatches(); len(got) != 3 {
-		t.Fatalf("filteredMatches() (all) = %v, want 3 matches", got)
-	}
-
-	next, _ := m.Update(keyText("a"))
-	m = next.(Model)
-	if m.searchResults.author != authorFilterMe {
-		t.Fatalf("author after one 'a' press = %v, want authorFilterMe", m.searchResults.author)
-	}
-	if got := m.searchResults.filteredMatches(); len(got) != 1 || got[0] != 1 {
-		t.Fatalf("filteredMatches() (me) = %v, want [1]", got)
-	}
-
-	next, _ = m.Update(keyText("a"))
-	m = next.(Model)
-	if m.searchResults.author != authorFilterThem {
-		t.Fatalf("author after two 'a' presses = %v, want authorFilterThem", m.searchResults.author)
-	}
-	if got := m.searchResults.filteredMatches(); len(got) != 2 || got[0] != 0 || got[1] != 2 {
-		t.Fatalf("filteredMatches() (them) = %v, want [0 2]", got)
-	}
-
-	next, _ = m.Update(keyText("a"))
-	m = next.(Model)
-	if m.searchResults.author != authorFilterAll {
-		t.Fatalf("author after three 'a' presses = %v, want authorFilterAll (wrapped)", m.searchResults.author)
-	}
-	if len(m.searchResults.matches) != 3 {
-		t.Fatalf("underlying matches = %v, want unchanged at 3", m.searchResults.matches)
-	}
-}
-
-// TestSearchResultsPopupFixedFootprint guards the popup's fixed footprint:
-// busy, error, no-matches, and an actual (partial) results page must all
-// render the same number of lines and the same max line width, so the
-// popup never visibly resizes as its state changes underneath the user.
-func TestSearchResultsPopupFixedFootprint(t *testing.T) {
-	m := newTestModelWithMessages(nil, &fakeHistorySearcher{})
-	m.width, m.height = 100, 30
-	m.updateSizes()
-
-	dims := func(sr *searchResultsState) (lines, width int) {
-		m.searchResults = sr
-		body := m.searchResultsPrompt()
-		for _, line := range strings.Split(body, "\n") {
-			lines++
-			if w := lipgloss.Width(line); w > width {
-				width = w
-			}
+	m := searchResultsWith(t, history, []int{0, 1, 2})
+	want := [][]int{{1}, {0, 2}, {0, 1, 2}}
+	for i, w := range want {
+		m = run(t, m, keyText("a"))
+		if got := resultsOf(m).shown; len(got) != len(w) || got[0] != w[0] {
+			t.Fatalf("after %d a presses: listed %v, want %v", i+1, got, w)
 		}
-		return
 	}
-
-	busyLines, busyWidth := dims(&searchResultsState{query: "q", busy: true})
-	errLines, errWidth := dims(&searchResultsState{query: "q", err: "boom"})
-	emptyLines, emptyWidth := dims(&searchResultsState{query: "q", messages: nil, matches: nil})
-
-	fullHistory := []Message{
-		{Content: "one"}, {Content: "two"}, {Content: "three"},
-	}
-	resultsLines, resultsWidth := dims(&searchResultsState{
-		query: "q", messages: fullHistory, matches: []int{0, 1, 2}, peerName: "bob",
-	})
-
-	filteringSr := &searchResultsState{query: "q", messages: fullHistory, matches: []int{0, 1, 2}, peerName: "bob"}
-	filteringSr.filterInput = newSearchResultsFilterInput(m, "a much much longer filter query than any of the others")
-	filteringSr.filtering = true
-	filterLines, filterWidth := dims(filteringSr)
-
-	if busyLines != errLines || errLines != emptyLines || emptyLines != resultsLines || resultsLines != filterLines {
-		t.Fatalf("line counts differ across states: busy=%d err=%d empty=%d results=%d filtering=%d",
-			busyLines, errLines, emptyLines, resultsLines, filterLines)
-	}
-	if busyWidth != errWidth || errWidth != emptyWidth || emptyWidth != resultsWidth || resultsWidth != filterWidth {
-		t.Fatalf("max widths differ across states: busy=%d err=%d empty=%d results=%d filtering=%d",
-			busyWidth, errWidth, emptyWidth, resultsWidth, filterWidth)
+	if len(resultsOf(m).matches) != 3 {
+		t.Fatalf("underlying matches = %v, want unchanged at 3", resultsOf(m).matches)
 	}
 }
 
-// TestSearchResultsFuzzyFilter guards the '/' sub-mode: it opens a text
-// input, typing live-narrows the visible matches via typo-tolerant
-// (Levenshtein) matching against message content, and esc/enter stop
-// editing without closing the whole results popup.
+// TestSearchResultsFixedFootprint guards the results' fixed footprint:
+// busy, error, no matches and an actual list all take the same rows, so
+// the frame never resizes as their state changes underneath the user.
+func TestSearchResultsFixedFootprint(t *testing.T) {
+	history := []Message{{Content: "one"}, {Content: "two"}, {Content: "three"}}
+	m := searchResultsWith(t, history, []int{0, 1, 2})
+	body := resultsOf(m)
+	lines := func() int { return strings.Count(body.View(), "\n") + 1 }
+	results := lines()
+	body.status = "searching…"
+	busy := lines()
+	body.status, body.err = "", "boom"
+	failed := lines()
+	body.err, body.matches = "", nil
+	body.relist()
+	empty := lines()
+	if busy != results || failed != results || empty != results {
+		t.Fatalf("rows differ across states: results=%d busy=%d error=%d empty=%d", results, busy, failed, empty)
+	}
+}
+
+// TestSearchResultsFuzzyFilter guards '/': it asks for a filter that
+// narrows the listed matches by typo-tolerant (Levenshtein) matching
+// against message content; esc there leaves the results open.
 func TestSearchResultsFuzzyFilter(t *testing.T) {
-	fullHistory := []Message{
+	history := []Message{
 		{Content: "I will receive the package tomorrow"},
 		{Content: "completely unrelated message"},
 		{Content: "another receive notice"},
 	}
-	m := newTestModelWithMessages(fullHistory[:1], &fakeHistorySearcher{})
-	m.searchResults = &searchResultsState{
-		accountIdx: 0, chatAddress: "bob@example.test", query: "e",
-		messages: fullHistory, matches: []int{0, 1, 2},
+	m := searchResultsWith(t, history, []int{0, 1, 2})
+
+	m = run(t, m, keyText("/"))
+	if modalTitle(m) != "Filter results" {
+		t.Fatalf("/ opened %q, want the filter", modalTitle(m))
+	}
+	m = run(t, m, keyText("esc"))
+	if resultsOf(m) == nil || modalTitle(m) != "Search: q" {
+		t.Fatal("esc on the filter closed the results too")
 	}
 
-	next, _ := m.Update(keyText("/"))
-	m = next.(Model)
-	if !m.searchResults.filtering {
-		t.Fatal("filtering = false after '/', want true")
-	}
-
+	m = run(t, m, keyText("/"))
 	for _, r := range "recieve" { // deliberate typo, should still fuzzy-match "receive"
-		next, _ := m.Update(keyText(string(r)))
-		m = next.(Model)
+		m = run(t, m, keyText(string(r)))
 	}
-	if got := m.searchResults.filteredMatches(); len(got) != 2 || got[0] != 0 || got[1] != 2 {
-		t.Fatalf("filteredMatches() after typo-query = %v, want [0 2]", got)
+	m = run(t, m, keyText("enter"))
+	if got := resultsOf(m).shown; len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Fatalf("listed after a typo filter = %v, want [0 2]", got)
 	}
-
-	next, _ = m.Update(keyText("esc"))
-	m = next.(Model)
-	if m.searchResults.filtering {
-		t.Fatal("filtering still true after esc, want false")
-	}
-	if m.searchResults == nil {
-		t.Fatal("esc while filtering closed the whole popup, want only filtering mode to close")
-	}
-	if m.searchResults.filterQuery != "recieve" {
-		t.Fatalf("filterQuery after esc = %q, want it preserved as %q", m.searchResults.filterQuery, "recieve")
-	}
-
-	next, _ = m.Update(keyText("esc"))
-	m = next.(Model)
-	if m.searchResults != nil {
-		t.Fatal("second esc (not filtering) should close the whole popup")
+	m = run(t, m, keyText("/"))
+	if modalInput(t, m).Model.Value() != "recieve" {
+		t.Fatalf("the filter reopened as %q, want what was typed before", modalInput(t, m).Model.Value())
 	}
 }
 

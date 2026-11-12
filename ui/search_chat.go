@@ -1,16 +1,15 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jim-ww/kage/ui/datepicker"
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // dateJump is a jump to the start of day in one chat, waiting on the
@@ -69,35 +68,134 @@ func (m *Model) landOnDate(msgs []Message, day time.Time) {
 	}
 }
 
-// searchResultsState holds the state of the search-in-chat results popup,
-// active while Model.searchResults is non-nil. Opened by submitSearchChat
-// once the query prompt is submitted; starts busy while
-// HistorySearcher.SearchHistory runs in the background, then holds the
-// chat's entire persisted history (Messages) plus which indices into it
-// matched the query (Matches) once HistorySearchResultMsg arrives. Only
-// Matches — narrowed further by author (see filteredMatches) — are
-// shown/paginated as rows; Messages exists so picking one has something to
-// anchor the fresh HistoryLoader window load on (see loadSearchResult).
-type searchResultsState struct {
+// searchResultsModalID finds the open search results, to fill them when the
+// search is done.
+const searchResultsModalID = "search-results"
+
+// searchResultsBody is the search-in-chat results: opened busy while
+// HistorySearcher.SearchHistory scans the chat's whole persisted history,
+// then a list of the messages that matched - narrowed by author (a cycles
+// all/me/peer) and a typo-tolerant filter (/ asks for it) - picking one
+// jumps the chat to it (see loadSearchResult). messages is the chat's
+// whole history, so a picked match has something to anchor that load on.
+type searchResultsBody struct {
+	*modal.Menu
 	accountIdx  int
 	chatAddress string
 	peerName    string // the chat's display name, for authorFilter's label
 	query       string
-	pagedCursor
+	messages    []Message
+	matches     []int
+	shown       []int // matches narrowed by author and filter: the list's rows
+	author      authorFilter
+	filter      string
+	status      string
+	err         string
+	m           *Model // for searchResultLabel's formatting only
+	width       int
+	height      int
+}
 
-	busy     bool
-	err      string
-	messages []Message
-	matches  []int
-	author   authorFilter
+// What the results act with: ask for a filter (/).
+type searchResultsFilter struct{}
 
-	// fuzzy-filter sub-mode, entered/exited with '/' while browsing results
-	// (not while busy/erroring). filterQuery persists across toggling
-	// filtering off and back on, so reopening it keeps whatever was typed;
-	// filtering only controls whether filterInput currently has focus.
-	filtering   bool
-	filterInput textinput.Model
-	filterQuery string
+func (b *searchResultsBody) Update(msg tea.Msg) (tea.Cmd, modal.Outcome) {
+	if b.status != "" || b.err != "" {
+		return nil, modal.Continue
+	}
+	if k, ok := msg.(tea.KeyPressMsg); ok {
+		switch {
+		case matchesLetter(k, 'a'):
+			b.author = b.author.next()
+			b.relist()
+			return nil, modal.Continue
+		case matchesLetter(k, '/'):
+			return nil, modal.Act(searchResultsFilter{})
+		}
+	}
+	return b.Menu.Update(msg)
+}
+
+// header says how the results are narrowed.
+func (b *searchResultsBody) header() string {
+	line := "author: " + b.author.label(b.peerName)
+	if b.filter != "" {
+		line += " · filter: " + b.filter
+	}
+	return b.m.styles.messageMuted.Render(line)
+}
+
+// searchResultsRows is how many result rows the list always takes, fewer
+// only when the screen is shorter: busy, an error, no matches and a short
+// list all keep that footprint, so the frame never jumps under the pointer
+// as results arrive or a filter narrows them.
+const searchResultsRows = 9
+
+func (b *searchResultsBody) rows() int { return max(1, min(searchResultsRows, b.height-1)) }
+
+func (b *searchResultsBody) View() string {
+	var view string
+	switch {
+	case b.status != "":
+		view = b.m.styles.messageMuted.Render(b.status)
+	case b.err != "":
+		view = b.m.styles.popupDanger.Render("Error: " + b.err)
+	default:
+		view = b.header() + "\n" + b.Menu.View()
+	}
+	if pad := 1 + b.rows() - (strings.Count(view, "\n") + 1); pad > 0 {
+		view += strings.Repeat("\n", pad)
+	}
+	return view
+}
+
+func (b *searchResultsBody) SetSize(width, height int) {
+	b.width, b.height = width, height
+	b.Menu.SetSize(width, b.rows())
+	b.relist()
+}
+
+func (b *searchResultsBody) PreferredWidth() int { return 60 }
+
+func (b *searchResultsBody) Hints() []modal.Hint {
+	if b.status != "" || b.err != "" {
+		return nil
+	}
+	return []modal.Hint{
+		modal.KeyHint(tea.KeyPressMsg{Code: tea.KeyEnter}, "jump"),
+		modal.KeyHint(tea.KeyPressMsg{Code: '/', Text: "/"}, "filter"),
+		modal.KeyHint(tea.KeyPressMsg{Code: 'a', Text: "a"}, "author"),
+	}
+}
+
+// relist narrows matches by author and filter into the list's rows: the
+// direction glyph and message, the date at the right.
+func (b *searchResultsBody) relist() {
+	b.shown = b.shown[:0]
+	for _, idx := range b.matches {
+		msg := b.messages[idx]
+		if b.author != authorFilterAll && msg.IsMe != (b.author == authorFilterMe) {
+			continue
+		}
+		if strings.TrimSpace(b.filter) != "" && !fuzzyContains(msg.Content, b.filter) {
+			continue
+		}
+		b.shown = append(b.shown, idx)
+	}
+	items := make([]modal.MenuItem, len(b.shown))
+	for i, idx := range b.shown {
+		text, date := b.m.searchResultLabel(b.messages[idx])
+		if b.width > 0 {
+			room := max(1, b.width-lipgloss.Width(date)-2)
+			text = ansi.Truncate(text, room, "…")
+			text += strings.Repeat(" ", max(2, b.width-lipgloss.Width(text)-lipgloss.Width(date)))
+		} else {
+			text += "  "
+		}
+		items[i] = modal.MenuItem{Label: text + date}
+	}
+	b.Empty = "no matches"
+	b.SetItems(items...)
 }
 
 // authorFilter narrows the search-results popup to messages from one
@@ -131,177 +229,18 @@ func (f authorFilter) next() authorFilter {
 	return (f + 1) % 3
 }
 
-// filteredMatches returns sr.matches narrowed by sr.author and then by
-// sr.filterQuery (typo-tolerant, see fuzzyContains) — author first since
-// it's the cheaper, exact filter.
-func (sr *searchResultsState) filteredMatches() []int {
-	out := sr.matches
-	if sr.author != authorFilterAll {
-		wantMe := sr.author == authorFilterMe
-		narrowed := make([]int, 0, len(out))
-		for _, idx := range out {
-			if sr.messages[idx].IsMe == wantMe {
-				narrowed = append(narrowed, idx)
-			}
-		}
-		out = narrowed
-	}
-	if strings.TrimSpace(sr.filterQuery) != "" {
-		narrowed := make([]int, 0, len(out))
-		for _, idx := range out {
-			if fuzzyContains(sr.messages[idx].Content, sr.filterQuery) {
-				narrowed = append(narrowed, idx)
-			}
-		}
-		out = narrowed
-	}
-	return out
-}
-
-// renderSearchResultsPopup shows the search-in-chat results popup: one row
-// per matched message (glyph, truncated content, date), paginated like the
-// contact manager/OMEMO device list.
-func (m Model) renderSearchResultsPopup() string {
-	cw := m.chatAreaWidth()
-	vh := m.popupAreaHeight()
-
-	popup := m.styles.popupDialog(m.styles.colors.borderA, m.popupWidth(), m.searchResultsPrompt())
-	popup = m.zone.Mark(zoneSearchResultsPopup, popup)
-	return lipgloss.Place(cw, vh, lipgloss.Center, lipgloss.Center, popup)
-}
-
-// searchResultsPopupRows is how many result rows the popup always reserves
-// space for — a short last page, or the busy/error/no-matches states, are
-// padded with blank rows up to this many so the popup never visibly resizes
-// as its state changes. Matches openItemsPerPage, the page size
-// pagedCursor.bounds already uses.
-const searchResultsPopupRows = openItemsPerPage
-
-// searchResultsPopupWidth is the popup's fixed interior (pre-border/padding)
-// width: recomputed from the current terminal size on every render, so it
-// still adapts across resizes, but held constant within a single render
-// regardless of how long any row's content happens to be.
-func (m Model) searchResultsPopupWidth() int {
-	return min(max(20, m.chatAreaWidth()-10), 60)
-}
-
-func (m Model) searchResultsPrompt() string {
-	sr := m.searchResults
-	if sr == nil {
-		return ""
-	}
-	closeKey := m.keys.SearchChat.Help().Key
-	width := m.searchResultsPopupWidth()
-	title := ansi.Truncate(fmt.Sprintf("Search: %s", sr.query), width, "…")
-	footer := "[esc/" + closeKey + "] close"
-
-	// filterLine is always rendered (even while busy/erroring, as a
-	// placeholder) so toggling the '/' filter on/off never changes the
-	// popup's line count, matching every other state here.
-	var filterLine string
-	switch {
-	case sr.filtering:
-		filterLine = "Filter: " + sr.filterInput.View()
-	case sr.filterQuery != "":
-		filterLine = fmt.Sprintf("Filter: %s  (/ to edit)", sr.filterQuery)
-	default:
-		filterLine = "(/ to filter)"
-	}
-	filterLine = ansi.Truncate(filterLine, width, "…")
-
-	// content holds each state's rows, always truncated (not just padded) to
-	// width before rows pads it out to searchResultsPopupRows below — a long
-	// query, error, or peer name here must not widen the popup any more than
-	// a long message preview does.
-	var content []string
-	matches := sr.filteredMatches()
-	switch {
-	case sr.busy:
-		content = []string{ansi.Truncate("Searching…", width, "…")}
-	case sr.err != "":
-		content = []string{ansi.Truncate("Error: "+sr.err, width, "…")}
-	case len(matches) == 0:
-		content = []string{ansi.Truncate(fmt.Sprintf("No matches (author: %s)", sr.author.label(sr.peerName)), width, "…")}
-	default:
-		start, end := sr.bounds(len(matches))
-		page := matches[start:end]
-		if sr.cursor >= len(page) {
-			sr.cursor = max(0, len(page)-1)
-		}
-		// Right-align each row's date against the widest date on this page —
-		// they're all the same format so this is normally a no-op — and
-		// truncate the text part to whatever's left of the fixed width
-		// (accounting for renderRow's 2-cell cursor/hover prefix and a
-		// 2-cell gap before the date) rather than let a long preview widen
-		// the popup.
-		texts := make([]string, len(page))
-		dates := make([]string, len(page))
-		dateWidth := 0
-		for i, msgIdx := range page {
-			texts[i], dates[i] = m.searchResultLabel(sr.messages[msgIdx])
-			dateWidth = max(dateWidth, lipgloss.Width(dates[i]))
-		}
-		textBudget := max(1, width-2-2-dateWidth)
-		content = make([]string, len(page))
-		for i := range page {
-			text := ansi.Truncate(texts[i], textBudget, "…")
-			gap := textBudget - lipgloss.Width(text) + 2
-			label := text + strings.Repeat(" ", gap) + dates[i]
-			content[i] = m.renderRow(zoneSearchResultRow(i), i, sr.cursor, label)
-		}
-
-		hint := fmt.Sprintf("/: filter · a: author (%s) · enter: jump", sr.author.label(sr.peerName))
-		if pages := openPageCount(len(matches)); pages > 1 {
-			hint = fmt.Sprintf("page %d/%d · left/right: page · %s", sr.page+1, pages, hint)
-		}
-		footer = hint + "  ·  [esc/" + closeKey + "] close"
-	}
-	if sr.filtering {
-		footer = "[enter/esc] stop editing filter"
-	}
-
-	// Pad every state up to the same fixed row count/width so the popup's
-	// total footprint (border+padding around title+rows+blank+footer) never
-	// changes between busy, error, empty, and a full or partial results
-	// page. content's rows are already truncated to width above — pad-only
-	// here, since content[i] may already carry renderRow's zone marks and
-	// truncating those post-hoc risks cutting a mark's start/end pair.
-	blankRow := strings.Repeat(" ", width)
-	rows := make([]string, 1+searchResultsPopupRows)
-	rows[0] = filterLine
-	for i := 1; i < len(rows); i++ {
-		if i-1 < len(content) {
-			rows[i] = padLinesToWidth(content[i-1], width)
-		} else {
-			rows[i] = blankRow
-		}
-	}
-	// listPopup indents the footer by 2 spaces ("\n\n  " + footer), so it
-	// must be truncated 2 narrower than width, not to width itself, or a
-	// long hint would push the popup 2 cells wider than every other state.
-	footer = ansi.Truncate(footer, max(1, width-2), "…")
-
-	return m.styles.listPopup(title, rows, footer)
-}
-
 // searchResultLabel formats a search-result row's two parts: the direction
-// glyph plus truncated message content, and its date — returned separately
-// so the caller can right-align the date against the widest text part on
-// the page instead of just trailing each row by a fixed gap. The glyph and
-// date are colored by sender the same way the chat view's own message
-// header is (see renderMessageHeader) so a result list reads consistently
-// with the chat it's drawn from; the message text itself stays plain, same
-// as a message's body in the chat view.
+// glyph (» mine, « theirs) plus truncated message content, and its date —
+// returned separately so the caller can right-align the date. Plain text:
+// a list row is highlighted whole, and colors inside it would cut the
+// highlight short.
 func (m Model) searchResultLabel(msg Message) (text, date string) {
-	style := m.styles.messageNickThem
 	glyph := "«"
 	if msg.IsMe {
-		style = m.styles.messageNickMe
 		glyph = "»"
 	}
 	content := MessagePreviewContent(msg)
-	stamp := searchResultDate(msg.SentAt, time.Now(), m.formatMessageTime(msg.SentAt))
-	return style.Render(glyph) + " " + previewText(content, previewLen), style.Render(stamp)
+	return glyph + " " + previewText(content, previewLen), searchResultDate(msg.SentAt, time.Now(), m.formatMessageTime(msg.SentAt))
 }
 
 // searchResultDate stamps a result row: timePart alone (the chat view's own
@@ -321,139 +260,48 @@ func searchResultDate(t, now time.Time, timePart string) string {
 	}
 }
 
-// updateSearchResultsKey handles all input while the search-results popup
-// (m.searchResults != nil) is open.
-func (m Model) updateSearchResultsKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
-	sr := m.searchResults
-
-	if sr.busy {
-		return m, nil, true
-	}
-	if sr.err != "" {
-		if matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) || matchesKey(msg, m.keys.SearchChat) {
-			m.searchResults = nil
-		}
-		return m, nil, true
-	}
-
-	if sr.filtering {
-		switch {
-		case msg.String() == "esc", matchesKey(msg, m.keys.SelectSend):
-			sr.filtering = false
-		default:
-			var cmd tea.Cmd
-			sr.filterInput, cmd = sr.filterInput.Update(msg)
-			sr.filterQuery = sr.filterInput.Value()
-			sr.cursor, sr.page = 0, 0
-			return m, cmd, true
-		}
-		return m, nil, true
-	}
-
-	if matchesLetter(msg, 'a') {
-		sr.author = sr.author.next()
-		sr.cursor, sr.page = 0, 0
-		return m, nil, true
-	}
-	if matchesLetter(msg, '/') {
-		sr.filterInput = newSearchResultsFilterInput(m, sr.filterQuery)
-		sr.filtering = true
-		return m, textinput.Blink, true
-	}
-
-	matches := sr.filteredMatches()
-	if len(matches) == 0 {
-		if matchesKey(msg, m.keys.Back) || matchesKey(msg, m.keys.ConfirmNo) || matchesKey(msg, m.keys.SearchChat) {
-			m.searchResults = nil
-		}
-		return m, nil, true
-	}
-
-	start, end := sr.bounds(len(matches))
-	rowCount := end - start
-
-	if sr.handleNavKey(msg, rowCount, len(matches)) {
-		return m, nil, true
-	}
-
-	switch {
-	case matchesKey(msg, m.keys.SelectSend):
-		if sr.cursor >= 0 && sr.cursor < rowCount {
-			cmd := m.loadSearchResult(matches[start+sr.cursor])
-			m.searchResults = nil
-			return m, cmd, true
-		}
-		return m, nil, true
-	case matchesKey(msg, m.keys.Back), matchesKey(msg, m.keys.ConfirmNo), matchesKey(msg, m.keys.SearchChat):
-		m.searchResults = nil
-	}
-	return m, nil, true
-}
-
-// newSearchResultsFilterInput builds the '/' filter's text input, prefilled
-// with value (whatever was typed the last time filtering was active, if
-// any) and focused/cursor-at-end so reopening it continues editing rather
-// than starting over.
-func newSearchResultsFilterInput(m Model, value string) textinput.Model {
-	ti := textinput.New()
-	ti.Prompt = "/ "
-	ti.Placeholder = "filter results"
-	ti.KeyMap = m.keys.TextInputKeys
-	ti.SetWidth(addAccountFieldWidth)
-	applyTextInputStyles(&ti, m.styles.colors)
-	ti.SetValue(value)
-	ti.CursorEnd()
-	ti.Focus()
-	return ti
+// openSearchResults shows the results of searching the current chat for
+// query, busy until HistorySearchResultMsg brings them.
+func (m *Model) openSearchResults(accountIdx int, chat Chat, query string) tea.Cmd {
+	menu := modal.NewMenu()
+	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
+	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
+	body := &searchResultsBody{Menu: menu, accountIdx: accountIdx, chatAddress: chat.Address, peerName: chat.Name, query: query, status: "searching…", m: m}
+	return m.openModal(&modal.Modal[*Model]{
+		ID:    searchResultsModalID,
+		Title: "Search: " + query,
+		Body:  body,
+		OnSubmit: func(m *Model, v any) tea.Cmd {
+			return m.loadSearchResult(body.accountIdx, body.chatAddress, body.messages[body.shown[v.(int)]])
+		},
+		OnAct: func(m *Model, _ any) tea.Cmd {
+			return m.openModal(&modal.Modal[*Model]{
+				Title: "Filter results",
+				Body:  m.newInput(body.filter, "filter results", "/ ", "filter"),
+				OnSubmit: func(m *Model, v any) tea.Cmd {
+					body.filter = v.(string)
+					body.relist()
+					return nil
+				},
+			})
+		},
+	})
 }
 
 // loadSearchResult fires a HistoryLoader request for a fresh window anchored
-// on sr.messages[msgIdx] — the same anchor-based load every other window
+// on target — the same anchor-based load every other window
 // transition uses (see HistoryAnchor's doc comment), just with the anchor
 // coming from a search match instead of a scroll edge.
-func (m *Model) loadSearchResult(msgIdx int) tea.Cmd {
-	sr := m.searchResults
-	chatIdx := m.chatIndexByAddress(sr.accountIdx, sr.chatAddress)
+func (m *Model) loadSearchResult(accountIdx int, chatAddress string, target Message) tea.Cmd {
+	chatIdx := m.chatIndexByAddress(accountIdx, chatAddress)
 	if chatIdx < 0 || m.historyLoader == nil {
 		return nil
 	}
-	target := sr.messages[msgIdx]
 	anchor := &HistoryAnchor{Delay: target.SentAt.Unix(), StoreID: target.StoreID}
-	cmd := m.historyLoader.LoadHistoryWindow(sr.accountIdx, sr.chatAddress, anchor)
+	cmd := m.historyLoader.LoadHistoryWindow(accountIdx, chatAddress, anchor)
 	if cmd == nil {
 		return nil // see markHistoryWindowLoading
 	}
 	m.markHistoryWindowLoading(chatIdx, target.ID)
 	return cmd
-}
-
-// handleSearchResultsClick handles mouse clicks while the search-results
-// popup is open: clicking a row moves the cursor there (left click also
-// jumps to it); clicking outside the popup closes it.
-func (m Model) handleSearchResultsClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	sr := m.searchResults
-	if sr.busy || sr.err != "" || sr.filtering {
-		return m, nil
-	}
-
-	if !m.zone.Get(zoneSearchResultsPopup).InBounds(msg) {
-		m.searchResults = nil
-		return m, nil
-	}
-
-	matches := sr.filteredMatches()
-	if len(matches) == 0 {
-		return m, nil
-	}
-
-	start, end := sr.bounds(len(matches))
-	if i := m.rowUnderMouse(msg, end-start, zoneSearchResultRow); i >= 0 {
-		sr.cursor = i
-		if msg.Mouse().Button == tea.MouseLeft {
-			cmd := m.loadSearchResult(matches[start+i])
-			m.searchResults = nil
-			return m, cmd
-		}
-	}
-	return m, nil
 }

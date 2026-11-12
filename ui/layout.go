@@ -95,10 +95,7 @@ func (m Model) narrow() bool { return m.width < narrowWidth }
 // picker). In narrow mode these need the full-width chat pane to render
 // into even while the chat list is the logically selected view.
 func (m Model) popupActive() bool {
-	return m.modals.Open() ||
-		m.pickingFile ||
-		m.avatarPreview != nil ||
-		m.searchResults != nil
+	return m.modals.Open() || m.pickingFile || m.avatarPreview != nil
 }
 
 // narrowShowChat reports, in narrow mode, whether the single visible pane

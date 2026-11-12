@@ -589,8 +589,8 @@ func (m *Model) actionSearchChat() tea.Cmd {
 }
 
 // searchChat kicks off
-// historySearcher.SearchHistory as a tea.Cmd, opening searchResults in its
-// busy state so the popup shows immediately while the scan runs.
+// historySearcher.SearchHistory as a tea.Cmd, opening the results busy so
+// they show at once while the scan runs.
 func (m *Model) searchChat(query string) tea.Cmd {
 	query = strings.TrimSpace(query)
 	chat, ok := m.currentChat()
@@ -600,8 +600,7 @@ func (m *Model) searchChat(query string) tea.Cmd {
 
 	accountIdx := m.currentAccount
 	to := chat.Address
-	m.searchResults = &searchResultsState{accountIdx: accountIdx, chatAddress: to, peerName: chat.Name, query: query, busy: true}
-	return m.historySearcher.SearchHistory(accountIdx, to, query)
+	return tea.Batch(m.openSearchResults(accountIdx, chat, query), m.historySearcher.SearchHistory(accountIdx, to, query))
 }
 
 func (m *Model) actionYankMessage() tea.Cmd {

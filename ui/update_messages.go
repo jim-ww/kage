@@ -521,19 +521,23 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 
 	case HistorySearchResultMsg:
-		sr := m.searchResults
-		if sr == nil || sr.accountIdx != msg.AccountIdx || sr.chatAddress != msg.From || sr.query != msg.Query {
-			// A later search (or the popup being closed) superseded this
+		md := m.modals.Find(searchResultsModalID)
+		if md == nil {
+			return m, nil, true
+		}
+		body := md.Body.(*searchResultsBody)
+		if body.accountIdx != msg.AccountIdx || body.chatAddress != msg.From || body.query != msg.Query {
+			// A later search (or the results being closed) superseded this
 			// result — discard it rather than overwrite unrelated state.
 			return m, nil, true
 		}
-		sr.busy = false
+		body.status = ""
 		if msg.Err != nil {
-			sr.err = msg.Err.Error()
+			body.err = msg.Err.Error()
 			return m, nil, true
 		}
-		sr.messages = msg.Messages
-		sr.matches = msg.Matches
+		body.messages, body.matches = msg.Messages, msg.Matches
+		body.relist()
 		return m, nil, true
 
 	case MessageCorrectedMsg:

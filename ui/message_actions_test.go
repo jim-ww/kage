@@ -405,11 +405,11 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 
 	next, cmd := m.Update(keyText("enter"))
 	m = next.(Model)
-	if m.modals.Open() {
-		t.Fatal("the search stayed open after submitting")
+	if modalTitle(m) != "Search: hello" {
+		t.Fatalf("submitting showed %q, want the results", modalTitle(m))
 	}
-	if m.searchResults == nil || !m.searchResults.busy {
-		t.Fatal("searchResults not opened in its busy state after submitting")
+	if resultsOf(m) == nil || resultsOf(m).status == "" {
+		t.Fatal("results not opened in their busy state after submitting")
 	}
 	resultMsg := nonIdleCmd(cmd)
 	if resultMsg == nil {
@@ -418,17 +418,17 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 
 	next, _ = m.Update(resultMsg)
 	m = next.(Model)
-	if m.searchResults == nil || m.searchResults.busy {
-		t.Fatalf("searchResults still busy after HistorySearchResultMsg arrived: %+v", m.searchResults)
+	if resultsOf(m) == nil || resultsOf(m).status != "" {
+		t.Fatal("results still busy after HistorySearchResultMsg arrived")
 	}
-	if len(m.searchResults.matches) != 2 {
-		t.Fatalf("searchResults.matches = %v, want 2 matches", m.searchResults.matches)
+	if len(resultsOf(m).matches) != 2 {
+		t.Fatalf("matches = %v, want 2", resultsOf(m).matches)
 	}
 
 	next, pickCmd := m.Update(keyText("enter"))
 	m = next.(Model)
-	if m.searchResults != nil {
-		t.Fatal("searchResults still open after picking a result")
+	if resultsOf(m) != nil {
+		t.Fatal("results still open after picking a result")
 	}
 	windowMsg := nonIdleCmd(pickCmd)
 	if windowMsg == nil {

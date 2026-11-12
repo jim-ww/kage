@@ -29,7 +29,6 @@ const (
 	zoneAttachButton          = "attach-button"
 	zoneReplyHintCancel       = "reply-hint-cancel"
 	zoneToggleSidebar         = "toggle-sidebar-button"
-	zoneSearchResultsPopup    = "search-results-popup"
 	zoneCallAnswer            = "call-answer-button"
 	zoneCallReject            = "call-reject-button"
 	zoneCallMute              = "call-mute-button"
@@ -62,7 +61,6 @@ func zoneMessageReactKey(i int) string    { return fmt.Sprintf("msg-react-key-%d
 func zoneMessageExpand(i int) string      { return fmt.Sprintf("msg-expand-%d", i) }
 func zoneMessageReaction(i, j int) string { return fmt.Sprintf("msg-reaction-%d-%d", i, j) }
 func zoneAttachmentRemove(i int) string   { return fmt.Sprintf("attachment-remove-%d", i) }
-func zoneSearchResultRow(i int) string    { return fmt.Sprintf("search-result-row-%d", i) }
 
 // messageIndexFromZone extracts i back out of a zoneMessage(i) ID, for code
 // (handleMouseMotion) that only has the zone ID from zoneUnderMouse and
@@ -455,19 +453,6 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 // handleLeftClick/handleRightClick, but restricted to the context menu's
 // own items while one is open — nothing underneath it is reachable.
 func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
-	if m.searchResults != nil {
-		sr := m.searchResults
-		if matches := sr.filteredMatches(); !sr.busy && sr.err == "" && !sr.filtering && len(matches) > 0 {
-			start, end := sr.bounds(len(matches))
-			for i := 0; i < end-start; i++ {
-				if m.zone.Get(zoneSearchResultRow(i)).InBounds(mouse) {
-					return zoneSearchResultRow(i)
-				}
-			}
-		}
-		return ""
-	}
-
 	// The call bar's own buttons take priority the same way zoneSendButton
 	// etc. do — it's a fixed status-bar area, so it should win over anything
 	// happening to render underneath it.
@@ -538,10 +523,6 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.pickingFile {
 		return m.handleFilePickerClick(msg)
-	}
-
-	if m.searchResults != nil {
-		return m.handleSearchResultsClick(msg)
 	}
 
 	if msg.Mouse().Button == tea.MouseLeft {

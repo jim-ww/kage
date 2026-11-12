@@ -24,11 +24,6 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	}
 
-	// ── Search-results popup intercepts all input until closed ──────────
-	if m.searchResults != nil {
-		return m.updateSearchResultsKey(msg)
-	}
-
 	// ── Avatar preview sits on top of the still-open picker ────────────
 	if m.avatarPreview != nil {
 		return m.updateAvatarPreviewKey(msg)
