@@ -59,11 +59,11 @@ func DefaultTheme() Theme { return TerminalTheme() }
 // at which Tokyo Night's terminal palette has the colors TokyoNightTheme
 // uses, so a Tokyo Night terminal looks as it does with that preset. AppBg
 // is left empty for the caller to fill with the terminal's real background
-// (see newUIColors for what it's needed for).
+// (see newUIColors for what it's needed for), and PanelEdge and NoticeBg -
+// shades just off that background - are worked out from it.
 func TerminalTheme() Theme {
 	return Theme{
 		Preset:      ThemeTerminal,
-		PanelEdge:   "8",
 		TextMuted:   "7",
 		Time:        "8",
 		BorderD:     "8",

@@ -123,11 +123,15 @@ func newUIColors(theme Theme) uiColors {
 	if noticeBg == "" {
 		noticeBg = tint(theme, 0.5)
 	}
+	panelEdge := theme.PanelEdge
+	if panelEdge == "" {
+		panelEdge = tint(theme, 0.45)
+	}
 	return uiColors{
 		appBg: lipgloss.Color(appBg),
 		// panelBg:    lipgloss.Color(theme.PanelBg),
 		// panelAltBg: lipgloss.Color(theme.PanelAltBg),
-		panelEdge: lipgloss.Color(theme.PanelEdge),
+		panelEdge: lipgloss.Color(panelEdge),
 		// logBg:      lipgloss.Color(theme.LogBg),
 		themFg:     lipgloss.Color(theme.ThemFg),
 		textMuted:  lipgloss.Color(theme.TextMuted),
