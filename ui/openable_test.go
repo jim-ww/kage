@@ -1,10 +1,17 @@
 package ui
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/jim-ww/kage/crypto/aesgcm"
 )
 
 // TestOpenableItemsDedupesOwnUpload guards against a real bug: SendFile puts
@@ -62,5 +69,43 @@ func TestAttachmentLocalPathUsesCacheDirRegardlessOfEncryption(t *testing.T) {
 	encrypted := attachmentLocalPath("aesgcm://upload.example.com/abc/file.txt#"+anchor, "alice@example.com")
 	if !strings.HasPrefix(encrypted, filepath.Join(dir, "alice@example.com")+string(filepath.Separator)) {
 		t.Fatalf("aesgcm attachment path = %q, want it under %q (AttachmentsDir)", encrypted, filepath.Join(dir, "alice@example.com"))
+	}
+}
+
+// TestDownloadToDest checks a save writes the file - decrypted, for an
+// aesgcm:// one - and caches it for opening later.
+func TestDownloadToDest(t *testing.T) {
+	plain := []byte("attachment body")
+	ct, iv, key, err := aesgcm.Encrypt(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/enc/") {
+			w.Write(ct)
+			return
+		}
+		w.Write(plain)
+	}))
+	defer srv.Close()
+	prevClient, prevDir := http.DefaultClient, AttachmentsDir
+	http.DefaultClient, AttachmentsDir = srv.Client(), t.TempDir()
+	t.Cleanup(func() { http.DefaultClient, AttachmentsDir = prevClient, prevDir })
+
+	encURL, err := aesgcm.BuildAESGCMURL(srv.URL+"/enc/file.txt", iv, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{srv.URL + "/plain/file.txt", encURL} {
+		dest := filepath.Join(t.TempDir(), "saved.txt")
+		msg := downloadToDest(target, dest, "bob@example.test", make(chan tea.Msg, 64)).(saveResultMsg)
+		if msg.err != nil || msg.path != dest {
+			t.Fatalf("%s: path %q err %v", target, msg.path, msg.err)
+		}
+		for _, path := range []string{dest, attachmentLocalPath(target, "bob@example.test")} {
+			if got, err := os.ReadFile(path); err != nil || string(got) != string(plain) {
+				t.Fatalf("%s: %s has %q (%v), want %q", target, path, got, err, plain)
+			}
+		}
 	}
 }

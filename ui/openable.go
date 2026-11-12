@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -25,7 +23,7 @@ import (
 var urlPattern = regexp.MustCompile(`https?://\S+|aesgcm://\S+`)
 
 // AttachmentsDir overrides where decrypted/downloaded attachments are cached
-// for viewing (see attachmentCacheDir) — set once at startup from config.
+// for viewing (see attachmentRoot) — set once at startup from config.
 // Empty means the os.UserCacheDir()-based default.
 var AttachmentsDir string
 
@@ -152,7 +150,7 @@ func attachmentIcon(name string, icons bool) string {
 }
 
 // sanitizeJIDForPath turns a JID into a single filesystem-safe path
-// component for attachmentCacheDir's per-chat subdirectory: strips any
+// component for the attachments cache's per-chat subdirectory: strips any
 // /resource, and replaces path separators that would otherwise split it
 // into extra directory levels or escape the attachments dir.
 func sanitizeJIDForPath(jid string) string {
@@ -176,7 +174,7 @@ func AttachmentLocalPath(target, jid string) string {
 }
 
 // attachmentLocalPath returns the destination path target would already be
-// at if opened via Ctrl+O - always the attachments cache (attachmentCacheDir),
+// at if opened via Ctrl+O - always the attachments cache (attachmentRoot),
 // mirroring the exact destination downloadAndOpen uses regardless of whether
 // target is aesgcm:// or plain http(s)://. Empty if target's download URL
 // can't be determined. Doesn't create the directory: this runs on every
@@ -186,19 +184,25 @@ func attachmentLocalPath(target, jid string) string {
 	if downloadURL == "" {
 		return ""
 	}
-	base := attachmentBaseName(downloadURL)
-
-	dir := AttachmentsDir
-	if dir == "" {
-		cacheBase, err := os.UserCacheDir()
-		if err != nil {
-			return ""
-		}
-		dir = filepath.Join(cacheBase, "kage", "attachments")
+	root, err := attachmentRoot()
+	if err != nil {
+		return ""
 	}
-	dir = filepath.Join(dir, sanitizeJIDForPath(jid))
 	sum := sha256.Sum256([]byte(target))
-	return filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
+	return filepath.Join(root, sanitizeJIDForPath(jid), hex.EncodeToString(sum[:8])+"-"+attachmentBaseName(downloadURL))
+}
+
+// attachmentRoot is the attachments cache: AttachmentsDir, or under the
+// user cache dir.
+func attachmentRoot() (string, error) {
+	if AttachmentsDir != "" {
+		return AttachmentsDir, nil
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("finding cache directory: %w", err)
+	}
+	return filepath.Join(base, "kage", "attachments"), nil
 }
 
 // isAttachmentDownloaded reports whether target already has a local copy —
@@ -369,12 +373,7 @@ func openWithXDGOpen(target string, isAttachment bool, jid string) tea.Cmd {
 	isRemoteURL := strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "aesgcm://")
 	downloadFirst := strings.HasPrefix(target, "aesgcm://") || (isAttachment && isRemoteURL)
 	if !downloadFirst {
-		return func() tea.Msg {
-			cmd := exec.Command("xdg-open", target)
-			cmd.SysProcAttr = detachedSysProcAttr()
-			err := cmd.Start()
-			return openResultMsg{target: target, err: err}
-		}
+		return func() tea.Msg { return openResultMsg{target: target, err: xdgOpen(target)} }
 	}
 
 	ch := make(chan tea.Msg, 8)
@@ -386,102 +385,88 @@ func openWithXDGOpen(target string, isAttachment bool, jid string) tea.Cmd {
 
 // downloadAndOpen does the actual download(+decrypt)+open work for
 // openWithXDGOpen's attachment path, reporting progress on ch as it goes.
-// Split out so openWithXDGOpen's Cmd construction (which must return
-// immediately) stays simple.
+// The file is cached by a hash of the full target (for aesgcm://,
+// URL+iv+key all factor into the plaintext), so re-opening the same
+// attachment reuses the already-downloaded copy (unlike an explicit "Save
+// As", which always wants a fresh, uniquely-named file in Downloads).
 func downloadAndOpen(target, jid string, ch chan tea.Msg) tea.Msg {
-	// Cache the (decrypted, for aesgcm://) file by a hash of the full
-	// target (for aesgcm://, URL+iv+key all factor into the plaintext), so
-	// re-opening the same attachment for viewing reuses the
-	// already-downloaded copy instead of writing a new one each time
-	// (unlike an explicit "Save As", which always wants a fresh,
-	// uniquely-named file in Downloads).
-	downloadURL := target
-	var iv, key []byte
-	if strings.HasPrefix(target, "aesgcm://") {
-		var parseErr error
-		downloadURL, iv, key, parseErr = aesgcm.ParseAESGCMURL(target)
-		if parseErr != nil {
-			return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("parsing aesgcm URL: %w", parseErr)}
-		}
+	result := func(err error) tea.Msg { return openResultMsg{target: target, isAttachment: true, err: err} }
+	dest, err := attachmentCachePath(target, jid)
+	if err != nil {
+		return result(err)
 	}
+	if _, err := os.Stat(dest); err == nil {
+		return result(xdgOpen(dest))
+	}
+	data, err := fetchAttachment(target, ch)
+	if err != nil {
+		return result(err)
+	}
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if os.IsExist(err) {
+		// Lost a race with another concurrent open of the same attachment;
+		// the other one already wrote dest.
+		return result(xdgOpen(dest))
+	}
+	if err != nil {
+		return result(err)
+	}
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		os.Remove(dest)
+		return result(err)
+	}
+	return result(xdgOpen(dest))
+}
 
-	dir, dirErr := attachmentCacheDir(jid)
-	if dirErr != nil {
-		return openResultMsg{target: target, isAttachment: true, err: dirErr}
+// fetchAttachment downloads target - an http(s):// or aesgcm:// URL, the
+// latter decrypted (XEP-0454) - reporting progress on ch as it goes.
+func fetchAttachment(target string, ch chan tea.Msg) ([]byte, error) {
+	downloadURL := attachmentDownloadURL(target)
+	if downloadURL == "" {
+		return nil, fmt.Errorf("not a downloadable URL: %s", target)
 	}
-	base := filepath.Base(downloadURL)
-	if idx := strings.IndexAny(base, "?#"); idx >= 0 {
-		base = base[:idx]
-	}
-	if base == "" || base == "." || base == "/" {
-		base = "download"
-	}
-	sum := sha256.Sum256([]byte(target))
-	dest := filepath.Join(dir, hex.EncodeToString(sum[:8])+"-"+base)
-
-	if _, statErr := os.Stat(dest); statErr == nil {
-		cmd := exec.Command("xdg-open", dest)
-		cmd.SysProcAttr = detachedSysProcAttr()
-		err := cmd.Start()
-		return openResultMsg{target: target, isAttachment: true, err: err}
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
-	if reqErr != nil {
-		return openResultMsg{target: target, isAttachment: true, err: reqErr}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return nil, err
 	}
-	resp, httpErr := http.DefaultClient.Do(req)
-	if httpErr != nil {
-		return openResultMsg{target: target, isAttachment: true, err: httpErr}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("download failed: HTTP %d", resp.StatusCode)}
+		return nil, fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
 	}
-
+	// Wrapped even when ContentLength is unknown (chunked transfer-encoding)
+	// - throttledProgressSender falls back to byte-based throttling then, so
+	// the transfer still shows progress.
 	label := "downloading " + attachmentDisplayName(target)
-	// Wrap unconditionally, even when ContentLength is unknown (chunked
-	// transfer-encoding) - throttledProgressSender falls back to byte-based
-	// throttling in that case, so the transfer still shows progress instead
-	// of appearing to do nothing until the whole download completes.
-	body := io.Reader(&progressReader{Reader: resp.Body, total: resp.ContentLength, onProgress: throttledProgressSender(ch, target, label)})
-	data, readErr := io.ReadAll(body)
-	if readErr != nil {
-		return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("reading download: %w", readErr)}
+	data, err := io.ReadAll(&progressReader{Reader: resp.Body, total: resp.ContentLength, onProgress: throttledProgressSender(ch, target, label)})
+	if err != nil {
+		return nil, fmt.Errorf("reading download: %w", err)
 	}
+	if !strings.HasPrefix(target, "aesgcm://") {
+		return data, nil
+	}
+	_, iv, key, err := aesgcm.ParseAESGCMURL(target)
+	if err != nil {
+		return nil, fmt.Errorf("parsing aesgcm URL: %w", err)
+	}
+	data, err = aesgcm.Decrypt(data, iv, key)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting file: %w", err)
+	}
+	return data, nil
+}
 
-	if iv != nil && key != nil {
-		var decryptErr error
-		data, decryptErr = aesgcm.Decrypt(data, iv, key)
-		if decryptErr != nil {
-			return openResultMsg{target: target, isAttachment: true, err: fmt.Errorf("decrypting file: %w", decryptErr)}
-		}
-	}
-
-	f, openErr := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if os.IsExist(openErr) {
-		// Lost a race with another concurrent open of the same attachment;
-		// the other one already wrote dest.
-		cmd := exec.Command("xdg-open", dest)
-		cmd.SysProcAttr = detachedSysProcAttr()
-		err := cmd.Start()
-		return openResultMsg{target: target, isAttachment: true, err: err}
-	}
-	if openErr != nil {
-		return openResultMsg{target: target, isAttachment: true, err: openErr}
-	}
-	defer f.Close()
-	if _, copyErr := io.Copy(f, bytes.NewReader(data)); copyErr != nil {
-		os.Remove(dest)
-		return openResultMsg{target: target, isAttachment: true, err: copyErr}
-	}
-
-	cmd := exec.Command("xdg-open", dest)
+// xdgOpen opens path with the desktop's default application for it.
+func xdgOpen(path string) error {
+	cmd := exec.Command("xdg-open", path)
 	cmd.SysProcAttr = detachedSysProcAttr()
-	err := cmd.Start()
-	return openResultMsg{target: target, isAttachment: true, err: err}
+	return cmd.Start()
 }
 
 type saveResultMsg struct {
@@ -507,25 +492,19 @@ func downloadsDir() (string, error) {
 	return dir, nil
 }
 
-// attachmentCacheDir returns where decrypted aesgcm:// attachments are
-// cached for viewing (as opposed to downloadsDir, which is for explicit
-// "Save As"), creating it if it doesn't exist yet. Attachments are cached
-// under a subdirectory per chat (bare JID), so files from different chats
-// never share a directory.
-func attachmentCacheDir(jid string) (string, error) {
-	dir := AttachmentsDir
-	if dir == "" {
-		base, err := os.UserCacheDir()
-		if err != nil {
-			return "", fmt.Errorf("finding cache directory: %w", err)
-		}
-		dir = filepath.Join(base, "kage", "attachments")
+// attachmentCachePath is attachmentLocalPath, its directory created if need
+// be. Attachments are cached for viewing (as opposed to downloadsDir, which
+// is for explicit "Save As") under a subdirectory per chat (bare JID), so
+// files from different chats never share a directory.
+func attachmentCachePath(target, jid string) (string, error) {
+	path := attachmentLocalPath(target, jid)
+	if path == "" {
+		return "", fmt.Errorf("not a downloadable URL: %s", target)
 	}
-	dir = filepath.Join(dir, sanitizeJIDForPath(jid))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("creating %s: %w", dir, err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
 	}
-	return dir, nil
+	return path, nil
 }
 
 // uniqueDestPath returns dir/base, or dir/base-N (before the extension) for
@@ -574,116 +553,43 @@ func saveURLToPath(target, dest, jid string) tea.Cmd {
 // existing files via uniqueDestPath). Split out so the Cmd constructors
 // (which must return immediately) stay simple.
 func downloadToDest(target, dest, jid string, ch chan tea.Msg) tea.Msg {
-	var downloadURL string
-	var iv, key []byte
-	var err error
-
-	if strings.HasPrefix(target, "aesgcm://") {
-		// Parse aesgcm:// URL to extract HTTPS URL, IV, and key
-		downloadURL, iv, key, err = aesgcm.ParseAESGCMURL(target)
-		if err != nil {
-			return saveResultMsg{target: target, err: fmt.Errorf("parsing aesgcm URL: %w", err)}
-		}
-	} else if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
-		downloadURL = target
-	} else {
-		return saveResultMsg{target: target, err: fmt.Errorf("not a downloadable URL: %s", target)}
+	result := func(err error) tea.Msg { return saveResultMsg{target: target, err: err} }
+	downloadURL := attachmentDownloadURL(target)
+	if downloadURL == "" {
+		return result(fmt.Errorf("not a downloadable URL: %s", target))
 	}
-
-	explicitDest := dest != ""
-	if !explicitDest {
+	// The user typed an explicit path in the "save as" prompt: overwrite it,
+	// as a save-as dialog does, rather than erroring.
+	writeFlags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if dest == "" {
 		dir, err := downloadsDir()
 		if err != nil {
-			return saveResultMsg{target: target, err: err}
+			return result(err)
 		}
-		base := filepath.Base(downloadURL)
-		if idx := strings.IndexAny(base, "?#"); idx >= 0 {
-			base = base[:idx]
-		}
-		if base == "" || base == "." || base == "/" {
-			base = "download"
-		}
-		dest = uniqueDestPath(dir, base)
+		dest = uniqueDestPath(dir, attachmentBaseName(downloadURL))
+		writeFlags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
 	} else if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return saveResultMsg{target: target, err: fmt.Errorf("creating %s: %w", filepath.Dir(dest), err)}
+		return result(fmt.Errorf("creating %s: %w", filepath.Dir(dest), err))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	data, err := fetchAttachment(target, ch)
 	if err != nil {
-		return saveResultMsg{target: target, err: err}
+		return result(err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	f, err := os.OpenFile(dest, writeFlags, 0o644)
 	if err != nil {
-		return saveResultMsg{target: target, err: err}
+		return result(err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return saveResultMsg{target: target, err: fmt.Errorf("download failed: HTTP %d", resp.StatusCode)}
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		os.Remove(dest)
+		return result(err)
 	}
-
-	label := "downloading " + attachmentDisplayName(target)
-	body := io.Reader(&progressReader{Reader: resp.Body, total: resp.ContentLength, onProgress: throttledProgressSender(ch, target, label)})
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return saveResultMsg{target: target, err: fmt.Errorf("reading download: %w", err)}
-	}
-
-	// Decrypt if this is an aesgcm:// URL
-	if iv != nil && key != nil {
-		data, err = aesgcm.Decrypt(data, iv, key)
-		if err != nil {
-			return saveResultMsg{target: target, err: fmt.Errorf("decrypting file: %w", err)}
+	// Cached too, so opening the file later doesn't download it again.
+	if cached, err := attachmentCachePath(target, jid); err == nil {
+		if _, err := os.Stat(cached); os.IsNotExist(err) {
+			_ = os.WriteFile(cached, data, 0o644)
 		}
 	}
-
-	writeFlags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	if explicitDest {
-		// The user typed this exact path in the "save as" prompt — overwrite
-		// it rather than erroring, matching what a save-as dialog does.
-		writeFlags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	}
-
-	// The Downloads/explicit-path write and the attachments-cache write are
-	// independent destinations, so they run concurrently rather than one
-	// after the other - without this, a later Ctrl+O on a file the user
-	// already Ctrl+S'd would re-download (and re-decrypt, for aesgcm://) it
-	// from scratch instead of reusing the copy just cached.
-	var wg sync.WaitGroup
-	var destErr error
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		f, err := os.OpenFile(dest, writeFlags, 0o644)
-		if err != nil {
-			destErr = err
-			return
-		}
-		defer f.Close()
-		if _, err := io.Copy(f, bytes.NewReader(data)); err != nil {
-			os.Remove(dest)
-			destErr = err
-		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		cacheDir, err := attachmentCacheDir(jid)
-		if err != nil {
-			return
-		}
-		cacheBase := attachmentBaseName(downloadURL)
-		sum := sha256.Sum256([]byte(target))
-		cacheDest := filepath.Join(cacheDir, hex.EncodeToString(sum[:8])+"-"+cacheBase)
-		if _, statErr := os.Stat(cacheDest); os.IsNotExist(statErr) {
-			_ = os.WriteFile(cacheDest, data, 0o644)
-		}
-	}()
-	wg.Wait()
-	if destErr != nil {
-		return saveResultMsg{target: target, err: destErr}
-	}
-
 	return saveResultMsg{target: target, path: dest}
 }
