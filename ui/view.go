@@ -634,23 +634,22 @@ const infoModalID = "msg-info"
 
 // openHelp lists every keybinding grouped by which tab it applies to (plus
 // a Global section for bindings that work everywhere) — the full reference
-// behind the footer's necessarily-truncated one-line hint.
+// behind the footer's necessarily-truncated one-line hint. It takes the
+// whole chat area, its sections side by side in as many columns as fit.
 func (m *Model) openHelp() tea.Cmd {
-	var rows []string
-	for i, section := range m.keys.helpSections() {
-		if i > 0 {
-			rows = append(rows, "")
-		}
-		rows = append(rows, lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.accentCyan).Render(section.Title))
+	var sections []modal.Section
+	for _, section := range m.keys.helpSections() {
+		var lines []string
 		for _, e := range section.Entries {
-			key := shortestKey(e.binding)
-			if key == "" {
-				continue
+			if key := shortestKey(e.binding); key != "" {
+				lines = append(lines, fmt.Sprintf("%-11s %s", caretKey(key), e.desc))
 			}
-			rows = append(rows, fmt.Sprintf("  %-14s %s", caretKey(key), e.desc))
 		}
+		sections = append(sections, modal.Section{Title: section.Title, Lines: lines})
 	}
-	return m.openModal(&modal.Modal[*Model]{Title: "Help", Body: modal.TextLines(rows...)})
+	body := modal.NewColumns(sections...)
+	body.TitleStyle = lipgloss.NewStyle().Bold(true).Foreground(m.styles.colors.accentCyan)
+	return m.openModal(&modal.Modal[*Model]{Title: "Help", Body: body, Fill: true})
 }
 
 // renderAccountBar returns the account bar's name and status text

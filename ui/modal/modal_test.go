@@ -280,3 +280,30 @@ func TestFormBothWaysAndBusy(t *testing.T) {
 		t.Fatal("esc didn't close the form once it wasn't busy")
 	}
 }
+
+func TestColumnsUseTheWidth(t *testing.T) {
+	sections := []Section{
+		{Title: "One", Lines: []string{"a", "b", "c"}},
+		{Title: "Two", Lines: []string{"d", "e"}},
+		{Title: "Three", Lines: []string{"f"}},
+	}
+	wide := NewColumns(sections...)
+	wide.SetSize(80, 20)
+	if got := strings.Count(wide.View(), "\n") + 1; got > 4 {
+		t.Fatalf("wide: %d rows, want the 11 flowed over 3+ columns, at most 4 tall:\n%s", got, wide.View())
+	}
+	narrow := NewColumns(sections...)
+	narrow.SetSize(6, 20)
+	if got := strings.Count(narrow.View(), "\n") + 1; got != 4+3+2+2 {
+		t.Fatalf("narrow: %d rows, want everything in one column:\n%s", got, narrow.View())
+	}
+}
+
+func TestFillTakesTheSpace(t *testing.T) {
+	s, _ := newStack(80, 20)
+	s.Push(&Modal[*host]{Title: "Help", Body: TextLines("short"), Fill: true})
+	lines := strings.Split(ansi.Strip(s.View()), "\n")
+	if len(lines) != 20 || ansi.StringWidth(strings.TrimRight(lines[0], " ")) != 80 {
+		t.Fatalf("a Fill modal is %d rows, first %q - want all 20 rows, 80 wide", len(lines), lines[0])
+	}
+}

@@ -115,6 +115,10 @@ type Modal[H any] struct {
 	// MaxWidth caps the frame's width (0: 60 columns); it's never wider
 	// than the space it's shown in.
 	MaxWidth int
+	// Fill makes the frame take all the space it's shown in, whatever its
+	// body asks for: for something read or browsed - a reference, a list -
+	// rather than answered.
+	Fill bool
 	// OnSubmit gets the value the body submitted, after the modal closed.
 	OnSubmit func(h H, value any) tea.Cmd
 	// OnCancel, if set, runs when the modal is closed without a value.
@@ -377,7 +381,7 @@ func (s *Stack[H]) bodyHeight() int {
 // what the body asks for) and its title, within MaxWidth and the space.
 func (s *Stack[H]) frameWidth(m *Modal[H]) int {
 	cols, _ := s.chrome()
-	if !s.bordered() {
+	if !s.bordered() || m.Fill {
 		return max(1, s.width)
 	}
 	limit := m.MaxWidth
@@ -527,6 +531,9 @@ func (s *Stack[H]) View() string {
 	if len(body) > s.bodyHeight() {
 		end := min(len(body), top.scroll+s.bodyHeight())
 		body = body[top.scroll:end]
+	}
+	for top.Fill && len(body) < s.bodyHeight() {
+		body = append(body, "")
 	}
 	title := st.Title.Render(ansi.Truncate(top.Title, max(1, inner-2), "…"))
 	hintList, kept := s.hints(top)

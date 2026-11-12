@@ -95,10 +95,16 @@ func caretKey(k string) string {
 	if !ok {
 		return k
 	}
-	if len(rest) > 1 { // a named key: ^End, not ^END
-		return "^" + strings.ToUpper(rest[:1]) + rest[1:]
+	// Letters upper-case and named keys capitalized: ^R, ^End, ^Shift+D.
+	parts := strings.Split(rest, "+")
+	for i, p := range parts {
+		if len(p) == 1 {
+			parts[i] = strings.ToUpper(p)
+		} else if p != "" {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
 	}
-	return "^" + strings.ToUpper(rest)
+	return "^" + strings.Join(parts, "+")
 }
 
 // NewBinding builds a key.Binding bound to keys, described by desc.
