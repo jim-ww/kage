@@ -28,16 +28,12 @@ type MessageEvent struct {
 	// this ID.
 	ReplyToID string
 
-	// RetractID is non-empty if this is a XEP-0424 retraction of an earlier
-	// message with this ID. When set, the other fields besides ID/From/SentAt
-	// carry no meaningful content (Body is just the compatibility fallback
-	// text, if present at all).
+	// RetractID is set for a XEP-0424 retraction of that message; then only
+	// ID, From and SentAt mean anything.
 	RetractID string
 
-	// ReactionTargetID is non-empty if this is a XEP-0444 reaction-set update:
-	// Reactions is the sender's complete, current reaction set on the
-	// message with this ID (may be empty, meaning they cleared it). When
-	// set, other fields besides ID/From/SentAt carry no meaningful content.
+	// ReactionTargetID is set for a XEP-0444 update: Reactions is the
+	// sender's whole set on that message, maybe empty.
 	ReactionTargetID string
 	Reactions        []string
 
@@ -51,17 +47,11 @@ type MessageEvent struct {
 	// Encrypted otherwise.
 	EncryptedV1 *OmemoEncryptedElemV1
 
-	// OOBURLs are the XEP-0066 out-of-band URLs this message explicitly
-	// marked as file attachments, if any. Only ever set on the plaintext
-	// path (a sender that encrypts its body has no reason to also leak
-	// these in the clear - see xmpp.SendOptions.OOBURLs).
+	// OOBURLs are the URLs marked as files (XEP-0066); plaintext only.
 	OOBURLs []string
 
-	// Outgoing is true when this arrived as a XEP-0280 "sent" carbon: a copy
-	// of a message one of our OTHER resources sent, forwarded to us so this
-	// resource's chat stays in sync. From is that other resource's (i.e.
-	// our own account's) JID in this case - the actual conversation is with
-	// To instead.
+	// Outgoing is set for a "sent" carbon (XEP-0280), our other device's
+	// message: the chat is with To.
 	Outgoing bool
 
 	// To is the stanza's original recipient. Only meaningful (and only set)
@@ -90,27 +80,14 @@ type PresenceEvent struct {
 
 func (PresenceEvent) isEvent() {}
 
-// SubscriptionRequestEvent is an inbound RFC 6121 §3.1 request from From
-// asking to subscribe to our presence. The caller is expected to respond,
-// typically by auto-approving via Client.ApproveSubscription - and, if it
-// wants the contact's presence in return, by also sending its own request
-// via Client.ResubscribeContact: approving only grants them our presence,
-// it never establishes the reverse direction.
+// SubscriptionRequestEvent is From asking for our presence (RFC 6121 §3.1).
 type SubscriptionRequestEvent struct {
 	From string
 }
 
 func (SubscriptionRequestEvent) isEvent() {}
 
-// RosterPushEvent is an RFC 6121 §2.1.6 roster push: the server telling us
-// one roster item changed, which happens whenever anything anywhere alters
-// the roster - another of our clients adding a contact, a contact accepting
-// (or revoking) a subscription, or our own server auto-creating an item
-// because we approved an inbound request. Without handling these, the
-// roster we hold is only ever as fresh as the last full fetch at connect
-// time, so a contact that appears mid-session stays invisible (and a
-// subscription that completes mid-session stays stuck looking pending)
-// until the next reconnect.
+// RosterPushEvent is a roster item changed (RFC 6121 §2.1.6).
 type RosterPushEvent struct {
 	JID string
 
@@ -136,10 +113,8 @@ type RosterPushEvent struct {
 
 func (RosterPushEvent) isEvent() {}
 
-// MessageBouncedEvent is one of our own messages coming back from the
-// recipient's side as an error (RFC 6120 §8.3): it was not delivered. ID is
-// the bounced message's own ID, From the recipient it couldn't reach, and
-// Reason the error condition (plus its text, if the server gave one).
+// MessageBouncedEvent is our message ID come back undelivered from From
+// (RFC 6120 §8.3), with the error as Reason.
 type MessageBouncedEvent struct {
 	ID     string
 	From   string
@@ -166,14 +141,8 @@ type MessageDeliveredEvent struct {
 
 func (MessageDeliveredEvent) isEvent() {}
 
-// DeviceListChangedEvent is a XEP-0163 PEP push notification that From's
-// OMEMO device list (of the given Protocol) changed. The caller should
-// re-fetch and update its cached copy of that peer's device list (e.g. via
-// omemo-go's Manager.SyncDevices) - without this, a cached device list is
-// only ever refreshed when it's completely empty (a brand new peer) or as
-// a last-resort retry when every currently-known device fails, so a peer
-// adding a new device (or dropping an old one after a wipe) is otherwise
-// invisible until one of those rare conditions happens to occur.
+// DeviceListChangedEvent is a PEP push (XEP-0163): From's OMEMO device list
+// changed, to re-fetch.
 type DeviceListChangedEvent struct {
 	From     string
 	Protocol omemolib.Protocol
@@ -181,10 +150,8 @@ type DeviceListChangedEvent struct {
 
 func (DeviceListChangedEvent) isEvent() {}
 
-// AvatarChangedEvent is a XEP-0163 PEP push telling us From's published
-// avatar changed. Like the device-list push it carries no payload here —
-// the notification is only a "go re-fetch" trigger, and the metadata node
-// is what actually says which avatar is current (see FetchAvatarMetadata).
+// AvatarChangedEvent is a PEP push: From's avatar changed, to re-fetch (see
+// FetchAvatarMetadata).
 type AvatarChangedEvent struct {
 	From string
 }
@@ -201,42 +168,28 @@ func (c *Client) Events() <-chan Event {
 func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElement) {
 	switch start.Name.Local {
 	case "iq":
-		// Incoming IQ requests - most importantly disco#info/disco#items
-		// (see disco.go), without which contacts have no way to learn we
-		// support OMEMO at all. Responses to our own outstanding SendIQ/
-		// SendIQElement calls are matched and consumed by the session layer
-		// before ever reaching this handler, so this only ever sees IQs
-		// actually directed at us to answer.
+		// IQs to us, like disco#info (disco.go); responses to ours don't
+		// get here.
 		if err := c.discoMux.HandleXMPP(t, start); err != nil {
 			slog.Warn("handling incoming iq", "err", err)
 		}
 	case "message":
 		d := xml.NewTokenDecoder(t)
 		var msg messageBody
-		// DecodeElement legitimately returns a non-nil, non-io.EOF error here
-		// (an "unexpected end element" for the message's own closing tag) even
-		// on a fully successful decode, because the token stream handed to the
-		// handler is already positioned inside the element start passed to us.
-		// The decoded value is valid regardless; only bail if we got nothing.
+		// Errors on the closing tag even when it decoded, the stream being
+		// inside the element already.
 		_ = d.DecodeElement(&msg, start)
 		logXML("IN", c.JID.String(), msg)
 
-		// An error is our own message bounced back "from" the recipient,
-		// often with the original payload still inside (ejabberd copies it)
-		// - our <composing/>, reaction, body. None of that is something the
-		// recipient did: read as theirs, it showed a contact typing every
-		// time we typed. Only its ID and why it failed mean anything.
+		// An error is our own message bounced, often with our payload in it,
+		// which isn't the recipient's: only its ID and error count.
 		if msg.Type == stanza.ErrorMessage {
 			c.enqueue(MessageBouncedEvent{ID: msg.ID, From: msg.From.String(), Reason: bounceReason(msg.Error)})
 			return
 		}
 
-		// XEP-0280: unwrap a carbon-copied message and process the original
-		// as if it arrived directly - this is what lets another resource on
-		// this account see messages the server delivered to a different one.
-		// A "sent" carbon is a copy of a message WE sent from another
-		// resource: its <from/> is our own JID and <to/> is the actual
-		// conversation partner, so callers must route it by To, not From.
+		// Carbons (XEP-0280) are unwrapped. A "sent" one is from our own JID,
+		// its chat being To.
 		outgoing := false
 		switch {
 		case msg.CarbonReceived != nil:
@@ -257,10 +210,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		if msg.Request != nil && msg.ID != "" {
-			// Acknowledge receipt back to the sender. Written directly onto t
-			// (rather than via a separate Send call) since t is the same
-			// bidirectional stream handleStanza was handed - mirrors how
-			// mellium's own receipts.Handler responds.
+			// The receipt, written onto t as mellium's receipts.Handler does.
 			reply := stanza.Message{To: msg.From, Type: msg.Type}
 			_, err := xmlstream.Copy(t, reply.Wrap(xmlstream.Wrap(nil, xml.StartElement{
 				Name: xml.Name{Space: "urn:xmpp:receipts", Local: "received"},
@@ -326,18 +276,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		if msg.Encrypted != nil {
-			// Unlike the plaintext body, an OMEMO ciphertext can't be sliced
-			// by the <fallback/> element's start/end offsets - the reply
-			// quote lives in-band inside the decrypted plaintext instead
-			// (see adapter.go's send()/stripReplyQuote). But the <reply/>
-			// and <replace/> elements themselves are sent unencrypted
-			// alongside Encrypted (see xmpp/send.go), so they're still
-			// available here and must be read - otherwise an encrypted
-			// reply never gets linked to what it replied to, and an
-			// encrypted XEP-0308 edit loses its ReplaceID and gets stored
-			// as a brand-new message instead of correcting the original
-			// (dispatchArchiveResult's MAM path already gets this right;
-			// this mirrors it for the live path).
+			// <reply/> and <replace/> are unencrypted beside the ciphertext;
+			// the quote is inside it (see stripReplyQuote).
 			var replyToID, replaceID string
 			if msg.Reply != nil {
 				replyToID = msg.Reply.ID

@@ -23,11 +23,8 @@ import (
 	"mellium.im/xmpp/stanza"
 )
 
-// Client is a connected session for a single XMPP account. The session's
-// stream is read continuously in the background from the moment Dial
-// returns — mellium.im/xmpp requires this for IQ round-trips (roster
-// fetches, etc.) to ever receive their response, not just for receiving
-// messages.
+// Client is one account's connection. Its stream is read from Dial on, as
+// IQ responses need it.
 type Client struct {
 	JID     jid.JID
 	session *xmpp.Session
@@ -35,19 +32,10 @@ type Client struct {
 
 	closed atomic.Bool // set by Close; distinguishes intentional shutdown from a dropped connection
 
-	// evMu/evCond/evBuf/evClosed decouple handleStanza from the pace of
-	// whatever is reading Events(): handleStanza calls enqueue, which only
-	// ever appends to evBuf and returns - it can never block. forwardEvents
-	// is the sole goroutine that ever blocks sending on the (small, fixed
-	// capacity) events channel, so a slow or not-yet-attached consumer never
-	// stalls serve()'s single stream-reading loop. Without this, a burst of
-	// more than cap(events) stanzas arriving before a caller starts reading
-	// Events() - a real window: see account.go's connectAccountLive, which
-	// does GPG/OMEMO setup and a roster fetch before starting its listener -
-	// would permanently wedge handleStanza's blocking channel send, and with
-	// it the entire connection: the same read loop is what delivers
-	// responses to our own outgoing IQs, so nothing-not a reconnect, not
-	// Close()-can recover it once stuck.
+	// evMu/evCond/evBuf/evClosed buffer events without bound, so the stream
+	// reader never blocks on a slow Events() reader: it also delivers our
+	// IQ responses, so blocking it would wedge the connection.
+	// forwardEvents feeds the channel.
 	evMu     sync.Mutex
 	evCond   *sync.Cond
 	evBuf    []Event
@@ -72,12 +60,9 @@ type Client struct {
 	mamWaiters map[string]chan ArchivedMessage
 }
 
-// Dial connects and authenticates address (a full or bare JID) with password,
-// binds a resource, sends initial presence so the server starts delivering
-// messages, and starts reading the stream in the background. tlsConfig is
-// optional (nil uses a default config that verifies the server's certificate
-// against the system trust store); pass one with a custom RootCAs pool for
-// self-hosted servers using a private CA.
+// Dial connects and authenticates address with password, sends initial
+// presence and starts reading the stream. A nil tlsConfig verifies against
+// the system roots.
 func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) (*Client, error) {
 	j, err := jid.Parse(address)
 	if err != nil {
@@ -103,23 +88,15 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	go c.serve()
 	go c.forwardEvents()
 
-	// Advertise our features via XEP-0115 entity capabilities on the initial
-	// presence - without this, contacts have no signal that we support
-	// anything (OMEMO included): disco#info to our bare JID is answered by
-	// the server itself, not forwarded to us, so caps carried in presence are
-	// what tells a contact's client which resource of ours to actually query.
+	// Caps (XEP-0115) in presence tell contacts which resource to ask about
+	// features: the server answers disco#info to our bare JID itself.
 	if err := session.Send(ctx, stanza.Presence{Type: stanza.AvailablePresence}.Wrap(discoCaps().TokenReader())); err != nil {
 		c.Close()
 		return nil, fmt.Errorf("sending initial presence: %w", err)
 	}
 
-	// XEP-0280: ask the server to carbon-copy messages sent/received by our
-	// other resources to us too. Without this, a message addressed to our
-	// bare JID is delivered to only one connected resource (server's choice,
-	// commonly whichever is most recently active) - relevant whenever another
-	// resource on this account (another device, or another client) is also
-	// connected. Best-effort: an older server without carbons support just
-	// means no benefit, not a failed connection.
+	// Carbons (XEP-0280), so we get our other devices' messages too.
+	// Best-effort.
 	if err := c.enableCarbons(ctx); err != nil {
 		slog.Warn("enabling message carbons", "err", err)
 	}
@@ -137,10 +114,7 @@ func (c *Client) enableCarbons(ctx context.Context) error {
 	return rc.Close()
 }
 
-// SetPresence updates our advertised availability: show is "" for plain
-// online, or "away"/"xa"/"dnd" per RFC 6121 §4.7.2.1. Re-sends our XEP-0115
-// caps too, same as Dial's initial presence, so a status change never drops
-// the capabilities advertisement contacts rely on to discover OMEMO support.
+// SetPresence sets our <show/> ("" for online), with our caps as Dial does.
 func (c *Client) SetPresence(ctx context.Context, show string) error {
 	// Logged here rather than at the call sites so every route to a status
 	// change is covered by one line: the user toggling it, the initial
@@ -160,11 +134,8 @@ func (c *Client) SetPresence(ctx context.Context, show string) error {
 // its own JID if it supports invisible presence.
 const invisibleNS = "urn:xmpp:invisible:0"
 
-// InvisibleSupported reports whether the server has advertised XEP-0186
-// invisible-presence support via disco#info, caching the result after the
-// first successful round trip (a transient error/timeout isn't cached, so a
-// slow disco query gets a fresh chance next time rather than permanently
-// reading as unsupported).
+// InvisibleSupported reports whether the server offers XEP-0186 invisible
+// presence, caching the answer.
 func (c *Client) InvisibleSupported(ctx context.Context) bool {
 	c.mu.Lock()
 	if c.invisibleSupportedSet {
@@ -176,13 +147,8 @@ func (c *Client) InvisibleSupported(ctx context.Context) bool {
 
 	info, err := disco.GetInfo(ctx, "", c.JID.Domain(), c.session)
 	if err != nil {
-		// Cached as "no" rather than left unknown. The result is only used to
-		// decide whether to offer an invisible-status option, and a server
-		// that is slow or silent to disco#info used to make every caller pay
-		// this round trip's full timeout again - which, on the TUI-attach
-		// path, meant seconds of blank terminal before the first frame. The
-		// cache lives on the Client, so a reconnect (which builds a new one)
-		// asks again.
+		// Cached as "no" too, so a silent server isn't waited on again; a
+		// reconnect asks anew.
 		slog.Debug("checking invisible presence support", "jid", c.JID.String(), "err", err)
 		c.mu.Lock()
 		c.invisibleSupported, c.invisibleSupportedSet = false, true
@@ -203,27 +169,16 @@ func (c *Client) InvisibleSupported(ctx context.Context) bool {
 	return supported
 }
 
-// InvisibleSupportedCached reports what InvisibleSupported already knows,
-// without ever going to the network: ok is false if nothing has asked yet on
-// this connection.
-//
-// For callers on a latency-sensitive path (listAccounts, which a TUI blocks
-// on before it can draw anything) - they take "not known yet" over a
-// disco#info round trip, and pick the real value up from the account-connected
-// broadcast that follows.
+// InvisibleSupportedCached is what InvisibleSupported knows, without a round
+// trip; ok is false if not asked yet.
 func (c *Client) InvisibleSupportedCached() (supported, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.invisibleSupported, c.invisibleSupportedSet
 }
 
-// SetInvisible sends XEP-0186 invisible presence: the stream stays fully
-// connected, but the server withholds our availability from contacts, who
-// see us as offline. Unlike SetPresence's show values, this uses a distinct
-// presence type rather than a <show/> child. Only send this after
-// InvisibleSupported reports true — an unsupporting server's behavior for an
-// unrecognized presence type is not something we've verified to degrade
-// safely, so the UI gates on that check rather than us here.
+// SetInvisible sends XEP-0186 invisible presence: contacts see us offline.
+// Only after InvisibleSupported.
 func (c *Client) SetInvisible(ctx context.Context) error {
 	slog.Debug("advertising invisible presence", "jid", c.JID.String())
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.PresenceType("invisible")}.Wrap(discoCaps().TokenReader()))
@@ -238,11 +193,7 @@ func showOrOnline(show string) string {
 	return show
 }
 
-// serve reads the session's stream until it closes, dispatching incoming
-// stanzas via handleStanza/enqueue. It must run for the entire lifetime of
-// the session — SendIQ (used by Roster, and internally by presence/message
-// delivery acknowledgement) blocks forever waiting for a response if nothing
-// is reading the stream.
+// serve reads the stream until it closes; IQ responses need it read.
 func (c *Client) serve() {
 	defer c.closeEventQueue()
 	err := c.session.Serve(xmpp.HandlerFunc(func(t xmlstream.TokenReadEncoder, start *xml.StartElement) error {
@@ -254,10 +205,7 @@ func (c *Client) serve() {
 	c.mu.Unlock()
 }
 
-// enqueue appends ev to the pending-events buffer and wakes forwardEvents.
-// Never blocks - see the evMu/evCond/evBuf doc comment on Client for why
-// that matters: this is called directly from serve()'s single stream-reading
-// goroutine.
+// enqueue buffers ev for forwardEvents. Never blocks, see Client.evBuf.
 func (c *Client) enqueue(ev Event) {
 	c.evMu.Lock()
 	if c.evClosed {
@@ -299,10 +247,7 @@ func (c *Client) forwardEvents() {
 	}
 }
 
-// Close ends the session and its underlying connection. This unblocks and
-// terminates the background serve loop, closing the Events channel. Marks
-// the client as intentionally closed, so callers watching Events()/Err() can
-// tell a deliberate shutdown apart from a dropped connection.
+// Close ends the session, closing Events, and marks it closed on purpose.
 func (c *Client) Close() error {
 	c.closed.Store(true)
 	if err := c.session.Close(); err != nil {
@@ -317,16 +262,9 @@ func (c *Client) Closed() bool {
 	return c.closed.Load()
 }
 
-// Kill forcibly closes the underlying connection without marking the client
-// as intentionally closed (unlike Close), for a caller that has independent
-// evidence the connection is dead but got no read error to prove it - e.g. a
-// half-open TCP connection a NAT/middlebox dropped silently, where writes
-// still succeed into the local socket buffer but nothing ever answers (see
-// account.go's confirmPendingAcks). Just closing session.Conn() is enough to
-// unblock serve()'s blocked read with an error, which sets c.err and closes
-// Events() exactly like a real dropped connection would - so
-// superviseAccount's normal reconnect path picks it up instead of this
-// looking like a deliberate shutdown (Closed() stays false).
+// Kill closes the connection like a drop would, not marked closed on purpose,
+// for a connection known dead without a read error (half-open), so it's
+// reconnected.
 func (c *Client) Kill() {
 	_ = c.session.Conn().Close()
 }
@@ -374,10 +312,7 @@ func (c *Client) Roster(ctx context.Context) ([]Contact, error) {
 	return contacts, nil
 }
 
-// SetRosterName updates addr's roster item to display as name (empty clears
-// any custom nickname, falling back to the JID). The server applies this to
-// the item's existing subscription/groups — only jid and name are sent, per
-// RFC 6121 roster sets.
+// SetRosterName sets addr's roster name, "" to clear it (RFC 6121).
 func (c *Client) SetRosterName(ctx context.Context, addr, name string) error {
 	j, err := jid.Parse(addr)
 	if err != nil {
@@ -410,13 +345,8 @@ func (c *Client) ApproveSubscription(ctx context.Context, addr string) error {
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.SubscribedPresence, To: j.Bare()}.Wrap(nil))
 }
 
-// ProbePresence asks addr's server to resend its current presence. Presence
-// is otherwise only ever learned passively - the server's own initial-
-// presence-burst push, sent once when we first go available - so a burst
-// missed for any reason (a race with our own startup, a server that treats
-// it as best-effort) leaves that contact looking permanently offline until
-// they happen to change status again. A probe is a direct, idempotent way to
-// re-request it rather than trusting that push alone.
+// ProbePresence asks for addr's current presence, rather than relying on the
+// server's initial burst alone.
 func (c *Client) ProbePresence(ctx context.Context, addr string) error {
 	j, err := jid.Parse(addr)
 	if err != nil {
@@ -425,23 +355,12 @@ func (c *Client) ProbePresence(ctx context.Context, addr string) error {
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.ProbePresence, To: j.Bare()}.Wrap(nil))
 }
 
-// Ping sends a XEP-0199 ping IQ to our own server (no "to" resource - an
-// empty To addresses the server itself) and blocks until it responds or ctx
-// is done. A real round trip to the server, unlike Send returning nil (which
-// only proves a local write succeeded, not that the server ever processed
-// it) - used to confirm a batch of just-sent messages actually reached the
-// server rather than being silently dropped by a connection that looked
-// alive but wasn't. See account.go's trackForServerAck/confirmPendingAcks.
+// Ping pings our server (XEP-0199) and waits for its answer.
 func (c *Client) Ping(ctx context.Context) error {
 	return ping.Send(ctx, c.session, jid.JID{})
 }
 
-// DeviceName returns the human-readable client name a full JID (bare JID +
-// resource) advertises via its XEP-0030 disco#info identity - e.g. "kage",
-// "Conversations", "Gajim" - the same name most clients show a contact's
-// device as, rather than that device's raw (and often randomly-suffixed)
-// resourcepart. Returns "" if the response has no client identity, without
-// treating that as an error - some clients simply don't advertise one.
+// DeviceName is the client name fullJID advertises (XEP-0030), "" if none.
 func (c *Client) DeviceName(ctx context.Context, fullJID string) (string, error) {
 	j, err := jid.Parse(fullJID)
 	if err != nil {
@@ -459,10 +378,7 @@ func (c *Client) DeviceName(ctx context.Context, fullJID string) (string, error)
 	return "", nil
 }
 
-// ResubscribeContact re-sends a presence subscription request to addr
-// without touching the existing roster item (unlike AddContact, which also
-// upserts the roster name) — for re-requesting a subscription that was
-// never approved or was dropped, on an already-known contact.
+// ResubscribeContact asks addr for their presence again, roster untouched.
 func (c *Client) ResubscribeContact(ctx context.Context, addr string) error {
 	j, err := jid.Parse(addr)
 	if err != nil {
@@ -471,10 +387,8 @@ func (c *Client) ResubscribeContact(ctx context.Context, addr string) error {
 	return c.session.Send(ctx, stanza.Presence{Type: stanza.SubscribePresence, To: j.Bare()}.Wrap(nil))
 }
 
-// RemoveContact removes addr from the roster and cancels both halves of the
-// subscription: unsubscribe (we stop receiving addr's presence) and
-// unsubscribed (addr stops receiving ours) — a roster delete alone leaves
-// any existing subscription in place server-side.
+// RemoveContact removes addr from the roster and cancels both directions of
+// the subscription, which the removal alone wouldn't.
 func (c *Client) RemoveContact(ctx context.Context, addr string) error {
 	j, err := jid.Parse(addr)
 	if err != nil {

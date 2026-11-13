@@ -32,17 +32,10 @@ type messageBody struct {
 	OriginID *originIDElem `xml:"urn:xmpp:sid:0 origin-id"`
 	StanzaID *stanzaIDElem `xml:"urn:xmpp:sid:0 stanza-id"`
 
-	// OOB is XEP-0066 (Out of Band Data): each element explicitly marks a URL
-	// in/alongside the body as a file attachment (e.g. from XEP-0363 HTTP
-	// Upload) rather than an ordinary link the user pasted in. A message can
-	// carry more than one when several files are shared together.
+	// OOB marks URLs as files rather than links (XEP-0066).
 	OOB []oobElem `xml:"jabber:x:oob x"`
 
-	// XEP-0353 Jingle Message Initiation: the pre-session call signaling that
-	// rides on <message/> rather than IQs. At most one is set, same
-	// one-field-per-element convention as the chat states below. Sending
-	// goes through jmiMessage in jingle.go instead; these exist so incoming
-	// ones are decoded by the single pass handleStanza already makes.
+	// XEP-0353 call ringing, received; at most one set. Sent with jmiMessage.
 	JMIPropose *jmiProposeElem `xml:"urn:xmpp:jingle-message:0 propose"`
 	JMIRinging *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 ringing"`
 	JMIProceed *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 proceed"`
@@ -56,20 +49,12 @@ type messageBody struct {
 	Request  *struct{}    `xml:"urn:xmpp:receipts request"`
 	Received *receiptElem `xml:"urn:xmpp:receipts received"`
 
-	// XEP-0280 message carbons: the server wraps a copy of a message another
-	// of our resources sent/received in one of these, forwarding it to us.
-	// At most one is set. The inner message is decoded raw (not as a nested
-	// messageBody) because encoding/xml can't recurse into an unbounded
-	// wrapper depth declaratively - handleStanza re-decodes CarbonMessage
-	// itself once it knows which of the two fired.
+	// Carbons (XEP-0280), at most one set; handleStanza decodes the message
+	// inside.
 	CarbonReceived *carbonElem `xml:"urn:xmpp:carbons:2 received"`
 	CarbonSent     *carbonElem `xml:"urn:xmpp:carbons:2 sent"`
 
-	// XEP-0085 chat state notification: at most one of these is set, on
-	// send or receive. Modeled as five separate pointer fields (rather than
-	// a single element with a variant name) because encoding/xml matches
-	// struct fields to specific, fixed element names — there's no
-	// "one-of-these-five-names" tag.
+	// XEP-0085 chat state, at most one set: encoding/xml matches fixed names.
 	Active    *struct{} `xml:"http://jabber.org/protocol/chatstates active"`
 	Composing *struct{} `xml:"http://jabber.org/protocol/chatstates composing"`
 	Paused    *struct{} `xml:"http://jabber.org/protocol/chatstates paused"`
@@ -89,11 +74,8 @@ const (
 	ChatStateGone
 )
 
-// selfID reports the id other clients should use to refer back to this
-// message (XEP-0461 reply, XEP-0308 correction, XEP-0424 retraction
-// targets) - the XEP-0359 origin-id when present, since it's guaranteed
-// stable across carbons/MAM/relays, falling back to the bare stanza id
-// attribute otherwise.
+// selfID is the ID replies and corrections refer to the message by: its
+// origin-id (XEP-0359), stable across carbons and archives, else its id.
 func (m messageBody) selfID() string {
 	if m.OriginID != nil && m.OriginID.ID != "" {
 		return m.OriginID.ID
@@ -159,24 +141,16 @@ type carbonElem struct {
 	} `xml:"urn:xmpp:forward:0 forwarded"`
 }
 
-// pubsubEventElem is a XEP-0060 PEP push notification, delivered as a
-// <message/> when a subscribed-to node's items change (e.g. via the
-// <feature var="NODE+notify"/> auto-subscribe mechanism our own caps
-// advertise - see disco.go). Only the node name is decoded: callers that
-// care about a specific node (device-list changes, see events.go) treat
-// this purely as a "go re-fetch" trigger rather than trying to parse the
-// pushed item payload itself, which keeps this one shape usable for any
-// node without per-node payload structs.
+// pubsubEventElem is a PEP push (XEP-0060) for the nodes our caps subscribe
+// to (see disco.go). Only the node is decoded: it's a cue to re-fetch.
 type pubsubEventElem struct {
 	Items *struct {
 		Node string `xml:"node,attr"`
 	} `xml:"http://jabber.org/protocol/pubsub#event items"`
 }
 
-// reactionsElem is XEP-0444: the complete, current set of reaction emoji
-// this sender has applied to the message with this ID. A new <reactions/>
-// stanza always fully replaces the sender's previous set — it is never a
-// delta — including an empty Reactions slice to mean "I've cleared mine".
+// reactionsElem is the sender's whole reaction set on message ID
+// (XEP-0444), replacing the previous; empty clears it.
 type reactionsElem struct {
 	ID        string   `xml:"id,attr"`
 	Reactions []string `xml:"urn:xmpp:reactions:0 reaction"`
@@ -197,23 +171,13 @@ type receiptElem struct {
 	ID string `xml:"id,attr"`
 }
 
-// originIDElem is XEP-0359: a client-assigned id for this stanza that
-// SHOULD survive being forwarded/archived/carbon-copied unmodified, unlike
-// the bare stanza 'id' attribute which some intermediaries are free to
-// rewrite. This is the value other well-behaved clients prefer when
-// correlating a XEP-0461 <reply>/XEP-0308 <replace>/XEP-0424 <retract>
-// back to this message, so we set it equal to our own outgoing stanza id
-// (see Send) and prefer it over the bare id attribute on receipt (see
-// messageBody.selfID).
+// originIDElem is XEP-0359's origin-id, which unlike id survives relaying.
+// Ours equals the stanza id (see Send).
 type originIDElem struct {
 	ID string `xml:"id,attr"`
 }
 
-// stanzaIDElem is XEP-0359: the id an archiving/relaying entity (e.g. a
-// MAM server or MUC), identified by By, assigned this stanza. Decoded for
-// completeness but not currently used - our own origin-id already gives
-// us a stable id, and MAM's own <result id> (see mam.go's ArchiveID) is
-// what we use for archive paging.
+// stanzaIDElem is XEP-0359's stanza-id, assigned by By. Unused.
 type stanzaIDElem struct {
 	ID string `xml:"id,attr"`
 	By string `xml:"by,attr"`
@@ -232,11 +196,9 @@ type replyElem struct {
 	ID string `xml:"id,attr"`
 }
 
-// fallbackElem declares which part of the body is fallback-only compatibility
-// text (XEP-0461 for replies, XEP-0424 for retractions), so fallback-aware
-// clients know what to strip/ignore. Body is a pointer so a bodyless
-// <body/> (Start/End both nil — the whole message body is fallback, used for
-// retractions) round-trips distinctly from omitting the element entirely.
+// fallbackElem marks the body's fallback text, for replies (XEP-0461) and
+// retractions (XEP-0424). Body is a pointer: an empty <body/> (all of it)
+// differs from none.
 type fallbackElem struct {
 	For  string            `xml:"for,attr"`
 	Body *fallbackBodyElem `xml:"urn:xmpp:fallback:0 body"`
@@ -282,10 +244,8 @@ type SendOptions struct {
 	// other options above.
 	RetractID string
 
-	// ReactionTargetID, if set, sends a XEP-0444 reaction-set update instead
-	// of a normal message: Reactions becomes the sender's complete, current
-	// reaction set on the message with this ID (an empty slice clears it).
-	// Mutually exclusive with the other options above.
+	// ReactionTargetID, if set, sends Reactions as our whole set on that
+	// message instead (XEP-0444).
 	ReactionTargetID string
 	Reactions        []string
 
@@ -299,20 +259,15 @@ type SendOptions struct {
 	// with the other options above and with Encrypted.
 	EncryptedV1 *OmemoEncryptedElemV1
 
-	// OOBURLs marks each of these URLs as a XEP-0066 out-of-band attachment,
-	// so receivers can tell "this is a file" from "the user pasted a link"
-	// without guessing from the body text. Only meaningful on a plaintext
-	// send: adding it alongside Encrypted/EncryptedV1 would leak the URL in
-	// the clear next to the ciphertext, so callers must not combine them.
+	// OOBURLs marks URLs as files (XEP-0066). Never with an encrypted body,
+	// beside which they'd leak.
 	OOBURLs []string
 }
 
 const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
 
-// BuildFallbackQuote renders XEP-0461's suggested quoted-text fallback:
-// each line of the quoted message prefixed with "> ", first line labeled
-// with the author, ending in a newline so it reads naturally before the
-// real reply text that follows it in the body.
+// BuildFallbackQuote renders a reply's fallback quote (XEP-0461): "> "
+// lines, the first naming the author.
 func BuildFallbackQuote(author, body string) string {
 	lines := strings.Split(body, "\n")
 	if len(lines) > 0 {
@@ -324,13 +279,9 @@ func BuildFallbackQuote(author, body string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// stripReplyFallback removes the quoted-text range fb marks as XEP-0461
-// fallback from body, leaving just the reply's own text. Offsets count
-// Unicode code points, not bytes: XEP-0428's start/end defer to XEP-0426
-// ("they shall be counted by their number of Unicode code points"), so
-// slicing body by them directly strips the wrong range for any non-ASCII
-// quote and can cut a multi-byte character in half. Returns body unchanged
-// if fb marks no reply range, or if its offsets don't address body.
+// stripReplyFallback removes the reply quote fb marks from body. Offsets
+// count code points, not bytes (XEP-0426). body is returned unchanged if fb
+// marks no valid range.
 func stripReplyFallback(body string, fb *fallbackElem) string {
 	if fb == nil || fb.For != "urn:xmpp:reply:0" || fb.Body == nil {
 		return body

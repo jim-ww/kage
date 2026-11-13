@@ -15,10 +15,7 @@ import (
 // mamNS is the XEP-0313 (Message Archive Management) namespace.
 const mamNS = "urn:xmpp:mam:2"
 
-// ArchivedMessage is one XEP-0313 archive result: a single forwarded message
-// plus the server-assigned archive ID it can be paged/resumed from. Exactly
-// one of {Body/Encrypted, RetractID, ReactionTargetID, ReplaceID} is set per
-// message per XEP-0424/0444/0308 - see dispatchArchiveResult.
+// ArchivedMessage is one archived message (XEP-0313) and its archive ID.
 type ArchivedMessage struct {
 	ArchiveID string // server-assigned MAM id, used as the RSM "after" cursor to resume
 	SentAt    time.Time
@@ -46,11 +43,8 @@ type ArchivedMessage struct {
 	// ArchiveID/From/SentAt carry no meaningful content.
 	RetractID string
 
-	// ReactionTargetID is non-empty if this archived item is a XEP-0444
-	// reaction-set update: Reactions is the sender's complete, current
-	// reaction set on the message with this ID (may be empty, meaning they
-	// cleared it). Other fields besides ArchiveID/From/SentAt carry no
-	// meaningful content.
+	// ReactionTargetID is set for a XEP-0444 update, see
+	// MessageEvent.ReactionTargetID.
 	ReactionTargetID string
 	Reactions        []string
 
@@ -81,10 +75,8 @@ type mamForwarded struct {
 	Message messageBody `xml:"message"`
 }
 
-// dispatchArchiveResult routes a decoded MAM <result/> to the FetchArchive
-// call waiting on its queryid, if any is still in flight (a result for a
-// queryid nobody's waiting on — e.g. arriving after the caller's context was
-// canceled — is silently dropped).
+// dispatchArchiveResult hands a MAM <result/> to the FetchArchive waiting on
+// its queryid, if any.
 func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 	c.mamMu.Lock()
 	ch, ok := c.mamWaiters[r.QueryID]
@@ -94,12 +86,8 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 	}
 
 	msg := r.Forwarded.Message
-	// MAM archives every <message/> a server saw, including chat states -
-	// which carry nothing worth persisting even live (see handleStanza) -
-	// and, unlike the live path, XEP-0424 retractions/XEP-0444 reactions/
-	// XEP-0308 corrections need to survive being forwarded here so the
-	// caller can apply them to already-synced history, same as the live
-	// path does for ones that arrive while connected.
+	// Chat states are archived too; dropped. Retractions, reactions and
+	// corrections are kept.
 	if _, isChatState := msg.chatState(); isChatState {
 		return
 	}
@@ -169,40 +157,22 @@ type ArchivePage struct {
 	// after this page.
 	Complete bool
 
-	// Last is the RSM <last> id of the page the server actually returned,
-	// and the id to resume the next page after.
-	//
-	// This is deliberately not "the ArchiveID of the final element of Items":
-	// a server archives chat states, receipts and markers alongside real
-	// messages, and those are filtered out of Items while still occupying the
-	// archive. Resuming from the last *kept* item silently re-fetches the
-	// filtered tail every time, and a page that happens to be entirely
-	// filtered leaves Items empty — which, read as "the archive ends here",
-	// strands the sync permanently just before whatever follows that run.
-	// Empty when the server sent no <last>, i.e. a genuinely empty page.
+	// Last is the page's RSM <last> id, to resume after - not the last
+	// item's, as filtered chat states and receipts occupy the archive too.
+	// "" for an empty page.
 	Last string
 }
 
-// FetchArchive retrieves one page of XEP-0313 history for the 1:1
-// conversation with peerJID, strictly newer than afterArchiveID (empty
-// fetches from the beginning of the archive), in chronological order.
-// Callers should page by re-calling with afterArchiveID set to the previous
-// page's Last until Complete is true.
+// FetchArchive fetches a page of the archive with peerJID (XEP-0313) after
+// afterArchiveID ("" for the start), oldest first. Page on with Last until
+// Complete.
 func (c *Client) FetchArchive(ctx context.Context, peerJID, afterArchiveID string, max uint64) (ArchivePage, error) {
 	return c.fetchArchive(ctx, peerJID, afterArchiveID, time.Time{}, max)
 }
 
-// FetchArchiveSince retrieves one page of XEP-0313 history for the 1:1
-// conversation with peerJID, filtered by the MAM <start> date field instead
-// of an RSM <after> id cursor - a fallback for when a previously-valid
-// afterArchiveID (see syncArchiveForContact) stops resolving to anything on
-// the server despite the peer's archive genuinely holding newer messages
-// (observed against at least one real server: no <item-not-found/> error,
-// just an empty page, forever). since should be the exact SentAt of the
-// last message the stuck cursor points to, so this covers the identical
-// range the broken <after> query was supposed to and can't skip anything.
-// A zero since omits the filter entirely, walking the archive from its
-// start — for a stuck cursor whose timestamp isn't known at all.
+// FetchArchiveSince is FetchArchive from the time since (MAM <start>) rather
+// than an id, for a cursor id the server stopped resolving (see
+// recoverMAMCursor); zero since for the start.
 func (c *Client) FetchArchiveSince(ctx context.Context, peerJID string, since time.Time, max uint64) (ArchivePage, error) {
 	return c.fetchArchive(ctx, peerJID, "", since, max)
 }
@@ -257,10 +227,7 @@ func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 		return ArchivePage{}, err
 	}
 
-	// By the time SendIQElement's response (the <iq> fin) is delivered, every
-	// <message> result for this queryid has already been read and dispatched
-	// by the same sequential stream loop (see (*Client).handleStanza) — so
-	// draining non-blockingly here is safe and complete.
+	// Every result was dispatched before the <fin> by the same stream loop.
 drain:
 	for {
 		select {
@@ -274,16 +241,8 @@ drain:
 	return page, nil
 }
 
-// decodeMAMFin reads the XEP-0313 <fin/> summary of a MAM query's response:
-// its completeness flag and the RSM <last> id to resume the next page after.
-// The returned page carries no Items; the caller fills those in.
-//
-// r is the whole response <iq> — that's what Session.SendIQ hands back, not
-// just the payload — so both fields have to be reached through it via the
-// nested <fin>. Decoding `complete,attr` straight off r instead reads the
-// attribute off the <iq> element, which never carries one: every page then
-// looks incomplete no matter what the server said, and every sync runs past
-// the end of the archive into syncArchiveForContact's empty-page recovery.
+// decodeMAMFin reads a MAM response's <fin/>: whether it's complete, and the
+// RSM <last>. r is the whole <iq>, so the <fin> is nested in it.
 func decodeMAMFin(r xml.TokenReader) (ArchivePage, error) {
 	var resp struct {
 		Fin struct {

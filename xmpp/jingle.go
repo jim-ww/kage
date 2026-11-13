@@ -1,11 +1,7 @@
 package xmpp
 
-// This file implements XEP-0166 (Jingle) session signaling, XEP-0167
-// (Jingle RTP Sessions) audio description, XEP-0176 (Jingle ICE-UDP
-// Transport), and XEP-0353 (Jingle Message Initiation) for the lightweight
-// propose/ringing push that precedes a full Jingle session. It only builds
-// and sends/parses the stanzas — it has no call-state machine and no
-// awareness of pion/audio.
+// Jingle call signaling (XEP-0166, XEP-0167, XEP-0176) and the ringing that
+// precedes it (XEP-0353): stanzas only, no call state.
 
 import (
 	"context"
@@ -37,45 +33,22 @@ const (
 	JingleActionSessionTerminate = "session-terminate"
 	JingleActionTransportInfo    = "transport-info"
 
-	// Transport restart actions (XEP-0166/0176 §6.1, "Transport Restart"):
-	// the Jingle equivalent of WebRTC's RTCPeerConnection.restartIce() plus
-	// renegotiation, scoped to just the transport rather than the whole
-	// session. transport-replace carries the new transport (fresh
-	// ufrag/pwd/candidates), transport-accept is the peer's answer to it,
-	// transport-reject says the peer can't/won't restart.
+	// ICE restart (XEP-0176 §6.1): transport-replace carries the new
+	// transport, transport-accept/-reject answers it.
 	JingleActionTransportReplace = "transport-replace"
 	JingleActionTransportAccept  = "transport-accept"
 	JingleActionTransportReject  = "transport-reject"
 
-	// Content-add actions (XEP-0166 §7.2.4/§7.2.5): adding a new content
-	// (e.g. a video track for screen sharing) to an already-established
-	// session, without touching the content(s) already flowing. content-add
-	// carries only the new content's description+transport; content-accept
-	// is the peer's answer to it, same shape.
+	// Adding a content, like video, to a session (XEP-0166 §7.2.4/5).
 	JingleActionContentAdd    = "content-add"
 	JingleActionContentAccept = "content-accept"
 
-	// JingleActionContentModify (XEP-0166 §7.2.9) asks to change an existing
-	// content's senders (e.g. upgrade a receive-only video content to
-	// bidirectional). kage never originates one, only ever receives them -
-	// and can't actually honor one either way (no pipeline to become a
-	// second sender on an already-negotiated content, see call/peer.go's
-	// VideoMid doc). Echoing the content back with its senders value
-	// unchanged, as an explicit decline, was tried first and doesn't work:
-	// at least one real peer (Conversations) proceeds as if the upgrade
-	// succeeded regardless of what the decline says (observed live:
-	// "remote has accepted our upgrade to senders=both" right after kage's
-	// echoed decline went out) - so kage now responds to any content-modify
-	// with JingleActionContentRemove instead (see applyContentModify),
-	// withdrawing the content outright rather than leaving both sides
-	// disagreeing about who sends what for the rest of the call.
+	// JingleActionContentModify (XEP-0166 §7.2.9) changes a content's
+	// senders. kage can't, and answers with a content-remove (see
+	// applyContentModify).
 	JingleActionContentModify = "content-modify"
 
-	// JingleActionContentRemove (XEP-0166 §7.2.8) withdraws a content from
-	// an already-established session. kage sends this in reply to a peer's
-	// content-modify it can't honor (see JingleActionContentModify) - it
-	// doesn't handle receiving one itself yet, since nothing today removes
-	// a content kage is receiving.
+	// JingleActionContentRemove (XEP-0166 §7.2.8) withdraws a content.
 	JingleActionContentRemove = "content-remove"
 )
 
@@ -106,16 +79,11 @@ type RTPDescription struct {
 	Media        string           `xml:"media,attr"`
 	PayloadTypes []RTPPayloadType `xml:"payload-type"`
 
-	// RTCPMux mirrors SDP's a=rtcp-mux (XEP-0167 §3): RTP and RTCP share one
-	// port. WebRTC requires it, so it's always set on what we generate — it's
-	// a pointer only so an incoming description that omits it round-trips
-	// distinctly.
+	// RTCPMux is SDP's a=rtcp-mux (XEP-0167 §3), which WebRTC requires; a
+	// pointer so its absence round-trips.
 	RTCPMux *struct{} `xml:"urn:xmpp:jingle:apps:rtp:1 rtcp-mux"`
 
-	// Sources are the XEP-0167/XEP-0339 SSMA <source/> elements naming the
-	// SSRC(s) sending media for this content. Needed once a session has more
-	// than one content to disambiguate streams; harmless to include even for
-	// today's single-content audio calls.
+	// Sources name the content's SSRCs (XEP-0339), telling streams apart.
 	Sources []JingleSource `xml:"urn:xmpp:jingle:apps:rtp:ssma:0 source"`
 }
 
@@ -153,19 +121,15 @@ type RTPParameter struct {
 	Value string `xml:"value,attr"`
 }
 
-// ICEUDPTransport is the XEP-0176 <transport/> carrying ICE credentials and
-// zero or more candidates. A session-initiate/-accept typically carries the
-// credentials plus any candidates gathered so far; later candidates trickle
-// in via separate transport-info IQs (see (*Client).SendTransportInfo).
+// ICEUDPTransport is XEP-0176's <transport/>: ICE credentials and
+// candidates; later ones trickle in transport-info IQs.
 type ICEUDPTransport struct {
 	Ufrag      string         `xml:"ufrag,attr,omitempty"`
 	Pwd        string         `xml:"pwd,attr,omitempty"`
 	Candidates []ICECandidate `xml:"candidate"`
 
-	// Fingerprint is XEP-0320's DTLS-SRTP fingerprint. WebRTC refuses to
-	// negotiate media without one, so a transport built from a pion SDP
-	// always carries it, and one arriving without it can't be turned back
-	// into a usable SDP.
+	// Fingerprint is the DTLS-SRTP fingerprint (XEP-0320), required by
+	// WebRTC.
 	Fingerprint *DTLSFingerprint `xml:"urn:xmpp:jingle:apps:dtls:0 fingerprint"`
 }
 
@@ -198,10 +162,8 @@ type ICECandidate struct {
 	RelPort int    `xml:"rel-port,attr,omitempty"`
 }
 
-// JingleReason is the optional <reason/> on a session-terminate, naming why
-// the session ended. Modeled as separate pointer fields for the same reason
-// messageBody's chat states are - encoding/xml matches struct fields to
-// fixed element names, not a variant tag.
+// JingleReason is a session-terminate's <reason/>, a pointer field per
+// reason: encoding/xml matches fixed element names.
 type JingleReason struct {
 	Success           *struct{} `xml:"success"`
 	Decline           *struct{} `xml:"decline"`
@@ -217,11 +179,7 @@ type jingleStanza struct {
 	Jingle JingleIQ `xml:"urn:xmpp:jingle:1 jingle"`
 }
 
-// sendJingleIQ addresses and sends a Jingle IQ. Jingle actions are
-// fire-and-forget from this package's point of view - callers wanting to
-// know whether the peer acknowledged (or errored) the IQ will need to add
-// response tracking themselves; this slice only builds and sends the wire
-// format.
+// sendJingleIQ sends a Jingle IQ, without waiting for its answer.
 func (c *Client) sendJingleIQ(ctx context.Context, to string, jingle JingleIQ) error {
 	toJID, err := jid.Parse(to)
 	if err != nil {
@@ -237,10 +195,8 @@ func (c *Client) sendJingleIQ(ctx context.Context, to string, jingle JingleIQ) e
 	return nil
 }
 
-// SendSessionInitiate sends a XEP-0166 session-initiate: the full offer,
-// naming the codec(s) (XEP-0167) and ICE-UDP transport (XEP-0176) for the
-// audio content. jingle.Action and jingle.Initiator are set by this method;
-// the caller fills in SID, Contents, etc.
+// SendSessionInitiate sends a XEP-0166 session-initiate, the offer. It sets
+// Action and Initiator.
 func (c *Client) SendSessionInitiate(ctx context.Context, to string, jingle JingleIQ) error {
 	jingle.Action = JingleActionSessionInitiate
 	jingle.Initiator = c.JID.String()
@@ -275,10 +231,8 @@ func (c *Client) SendTransportInfo(ctx context.Context, to, sid string, content 
 	})
 }
 
-// SendTransportReplace sends a XEP-0166/0176 §6.1 transport-replace: the new
-// transport (fresh ufrag/pwd/candidates) for an ICE restart, scoped to a
-// single content like session-initiate but without repeating the
-// description - content should carry only Transport, no Description.
+// SendTransportReplace sends an ICE restart's new transport (XEP-0176
+// §6.1); content carries only Transport.
 func (c *Client) SendTransportReplace(ctx context.Context, to, sid string, content JingleContent) error {
 	return c.sendJingleIQ(ctx, to, JingleIQ{
 		Action:   JingleActionTransportReplace,
@@ -307,10 +261,7 @@ func (c *Client) SendTransportReject(ctx context.Context, to, sid string) error 
 	})
 }
 
-// SendContentAdd sends a XEP-0166 content-add: a new content (description +
-// transport) being added to an already-established session, e.g. a video
-// track for screen sharing - the existing content(s) are untouched and not
-// repeated here.
+// SendContentAdd sends a XEP-0166 content-add of one new content.
 func (c *Client) SendContentAdd(ctx context.Context, to, sid string, content JingleContent) error {
 	return c.sendJingleIQ(ctx, to, JingleIQ{
 		Action:   JingleActionContentAdd,
@@ -329,10 +280,8 @@ func (c *Client) SendContentAccept(ctx context.Context, to, sid string, content 
 	})
 }
 
-// SendContentRemove sends a XEP-0166 content-remove, withdrawing content
-// (named by creator/name only, no description/transport needed) from an
-// already-established session - see JingleActionContentModify's doc for why
-// kage sends this in reply to a content-modify it can't honor.
+// SendContentRemove sends a XEP-0166 content-remove of content, named by
+// creator and name.
 func (c *Client) SendContentRemove(ctx context.Context, to, sid string, content JingleContent) error {
 	return c.sendJingleIQ(ctx, to, JingleIQ{
 		Action:   JingleActionContentRemove,
@@ -347,10 +296,7 @@ type jmiIDElem struct {
 	ID string `xml:"id,attr"`
 }
 
-// jmiDescription is XEP-0353's abbreviated echo of the RTP description
-// inside a <propose/> - just enough (the media type) for the callee's other
-// devices to show what kind of call this is before the real Jingle
-// negotiation happens.
+// jmiDescription is a <propose/>'s media type (XEP-0353).
 type jmiDescription struct {
 	Media string `xml:"media,attr"`
 }
@@ -375,14 +321,9 @@ type jmiMessage struct {
 	Retract *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 retract"`
 }
 
-// sendJMI addresses and sends a single XEP-0353 element to "to". Per the
-// XEP's business rules, every JMI message MUST be type="chat" and carry a
-// XEP-0334 <store/> hint - without type="chat" a bodyless message like this
-// isn't eligible for Message Carbons (XEP-0280) forwarding at all under
-// XEP-0280's own eligibility rules, so other resources/devices of either
-// party (including non-kage clients, which enforce this strictly) never see
-// it and can be left ringing forever after the call is answered/declined/
-// retracted elsewhere.
+// sendJMI sends a XEP-0353 element to "to", as type="chat" with a <store/>
+// hint as the XEP requires: otherwise carbons don't copy it to other
+// devices, which keep ringing.
 func (c *Client) sendJMI(ctx context.Context, to string, build func(*jmiMessage)) error {
 	toJID, err := jid.Parse(to)
 	if err != nil {
@@ -393,18 +334,9 @@ func (c *Client) sendJMI(ctx context.Context, to string, build func(*jmiMessage)
 	return c.session.Encode(ctx, msg)
 }
 
-// ProposeCall sends a XEP-0353 <propose/>: the lightweight "ring" push that
-// precedes the full Jingle session-initiate IQ exchange, letting all of the
-// callee's devices show an incoming-call notification immediately. sid is
-// the session ID that the subsequent Jingle IQs (once the callee's chosen
-// device proceeds) will use. withVideo must be true iff the session-initiate
-// that follows will offer a video content too (a video call, video bundled
-// in from the start - see callSession.initiateSession) - a compliant peer
-// checks the two against each other and rejects the session outright on any
-// mismatch (observed live against Conversations: "session proposal ...
-// included media [audio] but your session-initiate was [audio, video]").
-// Video added later via a XEP-0166 content-add, once the session is already
-// established, isn't part of this check at all and doesn't need withVideo.
+// ProposeCall sends a XEP-0353 <propose/>, ringing the callee's devices
+// before the Jingle session sid. withVideo must match whether the
+// session-initiate offers video: peers reject a mismatch.
 func (c *Client) ProposeCall(ctx context.Context, to, sid string, withVideo bool) error {
 	return c.sendJMI(ctx, to, func(m *jmiMessage) {
 		descriptions := []jmiDescription{{Media: "audio"}}
@@ -447,12 +379,8 @@ func (c *Client) RetractCall(ctx context.Context, to, sid string) error {
 
 // --- receive side ---
 
-// JingleEvent is an incoming XEP-0166 Jingle IQ (session-initiate,
-// session-accept, session-terminate, transport-info, ...) already decoded
-// off the wire and acknowledged with an empty IQ result. From is the peer's
-// *full* JID: unlike chat, Jingle is a resource-to-resource protocol, so
-// every subsequent stanza of this session must be addressed back to exactly
-// this JID rather than the bare one.
+// JingleEvent is an incoming Jingle IQ, acknowledged already. From is the
+// peer's full JID, which the session's stanzas all go to.
 type JingleEvent struct {
 	From   string
 	Jingle JingleIQ
@@ -488,10 +416,8 @@ func (JingleMessageEvent) isEvent() {}
 // jingleIQName is the payload the mux matches incoming Jingle IQs on.
 var jingleIQName = xml.Name{Space: jingleNS, Local: "jingle"}
 
-// handleJingleIQ decodes a <jingle/> IQ payload, acknowledges it with an
-// empty result (XEP-0166 requires the receiver to ack every action IQ before
-// acting on it) and surfaces it on the event stream for the call session to
-// drive. Registered on the client's mux in newDiscoMux.
+// handleJingleIQ acknowledges a Jingle IQ, as XEP-0166 requires before
+// acting on it, and emits it as a JingleEvent.
 func (c *Client) handleJingleIQ(iq stanza.IQ, t xmlstream.TokenReadEncoder, start *xml.StartElement) error {
 	var jingle JingleIQ
 	// Same decode caveat as handleStanza's message path: the stream is
