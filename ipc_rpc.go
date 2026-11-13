@@ -111,6 +111,7 @@ func init() {
 	handle(cancelUploadReq{})
 	handle(loadHistoryWindowReq{})
 	handle(searchHistoryReq{})
+	handle(messageSlotsReq{})
 	handle(renameContactReq{})
 	handle(addContactReq{})
 	handle(removeContactReq{})
@@ -311,6 +312,15 @@ type searchHistoryReq struct {
 
 func (c searchHistoryReq) run(d *daemonServer, _ ipc.ClientID) (ui.HistorySearchResultMsg, error) {
 	return d.a.SearchHistory(c.AccountIdx, c.To, c.Query)
+}
+
+type messageSlotsReq struct {
+	AccountIdx int
+	To         string
+}
+
+func (c messageSlotsReq) run(d *daemonServer, _ ipc.ClientID) ([]int64, error) {
+	return d.a.MessageSlots(c.AccountIdx, c.To)
 }
 
 // ── Contacts and chats ──────────────────────────────────────────────────

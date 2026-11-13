@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jim-ww/kage/ipc"
@@ -159,6 +160,24 @@ func (c *ipcClient) SearchHistory(accountIdx int, to, query string) tea.Cmd {
 		}
 		return msg
 	}
+}
+
+// MessageDays buckets the daemon's 15-minute slots into days here, in the
+// TUI's time zone, which the daemon's needn't match.
+func (c *ipcClient) MessageDays(accountIdx int, to string) ([]time.Time, error) {
+	slots, err := do(c.conn, messageSlotsReq{AccountIdx: accountIdx, To: to})
+	if err != nil {
+		return nil, err
+	}
+	var days []time.Time
+	for _, s := range slots {
+		t := time.Unix(s, 0)
+		day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+		if len(days) == 0 || !days[len(days)-1].Equal(day) {
+			days = append(days, day)
+		}
+	}
+	return days, nil
 }
 
 func (c *ipcClient) RenameContact(accountIdx int, address, name string) error {

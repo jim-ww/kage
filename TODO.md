@@ -1,4 +1,5 @@
 ## Bugs
+- video stream worsens call quality (adds lag)
 - problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ
 - hide chat keybind doesnt trigger
 - add new 'attachments' screen (for every chat).
@@ -36,6 +37,7 @@
   many ui places of app have its own one-off modals, instead of sharing single, well defined and dynamic modal component. and beside modal rendering itself, we also need proper 'list' component. not using random bullshit in every place.
 
 ## Features
+- auto adjust video/audio call quality on bad internet connection
 - add more clear mic/video
 - media previews: for images, videos, links
 - contacts: show subscription state (pending/none/both) - the UI has no way to tell a request is outstanding

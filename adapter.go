@@ -268,6 +268,22 @@ func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySea
 	return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Messages: msgs, Matches: matches}, nil
 }
 
+// MessageSlots lists the 15-minute slots, as unix seconds, to's history
+// has messages in (see ListMessageQuarterHours).
+func (a *adapter) MessageSlots(accountIdx int, to string) ([]int64, error) {
+	sess, err := a.session(accountIdx)
+	if err != nil {
+		return nil, err
+	}
+	slots, err := sess.db.ListMessageQuarterHours(context.Background(), storage.ListMessageQuarterHoursParams{
+		AccountJid: sess.account.JID, RosterJid: nullString(to),
+	})
+	for i := range slots {
+		slots[i] *= 900
+	}
+	return slots, err
+}
+
 // SetChatFlag saves one of a chat's local flags and applies it right away.
 func (a *adapter) SetChatFlag(accountJID, chatAddress string, flag ui.ChatSetting, on bool) error {
 	flags, ok := chatFlagSets[flag]

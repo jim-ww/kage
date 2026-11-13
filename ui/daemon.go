@@ -1,6 +1,10 @@
 package ui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 // Daemon is everything the UI asks of the kage daemon, which owns the XMPP
 // connections, storage and config - ui knows nothing of either. The
@@ -55,6 +59,9 @@ type Daemon interface {
 	// SearchHistory finds the messages of a chat's whole stored history
 	// containing query.
 	SearchHistory(accountIdx int, to, query string) tea.Cmd
+	// MessageDays lists the local days a chat has stored messages on,
+	// oldest first.
+	MessageDays(accountIdx int, to string) ([]time.Time, error)
 
 	// ── Contacts and chats ──────────────────────────────────────────────
 

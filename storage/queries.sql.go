@@ -1631,6 +1631,45 @@ func (q *Queries) ListMamSyncCursors(ctx context.Context, accountJid string) ([]
 	return items, nil
 }
 
+const listMessageQuarterHours = `-- name: ListMessageQuarterHours :many
+SELECT DISTINCT delay / 900
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+ORDER BY 1
+`
+
+type ListMessageQuarterHoursParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+// ListMessageQuarterHours returns the distinct 15-minute slots (delay/900)
+// a chat has messages in: coarse enough to stay small, fine enough that
+// the TUI can bucket them into local days under any UTC offset.
+func (q *Queries) ListMessageQuarterHours(ctx context.Context, arg ListMessageQuarterHoursParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listMessageQuarterHours, arg.AccountJid, arg.RosterJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var column_1 int64
+		if err := rows.Scan(&column_1); err != nil {
+			return nil, err
+		}
+		items = append(items, column_1)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMessagesByRoster = `-- name: ListMessagesByRoster :many
 SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs
 FROM messages

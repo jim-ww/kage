@@ -275,6 +275,17 @@ ORDER BY delay ASC, id ASC
 LIMIT sqlc.arg(page_limit);
 
 
+-- ListMessageQuarterHours returns the distinct 15-minute slots (delay/900)
+-- a chat has messages in: coarse enough to stay small, fine enough that
+-- the TUI can bucket them into local days under any UTC offset.
+-- name: ListMessageQuarterHours :many
+SELECT DISTINCT delay / 900
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+ORDER BY 1;
+
+
 -- name: ListAllMessages :many
 -- Every message row across every account, oldest first, used by the
 -- "export" CLI command. Bodies come back exactly as stored (plaintext or
