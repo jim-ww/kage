@@ -50,10 +50,7 @@ const (
 	VideoQualityHigh
 )
 
-// VideoQualityFromString maps config.toml's video_quality string onto a
-// VideoQuality, defaulting to VideoQualityMedium for "" or anything
-// unrecognized - the same lenient-default treatment other string config
-// options (e.g. FilePickerSortField) get.
+// VideoQualityFromString parses config's video_quality, medium by default.
 func VideoQualityFromString(s string) VideoQuality {
 	switch s {
 	case "very_low":
@@ -67,13 +64,9 @@ func VideoQualityFromString(s string) VideoQuality {
 	}
 }
 
-// videoQualityProfile is the concrete capture parameters one VideoQuality
-// bucket maps to: camWidth/camHeight for the webcam's requested capture
-// size (and gpu-screen-recorder's output resolution limit), crf for
-// libx264's quality target (lower = higher bitrate/quality), and
-// screenBitrateKbps for screen capture (wf-recorder has no resolution to
-// pick - it always captures the real output size - so quality is
-// controlled by bitrate alone there).
+// videoQualityProfile is a VideoQuality's capture settings: the camera's
+// size (and gpu-screen-recorder's limit), libx264's crf, and the screen's
+// bitrate (wf-recorder captures the output's real size).
 type videoQualityProfile struct {
 	camWidth, camHeight int
 	crf                 int
@@ -93,25 +86,16 @@ func (q VideoQuality) profile() videoQualityProfile {
 	}
 }
 
-// VideoSource is anything that can be started, pumped for encoded frames via
-// Run, and torn down via Stop - the shape callsession.go's screen-share
-// machinery needs, satisfied identically by ScreenShare (wf-recorder) and
-// Camera (ffmpeg/v4l2) so the Jingle content-add/content-accept negotiation
-// and the WriteVideoSample pump don't need to know or care which one is
-// actually feeding them.
+// VideoSource is a capture producing encoded frames: ScreenShare or Camera.
 type VideoSource interface {
-	// Run reads encoded frames until the source's process exits or Stop is
-	// called, calling write once per complete access unit. Returns nil only
-	// for Stop - a process exiting on its own is an error carrying the
-	// reason it gave. Blocks - callers run it in its own goroutine.
+	// Run calls write with each frame until Stop (nil) or the process
+	// exits (its error). Blocks.
 	Run(write func(frame []byte, sinceLast time.Duration) error) error
 	Stop()
 }
 
-// annexBSource is the process-management and NAL-framing plumbing shared by
-// every capture source that produces a raw H.264 Annex-B bytestream on
-// stdout: wf-recorder for screen capture, ffmpeg/v4l2 for a webcam. They
-// differ only in the command line that produces that stream.
+// annexBSource runs a process writing raw H.264 Annex-B to stdout and frames
+// it; the sources differ only in their command.
 type annexBSource struct {
 	label  string // for log lines, e.g. "screen share", "camera"
 	cmd    *exec.Cmd
@@ -128,11 +112,7 @@ func startAnnexBSource(label string, cmd *exec.Cmd) (*annexBSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening %s stdout: %w", cmd.Path, err)
 	}
-	// The capture process logs everything of interest - screencopy/portal
-	// permission failures, camera device errors - to stderr, not stdout.
-	// Left unset, exec discards it, so a process that fails to actually
-	// capture anything exits with output indistinguishable from a clean,
-	// deliberate stop (see Run's EOF handling below).
+	// Kept: why a capture failed is only on stderr.
 	stderr := &syncBuffer{}
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
@@ -141,14 +121,9 @@ func startAnnexBSource(label string, cmd *exec.Cmd) (*annexBSource, error) {
 	return &annexBSource{label: label, cmd: cmd, stdout: stdout, stderr: stderr, done: make(chan struct{})}, nil
 }
 
-// Run reads Annex-B NAL units off the capture process's stdout, groups them
-// into complete access units (frames), and calls write once per frame (start
-// codes included, one or more NALs concatenated - e.g. SPS/PPS followed by
-// the slice) until the stream ends or Stop is called. A frame is flushed as
-// soon as its VCL NAL (slice, type 1 or 5 - x264 emits one slice per
-// picture, no slice partitioning) has been seen, since any SPS/PPS/SEI NALs
-// for that picture always precede it. Blocks until done - callers run it in
-// its own goroutine.
+// Run groups stdout's NAL units into frames, calling write with each, until
+// the stream ends or Stop. A frame ends at its slice NAL: x264 makes one per
+// picture, after its SPS/PPS/SEI. Blocks.
 func (s *annexBSource) Run(write func(frame []byte, sinceLast time.Duration) error) error {
 	buf := make([]byte, 0, 1<<20)
 	tmp := make([]byte, 1<<16)
@@ -194,13 +169,8 @@ func (s *annexBSource) Run(write func(frame []byte, sinceLast time.Duration) err
 		}
 		if err != nil {
 			if err == io.EOF {
-				// A clean Stop() closes s.done first, so a caller-initiated
-				// stop returns via the select above before we ever see EOF
-				// here - EOF reaching this point means the capture process
-				// exited on its own, which is always worth surfacing (0
-				// frames especially: permission/device failures exit this
-				// way with nothing on stdout and the real reason only on
-				// stderr).
+				// Stop returns above, so EOF here means the process exited
+				// by itself: an error, with its stderr.
 				stderr := s.stderr.String()
 				slog.Debug(s.label+": capture process stream ended", "frames", frames, "stderr", stderr)
 				if reason := lastLine(stderr); reason != "" {
@@ -255,20 +225,13 @@ func ScreenRecorderFromString(s string) ScreenRecorder {
 	}
 }
 
-// ScreenShare captures the current output via wf-recorder (wlroots'
-// screencopy protocol, encoded with libx264 on the CPU) or
-// gpu-screen-recorder (hardware encode via VAAPI/NVENC) as a raw H.264
-// Annex-B bytestream - no container, so the stream can be split into NAL
-// units and pushed onto a WebRTC video track directly, the same way
-// call/audio.go's Mic feeds Opus frames to the peer connection.
+// ScreenShare captures the screen as raw H.264 Annex-B, with wf-recorder
+// (libx264) or gpu-screen-recorder (VAAPI/NVENC).
 type ScreenShare struct {
 	*annexBSource
 }
 
-// NewScreenShare starts recorder and returns once the subprocess is
-// running. Run must be called (typically in its own goroutine) to actually
-// pump captured NAL units. quality picks the capture bitrate (see
-// VideoQuality).
+// NewScreenShare starts recorder; Run reads its frames.
 func NewScreenShare(recorder ScreenRecorder, quality VideoQuality) (*ScreenShare, error) {
 	var cmd *exec.Cmd
 	if recorder == ScreenRecorderWF {
@@ -289,14 +252,8 @@ func wfRecorderCmd(profile videoQualityProfile) *exec.Cmd {
 		"-y", // "-f -" still prompts to overwrite "-" as if it were a real file without this
 		"-c", "libx264",
 		"-p", "tune=zerolatency",
-		// Without an explicit profile, libx264 picks "High" here (confirmed
-		// live: every wf-recorder capture logs "profile High, level 4.0"
-		// regardless of quality/bitrate settings) - a decoder configured from
-		// the SDP's fixed profile-level-id (Baseline, see call/peer.go) then
-		// can't parse the bitstream: RTP arrives, nothing ever gets decoded,
-		// no error on either side. Forcing it here keeps the actual
-		// bitstream profile consistent with what's negotiated, same as
-		// NewCamera already does for its libx264 encode.
+		// Baseline, as the SDP declares (call/peer.go); libx264 would pick
+		// High, which the peer then can't decode.
 		"-p", "profile=baseline",
 		"-p", fmt.Sprintf("b=%dk", profile.screenBitrateKbps),
 		"-m", "h264",
@@ -317,34 +274,23 @@ func gpuScreenRecorderCmd(profile videoQualityProfile) *exec.Cmd {
 		"-s", fmt.Sprintf("%dx%d", profile.camWidth, profile.camHeight),
 		"-bm", "cbr",
 		"-q", fmt.Sprint(profile.screenBitrateKbps),
-		// - profile: same Baseline-vs-SDP mismatch wfRecorderCmd forces
-		//   away - gsr asks for High. "constrained_baseline" is
-		//   h264_vaapi's name for it.
-		// - coder: gsr asks for CABAC, which Baseline doesn't allow.
-		// - flags: gsr always sets global_header, which moves SPS/PPS out
-		//   of the bitstream into container extradata - and the raw h264
-		//   muxer has nowhere to put that, so without in-band SPS/PPS
-		//   before each keyframe a viewer joining mid-stream can't decode
-		//   anything.
+		// - profile: Baseline, as for wf-recorder (h264_vaapi's name).
+		// - coder: Baseline has no CABAC.
+		// - flags: no global_header, which takes SPS/PPS out of the
+		//   stream, without which a viewer can't decode.
 		"-ffmpeg-video-opts", "profile=constrained_baseline;coder=cavlc;flags=-global_header",
 		"-v", "no", // FPS/damage chatter
 		"-o", "/dev/stdout",
 	)
 }
 
-// Camera captures a video4linux2 device (a webcam) via ffmpeg, encoding to
-// the same raw H.264 Annex-B bytestream ScreenShare produces - the rest of
-// the screen-share pipeline (framing, WriteVideoSample, Jingle
-// content-add/-accept) doesn't need to know which one is feeding it (see
-// VideoSource).
+// Camera captures a webcam (v4l2) with ffmpeg, as ScreenShare's stream.
 type Camera struct {
 	*annexBSource
 }
 
-// NewCamera starts ffmpeg capturing from device (e.g. "/dev/video0") and
-// returns once the subprocess is running. Run must be called (typically in
-// its own goroutine) to actually pump captured NAL units. quality picks the
-// capture resolution/bitrate (see VideoQuality).
+// NewCamera starts capturing device (e.g. "/dev/video0"); Run reads its
+// frames.
 func NewCamera(device string, quality VideoQuality) (*Camera, error) {
 	profile := quality.profile()
 	cmd := exec.Command(
@@ -353,13 +299,8 @@ func NewCamera(device string, quality VideoQuality) (*Camera, error) {
 		"-framerate", fmt.Sprint(videoCaptureFramerate),
 		"-video_size", fmt.Sprintf("%dx%d", profile.camWidth, profile.camHeight),
 		"-i", device,
-		// Most webcams deliver MJPEG/YUYV (4:2:2), not 4:2:0 - encoding that
-		// as-is lets libx264 silently pick a higher profile than the
-		// baseline one call/peer.go declares in SDP, which a peer's decoder
-		// then can't parse: RTP arrives, nothing ever gets decoded, no error
-		// either side. Forcing 4:2:0 here keeps the actual bitstream profile
-		// consistent with what's negotiated - see wfRecorderCmd's
-		// "-p", "profile=baseline" for the same fix on that path.
+		// 4:2:0: webcams' 4:2:2 makes libx264 leave Baseline (see
+		// wfRecorderCmd).
 		"-pix_fmt", "yuv420p",
 		"-c:v", "libx264",
 		"-profile:v", "baseline",
@@ -394,10 +335,8 @@ func isVCLNAL(nal []byte) bool {
 	}
 }
 
-// splitNextNAL extracts the first complete Annex-B NAL unit (start code
-// included) from buf, once a following start code (marking the next NAL) has
-// arrived to show where it ends. ok is false if there's not a full NAL to
-// emit yet - the caller should wait for more data.
+// splitNextNAL takes buf's first NAL unit, start code included, once the next
+// start code shows its end; ok is false until then.
 func splitNextNAL(buf []byte) (nal, rest []byte, ok bool) {
 	start := indexStartCode(buf, 0)
 	if start < 0 {
@@ -428,13 +367,8 @@ func indexStartCode(buf []byte, from int) int {
 	return -1
 }
 
-// VideoCodec names which codec a peer's incoming video track was actually
-// negotiated with (see webrtc.TrackRemote.Codec()) - the peer picks this,
-// not us: kage's own screen-share always sends H.264,
-// but an arbitrary Jingle peer sending video (e.g. a phone placing a video
-// call) may have chosen VP8 instead, and mpv needs telling which one it's
-// getting fed - feeding VP8 payload through an H.264 demuxer produces no
-// visible error, just a viewer that opens and stays black forever.
+// VideoCodec is an incoming video track's codec, for mpv: kage sends H.264,
+// but a peer may send VP8.
 type VideoCodec int
 
 const (
@@ -442,10 +376,7 @@ const (
 	VideoCodecVP8
 )
 
-// ScreenViewer plays a peer's shared-screen or camera video track by piping
-// its depacketized stream into mpv, which does its own decode - kage never
-// touches a decoded video frame itself, mirroring how gpg is shelled out to
-// rather than reimplemented (see crypto/gpg).
+// ScreenViewer plays a peer's video by piping it into mpv, which decodes it.
 type ScreenViewer struct {
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
@@ -481,14 +412,9 @@ func NewScreenViewer(title string, codec VideoCodec) (*ScreenViewer, error) {
 	return &ScreenViewer{cmd: cmd, stdin: stdin, codec: codec}, nil
 }
 
-// WriteFrame writes one complete decoded access unit to mpv's input stream:
-// for H.264, one or more concatenated Annex-B NALs (start codes included);
-// for VP8, one raw VP8 frame, which - unlike H.264 - has no self-delimiting
-// start codes of its own, so it's wrapped in a minimal IVF container (a
-// 32-byte file header written once, then one 12-byte frame header per
-// frame) so mpv's lavf/ivf demuxer can find frame boundaries at all. The
-// width/height/frame-rate IVF declares are placeholders: VP8's own keyframe
-// header carries the real dimensions, which is what decoders actually use.
+// WriteFrame writes a frame to mpv: H.264 Annex-B NALs as they are, a VP8
+// frame in IVF framing, VP8 having no start codes. IVF's size and rate are
+// placeholders; decoders use the keyframe's.
 func (v *ScreenViewer) WriteFrame(data []byte) error {
 	if v.codec != VideoCodecVP8 {
 		_, err := v.stdin.Write(data)
