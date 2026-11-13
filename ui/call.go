@@ -8,19 +8,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// callEndedDisplay is how long a terminal call state ("ended"/"failed")
-// stays shown before the banner clears itself — long enough to read, short
-// enough not to linger once the call is actually over. Mirrors
-// DefaultNoticeDuration's role for the notice toast.
+// callEndedDisplay is how long an ended call stays shown.
 const callEndedDisplay = 3 * time.Second
 
-// callUIState is the local, UI-only view of one account's voice call —
-// populated from IncomingCallMsg/CallStateMsg broadcasts, which originate
-// from the daemon's own call state machine (callsession.go) regardless of
-// which side placed the call. gen guards the delayed self-clear after a
-// terminal state, the same pattern noticeClearMsg uses for the toast: a
-// later CallStateMsg (a new call starting right after the last one ended)
-// must invalidate any pending clear from the previous call.
+// callUIState is a call as IncomingCallMsg/CallStateMsg report it. gen keeps
+// an ended call's delayed clear from clearing the next call.
 type callUIState struct {
 	accountIdx int
 	peer       string // bare JID
@@ -67,19 +59,12 @@ func (m Model) callInProgress() bool {
 	return m.call != nil && m.call.state != "ended" && m.call.state != "failed"
 }
 
-// handleIncomingCallMsg reacts to a peer proposing a call (XEP-0353) —
-// rendered as a ringing-local banner until the user answers or rejects it.
-// A second incoming proposal while one is already showing replaces it (the
-// daemon only tracks one call per account, same simplification).
+// handleIncomingCallMsg shows an incoming call, ringing until answered or
+// rejected.
 func (m Model) handleIncomingCallMsg(msg IncomingCallMsg) (Model, tea.Cmd) {
 	if m.call != nil && m.call.accountIdx != msg.AccountIdx && m.callInProgress() {
-		// This UI has exactly one call bar for the whole app, but the daemon
-		// tracks one call per account - a second account can start ringing
-		// while the first account's call bar is already up (e.g. two
-		// configured accounts calling each other). Silently replacing the
-		// visible call would point every key/mouse action at the wrong
-		// account's call from then on (see rejectCall's dead branch for what
-		// that looks like on the wire). Surface it as a toast instead.
+		// One call bar, a call per account: another account's call is only
+		// a notice, or actions would hit the wrong call.
 		return m, m.showNotification(fmt.Sprintf("incoming call from %s (another call is in progress)", msg.From))
 	}
 	gen := 0
@@ -106,19 +91,13 @@ func (m Model) handleIncomingCallMsg(msg IncomingCallMsg) (Model, tea.Cmd) {
 // (callEndedDisplay) showing Reason, then self-clears via callClearMsg.
 func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 	if m.call != nil && m.call.accountIdx != msg.AccountIdx && m.callInProgress() {
-		// Same guard as handleIncomingCallMsg: don't let a different
-		// account's call transitions clobber the one already showing. Once
-		// the visible call reaches a terminal state, callInProgress() goes
-		// false and the next message for any account is free to take over.
+		// As in handleIncomingCallMsg, until the shown call ends.
 		return m, nil
 	}
 	gen := 0
 	startedAt := time.Time{}
-	// A CallStateMsg for the same call (same gen) that's already connected
-	// keeps its startedAt — every quality-sampler tick rebroadcasts
-	// "connected" (see callSession.sampleQuality), and each one replacing
-	// the whole callUIState would otherwise reset the duration to zero every
-	// few seconds.
+	// The same connected call keeps startedAt: "connected" is re-sent with
+	// every quality sample.
 	if m.call != nil {
 		gen = m.call.gen + 1
 		if m.call.sid == msg.SID && !m.call.startedAt.IsZero() {
@@ -170,10 +149,8 @@ func (m Model) handleCallStateMsg(msg CallStateMsg) (Model, tea.Cmd) {
 	return m, notice
 }
 
-// callBarActive reports whether the persistent call bar should occupy a row
-// right now — any non-idle call, including the terminal ended/failed state
-// while it's still shown (see callClearMsg), so the bar doesn't disappear
-// and reappear (and the layout doesn't jump) right as a call ends.
+// callBarActive reports whether the call bar takes a row: while a call, ended
+// ones included, shows.
 func (m Model) callBarActive() bool {
 	return m.call != nil
 }
@@ -277,12 +254,8 @@ type callBarButton struct {
 	run      func(m *Model) tea.Cmd
 }
 
-// callBarButtons lists the call bar's buttons for the current call state,
-// in display order - the one list renderCallBar draws and the mouse
-// handlers hit-test, so a button that isn't shown can't be clicked through
-// a stale zone. Every button doubles as a status indicator (mic, what we're
-// sending) and carries the keys that do the same thing - the call menu key
-// plus that action's letter in it - so the keyboard path is never a guess.
+// callBarButtons is the call bar's buttons, for drawing and hit-testing
+// alike. Each shows a status and the keys doing the same.
 func (m Model) callBarButtons() []callBarButton {
 	c := m.call
 	if c == nil {
@@ -357,10 +330,8 @@ func formatCallDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", total/60, total%60)
 }
 
-// openCallMenu opens the call menu — every call action lives there, reached
-// by CallMenu from any view and by the call bar's menu button. While it's
-// open it follows the call (see contextMenuBody.refresh): a call ringing in,
-// connecting or ending swaps what it offers.
+// openCallMenu opens the call menu, which has every call action and follows
+// the call's state while open (see contextMenuBody.refresh).
 func (m *Model) openCallMenu() tea.Cmd {
 	title, items := m.callMenuItems()
 	if len(items) == 0 {
@@ -370,11 +341,8 @@ func (m *Model) openCallMenu() tea.Cmd {
 	return nil
 }
 
-// callMenuItems builds the call menu for the current call's state, or for
-// placing a call to the selected chat when there's none. Each item's
-// shortcut letter is fixed per action across states (c is always the
-// camera, s the screen, h hang up), and y/n answer/reject like every other
-// yes/no prompt in the app.
+// callMenuItems is the call menu for the call's state, or for calling the
+// selected chat. An action keeps its letter in every state.
 func (m *Model) callMenuItems() (string, []contextMenuItem) {
 	ctrl := m.daemon
 	if ctrl == nil {
@@ -477,10 +445,8 @@ func (m *Model) handleAudioDevicesMsg(msg AudioDevicesMsg) tea.Cmd {
 	return nil
 }
 
-// openAudioDevicePicker lists "System default" plus every device, the
-// current choice checked - mirrors the account status picker. A chosen
-// device that isn't connected right now is still listed (calls fall back to
-// the default while it's gone) so it's clear why the default is playing.
+// openAudioDevicePicker lists the system default and every device, the
+// current one checked, listed even when unplugged.
 func (m *Model) openAudioDevicePicker(title string, output bool, devices []AudioDevice, current string) {
 	ctrl := m.daemon
 	pick := func(label, name string) contextMenuItem {
@@ -514,10 +480,7 @@ func audioDeviceLabel(name string) string {
 	return strings.Join(strings.Fields(name), " ")
 }
 
-// videoMenuItem is the call menu's toggle for one video source: start it,
-// stop it if it's what we're already sending, or switch to it from the
-// other one (the daemon swaps the capture in place - see
-// callSession.switchVideoSource).
+// videoMenuItem starts, stops or switches to a video source.
 func videoMenuItem(current, source, start, stop, switchTo string, key rune) contextMenuItem {
 	useCamera := source == "camera"
 	label, sharing := start, true
@@ -533,10 +496,7 @@ func videoMenuItem(current, source, start, stop, switchTo string, key rune) cont
 	}}
 }
 
-// answerRingingCall/rejectRingingCall/hangupCurrentCall/toggleMuteCall are
-// shared by the call menu and the call bar's buttons (mouse.go). Each is a
-// no-op (returning nil) if there's no call controller wired or no call to
-// act on.
+// The call menu's and call bar's actions, no-ops without a call.
 
 func (m *Model) answerRingingCall() tea.Cmd { return m.callCmd(CallAnswer{}) }
 func (m *Model) rejectRingingCall() tea.Cmd { return m.callCmd(CallReject{}) }

@@ -13,25 +13,11 @@ import (
 	"github.com/jim-ww/kage/ui"
 )
 
-// Config is both the toml wire shape and the fully-resolved value the rest
-// of the app reads directly (cfg.MouseDisabled, cfg.HistoryPageSize, ...) —
-// no separate "raw file" struct. Defaults are applied by pre-filling a
-// Config with defaultConfig() before unmarshaling on top of it:
-// toml.Unmarshal only touches keys actually present in the file, so an
-// absent key leaves the pre-filled default in place. See stripDefaults for
-// the write-back side of the same idea.
-//
-// Every boolean here is named so its Go zero value (false) is the default
-// (e.g. MouseDisabled rather than Mouse) — that means go-toml's plain
-// `omitempty` already omits it correctly (its isZero treats false as
-// empty), no separate defaults-prefill needed for bools specifically. It's
-// only the handful of fields whose sensible default isn't the zero value
-// (FilePickerSortField, HistoryPageSize, ...) that need defaultConfig().
-//
-// Theme and Keybinds are the exception to all of the above: they're
-// partial-override shapes (empty string / absent key = "inherit"), not
-// simple defaultable scalars, so they're deliberately left out of
-// defaultConfig() and resolved on demand via ResolvedTheme/ResolvedKeyMap.
+// Config is config.toml's shape and what the app reads. Defaults are
+// pre-filled (defaultConfig) before unmarshaling over them, and stripped on
+// write (stripDefaults). Bools are named so false is the default.
+// Theme and Keybinds override parts of the defaults, resolved by
+// ResolvedTheme/ResolvedKeyMap.
 type Config struct {
 	Keybinds map[string]any `toml:"keybinds,omitempty"`
 	Theme    ui.Theme       `toml:"theme,omitempty"`
@@ -61,10 +47,8 @@ type Config struct {
 	// unset means fall back to $TERMINAL, then xdg-terminal-exec, then a
 	// hardcoded list.
 	TerminalCmd string `toml:"terminal_cmd,omitempty"`
-	// TrayMono uses the white monochrome tray icon instead of the color
-	// one, for panels that expect a single-color icon they can tint
-	// themselves; off by default. StatusNotifierItem has no symbolic-icon
-	// concept, so this can't be detected from the desktop.
+	// TrayMono uses the white tray icon, for panels that tint it; there's
+	// no telling from the desktop.
 	TrayMono bool `toml:"tray_mono,omitempty"`
 	// AttachmentsDir is the directory decrypted/downloaded attachments
 	// are cached in for viewing; unset means
@@ -77,24 +61,12 @@ type Config struct {
 	// KeyringDisabled disables ever consulting the OS keyring; off by
 	// default.
 	KeyringDisabled bool `toml:"keyring_disabled,omitempty"`
-	// ContactColors tints a contact's name in the chat list, keyed by bare
-	// JID, with a "#rgb" or "#rrggbb" hex color. Opt-in and per contact:
-	// tinting everybody by a hash makes the list a fruit salad, while a
-	// handful of deliberately colored contacts is what actually makes them
-	// findable. Kept here rather than in state.toml because a color the
-	// user types is a deliberate setting, like gpg_peers — see State's own
-	// doc comment for the split, and ui.SetContactColors for how an
-	// invalid value is treated.
+	// ContactColors tints contacts' names in the chat list, by bare JID, as
+	// "#rgb" or "#rrggbb".
 	ContactColors map[string]string `toml:"contact_colors,omitempty"`
-	// AutoUnhideDisabled keeps a hidden chat hidden when a new message
-	// arrives from it, instead of bringing it back. Off by default: a
-	// hidden chat is decluttered, not muted, and someone writing to you is
-	// the one thing that reliably means you want to see them again.
+	// AutoUnhideDisabled keeps a hidden chat hidden when a message arrives.
 	AutoUnhideDisabled bool `toml:"auto_unhide_disabled,omitempty"`
-	// AvatarsDisabled hides the avatar panel under the chat list, which
-	// then gives its rows back to the list, and stops the daemon fetching
-	// avatars at all; off (avatars shown) by default. Independent of
-	// ContactColors, which is its own opt-in.
+	// AvatarsDisabled hides the avatar panel and stops fetching avatars.
 	AvatarsDisabled bool `toml:"avatars_disabled,omitempty"`
 	// HoverSelectDisabled stops hovering a message from selecting it, so
 	// only a click (or the keyboard) does; off (hover selects) by default.
@@ -107,10 +79,8 @@ type Config struct {
 	// ShowEncryptedIcon shows a lock icon/tag next to encrypted messages;
 	// off by default.
 	ShowEncryptedIcon bool `toml:"show_encrypted_icon,omitempty"`
-	// DefaultEncryptionMode is the outgoing encryption mode ("omemo-v1",
-	// "omemo-v2", "gpg", or "none") a chat starts with before the user ever
-	// picks one via the per-chat encryption menu; DefaultEncryptionMode
-	// (omemo-v1) when unset.
+	// DefaultEncryptionMode is a chat's encryption until one is picked:
+	// "omemo-v1" (the default), "omemo-v2", "gpg" or "none".
 	DefaultEncryptionMode string `toml:"default_encryption_mode,omitempty"`
 	// Debug logs at debug level to <config dir>/kage/debug.log instead of
 	// warn; overridden by the -debug flag or KAGE_DEBUG env var if either
@@ -127,31 +97,19 @@ type Config struct {
 	// visible before auto-dismissing; DefaultNoticeDurationSeconds when
 	// unset.
 	NoticeDuration int `toml:"notice_duration,omitempty"`
-	// VideoQuality picks the capture profile for outgoing screen-share/camera
-	// video: "very_low", "low", "medium" (DefaultVideoQuality when unset), or
-	// "high". Controls resolution/bitrate for both the screen recorder and
-	// ffmpeg (camera) - see call.VideoQualityFromString.
+	// VideoQuality is our video's quality: "very_low", "low", "medium"
+	// (default) or "high".
 	VideoQuality string `toml:"video_quality,omitempty"`
-	// ScreenRecorder picks the program outgoing screen-share video is
-	// captured with: "gpu-screen-recorder" (DefaultScreenRecorder when
-	// unset; hardware-encoded) or "wf-recorder" (CPU-encoded, heavier) -
-	// see call.ScreenRecorderFromString.
+	// ScreenRecorder captures the screen: "gpu-screen-recorder" (default,
+	// hardware) or "wf-recorder" (CPU).
 	ScreenRecorder string        `toml:"screen_recorder,omitempty"`
 	Storage        StorageConfig `toml:"storage,omitempty"`
 	Accounts       []Account     `toml:"accounts,omitempty"`
 
-	// State holds settings the app itself persists at runtime (dragged
-	// sidebar width, last opened chat, ...), loaded from a separate
-	// state.toml next to this file - see State's doc. Not part of the
-	// config.toml shape, so a declaratively-managed config.toml (e.g. from
-	// Nix/home-manager) is never clobbered by the app's own writes.
+	// State is state.toml, what the app saves itself (see State).
 	State State `toml:"-"`
 
-	// Path is the config file this was actually loaded from, or the
-	// default write location if none was found — always non-empty, so
-	// callers that need to persist a change (e.g. an auto-detected GPG
-	// key) have somewhere to write it back to. Not part of the toml
-	// shape.
+	// Path is the file loaded, or where one would be written.
 	Path string `toml:"-"`
 }
 
@@ -277,11 +235,8 @@ func candidatePaths() []string {
 	return paths
 }
 
-// Load reads the first config file found among path (if non-empty) and the
-// usual candidate locations ($KAGE_CONFIG, ./config.toml,
-// ~/.config/kage/config.toml), applying defaults for anything unset. If none
-// exist, returns defaultConfig() with Path set to where a new file would be
-// written.
+// Load reads path, or the first of $KAGE_CONFIG, ./config.toml and
+// ~/.config/kage/config.toml. With none, it's the defaults.
 func Load(path string) (Config, error) {
 	for _, p := range append([]string{path}, candidatePaths()...) {
 		if p == "" {
@@ -303,10 +258,8 @@ func Load(path string) (Config, error) {
 	return loadStateInto(cfg)
 }
 
-// loadStateInto loads state.toml next to cfg.Path into cfg.State, then
-// overlays State.AccountStatuses onto cfg.Accounts (state wins over
-// whatever status a declarative config.toml/Nix module set, since it
-// reflects the most recent change made from the UI).
+// loadStateInto loads state.toml into cfg.State, its account statuses over
+// config's: they're the latest choice.
 func loadStateInto(cfg Config) (Config, error) {
 	st, err := loadState(cfg.Path)
 	if err != nil {
@@ -344,10 +297,8 @@ func loadConfigFile(path string) (cfg Config, found bool, err error) {
 	return cfg, true, nil
 }
 
-// stripDefaults zeroes any field of cfg that equals the corresponding field
-// in def, so that field's `omitempty` tag drops it from the encoded output —
-// used before writing the file back so config.toml only ever contains
-// settings that differ from default.
+// stripDefaults zeroes cfg's fields equal to def's, so omitempty leaves them
+// out of the file.
 func stripDefaults(cfg *Config, def Config) {
 	v := reflect.ValueOf(cfg).Elem()
 	d := reflect.ValueOf(def)

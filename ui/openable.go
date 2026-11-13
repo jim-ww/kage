@@ -27,11 +27,8 @@ var urlPattern = regexp.MustCompile(`https?://\S+|aesgcm://\S+`)
 // Empty means the os.UserCacheDir()-based default.
 var AttachmentsDir string
 
-// openableItems returns every attachment path/URL plus every link found in
-// the message body, attachments first, deduplicated — a file we sent (or
-// received) has its URL in both Attachments and, since that URL is also the
-// entire message body, matched again by urlPattern against Content, so
-// without deduping it'd show up as two identical picker entries.
+// openableItems is msg's attachments, then the links in its body, deduped:
+// an attachment's URL is usually its body too.
 func openableItems(msg Message) []string {
 	items := make([]string, 0, len(msg.Attachments))
 	seen := make(map[string]bool, len(msg.Attachments))
@@ -149,10 +146,7 @@ func attachmentIcon(name string, icons bool) string {
 	return plainFileIconDefault
 }
 
-// sanitizeJIDForPath turns a JID into a single filesystem-safe path
-// component for the attachments cache's per-chat subdirectory: strips any
-// /resource, and replaces path separators that would otherwise split it
-// into extra directory levels or escape the attachments dir.
+// sanitizeJIDForPath makes a bare JID one safe path component.
 func sanitizeJIDForPath(jid string) string {
 	if slash := strings.IndexByte(jid, '/'); slash >= 0 {
 		jid = jid[:slash]
@@ -165,20 +159,14 @@ func sanitizeJIDForPath(jid string) string {
 	return jid
 }
 
-// AttachmentLocalPath exports attachmentLocalPath for the daemon-side upload
-// path (adapter.go), which copies a just-uploaded local file into the same
-// cache/downloads location a download of its own URL would use, so it's
-// available offline without a round trip through the server.
+// AttachmentLocalPath is attachmentLocalPath, for the daemon to cache an
+// uploaded file where its download would go.
 func AttachmentLocalPath(target, jid string) string {
 	return attachmentLocalPath(target, jid)
 }
 
-// attachmentLocalPath returns the destination path target would already be
-// at if opened via Ctrl+O - always the attachments cache (attachmentRoot),
-// mirroring the exact destination downloadAndOpen uses regardless of whether
-// target is aesgcm:// or plain http(s)://. Empty if target's download URL
-// can't be determined. Doesn't create the directory: this runs on every
-// render, so it must stay a pure read.
+// attachmentLocalPath is where opening target caches it, "" if it isn't a
+// download URL. Runs on render, so creates nothing.
 func attachmentLocalPath(target, jid string) string {
 	downloadURL := attachmentDownloadURL(target)
 	if downloadURL == "" {
@@ -216,10 +204,7 @@ func isAttachmentDownloaded(target, jid string) bool {
 	return err == nil
 }
 
-// attachmentLocalSize returns the size in bytes of target's local copy (see
-// attachmentLocalPath), and whether one was found - only meaningful once
-// downloaded, since nothing else in this client tracks an attachment's
-// size (XEP-0363 upload responses don't report it back).
+// attachmentLocalSize is the size of target's cached copy, if any.
 func attachmentLocalSize(target, jid string) (int64, bool) {
 	path := attachmentLocalPath(target, jid)
 	if path == "" {
@@ -247,10 +232,8 @@ func humanFileSize(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// attachmentSizeLabel returns the info popup's size line for target: a
-// local copy's real size if one exists, else whatever fetchAttachmentSizeCmd
-// found (triggered by actionInfoMessage when the popup opened), else a
-// status word for the in-between/failure states.
+// attachmentSizeLabel is the info popup's size for target: the cached
+// copy's, else what fetchAttachmentSizeCmd found, else a status.
 func (m Model) attachmentSizeLabel(target, jid string) string {
 	if size, ok := attachmentLocalSize(target, jid); ok {
 		return humanFileSize(size)
@@ -266,13 +249,8 @@ func (m Model) attachmentSizeLabel(target, jid string) string {
 	return "unknown"
 }
 
-// renderAttachmentLine formats an attachment as "<icon> <name>", with a
-// trailing marker when a local copy already exists. Size isn't shown here -
-// for a not-yet-downloaded attachment that would mean an HTTP HEAD request
-// per render, silently telling whatever server hosts the file that this
-// account is looking at it even if it's never actually opened; see the
-// message-info popup (ctrl+i/actionInfoMessage) instead, which fetches it
-// on demand only for the one message you explicitly asked about.
+// renderAttachmentLine renders "<icon> <name>", marked if cached. No size:
+// that's a HEAD request telling the host we looked; message info asks.
 func renderAttachmentLine(target string, icons bool, jid string) string {
 	name := attachmentDisplayName(target)
 	line := attachmentIcon(name, icons) + " " + name
@@ -282,11 +260,8 @@ func renderAttachmentLine(target string, icons bool, jid string) string {
 	return line
 }
 
-// openItemMenu asks which of a message's links/attachments to act on - open,
-// save, save as - the first nine numbered. items is openableItems' list:
-// its first attachCount entries are real attachments, shown by their file
-// name rather than the raw URL (which for aesgcm:// also embeds the file's
-// decryption key); a plain link is shown as-is.
+// openItemMenu asks which of items (openableItems) to act on. The first
+// attachCount, attachments, show by name: an aesgcm:// URL holds the key.
 func (m *Model) openItemMenu(title string, items []string, attachCount int, act func(m *Model, target string, isAttachment bool) tea.Cmd) tea.Cmd {
 	menu := make([]contextMenuItem, len(items))
 	for i, target := range items {
@@ -313,21 +288,16 @@ type openResultMsg struct {
 	err          error
 }
 
-// attachmentSizeMsg reports the result of fetchAttachmentSizeCmd: ok is
-// false when the HEAD request failed or the server didn't report a
-// Content-Length, in which case size is meaningless and shouldn't be
-// retried automatically (see Model.attachmentSizeFailed).
+// attachmentSizeMsg is fetchAttachmentSizeCmd's result; ok false is not
+// retried (see Model.attachmentSizeFailed).
 type attachmentSizeMsg struct {
 	target string
 	size   int64
 	ok     bool
 }
 
-// fetchAttachmentSizeCmd HEAD-requests target's size - deliberately not
-// called eagerly for every rendered attachment (that would tell whatever
-// server hosts each file that this account is looking at it, even for
-// files never actually opened); only actionInfoMessage triggers this, for
-// the one message's attachments the user explicitly asked to inspect.
+// fetchAttachmentSizeCmd HEAD-requests target's size, only on asking for a
+// message's info (see renderAttachmentLine).
 func fetchAttachmentSizeCmd(target string) tea.Cmd {
 	return func() tea.Msg {
 		downloadURL := attachmentDownloadURL(target)
@@ -352,23 +322,9 @@ func fetchAttachmentSizeCmd(target string) tea.Cmd {
 	}
 }
 
-// openWithXDGOpen shells out to xdg-open in the background; the result is
-// reported back as an openResultMsg so the UI can show a toast.
-//
-// A local file path (e.g. a staged-but-unsent pendingAttachment) or a plain
-// http(s):// target that isn't a known attachment (isAttachment false - the
-// user opening an ordinary link they pasted/received in a message, not a
-// file) is handed to xdg-open as-is: for a local path that's simply opening
-// it, for a link it resolves via the desktop's URL-scheme handler -
-// normally the web browser, which is exactly what's wanted.
-//
-// Otherwise (aesgcm:// always, or a remote http(s):// target that *is* a
-// known attachment) the file is downloaded first - decrypted too, for
-// aesgcm:// (XEP-0454) - and only the resulting local file is passed to
-// xdg-open, so the desktop's file-type association picks the right viewer
-// (image viewer, PDF reader, etc.) instead of the URL handler opening it as
-// a raw browser download. Progress is reported as the download runs — see
-// throttledProgressSender.
+// openWithXDGOpen opens target with xdg-open. A local path or a plain link
+// goes as is; an attachment is downloaded (and decrypted) first, so the
+// file's viewer opens it rather than the browser.
 func openWithXDGOpen(target string, isAttachment bool, jid string) tea.Cmd {
 	isRemoteURL := strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "aesgcm://")
 	downloadFirst := strings.HasPrefix(target, "aesgcm://") || (isAttachment && isRemoteURL)
@@ -383,12 +339,8 @@ func openWithXDGOpen(target string, isAttachment bool, jid string) tea.Cmd {
 	return listenForTransferChan(ch)
 }
 
-// downloadAndOpen does the actual download(+decrypt)+open work for
-// openWithXDGOpen's attachment path, reporting progress on ch as it goes.
-// The file is cached by a hash of the full target (for aesgcm://,
-// URL+iv+key all factor into the plaintext), so re-opening the same
-// attachment reuses the already-downloaded copy (unlike an explicit "Save
-// As", which always wants a fresh, uniquely-named file in Downloads).
+// downloadAndOpen downloads an attachment into the cache, keyed by the whole
+// target (an aesgcm:// key too), and opens it, reporting progress on ch.
 func downloadAndOpen(target, jid string, ch chan tea.Msg) tea.Msg {
 	result := func(err error) tea.Msg { return openResultMsg{target: target, isAttachment: true, err: err} }
 	dest, err := attachmentCachePath(target, jid)
@@ -492,10 +444,7 @@ func downloadsDir() (string, error) {
 	return dir, nil
 }
 
-// attachmentCachePath is attachmentLocalPath, its directory created if need
-// be. Attachments are cached for viewing (as opposed to downloadsDir, which
-// is for explicit "Save As") under a subdirectory per chat (bare JID), so
-// files from different chats never share a directory.
+// attachmentCachePath is attachmentLocalPath, its per-chat directory created.
 func attachmentCachePath(target, jid string) (string, error) {
 	path := attachmentLocalPath(target, jid)
 	if path == "" {
@@ -522,11 +471,7 @@ func uniqueDestPath(dir, base string) string {
 	}
 }
 
-// saveURLToDownloads downloads target (an http/https URL or aesgcm:// URL — everything
-// openableItems surfaces is one, whether a peer's attachment or our own
-// just-uploaded file) into the user's downloads directory, reporting
-// progress as it goes (see throttledProgressSender).
-// For aesgcm:// URLs (XEP-0454), the file is decrypted after download.
+// saveURLToDownloads downloads target, decrypted, into the downloads dir.
 func saveURLToDownloads(target, jid string) tea.Cmd {
 	ch := make(chan tea.Msg, 8)
 	go func() {
@@ -546,12 +491,8 @@ func saveURLToPath(target, dest, jid string) tea.Cmd {
 	return listenForTransferChan(ch)
 }
 
-// downloadToDest does the actual download+decrypt+write work for
-// saveURLToDownloads/saveURLToPath, reporting progress on ch as it goes.
-// dest is the explicit destination path to write to; if empty, one is
-// computed from downloadsDir() + the URL's basename (deduped against
-// existing files via uniqueDestPath). Split out so the Cmd constructors
-// (which must return immediately) stay simple.
+// downloadToDest downloads target to dest, or a new name in the downloads
+// dir for "", reporting progress on ch.
 func downloadToDest(target, dest, jid string, ch chan tea.Msg) tea.Msg {
 	result := func(err error) tea.Msg { return saveResultMsg{target: target, err: err} }
 	downloadURL := attachmentDownloadURL(target)
