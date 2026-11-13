@@ -16,16 +16,10 @@ import (
 	omemolib "github.com/jim-ww/omemo-go"
 )
 
-// handleIncomingMessage decrypts, persists, and forwards a single incoming
-// chat message — routing XEP-0308 corrections to storage.UpdateMessageBodyByID
-// and a MessageCorrectedMsg instead of appending a new message, and XEP-0424
-// retractions to a flag (never an actual delete — see ui.Message.Retracted).
+// handleIncomingMessage decrypts, stores and broadcasts an incoming message,
+// a correction (XEP-0308) or retraction, which only flags (XEP-0424).
 func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
-	// A XEP-0280 "sent" carbon (msgEv.Outgoing) is a copy of a message one of
-	// OUR OTHER resources sent: its From is our own JID, so the conversation
-	// it belongs to is keyed by To (the actual recipient) instead - using
-	// From here would file it under a "chat with myself" that never matches
-	// the real roster entry, and it would silently never show up.
+	// A "sent" carbon (XEP-0280) is from our own JID; its chat is To.
 	peer := bareJID(msgEv.From)
 	if msgEv.Outgoing {
 		peer = bareJID(msgEv.To)
@@ -76,20 +70,12 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	}
 	decryptFailed := false
 
-	// Held across the OMEMO decrypt-or-skip decision through InsertMessage
-	// below: serializes against syncArchiveForContact's processMAMItem
-	// (account.go), which decrypts/persists over the same OMEMO state in a
-	// separate goroutine - see accountSession.omemoMu's doc comment for what
-	// goes wrong without this.
+	// From the decrypt to the insert, see accountSession.omemoMu.
 	s.omemoMu.Lock()
 	defer s.omemoMu.Unlock()
 
 	if msgEv.Encrypted != nil || msgEv.EncryptedV1 != nil {
-		// A message already backfilled via MAM (or otherwise already stored -
-		// e.g. redelivered after a reconnect) would otherwise get OMEMO
-		// decrypt re-run on it here: wasteful at best, and for a message key
-		// already consumed out of the double ratchet's skip buffer, not
-		// guaranteed to fail cleanly the second time. Check storage first.
+		// A stored message can't be decrypted again, its key is consumed.
 		if msgEv.ID != "" {
 			if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
 				AccountJid: s.account.JID,
@@ -99,12 +85,8 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 				slog.Debug("omemo message already stored, skipping re-decrypt", "id", msgEv.ID, "from", msgEv.From)
 				return
 			}
-			// A correction's own idAttr is never inserted as a row (only the
-			// target message's body gets rewritten), so the check above never
-			// catches a redelivered correction - check appliedCorrections too,
-			// or a redelivery re-runs OMEMO decrypt against an already-consumed
-			// ratchet key and stomps the already-correct body with a decrypt
-			// failure. See appliedCorrections's doc comment in schema.sql.
+			// Nor an applied correction, which has no row (see
+			// appliedCorrections in schema.sql).
 			if msgEv.ReplaceID != "" {
 				if exists, err := s.db.CorrectionAppliedByIDAttr(ctx, storage.CorrectionAppliedByIDAttrParams{
 					AccountJid: s.account.JID,
@@ -135,31 +117,17 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			return
 		}
 		if mgr == nil {
-			// Almost always a message arriving in the window between the
-			// account going live and setupOmemo finishing its PEP round
-			// trips - which took over five seconds on a slow server in the
-			// case this was diagnosed from. Waiting for it is the whole fix;
-			// the branch below is for an account whose setup genuinely never
-			// succeeded.
+			// Usually a message arriving before setupOmemo finished.
 			s.waitOmemoReady(ctx, omemoSetupGrace)
 			mgr = s.omemoManagerFor(protocol)
 		}
 		if mgr == nil {
-			// Stored as a failure row rather than dropped. This used to
-			// return, which lost the message outright - no row, no UI, no
-			// trace beyond this line - while the MAM path recorded the same
-			// condition as a visible "[could not be decrypted]". Of the two,
-			// the visible one is right, for the reason spelled out below:
-			// a silently vanished message is indistinguishable from nothing
-			// having been sent.
+			// Stored as undecryptable, not dropped.
 			slog.Warn("received omemo message but omemo isn't ready", "from", msgEv.From, "jid", s.account.JID)
 			body = "[message could not be decrypted: omemo isn't ready]"
 			decryptFailed = true
 		} else if pt, err := mgr.DecryptMessage(ctx, enc); errors.Is(err, omemolib.ErrOwnDeviceKeyMissing) {
-			// Not a real failure - this stanza just wasn't encrypted for this
-			// device's current key (e.g. it also targets other/older devices
-			// on the same account). Nothing was lost, so stay quiet instead
-			// of cluttering the chat with a per-device non-error.
+			// Not for this device: nothing lost.
 			slog.Debug("omemo message has no key for this device, skipping", "from", msgEv.From)
 			return
 		} else if err != nil {
@@ -170,17 +138,8 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			body = "[message could not be decrypted: " + err.Error() + "]"
 			decryptFailed = true
 			if errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound) {
-				// Either way the message itself is unrecoverable (a plain
-				// ratchet message can't bootstrap a session; a PreKeyMessage
-				// naming an already-consumed one-time prekey can't either -
-				// typically the sender built it from a stale cached bundle),
-				// but nothing stops every future message from sender's
-				// device failing the same way forever, since sender has no
-				// way to learn their session with us is broken. Rebuild one
-				// now and push it to them - mirrors Conversations'
-				// AxolotlService "healing" (buildSessionFromPEP + a
-				// key-transport reply) - so this is the last message lost to
-				// it, not every one from here on.
+				// This message is lost, but the sender would keep sending on
+				// the broken session: rebuild it, as Conversations does.
 				healBrokenSession(ctx, s, mgr, protocol, enc.Sender, bareJID(msgEv.From))
 			}
 		} else if pt == nil {
@@ -199,16 +158,9 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			body = pt
 		}
 	}
-	// Encrypted replies carry their reply-quote in-band (adapter.go's send()
-	// prepends "> ..." lines to the plaintext before encrypting, since a
-	// wire-level XEP-0461 <fallback> range can't mark up ciphertext) - strip
-	// it back off now that we've decrypted, mirroring what the unencrypted
-	// path already gets for free from the <fallback> element (see
-	// xmpp/events.go's Body doc comment). Applied unconditionally rather than gated
-	// on msgEv.ReplyToID: some peers (e.g. this doesn't always round-trip
-	// through our own <reply/> parsing) still send an in-band quote without
-	// a recognized reply element, and stripReplyQuote is a no-op on a body
-	// that doesn't start with one anyway.
+	// An encrypted reply carries its quote in the text, which a <fallback>
+	// can't mark up in ciphertext. Stripped even without a reply element:
+	// some clients send the quote alone.
 	body = stripReplyQuote(body)
 	if len(oobURLs) == 0 {
 		oobURLs = aesgcmURLsInBody(body)
@@ -250,12 +202,8 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		return
 	}
 
-	// A redelivered stanza (e.g. after stream resumption) can reach here with
-	// an idAttr already stored - the OMEMO branch above checks this before
-	// decrypting for its own reason (ratchet safety), but a plaintext message
-	// needs the same check for InsertMessage's sake: without it, the unique
-	// index below rejects the row but the message still gets sent to the UI,
-	// producing a visible duplicate that vanishes on next reload.
+	// A redelivered message is stored already; broadcasting it again would
+	// show a duplicate.
 	if msgEv.ID != "" {
 		if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
 			AccountJid: s.account.JID,
@@ -270,11 +218,8 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	chatName := s.rosterName(from)
 	quotedAuthor, quotedPreview := resolveReplyQuote(ctx, s, from, chatName, msgEv.ReplyToID)
 
-	// Before the insert, not after: ensureChat's ChatAddedMsg carries the
-	// chat's history as storage currently has it, and the message being
-	// inserted below reaches clients as the IncomingMessageMsg at the end of
-	// this function. Doing it the other way round would send the message
-	// twice.
+	// Before the insert: ChatAddedMsg carries the stored history, and this
+	// message follows as IncomingMessageMsg.
 	ensureChat(ctx, srv, accountIdx, s, from)
 
 	sealedBody, encrypted := encryptForStorage(s, body)
@@ -294,10 +239,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		ReplyQuotePreview: nullString(quotedPreview),
 		OobUrls:           joinOOBURLs(oobURLs),
 	}); err != nil {
-		// Insertion failed (most likely the unique index rejecting a
-		// duplicate idAttr that slipped past the check above in a race) -
-		// don't forward it to the UI, or a message with no corresponding
-		// stored row appears in chat and then vanishes on next reload.
+		// Not broadcast without a stored row.
 		slog.Warn("persisting received message", "err", err)
 		return
 	}
@@ -340,30 +282,17 @@ func shouldNotify(accountJID, from string, decryptFailed, outgoing bool) bool {
 	return notifyEnabled.Load() && !decryptFailed && !chatIsFocused && !muted && !outgoing
 }
 
-// healBrokenSession recovers from an OMEMO decrypt failure caused by a
-// broken/missing session with sender (omemolib.ErrUnknownSession) —
-// typically our own session state got wiped (e.g. the local database was
-// deleted) while sender's client still believes a live session exists, so it
-// keeps sending ordinary ratchet messages we can never decrypt instead of
-// the prekey message that could bootstrap a fresh session. sender has no
-// way to learn this on its own; nothing here fixes that except forcing a
-// rebuild ourselves and telling them about it. Best-effort: a failure here
-// just means the peer stays broken until something else notices (a restart,
-// a device-list push) — no worse than before this existed.
+// healBrokenSession rebuilds a broken OMEMO session with sender, typically
+// after we lost ours while sender still uses it, and tells sender with a
+// key-transport message: it can't learn otherwise. Best-effort.
 func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Manager, protocol omemolib.Protocol, sender omemolib.Device, peerBareJID string) {
 	if err := mgr.ResetSession(ctx, sender); err != nil {
 		slog.Warn("healing broken omemo session: clearing stale session", "peer", peerBareJID, "device", sender.ID, "err", err)
 		return
 	}
 
-	// EncryptKeyTransport only reaches devices already in the manager's
-	// cached device list for peerBareJID (recipientDevices -> devicesFor,
-	// which only self-refreshes when that cache is completely empty) - if
-	// sender's specific device isn't in it (the exact class of staleness
-	// this whole area is prone to), the reply below silently never reaches
-	// the one device that actually needs it, while still reporting success.
-	// Force a fresh fetch first so sender is there as long as its device
-	// list still publishes it.
+	// The key-transport only reaches cached devices: fetch the list first,
+	// so sender's device is among them.
 	if err := mgr.SyncDevices(ctx, peerBareJID); err != nil {
 		slog.Debug("healing broken omemo session: resyncing peer device list failed", "peer", peerBareJID, "device", sender.ID, "err", err)
 	}
@@ -384,20 +313,13 @@ func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Man
 		}
 	}
 	if !reachedSender {
-		// Not fatal - the key-transport still refreshes sessions with the
-		// peer's other devices and our own - but this is exactly the
-		// failure mode that looks like a successful heal in the logs while
-		// leaving the one broken device stuck retrying its stale prekey
-		// message forever, so it must be visible, not silent.
+		// The heal missed the one device that needed it.
 		slog.Warn("healing broken omemo session: key-transport reply didn't include the broken device (not in known device list)", "peer", peerBareJID, "device", sender.ID)
 	}
 
 	client := s.client.Load()
 	var sendErr error
-	// Keyed off the protocol the caller decrypted with, not off comparing
-	// mgr against the live manager: a reconnect can swap that pointer
-	// mid-heal, and the comparison would then silently pick the other
-	// protocol's wire format.
+	// By protocol, not by comparing mgr: a reconnect can swap managers.
 	if protocol == omemolib.ProtocolV1 {
 		_, sendErr = client.Send(ctx, peerBareJID, "", xmpp.SendOptions{EncryptedV1: xmpp.EncodeOmemoMessageV1(enc)})
 	} else {
@@ -410,13 +332,8 @@ func healBrokenSession(ctx context.Context, s *accountSession, mgr *omemolib.Man
 	slog.Debug("healing broken omemo session: rebuilt session and sent key-transport reply", "peer", peerBareJID, "device", sender.ID)
 }
 
-// notifyPreview trims body to a reasonable desktop-notification length —
-// now that the daemon decrypts before notifying, the previous placeholder
-// ("🔒 New encrypted message") is gone; this is real content, so keep it
-// short rather than dumping a whole message into the popup. When body is
-// (or ends with) an attachment URL, e.g. an OMEMO-encrypted file share whose
-// body is just its aesgcm:// link, show the file's normalized filename
-// instead of the raw ciphertext-bearing URL.
+// notifyPreview is body cut to notification length, attachment URLs shown
+// as file names.
 func notifyPreview(body string, attachments []string) string {
 	if len(attachments) > 0 && strings.TrimSpace(body) == strings.Join(attachments, "\n") {
 		names := make([]string, len(attachments))
@@ -433,10 +350,7 @@ func notifyPreview(body string, attachments []string) string {
 	return body[:max] + "…"
 }
 
-// stripReplyQuote removes the leading "> "-prefixed quote block adapter.go's
-// send() bakes into an encrypted reply's plaintext, returning just the
-// sender's actual message. A body with no such block (e.g. a message from a
-// client that doesn't do in-band quoting) is returned unchanged.
+// stripReplyQuote removes a reply's leading "> " quote block from body.
 func stripReplyQuote(body string) string {
 	lines := strings.Split(body, "\n")
 	i := 0
@@ -449,16 +363,9 @@ func stripReplyQuote(body string) string {
 	return strings.Join(lines[i:], "\n")
 }
 
-// aesgcmURLsInBody scans body's trailing non-empty lines for aesgcm:// URLs
-// (XEP-0454). Unlike a plain https:// link - ambiguous between a real
-// upload and the user just pasting a link, which is why plaintext
-// attachment detection relies on XEP-0066 OOB alone rather than guessing -
-// aesgcm:// is a synthetic scheme nothing but a file share ever produces,
-// so finding one isn't a guess, it's a deterministic protocol marker.
-// Needed because OMEMO/GPG-encrypted messages can't carry cleartext OOB
-// (see xmpp.SendOptions.OOBURLs's doc comment): other clients (e.g.
-// Conversations) send encrypted files exactly this way, with no OOB
-// element, and so do we.
+// aesgcmURLsInBody is the aesgcm:// URLs (XEP-0454) on body's last lines:
+// encrypted files carry no XEP-0066 marker, but only files use that scheme,
+// unlike an https:// link.
 func aesgcmURLsInBody(body string) []string {
 	lines := strings.Split(body, "\n")
 	var urls []string
@@ -476,24 +383,9 @@ func aesgcmURLsInBody(body string) []string {
 	return urls
 }
 
-// ensureChat makes sure a chat with peer exists before a message for it is
-// stored, creating the local roster row and telling attached clients about
-// it if it doesn't. No-op for a peer we already know.
-//
-// The chat list is built from the roster (connectAccountLocal's ListRoster),
-// so a message from someone not in it had nowhere to go: the daemon stored
-// it and fired a desktop notification, but no chat row existed for any
-// attached TUI to append it to, and IncomingMessageMsg dropped it. The
-// message only surfaced after a restart, once a full roster fetch happened
-// to pick the contact up - which is why restarting the daemon appeared to
-// fix it.
-//
-// The roster row is local only: no roster set, no subscription request. A
-// stranger writing to us is a conversation, not a contact, and silently
-// adding them server-side would leak back to them as a subscription
-// request. It survives restarts (connectAccountLive merges the server
-// roster onto local rows rather than replacing them) and goes away if a
-// roster push ever removes the contact.
+// ensureChat gives a peer not in the roster a chat before its message is
+// stored: a local roster row, broadcast. Not a server roster item, which
+// would ask them for a subscription.
 func ensureChat(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, peer string) {
 	if peer == "" || peer == s.account.JID {
 		return

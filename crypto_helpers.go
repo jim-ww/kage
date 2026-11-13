@@ -57,11 +57,8 @@ func encryptForStorage(s *accountSession, plaintext string) (body sql.NullString
 	return sql.NullString{String: ct, Valid: true}, encrypted
 }
 
-// loadDraft returns row's plaintext draft body. A plaintext row read while
-// a password *is* now available gets re-sealed and written back - same
-// migration readStoredBody does for message bodies. One that can't be
-// opened yields an empty draft with a warning logged, rather than failing
-// whatever's loading the chat list.
+// loadDraft returns row's draft, sealing and storing a plaintext one when
+// there's a key, as readStoredBody does. One that can't be opened is "".
 func loadDraft(ctx context.Context, queries *storage.Queries, accountJID string, row storage.ListChatDraftsRow, localKey []byte) string {
 	if !row.Encrypted {
 		if ct, sealed := sealBody(localKey, row.Body); sealed {
@@ -90,16 +87,8 @@ func decryptOutboxBody(row storage.Outbox, localKey []byte) string {
 	return pt
 }
 
-// outboxRowToMessage converts a stored outbox row for a plain new-message
-// send or a staged-attachment send (not a reaction/retraction/correction -
-// see pendingOutboxMessagesByPeer, which filters to only those before
-// calling this) into a Pending ui.Message for chat history - the DB-backed
-// counterpart of sendCurrentInput's/startAttachedSend's local echo, shown
-// identically (Pending, no ID, no Encrypted marking yet) until
-// MessageSendResolvedMsg reports what actually happened to it. A
-// staged-attachment row's real URL isn't known yet (the upload itself
-// hasn't happened) - shown as the caption text plus the local file's name
-// so there's still something recognizable on screen instead of nothing.
+// outboxRowToMessage is a queued or failed outbox row as the placeholder the
+// TUI shows. An attachment's URL isn't known yet, so its file name shows.
 func outboxRowToMessage(row storage.Outbox, localKey []byte) ui.Message {
 	content := decryptOutboxBody(row, localKey)
 	if row.Filepath.Valid && row.Filepath.String != "" {
@@ -121,12 +110,8 @@ func outboxRowToMessage(row storage.Outbox, localKey []byte) ui.Message {
 	}
 }
 
-// publishOwnGPGKey exports our own public key and publishes it to our PEP
-// nodes (XEP-0373) so contacts can discover it automatically instead of us
-// having to hand them a fingerprint out of band. Best-effort: some servers
-// don't support PEP or restrict node creation, so failure here just means
-// contacts fall back to a manually configured gpg_peers entry, same as
-// before this existed.
+// publishOwnGPGKey publishes our public key over PEP (XEP-0373) for contacts
+// to find. Best-effort; they can still configure gpg_peers.
 func publishOwnGPGKey(ctx context.Context, s *accountSession) {
 	keyData, err := s.gpg.Export(s.account.GPGKeyID)
 	if err != nil {
@@ -139,15 +124,9 @@ func publishOwnGPGKey(ctx context.Context, s *accountSession) {
 	}
 }
 
-// setupOmemo loads (or, on first run, generates) this account's OMEMO
-// identities, builds a Manager per protocol against the just-dialed
-// client's Transport (PEP bundle/device-list exchange), and publishes both
-// bundles and device IDs so contacts can start sessions with us regardless
-// of which protocol version they speak. Trust is TOFU: any device we
-// haven't seen before is trusted on first use, matching gpg's
-// --trust-model always. Best-effort like publishOwnGPGKey — a failure here
-// just means omemo-mode chats fall back to sending unencrypted (see
-// resolveEncryptionMode/send).
+// setupOmemo loads or generates the account's OMEMO identities, builds a
+// Manager per protocol on the dialed client, and publishes bundles and
+// device lists. New devices are trusted on first use.
 func setupOmemo(ctx context.Context, s *accountSession) {
 	client := s.client.Load()
 
@@ -169,18 +148,9 @@ func setupOmemo(ctx context.Context, s *accountSession) {
 	s.signalOmemoReady()
 }
 
-// storeOmemoManager publishes a freshly built Manager, keeping the previous
-// one when setup failed.
-//
-// setupOmemo runs on every reconnect, and setupOmemoProtocol returns nil
-// when it couldn't build a Manager (a transient PEP/network failure during
-// reconnect is enough). Assigning that nil destroyed a working manager, and
-// nothing rebuilds it until the next reconnect - so until then every
-// incoming OMEMO message is dropped as "omemo isn't ready", every MAM item
-// is stored as a permanent "[could not be decrypted]" row, and every send
-// to an omemo chat is refused outright. A stale Manager still bound to the
-// dead client is strictly better: its own operations fail individually and
-// recover on the next successful setup.
+// storeOmemoManager stores a newly built Manager, keeping the previous one
+// when setup failed (nil): a stale Manager only fails network operations
+// until the next setup, while none decrypts nothing.
 func storeOmemoManager(
 	s *accountSession, slot *atomic.Pointer[omemolib.Manager],
 	protocol omemolib.Protocol, mgr *omemolib.Manager,
@@ -215,14 +185,9 @@ func setupOmemoProtocol(
 	store := kageomemo.NewStore(s.db, s.account.JID, protocol)
 
 	if _, err := store.IdentityKeyPair(ctx); err != nil {
-		// sql.ErrNoRows means exactly one thing: no identity has been
-		// generated for this (account, protocol) yet, which is the expected
-		// state on first run - go generate one below. Any other error is the
-		// local sqlite database itself misbehaving (a schema mismatch, a
-		// corrupt file, disk failure, ...); silently falling back to
-		// "encryption unavailable" here would mean a chat configured for
-		// OMEMO silently sends plaintext instead - unacceptable, so this is
-		// fatal instead of a warning.
+		// No rows: no identity yet, so generate one. Anything else is the
+		// database failing, which is fatal rather than going on without
+		// encryption.
 		if !errors.Is(err, sql.ErrNoRows) {
 			log.Fatalf("fatal: loading omemo(%s) identity for %s: %v", protocol, s.account.JID, err)
 		}
@@ -233,10 +198,7 @@ func setupOmemoProtocol(
 			return nil
 		}
 		if err := omemolib.InitIdentity(ctx, store, s.account.JID, id, protocol); err != nil {
-			// Same reasoning as above: the row we just proved absent should
-			// always insert cleanly against a correct schema, so a failure
-			// here is the database itself being broken, not a recoverable
-			// omemo-level condition.
+			// The database failing, as above.
 			log.Fatalf("fatal: initializing omemo(%s) identity for %s: %v", protocol, s.account.JID, err)
 		}
 	}
@@ -256,15 +218,8 @@ func setupOmemoProtocol(
 		slog.Warn("publishing omemo bundle", "protocol", protocol, "jid", s.account.JID, "err", err)
 	}
 
-	// One-time prekeys are consumed (deleted from store) the moment any
-	// device starts a fresh session with us, and the pool is otherwise only
-	// ever seeded once at identity creation - nothing else in kage ever
-	// tops it up. Left unchecked, the pool eventually runs dry (every new
-	// session then fails outright), and even before that, any peer holding
-	// a bundle snapshot fetched before a prekey was consumed will try to
-	// use an ID we've already deleted, failing with "no rows in result
-	// set". Checking and republishing here, on every connect, keeps the
-	// published bundle honest and the pool from ever draining permanently.
+	// One-time prekeys are used up by new sessions and only made here:
+	// replenished and republished on every connect.
 	if needsMore, err := mgr.NeedsMorePreKeys(ctx); err != nil {
 		slog.Warn("checking omemo prekey count", "protocol", protocol, "jid", s.account.JID, "err", err)
 	} else if needsMore {
@@ -286,13 +241,8 @@ func setupOmemoProtocol(
 	slog.Debug("omemo setup: local device ID and current device list", "protocol", protocol, "jid", s.account.JID, "local_device", local, "devices", devices.Devices)
 	kept, alreadyListed := pruneOwnDeviceList(devices.Devices, local, rotatedFrom, protocol, s.account.JID)
 	devices.Devices = kept
-	// Republish even when already listed, not just on first-ever creation:
-	// this is the only place that reconfigures the device-list PEP node's
-	// access model to "open" (via publishDeviceList -> makeNodeOpen). If that
-	// reconfiguration silently failed the one time the device was first
-	// added, skipping republish here left the node stuck on its restrictive
-	// default forever, invisible to peers who aren't presence-subscribed
-	// just right, with nothing in our own logs to show it.
+	// Republished even when listed: publishing is what makes the node open
+	// (makeNodeOpen), in case that failed before.
 	devices.JID = s.account.JID
 	if !alreadyListed {
 		devices.Devices = append(devices.Devices, local)
@@ -307,18 +257,9 @@ func setupOmemoProtocol(
 		deleteOmemoBundle(ctx, client, protocol, rotatedFrom)
 	}
 
-	// The fetch above went straight through the raw transport (only to
-	// decide whether this device needed appending/republishing) and never
-	// touched mgr's own device cache - the one EncryptMessage's
-	// recipientDevices actually reads to know which of our other devices
-	// to include. Without this, a device another of our own clients
-	// added/rotated while we were offline stays invisible to us until a
-	// live DeviceListChangedEvent push happens to arrive post-connect (it
-	// won't, if nothing else changes the list again), so messages we send
-	// would silently never carry a key for it. resyncPeerDeviceLists
-	// (account.go) does this same SyncDevices call for every roster peer
-	// on connect; this is that same treatment for our own JID, which isn't
-	// a roster entry so that loop never reaches it.
+	// The fetch above bypassed mgr's device cache, which encryption uses:
+	// sync it for our own JID, as resyncPeerDeviceLists does for contacts,
+	// or our other devices added meanwhile get no key.
 	if err := mgr.SyncDevices(ctx, s.account.JID); err != nil {
 		slog.Warn("resyncing own omemo device list on connect", "protocol", protocol, "jid", s.account.JID, "err", err)
 	}
@@ -334,10 +275,8 @@ func (s *accountSession) omemoManagerFor(protocol omemolib.Protocol) *omemolib.M
 	return s.omemoV2()
 }
 
-// resolveEncryptionMode returns the outgoing message encryption mode for
-// peerJID: "omemo-v1" (the default), "omemo-v2" (force that protocol),
-// "gpg", or "none" if the user explicitly disabled encryption for this
-// chat — see ui.Daemon/ui.encryptionModes.
+// resolveEncryptionMode is peerJID's chat's outgoing encryption, or the
+// default.
 func resolveEncryptionMode(ctx context.Context, s *accountSession, peerJID string) string {
 	mode, err := s.db.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{
 		AccountJid: s.account.JID,
@@ -349,12 +288,9 @@ func resolveEncryptionMode(ctx context.Context, s *accountSession, peerJID strin
 	return mode
 }
 
-// resolveOmemoProtocol decides which OMEMO protocol to use for peerJID:
-// config's omemo_peers override always wins; otherwise a cached negotiation
-// result (storage.omemoPeerProtocol) is reused within omemoPeerProtocolTTL;
-// otherwise both protocols' device-list PEP nodes are probed and whichever
-// responds with a non-empty list wins (v2 preferred if both do), and the
-// result is cached. Defaults to ProtocolV2 if neither responds.
+// resolveOmemoProtocol picks peerJID's OMEMO protocol: omemo_peers, else the
+// cached result within omemoPeerProtocolTTL, else whichever device list the
+// peer publishes, v2 first, cached.
 func resolveOmemoProtocol(ctx context.Context, s *accountSession, peerJID string) omemolib.Protocol {
 	if override := s.account.OmemoPeers[peerJID]; override != "" {
 		if override == "v1" {
@@ -408,10 +344,8 @@ func protocolFromString(s string) omemolib.Protocol {
 	return omemolib.ProtocolV2
 }
 
-// resolveOmemoManagerForMode resolves which OMEMO protocol/Manager to use
-// for peerJID given mode ("omemo-v1" or "omemo-v2" — any other mode is a
-// caller error, and falls back to auto-detection via resolveOmemoProtocol
-// for legacy stored modes such as the removed "omemo-auto").
+// resolveOmemoManagerForMode is the protocol and Manager for mode; another
+// mode, an old stored one, picks by resolveOmemoProtocol.
 func resolveOmemoManagerForMode(ctx context.Context, s *accountSession, mode, peerJID string) (omemolib.Protocol, *omemolib.Manager) {
 	var protocol omemolib.Protocol
 	switch mode {
@@ -425,11 +359,8 @@ func resolveOmemoManagerForMode(ctx context.Context, s *accountSession, mode, pe
 	return protocol, s.omemoManagerFor(protocol)
 }
 
-// resolvePeerKey returns the GPG key fingerprint to encrypt to-messages with
-// for peerJID, or "" if none is available. Order: an explicit gpg_peers
-// override in config always wins (lets a user pin a specific key); then a
-// previously discovered-and-cached fingerprint; then a live XEP-0373 PEP
-// lookup, which gets cached in storage so it's a one-time cost per contact.
+// resolvePeerKey is peerJID's GPG key fingerprint, "" if none: gpg_peers,
+// else the cached one, else found over PEP (XEP-0373) and cached.
 func resolvePeerKey(ctx context.Context, s *accountSession, peerJID string) string {
 	if key := s.account.GPGPeers[peerJID]; key != "" {
 		return key
@@ -473,26 +404,11 @@ func discoverPeerKey(ctx context.Context, s *accountSession, peerJID string) (st
 	return fpr, nil
 }
 
-// rotateOutOfRangeDeviceID re-numbers this account's OMEMO device when its
-// stored device ID is outside OMEMO's permitted 1..2^31-1 range, returning
-// the abandoned ID (or 0 if nothing was rotated) so the caller can prune it
-// from our published device list and delete its bundle node.
-//
-// kage used to draw device IDs from the full uint32 range, so roughly half
-// of all identities it ever created are unaddressable: every
-// libsignal-derived client (Conversations, Dino, Gajim) parses the OMEMO
-// sid/rid attributes into a signed 32-bit integer and throws on anything
-// larger, discarding the entire stanza rather than just that one key. The
-// symptoms are badly misleading - messages we send vanish for the peer's
-// phone but not their desktop, and carbons of their own sent messages
-// vanish on their phone too - so this repairs itself on connect rather
-// than waiting to be noticed.
-//
-// The identity key is deliberately kept (see omemolib.RotateDeviceID): the
-// fingerprint peers may have verified stays valid, and only the number
-// changes. Sessions are dropped as part of the rotation, so the next
-// message to each peer carries a fresh key exchange binding them to the new
-// ID.
+// rotateOutOfRangeDeviceID re-numbers the account's OMEMO device if its ID
+// is outside 1..2^31-1, returning the old ID (0 if none) to prune.
+// libsignal-based clients parse device IDs as signed int32 and drop the
+// whole stanza on overflow. The identity key, and so its fingerprint, is
+// kept (see omemolib.RotateDeviceID).
 func rotateOutOfRangeDeviceID(
 	ctx context.Context, s *accountSession, protocol omemolib.Protocol, mgr *omemolib.Manager,
 ) omemolib.DeviceID {
@@ -515,10 +431,8 @@ func rotateOutOfRangeDeviceID(
 	return old
 }
 
-// deleteOmemoBundle removes the bundle node of a device ID we've stopped
-// using. Best-effort: a leftover node only means peers can still fetch a
-// bundle for a device that no device list advertises any more, which
-// nothing will act on.
+// deleteOmemoBundle removes the bundle node of a device ID we stopped using.
+// Best-effort.
 func deleteOmemoBundle(ctx context.Context, client *xmpp.Client, protocol omemolib.Protocol, id omemolib.DeviceID) {
 	var err error
 	if protocol == omemolib.ProtocolV1 {
@@ -533,26 +447,10 @@ func deleteOmemoBundle(ctx context.Context, client *xmpp.Client, protocol omemol
 	slog.Debug("deleted abandoned omemo bundle node", "protocol", protocol, "device", id)
 }
 
-// pruneOwnDeviceList filters our own published OMEMO device list down to the
-// devices that can actually be addressed, reporting whether local was among
-// them. Two kinds of entry are dropped:
-//
-//   - rotatedFrom, the ID this device just moved away from (0 when nothing
-//     was rotated), which nothing is listening on any more;
-//   - any out-of-range ID (see omemolib.MaxDeviceID), left over from when
-//     kage generated device IDs across the full uint32 range. Those belong
-//     to our own other clients, and a single one of them in this list is
-//     enough to make every message we send undecryptable for every
-//     libsignal-based peer in the chat: they can't parse the stanza header
-//     at all and drop the whole message, keys for their own devices
-//     included. Pruning is safe and self-healing - such a device is already
-//     unreachable for those peers, and the next time it connects
-//     rotateOutOfRangeDeviceID re-numbers it and re-adds a valid ID.
-//
-// local itself is kept unconditionally: a caller that somehow still has an
-// out-of-range local ID (rotation failed) is better off advertising it than
-// publishing a list with no entry for the device that is about to send
-// messages.
+// pruneOwnDeviceList drops from our own device list rotatedFrom and any
+// out-of-range ID (see rotateOutOfRangeDeviceID): one such ID makes our
+// messages unreadable for libsignal-based peers. Such a device re-numbers
+// itself when it next connects. local is always kept, and reported.
 func pruneOwnDeviceList(
 	devices []omemolib.DeviceID, local, rotatedFrom omemolib.DeviceID,
 	protocol omemolib.Protocol, accountJID string,
