@@ -1,10 +1,6 @@
-// Package emojipicker is a self-contained Bubble Tea component for picking
-// one or more emoji: a type-to-filter query box over a fixed-column grid,
-// seeded with a caller-supplied "recent" ranking and falling back to a
-// curated common-reaction list. It knows nothing about kage's UI/message
-// types - callers seed it with plain strings and read plain strings back
-// out (see Selection/DidConfirm) - so it can be dropped into any Bubble Tea
-// program, not just this one.
+// Package emojipicker is a Bubble Tea component for picking one or more
+// emoji: a query box over a grid, seeded with a "recent" ranking, else
+// common reactions. It deals in plain strings, knowing nothing of kage.
 package emojipicker
 
 import (
@@ -31,10 +27,8 @@ type entry struct {
 	Shortcode string
 }
 
-// maxResults caps how many matches search ever ranks, so a very loose query
-// (fuzzy subsequence matching is permissive) can't make one keystroke sort
-// thousands of shortcodes - the grid itself scrolls (see VisibleRows) to
-// reach anything beyond the first screenful.
+// maxResults caps the matches ranked, so a loose fuzzy query doesn't sort
+// thousands per keystroke.
 const maxResults = 120
 
 // queryWidth is the filter box's fixed width - wide enough to show the
@@ -44,33 +38,9 @@ const queryWidth = 40
 // defaultVisibleRows is how many grid rows show at once before scrolling.
 const defaultVisibleRows = 4
 
-// CellWidth is every grid cell's fixed rendered width, in columns -
-// Cell/CellCursor/CellPicked all carry it via .Width() so the grid stays
-// column-aligned regardless of what width a specific glyph actually
-// measures at. Flag emoji in particular (2-codepoint regional-indicator
-// pairs, or ZWJ family/skin-tone sequences) get wildly inconsistent width
-// results across fonts/terminals - some render as one double-width glyph,
-// some as two separate narrow letters, some fall back to tofu boxes - so
-// without a forced fixed width, rows built from strings.Join of
-// variable-width cells drift out of column with each other and the border
-// wraps unevenly row to row. A fixed width can't make the *specific*
-// oddball glyph look right in every terminal, but it keeps every *other*
-// cell in the grid aligned instead of the misalignment cascading across the
-// whole row.
-//
-// Sized to exactly fit the widest cell gets, with no slack: a bracketed
-// "[emoji]" (picked) rendering a double-width glyph, with no padding.
-// Padding(0,1) was tried and reverted - it made the *common* (unpicked)
-// case, a bare double-width glyph at half this width, look sparse and
-// oversized across the 100+ ordinary cells in a typical grid, all to make
-// room for a rarer picked cell that only needs the padding-sized gap
-// anyway once its own content already fills the width. Cell/CellCursor get
-// their highlight-box breathing room from the picked-sized budget itself,
-// not separate padding on top of it. Word-wrap (triggered by lipgloss's
-// Style.Width whenever content exceeds the requested width) is why this
-// can't simply be sized smaller than the bracketed case and let it
-// overflow - overflowing content wraps onto an extra line and wrecks the
-// whole row's layout, worse than any width tradeoff.
+// CellWidth is every grid cell's width, forced so the grid stays aligned
+// whatever width terminals give a glyph (flags and ZWJ sequences vary).
+// Exactly a picked "[emoji]": narrower, it would wrap onto another line.
 const CellWidth = 4
 
 // KeyMap is the picker's keybindings. Deliberately arrow-keys-only for
@@ -111,15 +81,9 @@ type Styles struct {
 	Placeholder lipgloss.Style
 }
 
-// DefaultStyles returns plain, theme-agnostic default styles - callers
-// embedding this in a themed app will normally override Styles after New.
-//
-// CellPicked deliberately carries no text attributes (bold/underline/etc) -
-// many terminals mis-measure or mis-render a wide emoji grapheme (e.g. a
-// heart plus its U+FE0F emoji-presentation selector) when an SGR attribute
-// like underline is applied on top of it, silently falling back to the
-// narrow text-presentation glyph. renderCell instead marks a picked cell by
-// bracketing the glyph, which can't have that failure mode.
+// DefaultStyles returns plain default styles. CellPicked has no text
+// attributes: on an emoji, many terminals then render the narrow text
+// glyph. A picked cell is bracketed instead.
 func DefaultStyles() Styles {
 	return Styles{
 		Title:       lipgloss.NewStyle().Bold(true),
@@ -145,22 +109,12 @@ type Model struct {
 
 	Title string // e.g. "react to \"...\"" - shown above the query box; empty renders no title row
 
-	// Compact drops the blank lines between rows, the scroll indicator and
-	// the key hints (the embedder shows Hints where it shows its own), and
-	// shows the picked row only once something is picked - for a picker
-	// drawn as a small popup over other content.
+	// Compact drops the blank lines, scroll indicator and key hints (see
+	// Hints), and the picked row until something is, for a small popup.
 	Compact bool
 
-	// Zone/ID opt the picker into mouse support: when Zone is non-nil,
-	// every rendered grid cell is wrapped in a bubblezone mark (namespaced
-	// by ID, so multiple pickers - or other zone.Mark callers - can't
-	// collide) an embedding app hit-tests clicks against via CellZoneID/
-	// VisibleCells, translating a hit into ClickConfirm. Left nil, the
-	// picker is keyboard-only and renders identically to before this
-	// existed - Zone couples the package to bubblezone specifically
-	// (unlike everything else here, which only assumes bubbletea/bubbles/
-	// lipgloss), but there's no way to hit-test a click against arbitrary
-	// terminal content without some scan-the-final-frame mechanism like it.
+	// Zone, if set, marks every cell (namespaced by ID) for the embedder to
+	// hit-test with CellZoneID/VisibleCells and ClickConfirm.
 	Zone *zone.Manager
 	ID   string
 
@@ -182,11 +136,7 @@ func New(recent []string) Model {
 	q := textinput.New()
 	q.Placeholder = "type to search, e.g. fire, +1, idk..."
 	q.Prompt = "🔍 "
-	// Without an explicit width, textinput's placeholderView renders only
-	// the placeholder's first rune (it allocates len(Placeholder)+1 runes
-	// only when Width is set - unset defaults to 0, sizing the buffer to
-	// just 1) - the placeholder would show as a single stray "t" instead of
-	// the full hint text.
+	// Without a width, textinput shows only the placeholder's first rune.
 	q.SetWidth(queryWidth)
 	q.Focus()
 
@@ -212,12 +162,8 @@ func (m *Model) SetPicked(emojis []string) {
 	m.picked = append([]string(nil), emojis...)
 }
 
-// Resize sets Columns/VisibleRows/Width (each left unchanged if <= 0),
-// shrinks the query box to fit, and re-clamps the cursor/scroll to stay
-// valid under the new grid shape - call this whenever the space available
-// to render the picker changes (e.g. a terminal resize), not just once at
-// construction, so the popup adapts instead of a fixed size that can
-// overflow a small terminal.
+// Resize sets Columns/VisibleRows/Width (each unchanged if <= 0), refitting
+// the query box, cursor and scroll.
 func (m *Model) Resize(columns, visibleRows, width int) {
 	if columns > 0 {
 		m.Columns = columns
@@ -247,10 +193,8 @@ func (m *Model) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-// Update implements tea.Model. Confirm/Cancel are deliberately no-ops here -
-// callers check DidConfirm/DidCancel against the same msg right after
-// calling Update (mirroring ui/filepicker's DidSelectFile convention) and
-// close the picker themselves; Update never closes itself.
+// Update implements tea.Model. Confirm and Cancel do nothing here: callers
+// check DidConfirm/DidCancel with the same msg and close the picker.
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		switch {
@@ -288,11 +232,8 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// DidConfirm reports whether msg is the Confirm key, and if so the emoji set
-// it confirms: the toggled multi-select set (including an explicitly
-// cleared-to-empty one, once ClearPicked/Toggle has been touched at least
-// once - see touched), or just the highlighted cell if the picker was never
-// touched at all (so a single pick needs no Tab first).
+// DidConfirm reports whether msg is the Confirm key, and the set it confirms
+// (see confirmFrom).
 func (m *Model) DidConfirm(msg tea.Msg) ([]string, bool) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok || !key.Matches(keyMsg, m.KeyMap.Confirm) {
@@ -301,43 +242,23 @@ func (m *Model) DidConfirm(msg tea.Msg) ([]string, bool) {
 	return m.confirmFrom(m.cursor), true
 }
 
-// ClickConfirm returns the emoji set a direct click on grid cell index i
-// confirms - equivalent to moving the cursor there and pressing Confirm (see
-// confirmFrom), for an embedding app that wires up mouse clicks against the
-// zone marks View() produces once Zone/ID are set. index is whatever
-// VisibleCells() reported a click landed on.
+// ClickConfirm is the set a click on cell i confirms, as Confirm on it
+// would.
 func (m *Model) ClickConfirm(index int) []string {
 	return m.confirmFrom(index)
 }
 
-// confirmFrom is DidConfirm/ClickConfirm's shared logic: the toggled
-// multi-select set (including an explicitly cleared-to-empty one, once
-// ClearPicked/Toggle has been touched at least once - see touched), or just
-// the cell at index if the picker was never touched at all (so a single
-// pick needs no Tab first).
+// confirmFrom is the set confirmed on cell index: the picked set once
+// touched, else that cell toggled onto the picked one.
 func (m *Model) confirmFrom(index int) []string {
-	// touched alone gates this - not len(m.picked) > 0 too. picked can be
-	// non-empty from SetPicked seeding a message's existing reactions before
-	// the user has touched anything; treating that the same as touched made
-	// a plain click/Enter on a message you'd already reacted to just
-	// re-return the untouched seeded set, silently ignoring the click -
-	// only Toggle (which always sets touched) could actually change
-	// anything. Toggle already sets touched on every use, so dropping the
-	// picked-non-empty check doesn't weaken the multi-select path at all.
+	// Not by picked being non-empty: SetPicked seeds it with the message's
+	// reactions, and confirming a cell must still toggle it.
 	if m.touched {
 		return m.picked
 	}
 	if index >= 0 && index < len(m.visible) {
 		e := m.visible[index].Emoji
-		// Toggled onto/off of whatever's already picked (typically a
-		// message's existing reactions, seeded by SetPicked) rather than
-		// replacing it outright - a click/Enter on a new emoji is adding a
-		// reaction, not starting the set over, matching what Toggle already
-		// does once touched. Symmetrically, confirming a cell that's
-		// *already* picked removes it - a no-op there would make clicking/
-		// pressing Enter on an emoji you'd already reacted with look like it
-		// did nothing at all, same failure mode as the replace-not-append
-		// bug this is next to.
+		// Toggled on the picked set: added if new, removed if picked.
 		if m.isPicked(e) {
 			out := make([]string, 0, len(m.picked)-1)
 			for _, p := range m.picked {
@@ -352,18 +273,12 @@ func (m *Model) confirmFrom(index int) []string {
 	return []string{}
 }
 
-// CellZoneID returns the bubblezone mark ID renderCell uses for grid cell
-// index i once Zone is set - an embedding app's mouse handler hit-tests a
-// click against zone.Get(id).InBounds(mouse) for each index VisibleCells
-// returns, then calls ClickConfirm(i) on a hit.
+// CellZoneID is cell i's zone mark ID, once Zone is set.
 func (m *Model) CellZoneID(i int) string {
 	return m.ID + "-cell-" + strconv.Itoa(i)
 }
 
-// VisibleCells returns the indices into the underlying match list currently
-// rendered as grid cells (i.e. within the scrolled-to window) - what an
-// embedding app's mouse handler should hit-test clicks against via
-// CellZoneID; a cell outside this range has no zone mark to hit at all.
+// VisibleCells is the indices of the cells shown, which have zone marks.
 func (m *Model) VisibleCells() []int {
 	if len(m.visible) == 0 || m.Columns <= 0 {
 		return nil
@@ -380,11 +295,7 @@ func (m *Model) VisibleCells() []int {
 	return out
 }
 
-// SetCursor moves the highlighted cell to index i (clamped to the visible
-// list's bounds, no-op if empty) and re-follows it into view - lets an
-// embedding app's mouse handler make hovering a cell behave like arrowing to
-// it (see handleMouseMotion in ui/mouse.go), since the cursor field itself
-// isn't exported.
+// SetCursor highlights cell i, clamped, scrolling it into view.
 func (m *Model) SetCursor(i int) {
 	if len(m.visible) == 0 {
 		return
@@ -393,10 +304,8 @@ func (m *Model) SetCursor(i int) {
 	m.ensureCursorVisible()
 }
 
-// SetPickedHover marks picked-chip index i (see PickedZoneID) as the one
-// under the pointer, so pickedRowView renders it with Styles.PickedHover -
-// an embedding app's mouse handler calls this on every motion event that
-// lands on a chip, and ClearPickedHover when the pointer leaves the row.
+// SetPickedHover marks picked chip i hovered (see PickedZoneID);
+// ClearPickedHover undoes it.
 func (m *Model) SetPickedHover(i int) {
 	if i < 0 || i >= len(m.picked) {
 		return
@@ -425,11 +334,7 @@ func (m *Model) DidCancel(msg tea.Msg) bool {
 	return ok && key.Matches(keyMsg, m.KeyMap.Cancel)
 }
 
-// moveCursor moves the cursor by delta cells (±1 for left/right, ±Columns
-// for up/down), clamped to the visible list's bounds - no wraparound, since
-// combined with scrolling that would be disorienting (jumping from the last
-// match straight back to the first, several scroll pages away). Always
-// re-follows the cursor's row into view afterward.
+// moveCursor moves the cursor by delta cells, clamped, without wrapping.
 func (m *Model) moveCursor(delta int) {
 	if len(m.visible) == 0 {
 		return
@@ -563,13 +468,8 @@ func (m *Model) gap() string {
 
 // writePickedRow writes the "Picked: ..." row and the gap after it.
 func (m *Model) writePickedRow(b *strings.Builder) {
-	// Always shown, separate from the (possibly filtered) grid below - a
-	// search query can easily hide cells that are already picked, and
-	// without this line there'd be no way to see the full multi-select set
-	// at all while it's narrowed out of view. Rendered without m.line's
-	// width-truncation when Zone is set: ansi.Truncate cutting mid-string
-	// could slice through a zone mark's escape sequence and corrupt hit
-	// testing for every chip after the cut - see PickedZoneID/RemovePickedAt.
+	// The picked set, which a query may filter out of the grid. Not
+	// truncated with zone marks, which cutting would corrupt.
 	if m.Zone != nil {
 		b.WriteString(m.pickedRowView())
 	} else {
@@ -578,10 +478,7 @@ func (m *Model) writePickedRow(b *strings.Builder) {
 	b.WriteString(m.gap())
 }
 
-// line truncates text to m.Width (with an ellipsis) before rendering it
-// with style - keeps a single-line row (title, picked summary, footer) from
-// ever overflowing the popup regardless of terminal size or how long a
-// message preview/hint happens to be.
+// line renders text with style, truncated to m.Width.
 func (m *Model) line(style lipgloss.Style, text string) string {
 	if m.Width > 0 {
 		text = ansi.Truncate(text, m.Width, "…")
@@ -597,12 +494,8 @@ func (m *Model) pickedRowText() string {
 	return "Picked: " + strings.Join(m.picked, " ")
 }
 
-// pickedRowView is pickedRowText's Zone-aware counterpart: each picked emoji
-// is wrapped in its own zone mark (PickedZoneID) so an embedding app's mouse
-// handler can hit-test a click against one chip specifically and remove just
-// that emoji (see RemovePickedAt) - clicking the summary line is otherwise
-// the only way to deselect something once a search query has scrolled its
-// grid cell out of view.
+// pickedRowView is pickedRowText with each chip zone-marked (PickedZoneID),
+// for RemovePickedAt.
 func (m *Model) pickedRowView() string {
 	label := m.Styles.PickedRow.Render("Picked: ")
 	if len(m.picked) == 0 {
@@ -619,19 +512,12 @@ func (m *Model) pickedRowView() string {
 	return label + strings.Join(chips, " ")
 }
 
-// PickedZoneID returns the bubblezone mark ID pickedRowView uses for the i'th
-// picked emoji chip - an embedding app's mouse handler hit-tests a click
-// against zone.Get(id).InBounds(mouse) for each index in range Selection(),
-// then calls RemovePickedAt(i) on a hit.
+// PickedZoneID is picked chip i's zone mark ID.
 func (m *Model) PickedZoneID(i int) string {
 	return m.ID + "-picked-" + strconv.Itoa(i)
 }
 
-// RemovePickedAt removes the i'th picked emoji (see PickedZoneID) from the
-// multi-select set, marking the picker touched so DidConfirm/ClickConfirm
-// returns the set as explicitly edited rather than falling back to
-// "just the highlighted cell" - mirrors toggleCursor unpicking the same
-// emoji from the grid.
+// RemovePickedAt unpicks the i'th picked emoji, marking the picker touched.
 func (m *Model) RemovePickedAt(i int) {
 	if i < 0 || i >= len(m.picked) {
 		return
@@ -642,10 +528,7 @@ func (m *Model) RemovePickedAt(i int) {
 
 func (m *Model) renderCell(i int) string {
 	e := m.visible[i].Emoji
-	// Picked is marked by bracketing the glyph rather than a text attribute
-	// (see DefaultStyles' CellPicked doc) - applied to the plain glyph
-	// before any style wraps it, so cursor+picked together just brackets
-	// inside the reversed cell instead of stacking attributes on the glyph.
+	// Picked is bracketed (see DefaultStyles), before any style.
 	text := e
 	if m.isPicked(e) {
 		text = "[" + e + "]"
@@ -727,12 +610,7 @@ func search(query string) []entry {
 		return ranked[i].code < ranked[j].code
 	})
 
-	// Many shortcodes are aliases for the same glyph (":thumbsup:" and
-	// ":+1:" both render 👍) - without deduping here, a query would surface
-	// the same emoji as multiple grid cells, and since picking/highlighting
-	// match by glyph (see isPicked/toggleCursor), toggling one would
-	// visually light up its "duplicate" too. Keep only the
-	// highest-scoring shortcode per glyph.
+	// Shortcodes alias glyphs (":+1:", ":thumbsup:"): one cell per glyph.
 	seen := make(map[string]bool, maxResults)
 	out := make([]entry, 0, min(len(ranked), maxResults))
 	for _, r := range ranked {
