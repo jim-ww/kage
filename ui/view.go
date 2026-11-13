@@ -39,13 +39,7 @@ func (m Model) View() tea.View {
 	case accountHovered:
 		accountRow = accountRow.Foreground(colors.accentCyan)
 	}
-	// The account menu's button sits on the name row rather than being
-	// hidden behind a right-click on a row of a panel that has to be
-	// opened first — every account-scoped action lives in that menu.
-	// Built before the name so the name can be laid out against the
-	// columns the button leaves it, rather than against the full sidebar:
-	// padded to the wrong width, the name pushes the button sideways on
-	// hover, when it grows by the panel-toggle arrow.
+	// Built first, so the name is laid out in what the button leaves.
 	menuBtn := m.zone.Mark(zoneAccountMenuButton, m.styles.renderAccountMenuButton(m.icons, accountRow, m.isHovered(zoneAccountMenuButton)))
 	nameWidth := max(1, scw-lipgloss.Width(menuBtn))
 	accountName, accountStatus := m.renderAccountBar(nameWidth, scw, accountHovered, accountOpen)
@@ -125,24 +119,13 @@ func (m Model) View() tea.View {
 	v := tea.NewView(rendered)
 	v.AltScreen = true
 	v.ReportFocus = true
-	// Ask Kitty-protocol terminals to report Key.BaseCode (the PC-101 key
-	// regardless of active keyboard layout) alongside the layout-shifted
-	// code. Key.String()/Keystroke() already prefer BaseCode when present,
-	// so this makes "ctrl+e"-style bindings match the physical E key even
-	// on non-Latin layouts (e.g. Cyrillic) without touching match logic.
-	//
-	// ReportAlternateKeys alone isn't enough: a plain "ctrl+<letter>" combo
-	// already has an unambiguous legacy encoding (a single C0 control
-	// byte), so terminals keep sending it that way — with no room to carry
-	// BaseCode — unless ReportAllKeysAsEscapeCodes forces every key through
-	// the full CSI u encoding instead.
+	// Kitty-protocol terminals report Key.BaseCode, the physical key, so
+	// bindings match on non-Latin layouts too. Every key as an escape code:
+	// a legacy-encoded ctrl+letter can't carry BaseCode.
 	v.KeyboardEnhancements.ReportAlternateKeys = true
 	v.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
-	// ReportAssociatedText asks the terminal to send the literal typed text
-	// explicitly. Without it, the decoder falls back to ShiftedCode for
-	// Key.Text on shift-held keys — but on non-Latin layouts terminals often
-	// report ShiftedCode as the unshifted PC-101/Latin key, not the actual
-	// shifted character.
+	// The typed text itself: on non-Latin layouts ShiftedCode is often the
+	// Latin key.
 	v.KeyboardEnhancements.ReportAssociatedText = true
 	// TODO: use double-click event instead of our own double click logic? v.KeyboardEnhancements.ReportEventTypes
 	if m.mouseEnabled {
@@ -153,12 +136,9 @@ func (m Model) View() tea.View {
 	return v
 }
 
-// sidebarCacheEntry is the exact set of inputs that determine the sidebar's
-// styled/bordered output (see renderSidebar) — everything sidebarBox/
-// sidebarInner/JoinVertical actually read. border is image/color.Color,
-// which for every concrete color type this app uses (lipgloss's named/hex
-// colors) is a comparable value type, so == is a real equality check here,
-// not just an interface-identity check.
+// sidebarCacheEntry is every input of the rendered sidebar (see
+// renderSidebar). The colors used are comparable values, so == compares
+// them.
 type sidebarCacheEntry struct {
 	statusLine string
 	body       string
@@ -177,22 +157,10 @@ type chatListCacheEntry struct {
 	body string
 }
 
-// chatListBody returns the rendered chat list, reusing the previous
-// frame's when nothing it draws from has changed.
-//
-// renderSidebar already refuses to re-style a sidebar whose body is
-// byte-identical, but the body had to be rendered in full to find that
-// out — so every frame paid for the whole list (a lipgloss Render plus a
-// zone.Mark per visible row) purely to produce a cache key, and threw it
-// away. Hovering a *message* redraws nothing in the sidebar, which is most
-// of what a mouse does.
-//
-// The key is built from the raw Chat fields rather than each row's
-// rendered text because it's ~40000x cheaper to assemble, and it's
-// compared in full rather than hashed so that, like the caches either side
-// of it, a hit can never be stale. See
-// TestChatListKeyCoversEverythingRendered for what keeps the field list
-// honest as Chat grows.
+// chatListBody returns the rendered chat list, reusing the previous frame's
+// when nothing it draws from changed, so renderSidebar's cache doesn't need
+// it rendered. The key is the Chat fields, cheaper than the rendered rows,
+// compared in full (see TestChatListKeyCoversEverythingRendered).
 func (m Model) chatListBody() string {
 	c := m.chatListViewCache
 	if c == nil {
@@ -215,10 +183,7 @@ func (m Model) chatListViewKey() string {
 	var sb strings.Builder
 	items := m.chats.VisibleItems()
 	sb.Grow(64 * (len(items) + 1))
-	// Which chat row the pointer is on, not the raw hover ID: the delegate
-	// only ever asks whether hover.id is some zoneChatItem(i), so keying on
-	// the ID itself would miss on every mouse motion over a *message* —
-	// which is exactly the case this cache exists for.
+	// The hovered chat row, not the hover ID, which changes over messages.
 	hoveredChat := -1
 	if i, ok := chatIndexFromZone(m.hover.id); ok {
 		hoveredChat = i
@@ -241,15 +206,8 @@ func (m Model) chatListViewKey() string {
 	return sb.String()
 }
 
-// renderSidebar renders the sidebar (accounts/status bar + chat list,
-// bordered) for the given inputs, reusing the previous frame's styled
-// output when every input is byte-identical to it — the box-drawing and
-// join steps involve several lipgloss Style.Render calls (each of which
-// does its own Unicode grapheme-cluster width scan), and those don't need
-// to happen again for a frame that changed nothing about the sidebar, e.g.
-// almost any mouse motion or key press while a message (not the chat list)
-// is what's actually being interacted with. See Model.sidebarRenderCache's
-// doc comment for why this compares by value instead of tracking mutations.
+// renderSidebar renders the sidebar, reusing the previous frame's when every
+// input is the same (see Model.sidebarRenderCache).
 func (m Model) renderSidebar(want sidebarCacheEntry) string {
 	c := m.sidebarRenderCache
 	if c.statusLine == want.statusLine && c.body == want.body && c.width == want.width &&
@@ -267,41 +225,24 @@ func (m Model) renderSidebar(want sidebarCacheEntry) string {
 	return want.rendered
 }
 
-// viewportFrameCacheEntry is the exact set of inputs that determine the
-// message viewport's styled/framed output (see renderViewportFrame) — the
-// same content-addressed caching approach as sidebarCacheEntry, and for the
-// same reason: m.viewport.View()'s content changes on every message-cursor
-// move, mouse hover, and scroll, and tracking every one of those call sites
-// to know when to invalidate would be as fragile as doing it for the chat
-// list. Comparing the rendered content itself instead means the cache can
-// never be stale.
+// viewportFrameCacheEntry is every input of the framed message viewport
+// (see renderViewportFrame), compared like sidebarCacheEntry.
 type viewportFrameCacheEntry struct {
 	width, height int
 	content       string
 	rendered      string
 }
 
-// renderViewportFrame renders the message viewport's border/padding frame
-// around already-rendered content, reusing the previous frame's styled
-// output when width/height/content are all byte-identical to it — e.g.
-// almost any event that doesn't touch the loaded chat's content or the pane
-// size at all (a mouse motion over the sidebar, an unrelated popup opening,
-// scrolledPastFirstPage's jump-to-bottom button toggling — none of those
-// change what's inside this frame).
+// renderViewportFrame frames rendered viewport content, reusing the previous
+// frame's when its inputs are the same.
 func (m Model) renderViewportFrame(want viewportFrameCacheEntry) string {
 	c := m.viewportFrameCache
 	if c.width == want.width && c.height == want.height && c.content == want.content {
 		return c.rendered
 	}
-	// viewport.Model.View already pads every line to exactly its own width
-	// and the block to its own height, so whenever those match the frame
-	// being asked for, both of the sizing passes below are re-deriving
-	// their own input: lipgloss wrap-then-align is idempotent, so
-	// viewportContent's (an empty style — sizing is all it does) and
-	// viewportFrame's Width/Height each cost a full grapheme-width scan of
-	// the entire visible chat to hand back the bytes they were given. That
-	// ran twice per frame, on every mouse motion. See
-	// TestViewportFramePresizedMatchesSizedRender.
+	// The viewport already sizes its view; when that's the frame's size,
+	// lipgloss's sizing passes would only re-scan it unchanged (see
+	// TestViewportFramePresizedMatchesSizedRender).
 	if m.viewport.Width() == want.width && m.viewport.Height() == want.height {
 		want.rendered = m.styles.viewportFramePresized(want.content)
 	} else {
@@ -311,10 +252,8 @@ func (m Model) renderViewportFrame(want viewportFrameCacheEntry) string {
 	return want.rendered
 }
 
-// renderChatArea builds the chat status bar + viewport/popup + input box
-// column. Only called when chatAreaWidth() > 0 — in narrow mode that's
-// exactly when the chat pane (rather than the chat list) is the single
-// visible pane.
+// renderChatArea builds the chat column: status bar, messages, input.
+// Only called when chatAreaWidth() > 0.
 func (m Model) renderChatArea(colors uiColors) string {
 	// ── Input box ──────────────────────────────────────────────────────────
 	inputBorder := colors.borderD
@@ -359,10 +298,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 		}
 	}
 
-	// renderChatArea is only called when the chat pane is the visible one, so
-	// in narrow mode the list is by definition hidden right now — the icon
-	// should always offer to bring it back, regardless of sidebarHidden
-	// (which narrow mode ignores; see sidebarWidth/chatAreaWidth).
+	// In narrow mode the list is hidden whenever the chat shows.
 	listHidden := m.sidebarHidden || m.narrow()
 	toggleBtn := m.zone.Mark(zoneToggleSidebar, m.styles.renderSidebarToggleButton(listHidden, m.isHovered(zoneToggleSidebar)))
 	statusWidth := max(0, m.chatAreaWidth()-lipgloss.Width(toggleBtn))
@@ -374,14 +310,9 @@ func (m Model) renderChatArea(colors uiColors) string {
 	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
 }
 
-// renderCallBar builds the persistent call status bar row: the status text
-// (callStatus) on the left, the state's clickable buttons (callBarButtons)
-// right-aligned. Always exactly one row: the status is truncated to make
-// room, and on a terminal too narrow for every button the least important
-// are dropped (fitCallBarButtons) - the menu, which reaches everything the
-// others do, last. "" when there's no
-// call to show, matching callBarActive so View() only reserves space for it
-// when needed.
+// renderCallBar builds the call bar's one row: status, then buttons, the
+// least important dropped when narrow (fitCallBarButtons) - the menu last.
+// "" without a call.
 func (m Model) renderCallBar(width int) string {
 	if m.call == nil {
 		return ""
@@ -430,14 +361,8 @@ func overlayBottomCenter(base, content string, marginBottom int) string {
 	return overlayAt(base, content, x, y)
 }
 
-// renderDeviceHoverPopup builds the floating "online devices" box for the
-// currently hovered chat row, once hoverDevicesDelay has revealed it (see
-// hoverDevicesTimer/hoverState.devicesID) — a real overlay composited on
-// top of the fully rendered frame (via overlayAt in View()), not squeezed
-// into the row's own two-line height, so it isn't clipped by the sidebar
-// column width or cut off by neighboring rows. ok is false whenever there's
-// nothing to show: no row is in its post-delay hover state, or that
-// contact has no online resources.
+// renderDeviceHoverPopup builds the hovered chat's online devices box, laid
+// over the frame. ok is false with nothing to show.
 func (m Model) renderDeviceHoverPopup() (popup string, x, y int, ok bool) {
 	if m.hover == nil || m.hover.devicesID == "" || m.hover.id != m.hover.devicesID {
 		return "", 0, 0, false
@@ -480,15 +405,8 @@ func (m Model) renderDeviceHoverPopup() (popup string, x, y int, ok bool) {
 		return "", 0, 0, false
 	}
 
-	// Deliberately no Background/Foreground on this box style: every
-	// fragment above (deviceGlyph, plain resource/label text) is already
-	// fully rendered with its own color and no background set, so
-	// wrapping it in a style that added a background here would just
-	// leave the border/padding cells filled while the already-rendered
-	// text cells underneath keep showing through the terminal's own
-	// background — the two-tone/transparent-patchwork bug. Leaving the
-	// box's own style bare keeps the whole popup uniformly on the
-	// terminal's background.
+	// No background: the styled text inside has none, and would show
+	// patches of the terminal's.
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(m.styles.colors.accentCyan).
@@ -514,11 +432,8 @@ func overlayAt(base, content string, x, y int) string {
 	return overlayAtWidth(base, content, x, y, lipgloss.Width(content))
 }
 
-// overlayAtWidth is overlayAt for content whose width the caller already
-// knows. Measuring it costs a grapheme-width scan of the whole string,
-// which for the avatar panel (tens of kilobytes of escape sequences, every
-// line padded to exactly the sidebar's width) is most of the overlay's
-// cost and tells us nothing we didn't already have.
+// overlayAtWidth is overlayAt for content of known width, saving measuring
+// it - most of the cost for the avatar panel.
 func overlayAtWidth(base, content string, x, y, contentWidth int) string {
 	baseLines := strings.Split(base, "\n")
 	contentLines := strings.Split(content, "\n")
@@ -537,21 +452,14 @@ func overlayAtWidth(base, content string, x, y, contentWidth int) string {
 	return strings.Join(baseLines, "\n")
 }
 
-// wrapFooterHint word-wraps a helpHint string (entries joined by "·", each
-// entry internally held together with non-breaking spaces — see helpHint) to
-// width, keeping at most maxLines rows. A single line's width, even on a
-// wide terminal, isn't enough to list every binding for a busy view like
-// viewChat, so this lets the footer grow down instead of truncating early;
-// past maxLines the remaining entries are dropped with a trailing "…".
+// wrapFooterHint wraps a helpHint to width in at most maxLines rows, ending
+// with "…" if cut.
 func wrapFooterHint(hint string, width, maxLines int) string {
 	lines := footerWrapLines(hint, width, maxLines)
 	return strings.Join(lines, "\n")
 }
 
-// footerLineCount is how many rows wrapFooterHint's output will actually
-// take — used to size the rest of the layout so nothing is reserved for
-// footer rows a view doesn't need. Kept in lockstep with wrapFooterHint by
-// sharing footerWrapLines rather than reimplementing the wrap.
+// footerLineCount is how many rows wrapFooterHint takes.
 func footerLineCount(hint string, width, maxLines int) int {
 	return len(footerWrapLines(hint, width, maxLines))
 }
@@ -632,10 +540,7 @@ func (m Model) infoLines() []modal.Line {
 // attachment sizes it shows arrive.
 const infoModalID = "msg-info"
 
-// openHelp lists every keybinding grouped by which tab it applies to (plus
-// a Global section for bindings that work everywhere) — the full reference
-// behind the footer's necessarily-truncated one-line hint, its sections in
-// as many columns as the chat area's height asks for and its width allows.
+// openHelp lists every keybinding by view, in as many columns as fit.
 func (m *Model) openHelp() tea.Cmd {
 	var sections []modal.Section
 	for _, section := range m.keys.helpSections() {
@@ -654,14 +559,8 @@ func (m *Model) openHelp() tea.Cmd {
 	return m.openModal(&modal.Modal[*Model]{Title: "Help", Body: body, MaxWidth: 1 << 16})
 }
 
-// renderAccountBar returns the account bar's name and status text
-// separately, each already truncated to fit width (see
-// uiStyles.accountBarNameRow/accountBarStatusRow, which style them).
-// renderAccountBar builds the account bar's two lines. nameWidth and
-// statusWidth are separate because the rows are not the same width: the
-// name row gives up columns to the account-menu button beside it (see
-// View), and padding the name to the status row's width instead would push
-// that button sideways every time the bar is hovered.
+// renderAccountBar builds the account bar's name and status rows. The name
+// row is narrower, sharing its row with the account menu button.
 func (m Model) renderAccountBar(nameWidth, statusWidth int, hovered, open bool) (name, status string) {
 	if len(m.accounts) == 0 {
 		return ansi.Truncate("no accounts", max(1, nameWidth-2), "…"), ""
@@ -697,12 +596,8 @@ func (m Model) renderAccountsList(width int) string {
 	rows := make([]string, len(m.accounts))
 	for i, account := range m.accounts {
 		label := fmt.Sprintf("%s (%s)", account.NameWithJID(), account.StatusText())
-		// The glyph is rendered separately and prepended after styling the
-		// rest of the row, never passed through renderAccountRow's own
-		// style.Render - that call ends in a full ANSI reset, and wrapping
-		// it in another style (hover's Underline) produces broken/nested
-		// escape sequences that some terminals show as raw text instead of
-		// rendering (see the same reasoning in renderChatStatusBar).
+		// The glyph is prepended after styling: a styled string nested in
+		// another style breaks on some terminals.
 		name := ansi.Truncate(label, max(1, width-5), "…") // -5 for border + padding + glyph + space
 		row := m.styles.renderAccountRow(name, i == m.currentAccount, m.isHovered(zoneAccountRow(i)))
 		rows[i] = m.zone.Mark(zoneAccountRow(i), presenceGlyph(account.Status)+" "+row)
@@ -727,12 +622,8 @@ func (m Model) inputHint() string {
 	return ""
 }
 
-// renderPendingAttachments renders the row of chips for files staged (via
-// the attach button/ctrl+f) to go out with the next sent message — each
-// chip is its own clickable zone (see zoneAttachmentRemove) that removes it;
-// empty if nothing is staged. The one Tab last landed on
-// (m.selectedAttachment — also what ctrl+o opens and Backspace removes) is
-// wrapped in brackets so it's always clear which one those keys act on.
+// renderPendingAttachments renders the staged files, each removed by a
+// click; the selected one bracketed.
 func (m Model) renderPendingAttachments(width int) string {
 	if len(m.pendingAttachments) == 0 {
 		return ""
@@ -775,10 +666,7 @@ func (m Model) renderChatStatusBar(width int) string {
 	}
 
 	label := m.chatStatusLabel(chat)
-	// nickMe-color the text ourselves rather than let chatStatusLine wrap
-	// the whole string in one Foreground — presenceGlyph's own Render call
-	// ends in a full ANSI reset, which would otherwise cut the outer color
-	// off right after the dot, leaving the rest of the label uncolored.
+	// Colored here: the glyph's reset would cut off an outer color.
 	label = m.styles.messageNickMe.Render(label)
 
 	return ansi.Truncate(label, max(1, width-2), "…")

@@ -11,22 +11,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// renderMessagesWithOffsets renders all messages for the active chat and
-// returns the full string plus the line-offset of each message within it.
-//
-// This used to render only a windowed subset of the loaded messages
-// (centered on the selection) to bound the cost of charm.land/bubbles
-// viewport.SetContentLines, which rescans every line it's given on every
-// call — but decoupling "what's rendered" from "what's loaded" broke every
-// piece of code that used viewport.YOffset()==0/AtBottom() as a proxy for
-// "reached the start/end of all loaded messages" (mouse wheel and
-// PageUp/PageDown scrolling), causing scrolling to get stuck or jump to
-// unrelated messages once a chat's loaded history exceeded the window.
-// maxMessagesPerChat already bounds how many messages are loaded at all
-// (default 200), and the other fixes in this area (a much smaller Model
-// struct, content-addressed sidebar/viewport-frame caches) cut enough of
-// the real cost that windowing on top of them wasn't worth the correctness
-// risk — see the removal in git history if this cost matters again.
+// renderMessagesWithOffsets renders every loaded message of the chat and
+// each one's line offset. All of them, not a window: scrolling takes the
+// viewport's top and bottom for the loaded messages' ends.
 func (m Model) renderMessagesWithOffsets() (string, []int) {
 	cw := m.chatAreaWidth()
 	if cw <= 10 {
@@ -57,10 +44,8 @@ func (m Model) renderMessagesWithOffsets() (string, []int) {
 	return sb.String(), offsets
 }
 
-// formatMessageTime formats a message timestamp per the user's config: a
-// custom Go time layout when set, otherwise a bare "15:04" - the date isn't
-// repeated on every message at all, since a date-divider line (see
-// dateDividerLabel/renderDateDivider) already marks it once per day.
+// formatMessageTime formats a message's time: timeLayout, or "15:04", the
+// date being on day dividers.
 func (m Model) formatMessageTime(t time.Time) string {
 	if m.timeLayout != "" {
 		return t.Format(m.timeLayout)
@@ -92,10 +77,8 @@ func (m Model) messageDateDivider(msgIdx int, allMsgs []Message) string {
 	return m.styles.renderDateDivider(dateDividerLabel(allMsgs[msgIdx].SentAt, time.Now()))
 }
 
-// callLogLine renders a call-log entry's compact "📞 ..." line instead of the
-// normal author/content/timestamp bubble layout — same muted/italic styling
-// as a deleted message, since it's informational rather than real chat
-// content.
+// callLogLine renders a call-log entry's one line, styled like a deleted
+// message.
 func (m Model) callLogLine(msg Message, msgIdx, totalWidth int) string {
 	glyph := "call"
 	if m.icons {
@@ -143,18 +126,11 @@ func callLogText(info CallLogInfo) string {
 // own expand zone) toggles it open via Model.expandedMsgs.
 const maxCollapsedBodyLines = 15
 
-// maxSenderNameDisplayWidth caps how wide a single sender name is allowed to
-// make every message's "name" column - without it, one contact with an
-// unusually long name/JID localpart would push the label (and so the start
-// of every message's body) uselessly far right for the whole chat.
+// maxSenderNameDisplayWidth caps the name column one long name would widen.
 const maxSenderNameDisplayWidth = 16
 
-// senderDisplayName returns name as-is unless it looks like a bare JID (no
-// resolved nickname upstream), in which case only the localpart before '@'
-// is shown - a full JID is too wide to sit at the start of every line in
-// the message list. Also truncates to maxSenderNameDisplayWidth runes with
-// a trailing "…", so a single long name can't blow out the shared name
-// column every message in the chat is padded to (see maxSenderNameWidth).
+// senderDisplayName is name, a JID's localpart only, truncated to
+// maxSenderNameDisplayWidth.
 func senderDisplayName(name string) string {
 	if at := strings.IndexByte(name, '@'); at >= 0 {
 		name = name[:at]
@@ -166,11 +142,8 @@ func senderDisplayName(name string) string {
 	return name
 }
 
-// msgKey returns a stable key for a message's per-row UI state (currently
-// just expandedMsgs) that survives history reloads/pagination, unlike a
-// raw slice index: prefers the server-assigned stanza ID, falling back to
-// the client-generated correlation ID for not-yet-acked outgoing echoes,
-// and only to the index when neither is set (e.g. synthetic rows).
+// msgKey keys a message's row state (expandedMsgs) across history loads:
+// its ID, else LocalID, else index.
 func msgKey(msg Message, idx int) string {
 	if msg.ID != "" {
 		return msg.ID
@@ -181,11 +154,8 @@ func msgKey(msg Message, idx int) string {
 	return fmt.Sprintf("idx:%d", idx)
 }
 
-// maxSenderNameWidth returns the widest displayed sender name across msgs
-// (call-log rows excluded, since they don't render one) - used to pad every
-// message's name label to a common width so everything that follows it
-// lines up down the whole chat instead of jittering with each sender's
-// name length.
+// maxSenderNameWidth is the widest sender name in msgs, which every name is
+// padded to so bodies line up.
 func maxSenderNameWidth(msgs []Message) int {
 	width := 0
 	for _, msg := range msgs {
@@ -214,47 +184,26 @@ type msgRowKey struct {
 	reactionIdx int // hovered reaction chip on this row, -1 for none
 }
 
-// msgRowCacheState memoizes individual rendered message rows (padded, but
-// before zone.Mark, which is a cheap concat and has to re-run per frame
-// anyway).
-//
-// Unlike sidebarRenderCache/viewportFrameCache this can't content-address
-// its input — a Message isn't comparable and hashing every message's body
-// per lookup would cost more than it saves. Instead it hangs off the
-// invariant the message pane already relies on: refreshViewport is the
-// single point every *content* change funnels through, which is exactly
-// why refreshViewportSelection can splice into m.viewportLines and assume
-// each row's line count is unchanged. Dropping the rows here at that same
-// point therefore adds no contract that wasn't already load-bearing — and
-// if that invariant is ever violated, refreshViewportSelection's existing
-// line-count check catches it and falls back to a full re-render.
-//
-// The win is that hovering is a *round trip*: the row the pointer leaves
-// goes back to exactly the plain rendering the last full refresh already
-// produced for it, so re-deriving it (an ansi.Wrap plus a lipgloss Render
-// per line) is pure waste on every single mouse motion event.
+// msgRowCacheState memoizes rendered message rows (before zone.Mark), so a
+// row the pointer leaves gets its earlier rendering back. It can't be keyed
+// on a Message's content, so refreshViewport, which every content change
+// goes through, clears it.
 type msgRowCacheState struct {
 	cw        int
 	nameWidth int
 	rows      map[msgRowKey]string
 }
 
-// msgRowCacheLimit caps how many rows are retained between full refreshes,
-// since a long hovering session without one can otherwise keep adding
-// state combinations for the same messages. Cleared wholesale rather than
-// evicted individually — the next full refresh repopulates whatever is
-// still on screen anyway.
+// msgRowCacheLimit caps rows kept between refreshes; past it the cache is
+// cleared.
 const msgRowCacheLimit = 2048
 
 func newMsgRowCacheState() *msgRowCacheState {
 	return &msgRowCacheState{rows: make(map[msgRowKey]string)}
 }
 
-// rowCache returns the per-row render cache, creating it if this Model was
-// built as a struct literal rather than through newModel (tests do that,
-// and the rendering paths must not depend on which). Value-receiver
-// renderers can't do this, so they treat a nil cache as "render uncached"
-// instead.
+// rowCache returns the row cache, creating it for a Model built as a
+// literal. Value-receiver renderers treat nil as uncached.
 func (m *Model) rowCache() *msgRowCacheState {
 	if m.msgRowCache == nil {
 		m.msgRowCache = newMsgRowCacheState()
@@ -309,10 +258,7 @@ func (m Model) renderMessageRow(msgs []Message, idx, cw, nameWidth int) string {
 func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Message, nameWidth int) string {
 	divider := m.messageDateDivider(msgIdx, allMsgs)
 	if divider != "" {
-		// Indented to start at the same column the message text itself
-		// starts at - 2 for the row's own left gutter (selection bar or
-		// blank), then nameWidth+1 for the shared name column - rather than
-		// flush against the pane's left edge.
+		// Starts where message text does: gutter, then name column.
 		divider = strings.Repeat(" ", 2+nameWidth+1) + divider + "\n"
 	}
 
@@ -322,10 +268,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	isSelected := msgIdx == m.selectedMsg
 	rowHovered := m.isHovered(zoneMessage(msgIdx))
 
-	// Every row (selected or not) gets a 2-cell left gutter prepended below
-	// (the selection bar, or blank space to keep unselected rows aligned) -
-	// reserve that width up front so wrapping/padding land on totalWidth
-	// (the pane's real width) instead of overflowing it by 2 columns.
+	// The 2-cell gutter (selection bar) is added below.
 	totalWidth -= 2
 
 	nameStyle := m.styles.messageNickThem
@@ -349,11 +292,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		reply := m.replyHeaderFragment(replyIdx, allMsgs, totalWidth-prefixWidth)
 		headerLine += m.zone.Mark(zoneMessageReply(msgIdx), reply)
 	case msg.ReplyToID != "" && msg.QuotedPreview != "":
-		// The real target isn't in the currently loaded window (scrolled
-		// out, or a fresh TUI reconnect reseeded a narrower tail - see
-		// QuotedAuthor/QuotedPreview's doc comment) - fall back to the
-		// snapshot taken when this message was persisted. Not wrapped in
-		// m.zone.Mark: there's no loaded message to jump to.
+		// Target not loaded: the stored quote, not clickable.
 		hasReply = true
 		headerLine += m.replyHeaderFragmentFallback(msg.QuotedAuthor, msg.QuotedPreview, totalWidth-prefixWidth)
 	}
@@ -366,11 +305,8 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		// info popup (ctrl+i); we never actually erase local history.
 		bodyContent = "*deleted*"
 	case len(msg.Attachments) > 0:
-		// Attachments is authoritative (XEP-0066), not derived from Content -
-		// a sender's fallback body text isn't guaranteed to literally end
-		// with the attachment URLs, so this only strips them from the
-		// displayed text as a best-effort de-dupe when it does, rather than
-		// gating whether attachment styling shows at all.
+		// Attachments (XEP-0066) decide; their URLs are stripped from the
+		// text only if it ends with them.
 		text := strings.TrimSpace(msg.Content)
 		if joined := strings.Join(msg.Attachments, "\n"); strings.HasSuffix(text, joined) {
 			text = strings.TrimSpace(strings.TrimSuffix(text, joined))
@@ -398,11 +334,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		bodyContent = FormatMessageBody(content)
 	}
 
-	// Body text trails directly after the name on the header's own line
-	// when there's no reply quote to make room for; a real reply or a
-	// parsed ">"-quote convention both push the body down to its own line
-	// instead, since the quote already occupies the space right after the
-	// name.
+	// The body follows the name, unless a quote takes that place.
 	bodyOnHeaderLine := !hasReply && !hasTextQuoteReply
 	wrapWidth := max(totalWidth-prefixWidth, 8)
 	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
@@ -444,11 +376,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 
 	lines = append(lines, pad+m.renderMessageStatusLine(msg, msgIdx, rowHovered))
 
-	// The left-edge bar (thick, red) marks selection only; it must sit flush
-	// against the pane's own left edge - not indented behind a padding
-	// column - so unselected rows get the same 2-cell-wide gap filled with
-	// blank space instead, keeping every row's text aligned regardless of
-	// whether the bar is showing.
+	// The selection bar sits at the left edge; other rows get blanks.
 	if isSelected {
 		bar := m.styles.messageBar.Render("▌") + " "
 		for i, line := range lines {
@@ -460,13 +388,7 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 	}
 
-	// Selecting (keyboard) or hovering (mouse) tints every line of the row
-	// with a subtle background instead of underlining individual fragments,
-	// so the whole message reads as one highlighted block regardless of
-	// which input method chose it. Padded out to the row's full width
-	// first (bar/gutter included) so the tint fills the entire line instead
-	// of stopping wherever that line's own text/status content happened to
-	// end.
+	// Selected or hovered, the whole row is tinted, padded to full width.
 	if isSelected || rowHovered {
 		for i, line := range lines {
 			lines[i] = m.styles.rowBackgroundTint(padLinesToWidth(line, totalWidth+2))
@@ -474,11 +396,8 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	if m.flashMsgIdx >= 0 && msgIdx == m.flashMsgIdx {
-		// Strip each line's own ANSI styling first: nesting messageFlash's
-		// background around already-styled text would just lose the
-		// background at the first reset code the inner styling emits (e.g.
-		// after the header's foreground color), leaving the rest of the line
-		// unhighlighted.
+		// Styling stripped first: the inner styling's resets would end the
+		// flash background.
 		for i, line := range lines {
 			lines[i] = m.styles.messageFlash.Render(ansi.Strip(line))
 		}
@@ -487,11 +406,9 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	return divider + strings.Join(lines, "\n")
 }
 
-// renderMessageStatusLine renders the line under a message's body: dimmed
-// time/date, then an edited marker, (for our own messages) the
-// send/delivery status glyph, then - only while the pointer is over the
-// message (they're mouse buttons; the keyboard has its own keys) - the "↩"
-// (reply)/"+" (react) buttons, and finally any reactions on the message.
+// renderMessageStatusLine renders the line under a message: time, edited
+// marker, our messages' send status, the reply/react buttons while hovered,
+// and reactions.
 func (m Model) renderMessageStatusLine(msg Message, msgIdx int, rowHovered bool) string {
 	timeLabel := m.styles.messageTime.Render(m.formatMessageTime(msg.SentAt))
 	parts := []string{timeLabel}
@@ -521,10 +438,6 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, rowHovered bool)
 		var status string
 		switch {
 		case msg.Failed:
-			// Never rendered the same as a plain unconfirmed send (no status
-			// glyph at all) - that ambiguity is exactly what let a message
-			// that was never actually transmitted sit in the chat looking
-			// like every other line. See Message.Failed's doc comment.
 			status = "✗"
 		case msg.Pending:
 			status = "…"
@@ -537,10 +450,7 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, rowHovered bool)
 			// Our server confirmed it has this (see Message.ServerAcked's doc
 			// comment) - not yet peer-delivered, or no receipt is expected.
 			status = "✓"
-			// Sent locally (has an ID) but neither confirmed by the server nor
-			// delivered yet: deliberately no glyph at all, rather than a
-			// guessed "✓" - see Message.ServerAcked's doc comment for why a
-			// local send succeeding is not proof the server ever got it.
+			// Unconfirmed: no glyph (see Message.ServerAcked).
 		}
 		if status != "" {
 			badges = append(badges, m.styles.messageTime.Render(status))
@@ -568,14 +478,8 @@ func (m Model) renderMessageStatusLine(msg Message, msgIdx int, rowHovered bool)
 	return strings.Join(parts, "  ")
 }
 
-// renderClickableReactions renders msg's aggregate reactions the same way
-// renderReactions does ("😂 2 👍"), but with each one wrapped in its own
-// click zone (see zoneMessageReaction) and our own contributions (Mine)
-// bolded, so it's visible at a glance which reactions clicking would remove
-// versus add. Each chip also highlights independently on hover (see
-// isReactionHovered) - hovering one never affects its siblings. Clicking
-// toggles our own reaction of that emoji - add if we haven't reacted with
-// it, remove if we have (see toggleMyReaction).
+// renderClickableReactions renders reactions ("😂 2 👍"), each clickable to
+// toggle our own (toggleMyReaction), ours bold.
 func (m Model) renderClickableReactions(reactions []Reaction, msgIdx int) string {
 	parts := make([]string, len(reactions))
 	for i, r := range reactions {
@@ -595,10 +499,7 @@ func (m Model) renderClickableReactions(reactions []Reaction, msgIdx int) string
 	return strings.Join(parts, " ")
 }
 
-// toggleMyReaction returns the emoji set our own reaction on the message
-// should become after clicking reactions[i]'s emoji: every emoji we've
-// already reacted with, except emoji is removed if it was already ours or
-// added if it wasn't.
+// toggleMyReaction is our reactions with emoji toggled.
 func toggleMyReaction(reactions []Reaction, emoji string) []string {
 	mine := make(map[string]bool, len(reactions))
 	for _, r := range reactions {
@@ -641,12 +542,7 @@ func (m Model) replyPreview(idx int, allMsgs []Message) string {
 	return fmt.Sprintf("↪ %s: %s", orig.Author, previewText(MessagePreviewContent(orig), previewLen))
 }
 
-// replyHeaderFragment renders the "↑ name │ preview" fragment trailing a
-// reply's header line: the quoted author's name in the same color they get
-// as a sender in their own messages, the truncated preview text dimmed.
-// budget is how many display cells the whole fragment may occupy; the
-// preview is truncated to whatever's left after the glyph, name and
-// separator, so a long preview's ellipsis can't wrap onto a line of its own.
+// replyHeaderFragment renders a reply's "↑ name │ preview" in budget cells.
 func (m Model) replyHeaderFragment(idx int, allMsgs []Message, budget int) string {
 	if idx < 0 || idx >= len(allMsgs) {
 		return ""
@@ -665,13 +561,8 @@ func (m Model) replyHeaderFragment(idx int, allMsgs []Message, budget int) strin
 	return "↑ " + name + " " + sep + " " + preview
 }
 
-// replyHeaderFragmentFallback is replyHeaderFragment's counterpart for when
-// the replied-to message isn't in allMsgs (see its caller in
-// renderMessageLine) - author/preview are the snapshot stored on the message
-// itself (Message.QuotedAuthor/QuotedPreview) rather than looked up by
-// index, so there's no IsMe to color the name by; it always renders in the
-// "them" color, same as the name convention used elsewhere falls back to
-// when the actual sender can't be determined.
+// replyHeaderFragmentFallback is replyHeaderFragment from the stored quote,
+// for a target not loaded; the name in the "them" color.
 func (m Model) replyHeaderFragmentFallback(author, preview string, budget int) string {
 	nameStyle := m.styles.messageNickThem
 	if author == "me" {
@@ -685,21 +576,12 @@ func (m Model) replyHeaderFragmentFallback(author, preview string, budget int) s
 	return "↑ " + name + " " + sep + " " + previewRendered
 }
 
-// quoteLinePrefix matches a line that's part of an email/IRC-style quoted
-// reply: optional leading whitespace, then one or more '>' markers (one per
-// nesting level - "> foo" quotes once, ">> foo" quotes a message that was
-// itself already a quote), then the quoted text.
+// quoteLinePrefix matches a "> "-quoted line, nested or not.
 var quoteLinePrefix = regexp.MustCompile(`^\s*>+\s?`)
 
-// parseQuoteReply detects a leading run of quoted lines (see quoteLinePrefix)
-// at the start of content and splits it into a synthetic reply preview -
-// the last (least-nested) quoted line, markers stripped - and the actual
-// new text following the quote block. Unlike a real XEP-0461 reply
-// (Message.ReplyToID), this is just a text convention with no message to
-// jump to: some clients (and manually-typed replies) still write it this
-// way instead of using an actual reply. ok is false if content doesn't
-// start with at least one quoted line, or if nothing follows the quote
-// block (nothing left to show as the message's own body).
+// parseQuoteReply splits content starting with quoted lines into a reply
+// preview (the last quoted line) and the rest - a text convention, not a
+// XEP-0461 reply. ok is false without quote, or without text after it.
 func parseQuoteReply(content string) (preview, rest string, ok bool) {
 	lines := strings.Split(content, "\n")
 	i := 0
@@ -725,29 +607,18 @@ const previewLen = 40
 // shows in place of its content.
 const retractedPreview = "message deleted"
 
-// MessagePreviewContent returns the text to preview for msg anywhere it's
-// shown as a single line (reply quotes/hints, delete-confirmation popups,
-// the chat list's last-message preview): for an attachment message, Content
-// is (or ends with) the raw upload URL(s) (aesgcm:// or https://), which
-// aren't meaningful to a human and can leak sensitive material (an aesgcm://
-// URL's fragment is the file's decryption key) — show the decoded
-// filename(s) instead, same as the attachment's own rendered body line.
+// MessagePreviewContent is msg as one line of preview. Attachments show as
+// file names, not URLs: an aesgcm:// one holds the file's key.
 func MessagePreviewContent(msg Message) string {
-	// A retracted message's body stays in local storage (see the info
-	// popup), but no preview built from it may show what was deleted -
-	// including previews rebuilt from history on load, which is how a
-	// deleted message's text used to reappear in the chat list.
+	// Never what was deleted.
 	if msg.Retracted {
 		return retractedPreview
 	}
 	return messagePreviewBody(msg)
 }
 
-// messagePreviewBody is MessagePreviewContent without the retracted guard -
-// the preview msg's own content would get if it weren't flagged deleted. Only
-// for the purge confirmation (ui/view.go), which has to say which message is
-// about to be erased for good; "message deleted" would name no message at
-// all, and the original is already on show in the info popup anyway.
+// messagePreviewBody is MessagePreviewContent even for a retracted message,
+// for the purge confirmation to name it.
 func messagePreviewBody(msg Message) string {
 	if msg.CallLog != nil {
 		return callLogText(*msg.CallLog)
@@ -771,11 +642,7 @@ func messagePreviewBody(msg Message) string {
 	return label
 }
 
-// previewText collapses newlines and truncates s to at most n display
-// cells, appending an ellipsis when truncated. n is the budget for the
-// *result*, ellipsis included - a caller sizing a preview against the space
-// it has left on a line would otherwise get back n+1 cells and see the
-// ellipsis wrap onto a line of its own.
+// previewText is s on one line, in at most n cells, ellipsis included.
 func previewText(s string, n int) string {
 	flat := strings.ReplaceAll(s, "\n", " ")
 	if n <= 0 {
