@@ -10,13 +10,8 @@ import (
 	"github.com/jim-ww/kage/ui/modal"
 )
 
-// trimMessagesFront drops the oldest messages from msgs so at most limit
-// remain, used when new messages are appended at the tail (live incoming
-// traffic, MAM sync backfill) and the chat has grown past the configured
-// cap. Returns the trimmed slice and how many messages were dropped so the
-// caller can adjust any index (selectedMsg) that pointed into the old
-// slice. Reply targets need no such adjustment - they're message IDs, not
-// indices (see Message.ReplyToID). limit <= 0 disables trimming.
+// trimMessagesFront drops the oldest of msgs past limit (<= 0: none),
+// returning how many, for indices into them to shift.
 func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	if limit <= 0 || len(msgs) <= limit {
 		return msgs, 0
@@ -27,19 +22,9 @@ func trimMessagesFront(msgs []Message, limit int) ([]Message, int) {
 	return trimmed, drop
 }
 
-// appendAndTrim appends newMsgs to accounts[accountIdx].Messages[chatIdx]
-// (the live tail: incoming messages, our own sent messages, MAM catch-up)
-// and caps it back down to maxMessagesPerChat via trimMessagesFront. Unlike
-// a Daemon window load, this never touches HistoryNewer — the tail is
-// still the tail — but does set HistoryMore whenever trimming actually
-// dropped something, since storage now holds messages older than what's
-// left in memory (recoverable at any time via an ordinary older-history
-// fetch — nothing needs to be specially retained here, storage already has
-// it).
-//
-// For the open chat it also keeps selectedMsg on the same message, shifted
-// by whatever the trim dropped - new messages never move the selection. See
-// followTail for the matching viewport refresh.
+// appendAndTrim appends newMsgs to a chat's loaded messages and trims them
+// to maxMessagesPerChat, setting HistoryMore if any were dropped. The
+// selection stays on its message (see followTail).
 func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) {
 	old := m.accounts[accountIdx].Messages[chatIdx]
 	isOpenChat := accountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
@@ -57,10 +42,9 @@ func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) {
 	}
 }
 
-// followTail repaints the open chat after appendAndTrim: kept scrolled to
-// the bottom if it was there, otherwise kept on the selected message. Must
-// run before anything else refreshes the viewport, since AtBottom is read
-// against the pre-append content.
+// followTail repaints the open chat after appendAndTrim: at the bottom if it
+// was, else on the selected message. Before any other refresh, as AtBottom
+// must see the old content.
 func (m *Model) followTail() {
 	if m.viewport.AtBottom() {
 		m.refreshViewport()
@@ -70,13 +54,8 @@ func (m *Model) followTail() {
 	m.refreshViewportFullScrollTo(m.selectedMsg)
 }
 
-// mergeLiveTail appends to fresh (a HistoryWindowMsg's just-loaded tail
-// window) any message from old (the in-memory tail before that load) that
-// isn't already present in fresh and is newer than fresh's last message —
-// i.e. a live IncomingMessageMsg arrival that was spliced in after the
-// window's storage query ran but before its response was processed. Older
-// messages in old are ignored: they belong to whatever window was loaded
-// before and storage already has them, another anchor away.
+// mergeLiveTail appends to fresh, a just-loaded tail window, the messages of
+// old newer than fresh's last: ones that arrived while it loaded.
 func mergeLiveTail(fresh, old []Message) []Message {
 	if len(old) == 0 {
 		return fresh
@@ -102,10 +81,8 @@ func mergeLiveTail(fresh, old []Message) []Message {
 	return fresh
 }
 
-// handleEventMsg handles every non-key message Update can receive (window
-// resizes, mouse events, and all the async network/timer messages). handled
-// is false only when msg isn't one of these — Update then falls through to
-// key handling and focused-component routing.
+// handleEventMsg handles every message but keys; handled is false for
+// those.
 func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 
@@ -236,13 +213,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 				return m, tea.Batch(m.showNotification(notification), cmd), true
 			}
 			if msg.Queued {
-				// Same local-echo treatment a plain-text queued send already
-				// gets (see sendCurrentInput) — otherwise this message has no
-				// on-screen representation at all until the upload+send
-				// actually happens on reconnect, which could be an arbitrarily
-				// long time away (see MessageSendResolvedMsg's Content/
-				// Attachments fields, which patch this placeholder once
-				// resolved).
+				// A pending placeholder, as a queued text gets.
 				chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.To)
 				cmd := m.showNotification("offline — attachment(s) queued, will send on reconnect")
 				if chatIdx < 0 || msg.QueuedLocalID == "" {
@@ -291,14 +262,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			}
 			newMsg.ReplyToID = msg.ReplyToID
 			lastContent = MessagePreviewContent(newMsg)
-			// The daemon broadcasts every message the moment it goes out
-			// (adapter.send), but this batch result only lands once the
-			// whole batch has uploaded - so the broadcasts for all but the
-			// last file typically arrive first and are already in the chat
-			// by now. Appending them again is what showed five rows for a
-			// three-file send. A retry's own placeholder is the exception:
-			// it's matched by that same LocalID below and patched in place,
-			// so it must not be treated as an already-appended duplicate.
+			// Each message's broadcast usually arrived before this batch
+			// result, so is shown already. Not a retry's placeholder, which
+			// is patched in place below.
 			isRetriedPlaceholder := msg.RetryOfLocalID != "" && newMsg.LocalID == msg.RetryOfLocalID
 			if !isRetriedPlaceholder &&
 				(messageIndexByID(existing, newMsg.ID) >= 0 || messageIndexByLocalID(existing, newMsg.LocalID) >= 0) {
@@ -385,12 +351,8 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case IncomingMessageMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)
 		if chatIdx < 0 {
-			// A hidden chat has no row to append to. Someone writing to
-			// you is the one thing that reliably means you want to see
-			// them again, so bring it back — unless the user asked us not
-			// to (auto_unhide_disabled), in which case the message is
-			// still persisted daemon-side and shows up whenever they
-			// unhide it.
+			// A hidden chat comes back when they write, unless
+			// auto_unhide_disabled.
 			if m.autoUnhideDisabled || !m.isChatHidden(msg.AccountIdx, msg.From) {
 				return m, nil, true
 			}
@@ -402,38 +364,22 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return next, tea.Batch(unhideCmd, cmd), handled
 		}
 		if messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.ID) >= 0 {
-			// Our own message, broadcast back to every attached client
-			// (including the one that sent it - see adapter.go's send()) and
-			// already rendered here as a local optimistic echo the instant
-			// the Send RPC returned. Same message ID, so this is that
-			// broadcast catching up with a client that didn't need it.
+			// Our own message, shown already when we sent it.
 			return m, nil, true
 		}
 		if messageIndexByLocalID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.LocalID) >= 0 {
-			// Same case as above, but for a queued send flushOutbox just
-			// replayed: the placeholder still has no ID at this point (that's
-			// filled in by the MessageSendResolvedMsg broadcast that follows),
-			// so it can only be matched by LocalID here - matching by ID would
-			// miss it and append a duplicate row alongside the placeholder.
+			// A replayed queued send, whose placeholder has no ID yet.
 			return m, nil, true
 		}
 		if m.accounts[msg.AccountIdx].HistoryNewer[chatIdx] {
-			// Currently viewing a mid-history window (paged up, or a
-			// search-result jump) — Messages[chatIdx] isn't the live tail, so
-			// splicing a just-arrived message onto its end would show it next
-			// to unrelated older messages instead of where it belongs. It'll
-			// show up normally next time the window loads the true tail
-			// (paging back down, or jump-to-latest).
+			// A mid-history window isn't the tail to append to; the message
+			// shows once the latest window loads.
 			return m, nil, true
 		}
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		// Whatever they were composing, they've now sent it - not every
-		// client bothers to pair the message with an "active" chat state.
-		// Only for their message: ours (echoed back to every attached TUI,
-		// or sent from another of our devices) says nothing about whether
-		// they're still typing.
+		// Their message ends their typing; not every client says "active".
 		var typingCmd tea.Cmd
 		if !msg.Message.IsMe {
 			typingCmd = m.setPeerTyping(msg.AccountIdx, msg.From, false)
@@ -442,14 +388,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		newMsg.ReplyToID = msg.ReplyToID
 		m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
 		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
-		// The bumped activity just re-sorted the list (setChatLastMessage ->
-		// sortChatsByActivity), so every index into Chats is now a different
-		// chat: this message makes its chat the most recent, which moves it
-		// to the top of the unpinned block from wherever it was. Everything
-		// below asks about *this* chat, so it has to ask by address again -
-		// using the pre-sort index told the open, focused chat it wasn't on
-		// screen (no repaint) and counted the message as unread, against
-		// whichever chat had landed on the old index.
+		// Looked up again: the new activity re-sorted the chats.
 		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.From); chatIdx < 0 {
 			return m, tea.Batch(typingCmd, cmd), true
 		}
@@ -467,11 +406,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		anchorID := m.pendingWindowAnchor[chatIdx]
 		delete(m.pendingWindowAnchor, chatIdx)
 		if msg.Err != nil {
-			// Clear the in-flight marker (so paging can be retried) but
-			// change nothing else: this response knows nothing about the
-			// chat, and treating it as an authoritative empty window would
-			// blank the loaded history and mark storage exhausted in both
-			// directions, which no amount of further scrolling recovers from.
+			// Only the in-flight mark is cleared, so paging can retry.
 			return m, m.showNotification("loading history: " + msg.Err.Error()), true
 		}
 		if m.accounts[msg.AccountIdx].HistoryMore == nil {
@@ -485,26 +420,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		// A HistoryWindowMsg is a fresh window straight from storage — it
-		// replaces whatever was loaded before rather than paging onto it.
-		// But when it lands the true tail (HasNewer false), it can have been
-		// queried before a live message that arrived and got spliced into
-		// Messages[chatIdx] mid-flight (see IncomingMessageMsg) - storage
-		// already has that message, this response's snapshot just predates
-		// it. Carry any such trailing message forward so the live append
-		// isn't silently overwritten by a stale-by-a-beat snapshot.
+		// The window replaces what was loaded; a tail window keeps messages
+		// that arrived while it loaded (see mergeLiveTail).
 		newMessages := msg.Messages
 		if !msg.HasNewer {
 			newMessages = mergeLiveTail(newMessages, m.accounts[msg.AccountIdx].Messages[chatIdx])
 		}
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = newMessages
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
-			// Keep the selection on the same message it was on before the
-			// reload — found by ID rather than carried across as an index,
-			// since a full replace makes any old index meaningless. Falls
-			// back to the last message if the anchor somehow isn't in the
-			// new window (shouldn't normally happen: the anchor is always
-			// included in what was requested).
+			// The selection stays on its message, by ID; else the last one.
 			if idx := messageIndexByID(newMessages, anchorID); idx >= 0 {
 				m.selectedMsg = idx
 			} else {
@@ -772,10 +696,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case AccountAddedMsg:
 		m.modals.Remove(addAccountModalID)
 		if m.accountIndexByJID(msg.Account.Name) >= 0 {
-			// The AccountAppearedMsg broadcast for our own add raced ahead of
-			// this RPC result (both come from the daemon, over different
-			// paths) and already added it - appending again would duplicate
-			// the sidebar row and skew every index past it.
+			// Its AccountAppearedMsg came first and added it.
 			return m, nil, true
 		}
 		m.accounts = append(m.accounts, msg.Account)
@@ -786,10 +707,8 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, nil, true // already known: our own add, or a repeat
 		}
 		if msg.Index != len(m.accounts) {
-			// Our account list no longer lines up with the daemon's, so we
-			// can't place this one at an index that stays true. Dropping it
-			// keeps the accounts we do know addressable; the next start
-			// resyncs from listAccounts.
+			// Our list is out of line with the daemon's, so it can't be
+			// placed; the next start resyncs.
 			return m, nil, true
 		}
 		m.accounts = append(m.accounts, msg.Account)
@@ -948,13 +867,8 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			m, _ = m.handleCallStateMsg(*msg.CallState)
 		}
 		m.refreshViewport()
-		// openPendingChat is what honours config's last-opened chat. Init
-		// already fires it once, before any account exists to open, so this
-		// is the attempt that can actually succeed.
-		// Re-armed: an AccountConnectedMsg that beat the snapshot in (the
-		// daemon connects its accounts as the TUI attaches, so either order
-		// happens) may have landed against chats this snapshot just
-		// replaced, leaving the view mid-content.
+		// Re-armed: an AccountConnectedMsg may have landed on the chats this
+		// replaced.
 		m.landedOnce = false
 		return m, tea.Batch(cmd, m.openPendingChat(), m.landedInChat()), true
 
@@ -1221,10 +1135,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, m.showNotification(what), true
 	case AvatarUpdatedMsg:
-		// The image is already in the avatar store by the time this
-		// arrives — decoding happens off the UI goroutine, in the IPC
-		// dispatcher. All that's left is to let the frame redraw with it,
-		// which returning at all accomplishes.
+		// Decoded already; this only redraws.
 		return m, nil, true
 	case PresenceMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)

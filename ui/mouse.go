@@ -11,10 +11,8 @@ import (
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
-// Zone IDs for the mouse-clickable regions marked in View(). Panes are
-// checked in order from most to least specific — e.g. a click on a chat
-// row must be handled before the enclosing sidebar pane's "switch focus"
-// fallback.
+// Zone IDs of the clickable regions marked in View(), checked most specific
+// first: a chat row before the sidebar pane around it.
 const (
 	zonePaneSidebar           = "pane-sidebar"
 	zonePaneViewport          = "pane-viewport"
@@ -72,19 +70,9 @@ func messageIndexFromZone(id string) (int, bool) {
 	return i, true
 }
 
-// messageIndexAtMouse maps a mouse position onto a message index using the
-// viewport's own scroll offset and each message's known line offset
-// (m.msgOffsets), instead of bubblezone's per-message Mark/Scan
-// (zoneMessage(i) below). bubblezone only reports a zone for the frame in
-// which *both* its start and end markers were scanned; a multi-line message
-// straddling the viewport's visible edge has its tail marker scrolled out of
-// view, so that zone silently keeps stale bounds from whenever it was last
-// fully visible instead of being updated or cleared - Get(zoneMessage(i))
-// then answers with the wrong rectangle (or none at all) even while the
-// message's header is plainly on screen. Line-offset arithmetic against the
-// viewport's own frame has no such blind spot: zonePaneViewport is marked
-// around the already-scrolled, single-frame content (see renderChatArea), so
-// its own bounds are never subject to this problem.
+// messageIndexAtMouse maps a mouse position to a message by the viewport's
+// offset and m.msgOffsets, not bubblezone's message zones: a zone whose end
+// marker is scrolled out of view keeps stale bounds.
 func (m Model) messageIndexAtMouse(mouse tea.MouseMsg) (int, bool) {
 	if len(m.msgOffsets) == 0 {
 		return 0, false
@@ -119,15 +107,9 @@ func chatIndexFromZone(id string) (int, bool) {
 	return i, true
 }
 
-// zoneRowContains reports whether mouse falls within z's vertical span and
-// within [0, maxX) horizontally. It doesn't trust z.EndX: chat rows are
-// marked inside sidebarBox, which draws a lipgloss border around the
-// sidebar, and that border render doesn't treat zone.Mark's zero-width
-// marker correctly — it truncates the row's content (and any padding we
-// add) well short of the real right edge, so ZoneInfo.InBounds' X range
-// ends up covering only the first few columns of the row. maxX (the
-// sidebar's own width) is used instead, so the row is still bounded to the
-// sidebar pane rather than matching anywhere on screen at that Y.
+// zoneRowContains reports whether mouse is within z's rows and [0, maxX).
+// z.EndX can't be trusted: the sidebar's lipgloss border miscounts zone
+// markers and cuts the row's zone short.
 func zoneRowContains(z *zone.ZoneInfo, mouse tea.MouseMsg, maxX int) bool {
 	if z.IsZero() {
 		return false
@@ -136,37 +118,16 @@ func zoneRowContains(z *zone.ZoneInfo, mouse tea.MouseMsg, maxX int) bool {
 	return m.Y >= z.StartY && m.Y <= z.EndY && m.X >= z.StartX && m.X < maxX
 }
 
-// hoverState holds the zone ID currently under the pointer. It's shared via
-// pointer (see Model.hover) rather than copied through Model, because the
-// chat list delegate needs to read it too but only ever sees list.Model,
-// not the full ui.Model.
+// hoverState is what's under the pointer, see Model.hover.
 type hoverState struct {
 	id string
 
-	// x, y are the pointer's last-seen column/row, updated on every motion
-	// event regardless of whether id changed. Used to tell whether the
-	// pointer is specifically over a nested sub-zone (the expand button, the
-	// reply/react key glyphs, a reaction chip) within a hovered message row
-	// - itself one zone spanning every line the message renders across -
-	// without needing a zone of its own for each: re-deriving bounds from
-	// the row's own known sub-marks is simpler than relying on the scanner
-	// to resolve a mark nested inside another mark that itself moves as
-	// messages load/scroll. Both x and y matter, not just x: a message row
-	// is multiple lines tall, and a sub-zone only occupies one of them, so
-	// checking x alone would match the pointer being over a *different*
-	// line of the same row at the sub-zone's column.
+	// x, y are the pointer's position, to tell which part of a hovered
+	// message row (expand button, key glyphs, reaction chip) it's over.
 	x, y int
 
-	// replyKeyIdx is the index of the message whose "^r" key glyph is
-	// currently drawn as hovered, or -1. refreshViewportSelection only
-	// re-renders a message when its *selection* changes (see its own doc
-	// comment - deliberately not on every motion event, to avoid lagging a
-	// fast mouse sweep), so without this the key's reversed style would only
-	// ever reflect wherever the pointer happened to be the instant the row
-	// became selected, then stay frozen there as the pointer kept moving
-	// within the same already-selected row. Tracking it separately lets
-	// handleMouseMotion detect specifically *this* change and force the one
-	// extra re-render it needs.
+	// replyKeyIdx is the message whose "^r" glyph is drawn hovered, or -1,
+	// so moving within a selected row re-renders it when that changes.
 	replyKeyIdx int
 
 	// reactKeyIdx is replyKeyIdx's counterpart for the "^t" key glyph.
@@ -176,18 +137,13 @@ type hoverState struct {
 	// less" toggle.
 	expandBtnIdx int
 
-	// reactionMsgIdx/reactionIdx track which message's which reaction chip
-	// (by index into that message's Reactions) is currently drawn as
-	// hovered - replyKeyIdx's counterpart for reaction chips, one of which
-	// can independently highlight without affecting its siblings.
-	// reactionMsgIdx is -1 when no reaction chip anywhere is hovered.
+	// reactionMsgIdx/reactionIdx are the reaction chip drawn hovered, as
+	// replyKeyIdx; reactionMsgIdx -1 for none.
 	reactionMsgIdx int
 	reactionIdx    int
 
-	// devicesID is the chat-item zone ID currently showing its online-device
-	// list in place of the row's normal description (see
-	// renderHoverChatRow), or "" if none is. Set by hoverDevicesRevealMsg
-	// once hoverDevicesDelay has passed without the hovered row changing.
+	// devicesID is the chat row showing its devices (see
+	// hoverDevicesRevealMsg), "" if none.
 	devicesID string
 }
 
@@ -225,12 +181,8 @@ func (m Model) isReactionHovered(i, j int) bool {
 	return m.hover.x >= z.StartX && m.hover.x <= z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
-// isReplyKeyHovered reports whether the pointer is over message i's "^r" key
-// glyph specifically - not the "reply" label next to it, and not just
-// somewhere else in its row. Requires the row itself to already be the
-// hovered zone; within that, it checks the glyph's own nested zone bounds
-// (marked wherever renderMessage placed it, inside the outer
-// zoneMessageReplyBtn click zone that covers both the glyph and its label).
+// isReplyKeyHovered reports whether the pointer is on message i's "^r"
+// glyph itself, in its hovered row.
 func (m Model) isReplyKeyHovered(i int) bool {
 	if m.hover == nil || !m.isHovered(zoneMessage(i)) {
 		return false
@@ -255,12 +207,8 @@ func (m Model) isReactKeyHovered(i int) bool {
 	return m.hover.x >= z.StartX && m.hover.x <= z.EndX && m.hover.y >= z.StartY && m.hover.y <= z.EndY
 }
 
-// handleMouseMotion recomputes which zone is under the pointer on every
-// motion event (only sent while mouseEnabled, see View's MouseModeAllMotion)
-// so hoverable components (send button, chat items, account rows, messages,
-// context-menu items) can highlight themselves. In viewChat, hovering a
-// message also moves the message cursor to it, mirroring how the sidebar's
-// list cursor already follows the mouse.
+// handleMouseMotion updates what's hovered. In a chat, hovering a message
+// selects it, as the chat list cursor follows the mouse.
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.resizingSidebar {
 		if z := m.zone.Get(zonePaneSidebar); !z.IsZero() {
@@ -271,10 +219,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.resizingInput {
 		if z := m.zone.Get(zonePaneInput); !z.IsZero() {
-			// Dragging the top border up should grow the box (its bottom
-			// edge stays put), so height is measured from the drag point
-			// down to the box's fixed bottom edge, not from its own
-			// (moving) top edge.
+			// Measured to the box's fixed bottom edge.
 			m.inputHeightOverride = z.EndY - msg.Mouse().Y
 			m.updateSizes()
 		}
@@ -298,18 +243,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 
 	{
 		if m.zone.Get(zonePaneSidebar).InBounds(msg) {
-			// Don't steal focus away from the account manager — it renders
-			// inside this same sidebar zone, so hovering an account row
-			// would otherwise bounce selectedView back to viewChats and
-			// the popup would look like it instantly closed.
-			//
-			// setSelectedView also calls updateSizes() (layout/textarea
-			// recalculation), so this must only run on an actual change —
-			// every mouse-motion event lands in this same branch while the
-			// mouse sweeps the sidebar, and re-running updateSizes() on
-			// every single one of them (instead of just once, on entry) is
-			// what made the hovered-row highlight visibly lag behind a fast
-			// mouse sweep.
+			// Not from the account manager, which is in this zone too. And
+			// only on a change: setSelectedView re-lays out everything.
 			if m.selectedView != viewAccounts && m.selectedView != viewChats {
 				m.setSelectedView(viewChats)
 			}
@@ -321,16 +256,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.selectedView == viewChat {
-		// Every hover sub-state below is checked independently, but a
-		// single mouse move can flip several of them at once (e.g.
-		// entering a new row changes selectedMsg and, if the pointer lands
-		// right on a glyph, replyKeyIdx too). Collect all their old/new
-		// indices and patch every distinct row in one
-		// refreshViewportSelectionMulti call instead of one call per
-		// sub-state — each call re-renders every changed row plus pays
-		// maxSenderNameWidth/SetContentLinesWidth again, so doing that up
-		// to 5x per motion event was the dominant cost behind the cursor
-		// visibly lagging a fast sweep.
+		// One move can change several hover states; their rows are
+		// re-rendered in one refreshViewportSelectionMulti, which is costly.
 		var changed []int
 
 		// The hovered row's tint follows the pointer even when the
@@ -353,13 +280,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			m.lastClickTime = time.Time{}
 		}
 
-		// The row-selection change above only fires when selectedMsg
-		// changes, but the "^r"/"^t" key glyphs' own hovered/reversed state
-		// can also change from a pointer move *within* an already-selected
-		// row (sliding onto or off of the glyph's column range) - that
-		// needs its own re-render or the glyph freezes at whatever it
-		// looked like the moment the row was entered (see
-		// hoverState.replyKeyIdx).
+		// See hoverState.replyKeyIdx.
 		newReplyKeyIdx := -1
 		if idx, ok := messageIndexFromZone(m.hover.id); ok && m.isReplyKeyHovered(idx) {
 			newReplyKeyIdx = idx
@@ -413,10 +334,8 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	return m, hoverCmd
 }
 
-// zoneUnderMouse returns the most specific zone ID containing mouse, or ""
-// if it's over nothing hoverable. Mirrors the zone-priority order used by
-// handleLeftClick/handleRightClick, but restricted to the context menu's
-// own items while one is open — nothing underneath it is reachable.
+// zoneUnderMouse is the most specific zone under mouse, "" for none, in
+// handleLeftClick's order; only the context menu's while one is open.
 func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 	// The call bar's own buttons take priority the same way zoneSendButton
 	// etc. do — it's a fixed status-bar area, so it should win over anything
@@ -497,10 +416,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleMouseRelease ends a sidebar-border or compose-box-border drag
-// started in handleMouseClick; the terminal only sends this once, on
-// button-up. The resulting size is persisted so it's restored on the next
-// launch.
+// handleMouseRelease ends a border drag, saving the size.
 func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.resizingSidebar:
@@ -517,10 +433,7 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-// handleLeftClick dispatches a left-click to whichever marked zone it
-// landed in: an account row, a chat list item, a message, or one of the
-// three panes (sidebar / viewport / input) when the click missed anything
-// more specific inside it.
+// handleLeftClick acts on the zone clicked, falling back to its pane.
 func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for _, b := range m.callBarButtons() {
 		if m.zone.Get(b.zone).InBounds(msg) {
@@ -691,11 +604,7 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.zone.Get(zonePaneInput).InBounds(msg) {
-		// Clicking the input box should focus it even when a different pane
-		// currently has focus (e.g. the sidebar) — not just when already in
-		// viewChat, which left clicks on the input silently doing nothing
-		// most of the time. openCurrentChat both switches to viewChat and
-		// focuses the input; it's a no-op if no chat is open.
+		// Focuses the input from any pane.
 		return m.openCurrentChat()
 	}
 
@@ -718,15 +627,9 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// positionInputCursorAt moves the compose box's cursor to the character
-// under a click inside zoneInputTextarea, mirroring native terminal apps'
-// click-to-place-caret behavior. The textarea only exposes cursor movement
-// in terms of (visual-line, logical-column) deltas, not "row/col at screen
-// position", so the target visual line (line-wrap-aware, via
-// ScrollYOffset()+clickRow) is reached by walking there from the top with
-// MoveToBegin()+CursorDown() — same trick handleMouseWheel already uses to
-// scroll the box by moving the cursor — and then the column is nudged right
-// from that line's start by the click's X offset past the prompt.
+// positionInputCursorAt moves the compose cursor to the clicked character.
+// The textarea can't place it at a screen position, so it walks there: down
+// from the top to the wrapped line, then right by the click's column.
 func (m *Model) positionInputCursorAt(msg tea.MouseClickMsg, z *zone.ZoneInfo) {
 	mouse := msg.Mouse()
 	clickRow := mouse.Y - z.StartY
@@ -751,10 +654,8 @@ func (m *Model) positionInputCursorAt(msg tea.MouseClickMsg, z *zone.ZoneInfo) {
 	m.input.SetCursorColumn(rowStart + max(0, min(clickCol-lipgloss.Width(inputPrompt), rowWidth)))
 }
 
-// handleRightClick opens a context menu of actions for whatever was
-// right-clicked, first moving selection onto it exactly as the equivalent
-// left-click would (see handleLeftClick) so the menu's actions — which
-// read back the current selection — operate on the right thing.
+// handleRightClick selects what was clicked, as a left-click would, and
+// opens its menu, whose actions act on the selection.
 func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i := range m.accounts {
 		if m.zone.Get(zoneAccountRow(i)).InBounds(msg) {
@@ -788,10 +689,7 @@ func (m Model) handleRightClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// selectChatItem moves the chat-list cursor to i and keeps message
-// selection/viewport in sync, without opening the chat — shared by
-// handleLeftClick (which opens it right after) and handleRightClick
-// (which doesn't).
+// selectChatItem moves the chat-list cursor to i without opening the chat.
 func (m *Model) selectChatItem(i int) {
 	m.chats.Select(i)
 	m.lastClickedMsgIdx = -1
@@ -855,12 +753,7 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.zone.Get(zonePaneInput).InBounds(msg) {
-		// The textarea has no public "scroll by N" — moving the cursor is
-		// the only way to shift its internal viewport, but that's exactly
-		// what a wheel notch should do here anyway. A no-op when there's
-		// nothing to scroll past (content fits within the box's height).
-		// inputWheelScrollLines per notch, matching the viewport pane's feel
-		// (one line per CursorUp/Down reads as sluggish for a wheel notch).
+		// The textarea only scrolls by moving its cursor.
 		for range inputWheelScrollLines {
 			switch mouse.Button {
 			case tea.MouseWheelUp:
