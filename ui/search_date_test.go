@@ -93,3 +93,34 @@ func windowMsg(t *testing.T, cmd tea.Cmd) HistoryWindowMsg {
 	}
 	return w
 }
+
+type fakeMessageDays struct {
+	stubDaemon
+	days []time.Time
+}
+
+func (f fakeMessageDays) MessageDays(int, string) ([]time.Time, error) { return f.days, nil }
+
+// TestSearchDateBoundedByFirstMessage checks the go-to-date calendar can't
+// move before the chat's first message day and grays days without any.
+func TestSearchDateBoundedByFirstMessage(t *testing.T) {
+	first := time.Date(2025, time.March, 10, 0, 0, 0, 0, time.Local)
+	later := first.AddDate(0, 0, 2)
+	m := newTestModelWithMessages(nil, &fakeHistorySearcher{})
+	m.daemon = fakeMessageDays{days: []time.Time{first, later}}
+	m.width, m.termHeight = 100, 30
+	m.updateSizes()
+
+	m.actionSearchChat()
+	p := &m.modals.Top().Body.(*modal.Tabs).Tabs[1].Body.(*modal.Date).Picker
+	p.SetCursor(first.AddDate(-1, 0, 0))
+	if !p.Cursor().Equal(first) {
+		t.Fatalf("cursor = %v, want clamped to the first message day %v", p.Cursor(), first)
+	}
+	if p.Empty(first) || p.Empty(later) {
+		t.Fatal("a day with messages is marked empty")
+	}
+	if !p.Empty(first.AddDate(0, 0, 1)) {
+		t.Fatal("a day without messages isn't marked empty")
+	}
+}

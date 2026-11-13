@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -438,11 +439,16 @@ func (m *Model) renameChat(idx int, typed string) tea.Cmd {
 
 // actionSearchChat asks for a query to search the chat's whole history for.
 func (m *Model) actionSearchChat() tea.Cmd {
-	if m.currentChatIndex() < 0 {
+	chat, ok := m.currentChat()
+	if !ok || m.currentChatIndex() < 0 {
 		return m.showNotification("no chat selected")
 	}
 
-	date := modal.NewDate(m.newSearchDatePicker())
+	days, err := m.daemon.MessageDays(m.currentAccount, chat.Address)
+	if err != nil {
+		slog.Warn("listing message days", "chat", chat.Address, "err", err)
+	}
+	date := modal.NewDate(m.newSearchDatePicker(days))
 	date.SubmitLabel = "go"
 	return m.openModal(&modal.Modal[*Model]{
 		Title: "Search",

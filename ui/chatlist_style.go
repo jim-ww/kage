@@ -265,4 +265,5 @@ func applyDatePickerStyles(p *datepicker.Model, colors uiColors) {
 	p.Styles.Cursor = onAccent(colors.accentCyan).Bold(true)
 	p.Styles.Hover = lipgloss.NewStyle().Foreground(colors.themFg).Background(colors.rowHoverBg)
 	p.Styles.Disabled = p.Styles.Disabled.Foreground(colors.textMuted)
+	p.Styles.Empty = p.Styles.Empty.Foreground(colors.textMuted)
 }

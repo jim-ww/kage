@@ -20,11 +20,20 @@ type dateJump struct {
 	day         time.Time
 }
 
-// newSearchDatePicker is the search's go-to-date calendar, on today.
-// Future days are disabled: there's nothing there to jump to.
-func (m Model) newSearchDatePicker() datepicker.Model {
+// newSearchDatePicker is the search's go-to-date calendar, on today, with
+// future days disabled. Given the days the chat has messages on (oldest
+// first), days before the first are disabled too and the rest grayed.
+func (m Model) newSearchDatePicker(days []time.Time) datepicker.Model {
 	p := datepicker.New(time.Now())
 	p.Max = time.Now()
+	if len(days) > 0 {
+		p.Min = days[0]
+		has := make(map[int64]bool, len(days))
+		for _, d := range days {
+			has[d.Unix()] = true
+		}
+		p.Empty = func(d time.Time) bool { return !has[d.Unix()] }
+	}
 	applyDatePickerStyles(&p, m.styles.colors)
 	return p
 }

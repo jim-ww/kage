@@ -79,6 +79,7 @@ type Styles struct {
 	Cursor   lipgloss.Style
 	Hover    lipgloss.Style
 	Disabled lipgloss.Style // outside Min/Max
+	Empty    lipgloss.Style // Empty reports true
 }
 
 // DefaultStyles returns plain, theme-agnostic styles - an embedder with a
@@ -94,6 +95,7 @@ func DefaultStyles() Styles {
 		Cursor:   lipgloss.NewStyle().Reverse(true),
 		Hover:    lipgloss.NewStyle().Underline(true),
 		Disabled: lipgloss.NewStyle().Faint(true),
+		Empty:    lipgloss.NewStyle().Faint(true),
 	}
 }
 
@@ -109,6 +111,9 @@ type Model struct {
 	Min, Max time.Time
 	// Today is the day marked as today; time.Now() from New.
 	Today time.Time
+	// Empty, if set, marks days that have nothing on them: they render
+	// with Styles.Empty but can still be picked.
+	Empty func(day time.Time) bool
 
 	// Zone/ID opt into mouse support: with Zone set, View marks the whole
 	// calendar, each day and the ‹ › buttons as zones (named by ID, so
@@ -311,6 +316,8 @@ func (m Model) renderDay(d time.Time, month time.Month) string {
 		style = m.Styles.Hover
 	case sameDay(d, m.Today):
 		style = m.Styles.Today
+	case m.Empty != nil && m.Empty(d):
+		style = m.Styles.Empty
 	}
 	return m.mark(m.dayZoneID(d), style.Render(label))
 }
