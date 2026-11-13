@@ -70,14 +70,9 @@ func (m Model) chatIndexByAddress(accountIdx int, address string) int {
 	return -1
 }
 
-// maybeLoadHistoryWindow fires a Daemon.LoadHistoryWindow request
-// anchored on edgeMsg (the message at whichever edge of the currently loaded
-// window was just reached), if one is configured, storage is known to hold
-// more in that direction, and a fetch isn't already in flight for this chat.
-// edgeMsg.StoreID == 0 means it isn't a storage-backed message yet (a
-// Pending/just-composed one) — nothing to anchor a storage query on, so this
-// is a no-op; that's fine, since such a message can only be at the *newer*
-// edge, and there's by definition nothing newer to load anyway.
+// maybeLoadHistoryWindow loads a window around edgeMsg, the loaded edge
+// reached, if storage has more that way and none is loading. Not for an
+// unstored message, only ever the newest.
 func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
@@ -109,10 +104,7 @@ func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 	return cmd
 }
 
-// maybeLoadOlderHistory fires a Daemon request for the current chat's
-// next older window, if more history is known to exist beyond what's
-// currently loaded. Called when the message selection/viewport reaches the
-// top of what's currently loaded.
+// maybeLoadOlderHistory loads older history, at the top of what's loaded.
 func (m *Model) maybeLoadOlderHistory() tea.Cmd {
 	msgs := m.currentMessages()
 	if len(msgs) == 0 {
@@ -121,11 +113,8 @@ func (m *Model) maybeLoadOlderHistory() tea.Cmd {
 	return m.maybeLoadHistoryWindow(true, msgs[0])
 }
 
-// maybeLoadNewerHistory fires a Daemon request for the current chat's
-// next newer window — only possible when the currently loaded window isn't
-// already the live tail (paged up, or landed on a search result). A no-op
-// otherwise. Called when the message selection/viewport reaches the bottom
-// of what's currently loaded.
+// maybeLoadNewerHistory loads newer history, at the bottom of a
+// mid-history window.
 func (m *Model) maybeLoadNewerHistory() tea.Cmd {
 	msgs := m.currentMessages()
 	if len(msgs) == 0 {
@@ -134,10 +123,7 @@ func (m *Model) maybeLoadNewerHistory() tea.Cmd {
 	return m.maybeLoadHistoryWindow(false, msgs[len(msgs)-1])
 }
 
-// setChatLastMessage updates the chat list preview text for the chat at
-// chatIdx, bumps its activity so it sorts to the top of the list (see
-// sortChatsByActivity), and, if that chat's account is currently displayed,
-// refreshes the visible list.
+// setChatLastMessage sets a chat's preview and activity, re-sorting the list.
 func (m *Model) setChatLastMessage(accountIdx, chatIdx int, content string) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil
@@ -225,11 +211,8 @@ func (m *Model) setPeerTyping(accountIdx int, from string, typing bool) tea.Cmd 
 	return tea.Batch(cmd, peerTypingTimer(accountIdx, from, gen))
 }
 
-// activeChatKey returns the account JID and chat address of the chat
-// currently being actively viewed (selectedView == viewChat), or two empty
-// strings if no chat is currently open. Used to report the "currently open
-// chat" identity to the daemon (see Daemon) so it can suppress a
-// desktop notification for a message that's already visible on screen.
+// activeChatKey is the chat being viewed, "" if none, reported to the
+// daemon so it doesn't notify about it.
 func (m Model) activeChatKey() (accountJID, chatAddress string) {
 	if m.selectedView != viewChat || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
 		return "", ""
@@ -241,50 +224,22 @@ func (m Model) activeChatKey() (accountJID, chatAddress string) {
 	return m.accounts[m.currentAccount].Name, chat.Address
 }
 
-// isChatFocused reports whether chatIdx within accountIdx is the chat
-// currently being actively viewed — the condition under which an incoming
-// message counts as already read rather than unread.
-//
-// This is deliberately narrower than isChatOnScreen: it is about whether the
-// user is *reading* the chat, not whether the chat is *visible*. Don't reach
-// for it to decide whether a re-render is needed — see isChatOnScreen.
-//
-// Terminal focus and idleness are part of it because they are part of the
-// daemon's answer to the same question (what activeChatKey reports, gated on
-// focused && !idle - see Daemon): the daemon fires a desktop
-// notification exactly when it believes nobody is watching the chat, so a
-// narrower rule here meant a message could notify and still be counted as
-// read - a notification with no unread badge anywhere, for a chat left open
-// in a terminal the user had switched away from. Coming back marks it read
-// again (see readOpenChat).
+// isChatFocused reports whether the chat is being read, so a message counts
+// as read: viewed, with focus, not idle - as the daemon decides whether to
+// notify. Not for re-rendering, see isChatOnScreen.
 func (m Model) isChatFocused(accountIdx, chatIdx int) bool {
 	return m.isChatOnScreen(accountIdx, chatIdx) && m.selectedView == viewChat &&
 		m.focused && !m.idle
 }
 
-// isChatOnScreen reports whether chatIdx within accountIdx is the chat the
-// message pane is currently rendering — the condition under which a change to
-// its messages has to be re-rendered into the viewport.
-//
-// The pane is drawn on every frame regardless of which pane holds the
-// keyboard focus (View always calls renderChatArea, which paints
-// m.viewport.View()), and the viewport only ever changes content when
-// something calls refreshViewport. So "is it visible" is a strictly weaker
-// condition than isChatFocused's "is the user reading it", and using the
-// latter to gate a re-render leaves the pane showing stale content: the
-// message lands in the model and the chat-list preview updates, but the chat
-// itself doesn't repaint until an unrelated event happens to refresh it.
+// isChatOnScreen reports whether the message pane shows the chat, which then
+// needs re-rendering on a change, whatever has focus.
 func (m Model) isChatOnScreen(accountIdx, chatIdx int) bool {
 	return accountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
 }
 
-// resetChatUnread zeroes chatIdx's unread count, in memory and (if wired)
-// persisted, called when the chat becomes the actively-focused one.
-//
-// The persisted reset is sent even when this client already shows the chat
-// as read: the stored count is the daemon's, so a zero here is no evidence
-// that storage agrees. Gating on it left a stored count that nothing could
-// ever clear, keeping the tray's unread dot lit for a chat the user had read.
+// resetChatUnread clears a chat's unread count, here and in the daemon - even
+// when it's 0 here, which says nothing about the stored count.
 func (m *Model) resetChatUnread(accountIdx, chatIdx int) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil
@@ -346,12 +301,8 @@ func (m *Model) saveChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
 	})
 }
 
-// FlushDraft synchronously persists whatever's currently in the compose box
-// as the open chat's draft (skipped if it already matches what's stored).
-// The periodic autosave (draftSaveDebounce) only fires after a few idle
-// seconds, so quitting mid-type can otherwise lose the last few keystrokes
-// that hadn't been flushed yet — call this once, after the Bubble Tea
-// program has stopped, before the process exits.
+// FlushDraft saves the open chat's draft if changed, for after the program
+// stops.
 func (m Model) FlushDraft() {
 	if m.openChatAddress == "" {
 		return
@@ -367,12 +318,8 @@ func (m Model) FlushDraft() {
 	_ = m.daemon.SaveDraft(m.accounts[m.openChatAccountIdx].Name, chat.Address, m.input.Value())
 }
 
-// swapComposeDraft saves the draft of the chat currently loaded into
-// m.input (tracked by openChatAccountIdx/openChatAddress) and loads in
-// newAccountIdx/newChatIdx's stored draft instead — called whenever a
-// different chat becomes the active one. A same-chat "switch" (reopening the
-// chat that's already open) is a no-op, so it can't clobber in-progress
-// typing with the last-saved snapshot.
+// swapComposeDraft saves the input's draft and loads the new chat's; a no-op
+// for the same chat.
 func (m *Model) swapComposeDraft(newAccountIdx, newChatIdx int) tea.Cmd {
 	if newAccountIdx < 0 || newAccountIdx >= len(m.accounts) {
 		return nil
@@ -397,12 +344,8 @@ func (m *Model) swapComposeDraft(newAccountIdx, newChatIdx int) tea.Cmd {
 	return cmd
 }
 
-// msgRef identifies one message by its stable identities rather than by its
-// position, for state that has to outlive a rebuild of the chat's message
-// slice - which is replaced wholesale on a history window load and trimmed
-// at the front whenever the tail grows past maxMessagesPerChat. A stored
-// index survives neither: it quietly comes to name a different message
-// (see the edit target in sendCurrentInput).
+// msgRef identifies a message by its IDs, not index, for state outliving a
+// history load or trim, which move indices.
 type msgRef struct {
 	id      string // stanza ID; empty until a send actually succeeds
 	localID string // client-side correlation key for a locally composed message
@@ -444,11 +387,7 @@ func messageIndexByID(msgs []Message, id string) int {
 	return slices.IndexFunc(msgs, func(msg Message) bool { return msg.ID == id })
 }
 
-// messageIndexByLocalID returns the index of the message with the given
-// client-generated LocalID within msgs, or -1 if none matches (or localID is
-// empty) - used to find a Pending message again once MessageSendResolvedMsg
-// reports what happened to it, since its real ID wasn't known when it was
-// composed.
+// messageIndexByLocalID is the index of the message with localID, or -1.
 func messageIndexByLocalID(msgs []Message, localID string) int {
 	if localID == "" {
 		return -1
@@ -456,12 +395,8 @@ func messageIndexByLocalID(msgs []Message, localID string) int {
 	return slices.IndexFunc(msgs, func(msg Message) bool { return msg.LocalID == localID })
 }
 
-// removeMessageAt deletes the message at idx outright (as opposed to
-// flagging Retracted) - only valid for a message that was never actually
-// sent (Message.Pending), where there's no server-side copy to preserve a
-// record of. Returns the updated slice and, if idx was m.selectedMsg or
-// earlier, the selection index adjusted to still point at the same message
-// (or clamped to the new last message, or -1 if the slice is now empty).
+// removeMessageAt removes the message at idx, for one never sent, returning
+// selectedMsg adjusted to stay on its message.
 func removeMessageAt(msgs []Message, idx, selectedMsg int) ([]Message, int) {
 	msgs = slices.Delete(msgs, idx, idx+1)
 	switch {
@@ -475,16 +410,8 @@ func removeMessageAt(msgs []Message, idx, selectedMsg int) ([]Message, int) {
 	return msgs, selectedMsg
 }
 
-// markHistoryWindowLoading records that a history-window fetch for chatIdx
-// is in flight, anchored on anchorID.
-//
-// Only ever called once the fetch has actually been handed off: the flag is
-// what stops a second concurrent fetch for the same chat, and it is cleared
-// by the HistoryWindowMsg that comes back - so setting it for a fetch that
-// was never started (a nil tea.Cmd) leaves it stuck true and that chat can
-// never load older history again. That is a permanent, per-chat failure
-// from a momentary condition, which is exactly how it was reported: "rarely,
-// cannot scroll past certain message and load older history".
+// markHistoryWindowLoading marks a history load for chatIdx in flight. Only
+// for a load actually started: only its HistoryWindowMsg clears it.
 func (m *Model) markHistoryWindowLoading(chatIdx int, anchorID string) {
 	if m.loadingHistoryWindow == nil {
 		m.loadingHistoryWindow = make(map[int]bool)

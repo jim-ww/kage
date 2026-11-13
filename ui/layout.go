@@ -6,14 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// setSelectedView switches the focused view and resizes accordingly — the
-// footer's row count (and so m.height) is view-dependent, so every focus
-// change must go through this instead of a bare assignment. It also keeps
-// the compose textarea's own focus flag in lockstep with the view: leaving
-// it to callers to separately call m.input.Focus()/Blur() let the two drift
-// apart (e.g. a mouse hover flipping selectedView back to viewChat without
-// re-focusing the blurred textarea, so keystrokes got routed to it but
-// silently dropped).
+// setSelectedView switches the focused view; always through here, as the
+// layout depends on it and the compose box's focus must follow it.
 func (m *Model) setSelectedView(v selectedView) {
 	m.selectedView = v
 	if v == viewChat {
@@ -32,10 +26,8 @@ func (m *Model) updateSizes() {
 	}
 	m.height = max(0, m.termHeight-fl-footerMarginTop-callBar)
 
-	// Apply any user-dragged compose height (see zonePaneInput in
-	// ui/mouse.go) as the textarea's floor before SetWidth below triggers
-	// its DynamicHeight recalculation — Height() must already reflect the
-	// override by the time inputAreaHeight() reads it a few lines down.
+	// The dragged height is the textarea's floor, set before SetWidth
+	// recomputes its height.
 	if m.inputHeightOverride > 0 {
 		h := clamp(m.inputHeightOverride, 1, m.inputHeightMaxDrag())
 		m.inputHeightOverride = h
@@ -63,12 +55,8 @@ func (m *Model) updateSizes() {
 // double-wide button rather than two separate targets.
 const buttonGap = 1
 
-// inputFieldWidth is the text field's own width — chatAreaWidth minus the
-// input box's Padding(0,1) border and, when the send button is drawn,
-// the room it (and the attach button, plus the gap between them) needs
-// beside the field. Used both to size the actual textinput (here) and to
-// lay out its rendered row in View() — kept in one place so those two can't
-// drift out of sync and misalign the cursor.
+// inputFieldWidth is the text field's width, beside the box's padding and
+// buttons, for sizing it and laying out its row alike.
 func (m Model) inputFieldWidth() int {
 	w := m.chatAreaWidth() - 2 // -2 for Padding(0,1) on the input box
 	if m.mouseEnabled {
@@ -79,12 +67,8 @@ func (m Model) inputFieldWidth() int {
 
 const sidebarMinWidth = 20
 
-// narrowWidth is the terminal width below which there isn't room to show the
-// chat list and a chat side by side at all — below it the layout collapses
-// to a single full-width pane (list or chat), switched with ToggleSidebar /
-// opening a chat, like a phone-sized single-column view. Unlike sidebarHidden
-// this is never persisted: it's a property of the current terminal size, not
-// a user preference, and stops applying the moment the window is widened.
+// narrowWidth is the width below which the layout is one pane, the list or
+// the chat.
 const narrowWidth = 60
 
 func (m Model) narrow() bool { return m.width < narrowWidth }
@@ -96,14 +80,8 @@ func (m Model) narrowShowChat() bool {
 	return m.selectedView == viewChat || m.modals.Open()
 }
 
-// sidebarPeeking reports whether, at normal (non-narrow) width, a
-// manually-hidden sidebar should render anyway as an ordinary left-hand
-// panel alongside the chat pane — i.e. the user pressed FocusChats/Back/Tab
-// to look at the list or accounts panel without leaving the sidebar
-// permanently un-hidden. It only "peeks" while one of those is actually
-// focused; opening a chat (setSelectedView(viewChat)) drops back to fully
-// hidden, matching the persisted sidebarHidden setting, without touching
-// that setting itself.
+// sidebarPeeking reports whether a hidden sidebar shows anyway because the
+// list or accounts is focused, without unhiding it.
 func (m Model) sidebarPeeking() bool {
 	if m.narrow() || !m.sidebarHidden {
 		return false
@@ -141,13 +119,8 @@ func (m Model) sidebarWidth() int {
 	return min(w, m.width)
 }
 
-// toggleSidebar is bound to ToggleSidebar (Ctrl+\) and the chat-status-bar
-// button. In narrow mode it just flips which single pane is shown (chat vs.
-// list) — an ephemeral, unpersisted choice driven by the current terminal
-// size, mirroring how opening a chat already replaces the list. At normal
-// width it flips sidebarHidden and persists the choice (if a
-// Daemon is wired up) so it survives across launches like the
-// dragged sidebar width does — see Daemon.
+// toggleSidebar shows or hides the chat list, saving it; when narrow, it
+// switches the pane shown, not saved.
 func (m Model) toggleSidebar() (Model, tea.Cmd) {
 	if m.narrow() {
 		if m.selectedView == viewChat {
@@ -158,11 +131,7 @@ func (m Model) toggleSidebar() (Model, tea.Cmd) {
 		return model.(Model), cmd
 	}
 	m.sidebarHidden = !m.sidebarHidden
-	// The chat list's own width (m.chats.SetWidth, set from
-	// sidebarContentWidth) is only recomputed in updateSizes — without this
-	// call it stays stuck at whatever it last was (possibly 0, if hidden
-	// while some other setSelectedView call ran updateSizes in between),
-	// leaving the list rendering empty even though its selection still moves.
+	// The chat list's width is only set there.
 	m.updateSizes()
 	if err := m.daemon.SaveState(SidebarHidden(m.sidebarHidden)); err != nil {
 		return m, m.showNotification("saving chat list visibility: " + err.Error())
@@ -180,10 +149,7 @@ func (m Model) chatAreaWidth() int {
 	if m.sidebarHidden && !m.sidebarPeeking() {
 		return m.width
 	}
-	// sidebarWidth() already counts the sidebar's own right border column
-	// (see sidebarContentWidth's comment) — subtracting another 1 here
-	// double-counts that column and leaves the chat pane one column short of
-	// the terminal.
+	// sidebarWidth includes its border.
 	return m.width - m.sidebarWidth()
 }
 
@@ -194,28 +160,16 @@ func (m Model) popupAreaHeight() int {
 	return max(0, m.height-m.inputAreaHeight()-chatStatusHeight)
 }
 
-// sidebarContentWidth is how wide content rendered *inside* the sidebar box
-// (the chat list, the account bar, the accounts list) may be — sidebarWidth
-// minus 1 for the box's own right border. lipgloss word-wraps (rather than
-// truncates) content that exceeds a Style's Width, so content sized to the
-// full sidebarWidth would overflow the bordered box by exactly that one
-// column and wrap every single line.
+// sidebarContentWidth is the sidebar's width inside its border; wider
+// content would wrap every line.
 func (m Model) sidebarContentWidth() int { return max(0, m.sidebarWidth()-1) }
 
-// inputMaxHeight caps how many rows the compose box (a DynamicHeight
-// textarea) auto-grows to before it starts scrolling internally instead of
-// pushing the viewport further up. A user drag (inputHeightOverride) can
-// still push it taller than this, up to inputHeightMaxDrag.
+// inputMaxHeight is how tall the compose box grows before scrolling; a drag
+// goes up to inputHeightMaxDrag.
 const inputMaxHeight = 6
 
-// composeMaxContentHeight is textarea.Model.MaxContentHeight: the cap on
-// total *visual* (soft-wrap-aware) lines before further input is refused,
-// decoupled from inputMaxHeight (the visible viewport height, which the box
-// scrolls past instead of blocking). Left at 0 (unset), the textarea falls
-// back to blocking once the *logical* line count hits MaxHeight — i.e.
-// alt+enter stops working after inputMaxHeight manual newlines, even though
-// a single long line keeps soft-wrapping and scrolling forever. This just
-// needs to be generous enough that no real chat message hits it.
+// composeMaxContentHeight caps the compose box's lines; unset, the textarea
+// refuses newlines past MaxHeight.
 const composeMaxContentHeight = 500
 
 // inputPrompt is the compose box's textarea.Prompt, shared with the
@@ -236,22 +190,14 @@ func (m Model) inputHeightMaxDrag() int {
 	return max(1, m.height-chatStatusHeight-3)
 }
 
-// expandedComposeHeight is the compose box's height while
-// composeExpanded — roughly half the chat pane, minus a little so the
-// viewport above it never fully disappears, clamped to inputHeightMaxDrag
-// like an ordinary drag would be.
+// expandedComposeHeight is about half the chat pane, up to
+// inputHeightMaxDrag.
 func (m Model) expandedComposeHeight() int {
 	return clamp(m.height/2-1, 1, m.inputHeightMaxDrag())
 }
 
-// toggleComposeExpand is bound to ToggleComposeExpand (ctrl+`): a quick way
-// to grow the compose box to expandedComposeHeight for pasting/editing a
-// longer message, and shrink it back on a second press. It reuses
-// inputHeightOverride (the same field a mouse-drag on the box's top border
-// sets) but, unlike a drag, never calls SaveState —
-// this is a transient view state, not a persisted preference, so
-// composeHeightBeforeExpand remembers whatever override (if any) was in
-// place before expanding rather than always reverting to the default.
+// toggleComposeExpand grows the compose box to expandedComposeHeight, or
+// back to its height before; not saved.
 func (m Model) toggleComposeExpand() Model {
 	if m.composeExpanded {
 		m.inputHeightOverride = m.composeHeightBeforeExpand
@@ -265,43 +211,17 @@ func (m Model) toggleComposeExpand() Model {
 	return m
 }
 
-// composeMultiline reports whether the compose box's content actually spans
-// more than one visual row — used to let the up/down arrows move the
-// textarea's cursor instead of the selected message while there's more than
-// one row to move between (see the MsgUp/MsgDown cases in update_keys.go).
-// Checks LineCount() (logical, newline-delimited lines) and the current
-// line's wrap height rather than Height() (the textarea's rendered viewport
-// size): Height() also reflects MinHeight from a user-dragged-open compose
-// box (see updateSizes), so a single short/empty line would otherwise read
-// as "multiline" just because the box was expanded, wrongly swallowing
-// arrow keys that should navigate messages. A single long line that's
-// word-wrapped to several rows still reads as multiline on screen and
-// should traverse the same way, even though it's one "line" internally —
-// LineInfo().Height catches that case.
+// composeMultiline reports whether the text spans several rows, wrapped or
+// not, for up/down to move in it. Not Height(): a dragged box is taller.
 func (m Model) composeMultiline() bool {
 	return m.selectedView == viewChat &&
 		(m.input.LineCount() > 1 || m.input.LineInfo().Height > 1)
 }
 
-// fixStuckComposeCursorDown works around a textarea.Model bug (bubbles
-// v2.1.0's setCursorLineRelative, used by CursorDown/the "down" key): when
-// the current wrapped row's content exactly fills the field width with no
-// natural trailing space of its own — e.g. one long space-free run of
-// characters, as in a pasted token/URL/keysmash — its internal
-// `len(line)-1` boundary clamp lands one rune short of the row's true end,
-// so the LineInfo it recomputes from there still reports the *current* row,
-// and `m.col = nli.StartColumn` then resets the column right back to where
-// it started. Every subsequent Down press recomputes identically from that
-// same stuck (line, column), so no number of repeats ever breaks out —
-// verified via a standalone reproduction against the vendored library
-// itself, not just kage's use of it.
-//
-// The fix: position the cursor at exactly len(line) (not len(line)-1) on
-// the current logical line. LineInfo has a special case for a column
-// landing precisely on a wrapped row's boundary — it reports the *next*
-// row instead of clamping back into the current one — so this reaches the
-// row CursorDown was trying (and failing) to reach, without needing to
-// patch the vendored function itself.
+// fixStuckComposeCursorDown works around bubbles v2.1.0's CursorDown never
+// leaving a wrapped row that exactly fills the width without spaces: it
+// clamps one rune short. A cursor at len(line), on the row boundary, is
+// reported on the next row.
 func (m *Model) fixStuckComposeCursorDown() {
 	lines := strings.Split(m.input.Value(), "\n")
 	row := m.input.Line()
@@ -311,10 +231,7 @@ func (m *Model) fixStuckComposeCursorDown() {
 	m.input.SetCursorColumn(len([]rune(lines[row])))
 }
 
-// inputAreaHeight accounts for the optional reply-hint line plus however
-// many rows the compose textarea currently occupies (it grows with
-// multi-line content, up to inputMaxHeight). Reacting no longer adds a hint
-// line here — it's a popup now (see renderEmojiPickerPopup).
+// inputAreaHeight is the reply hint line, if any, and the compose box's rows.
 func (m Model) inputAreaHeight() int {
 	h := 1 + m.input.Height() // top border + input rows
 	if !m.replyTo.empty() {

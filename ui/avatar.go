@@ -17,29 +17,11 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Avatar rendering, monogram tier: a single colored cell carrying the
-// contact's initial, rendered inline in the chat-list row title (see
-// Chat.Title) and the chat status bar (see renderChatStatusBar).
-//
-// Deliberately not an image — at the one-to-three cells a sidebar row can
-// spare, a downscaled photo is unreadable mush, while a color+initial
-// swatch does the one job avatars do in a list: let the eye find a row
-// without reading it. The color comes from a real avatar image when one is
-// known (dominantColor) and from the bare JID otherwise (hashColor), so
-// both cases render identically and a contact's swatch doesn't jump around
-// when their avatar arrives.
-//
-// avatarColor is a configured contact tint. Kept as plain RGB rather than
-// a color.Color so it can be compared.
+// avatarColor is a configured contact tint, plain RGB so it compares.
 type avatarColor struct{ R, G, B uint8 }
 
-// avatarsOn gates avatar rendering: the sidebar panel goes away when it's
-// off and its rows go back to the chat list. Package-level (like
-// AttachmentsDir) because the avatar store it guards is itself
-// package-level, reached from rendering paths the Model isn't threaded
-// through. Defaults on, so a Model built without DisplayOptions — every
-// test — behaves like the shipped default. Contact name tints are a
-// separate, opt-in setting and are not gated by this.
+// avatarsOn gates the sidebar's avatar panel. Package-level like the store
+// it guards; on by default.
 var avatarsOn atomic.Bool
 
 func init() { avatarsOn.Store(true) }
@@ -51,22 +33,16 @@ func setAvatarsEnabled(on bool) { avatarsOn.Store(on) }
 // avatarsEnabled reports whether avatars are shown at all.
 func avatarsEnabled() bool { return avatarsOn.Load() }
 
-// avatarPictures maps bare JID to that contact's avatar image.
-// Package-level (like presenceGlyphs) because the rendering paths that
-// reach it aren't threaded through the Model. Only ever written
-// before/between renders, via SetAvatarImage.
+// avatarPictures maps bare JID to avatar. Package-level: the rendering paths
+// reaching it don't have the Model.
 var (
 	avatarMu       sync.RWMutex
 	avatarPictures = map[string]image.Image{}
 	// avatarGen is bumped whenever any of the above changes, so the render
 	// cache below can be invalidated without comparing images.
 	avatarGen uint64
-	// avatarBlockCache memoizes the last rendered picture. One entry is
-	// enough: exactly one panel is drawn per frame, so this turns every
-	// frame that didn't change the avatar, its size, or the selected
-	// contact — a keystroke, a mouse motion, an incoming message — into a
-	// map-free string reuse, while a resize drag still pays one render per
-	// distinct size.
+	// avatarBlockCache memoizes the last rendered picture: one is drawn per
+	// frame.
 	avatarBlockCache avatarBlockKey
 )
 
@@ -77,10 +53,7 @@ type avatarBlockKey struct {
 	rendered   string
 }
 
-// avatarStoredSize is the edge length every avatar is downscaled to on the
-// way into the store. Large enough that any cell size the header asks for
-// still box-averages over several source pixels, small enough that holding
-// one per contact costs nothing.
+// avatarStoredSize is the edge avatars are downscaled to when stored.
 const avatarStoredSize = 64
 
 // SetAvatarImage records the swatch color for one contact's avatar image.
@@ -121,10 +94,7 @@ func hasAvatarPicture(address string) bool {
 	return ok
 }
 
-// downscale box-averages img down to fit an edge*edge square, preserving
-// aspect ratio. Done once on the way into the store so every later render
-// samples a small image; an image already within the bound is returned
-// as-is.
+// downscale box-averages img to fit an edge*edge square, keeping its aspect.
 func downscale(img image.Image, edge int) image.Image {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
@@ -149,12 +119,8 @@ func downscale(img image.Image, edge int) image.Image {
 	return out
 }
 
-// boxAverage is the mean color of the source region that maps to cell
-// (cx, cy) of a cols*rows grid laid over bounds. Averaging rather than
-// nearest-neighbour matters at avatar sizes: a 6x6 nearest-neighbour
-// sampling of a face is six pixels of whatever happened to sit under the
-// sample points, which is noise, while the average at least preserves the
-// picture's large shapes.
+// boxAverage is the mean color of cell (cx, cy) of a cols*rows grid over
+// bounds; at avatar sizes nearest-neighbour is noise.
 func boxAverage(img image.Image, bounds image.Rectangle, cx, cy, cols, rows int) color.RGBA {
 	x0 := bounds.Min.X + cx*bounds.Dx()/cols
 	x1 := bounds.Min.X + (cx+1)*bounds.Dx()/cols
@@ -167,10 +133,7 @@ func boxAverage(img image.Image, bounds image.Rectangle, cx, cy, cols, rows int)
 		y1 = y0 + 1
 	}
 	var r, g, b, n uint64
-	// Fast path for *image.RGBA — what downscale produces, so every stored
-	// avatar takes it. img.At boxes a color.Color into an interface for
-	// every pixel read, which at a few thousand pixels per rendered frame
-	// is most of the work.
+	// *image.RGBA, what downscale makes, without img.At's per-pixel boxing.
 	if rgba, ok := img.(*image.RGBA); ok {
 		for y := y0; y < y1; y++ {
 			row := rgba.Pix[(y-rgba.Rect.Min.Y)*rgba.Stride:]
@@ -205,12 +168,7 @@ func renderImageBlocks(img image.Image, cols, rows int) string {
 		return ""
 	}
 	pixelRows := rows * 2
-	// Written as SGR directly rather than one lipgloss.Style.Render per
-	// cell. A picture this size is hundreds of cells, and a Render each —
-	// with its own allocation and grapheme-width scan — costs milliseconds
-	// per frame, which a window-resize drag pays on every size message.
-	// The output is byte-identical to what lipgloss would emit for a
-	// truecolor foreground+background pair.
+	// SGR written directly, as lipgloss would, without a Render per cell.
 	var sb strings.Builder
 	sb.Grow(rows * (cols*32 + 4))
 	for row := 0; row < rows; row++ {
@@ -223,10 +181,7 @@ func renderImageBlocks(img image.Image, cols, rows int) string {
 		for col := 0; col < cols; col++ {
 			top := boxAverage(img, bounds, col, row*2, cols, pixelRows)
 			bottom := boxAverage(img, bounds, col, row*2+1, cols, pixelRows)
-			// Flat regions — backgrounds, hair, clothing — are most of a
-			// typical avatar, and repeating an identical SGR pair for each
-			// of their cells triples the string every later layout pass has
-			// to scan for grapheme widths.
+			// Colors repeated only when they change.
 			switch {
 			case !have || (top != lastTop && bottom != lastBottom):
 				writeHalfBlockCell(&sb, top, bottom)
@@ -246,16 +201,9 @@ func renderImageBlocks(img image.Image, cols, rows int) string {
 	return sb.String()
 }
 
-// renderAvatarPicture renders a contact's avatar as cols x rows character
-// cells of half-blocks: one U+2580 per cell, foreground painting the upper
-// pixel and background the lower, so a cell carries two pixels and a row of
-// cells carries two pixel rows. Pure SGR text — every cell is exactly one
-// column wide to lipgloss.Width, which is what lets the result be composed
-// with ordinary styled strings (unlike sixel or the Kitty graphics
-// protocol, whose payloads measure as zero columns).
-//
-// Returns false when the contact has no avatar image, leaving the caller to
-// fall back to the monogram.
+// renderAvatarPicture renders a contact's avatar in cols x rows half-block
+// cells (U+2580, foreground the upper pixel, background the lower), plain
+// text that composes with other strings. False without an avatar.
 func renderAvatarPicture(address string, cols, rows int) (string, bool) {
 	if cols <= 0 || rows <= 0 {
 		return "", false
@@ -335,13 +283,9 @@ const upperHalfBlock = "\u2580"
 
 func rgbHex(c color.RGBA) string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
-// LoadAvatarDir reads every PNG/JPEG in dir as an avatar, keyed by the
-// file's base name (so "alice@localhost.png" is alice@localhost's avatar),
-// and returns how many named avatars it loaded. A file named "default" is
-// not one of them: it becomes the fallback shown for every contact without
-// an avatar of their own. A missing directory is not an error — there
-// simply are no local avatars. Temporary: a stand-in for fetching avatars
-// over XMPP, so the rendering can be judged before the wire work.
+// LoadAvatarDir loads every PNG/JPEG in dir as the avatar of the JID it's
+// named for, returning how many; "default" is the fallback for the rest. A
+// missing dir is fine.
 func LoadAvatarDir(dir string) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -381,20 +325,14 @@ func decodeImageFile(path string) (image.Image, error) {
 	return img, err
 }
 
-// contactColors holds the per-contact name tints from config, keyed by
-// lowercased bare JID. Opt-in: a contact with no entry renders their name
-// plain. Hashing a color for everybody was tried and reverted — it turns
-// the list into a fruit salad and so stops any one row standing out, which
-// was the entire point.
+// contactColors are the configured name tints, by lowercased bare JID.
 var (
 	contactColorMu sync.RWMutex
 	contactColors  = map[string]avatarColor{}
 )
 
-// SetContactColors replaces the configured per-contact tints. Values are
-// "#rgb" or "#rrggbb"; anything else is skipped and named in the returned
-// error, so a typo in config.toml is reported rather than silently
-// dropping that contact's color.
+// SetContactColors sets the name tints, "#rgb" or "#rrggbb"; others are
+// skipped and named in the error.
 func SetContactColors(colors map[string]string) error {
 	parsed := make(map[string]avatarColor, len(colors))
 	var bad []string
@@ -474,12 +412,8 @@ func (c avatarColor) hex() string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G
 // file's decoder registration.
 var encodePNG = png.Encode
 
-// anyAvatarKnown reports whether any avatar image at all has been loaded.
-// The sidebar's avatar panel reserves its rows only when this is true, so
-// an install with no avatars anywhere never pays for an empty picture slot
-// — and, unlike asking whether one particular contact has a picture, the
-// answer doesn't change as chats are switched, which would resize the chat
-// list underneath the selection on every move.
+// anyAvatarKnown reports whether any avatar is loaded, for the panel to take
+// space - per contact would resize the list on every move.
 func anyAvatarKnown() bool {
 	if !avatarsEnabled() {
 		return false
@@ -505,10 +439,7 @@ func avatarGeneration() uint64 {
 	return avatarGen
 }
 
-// LoadAvatarFile records one contact's avatar from an image file on disk.
-// The daemon fetches avatars over XMPP and caches them where this process
-// can read them, so what crosses the socket is a path, not image bytes —
-// see the daemon's avatars.go.
+// LoadAvatarFile loads a contact's avatar from the file the daemon cached.
 func LoadAvatarFile(jid, path string) error {
 	img, err := decodeImageFile(path)
 	if err != nil {
