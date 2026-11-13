@@ -16,10 +16,7 @@ import (
 	"github.com/jim-ww/kage/ui/modal"
 )
 
-// localIDSeq backs newLocalID - only needs to be unique among messages
-// currently held in memory (see Message.LocalID's doc comment), so a
-// per-process counter is enough; no need for anything cryptographic or
-// persisted across restarts.
+// localIDSeq backs newLocalID.
 var localIDSeq atomic.Uint64
 
 // newLocalID returns a fresh Message.LocalID.
@@ -27,12 +24,9 @@ func newLocalID() string {
 	return fmt.Sprintf("local-%d-%d", time.Now().UnixNano(), localIDSeq.Add(1))
 }
 
-// trimComposed drops the blank lines and trailing whitespace around what
-// was typed, but keeps the first line's indentation: trimmed like the rest
-// of the text, a pasted indented block would come out with its first line
-// shifted left of the others. Text with nothing visible in it - only
-// spaces, or invisible characters like a zero-width space - comes back
-// empty, so it isn't sent.
+// trimComposed drops blank lines and trailing whitespace, keeping the first
+// line's indentation so a pasted block stays aligned. Text with nothing
+// visible comes back empty.
 func trimComposed(s string) string {
 	if isBlank(s) {
 		return ""
@@ -58,11 +52,8 @@ func isBlank(s string) bool {
 	return true
 }
 
-// sendCurrentInput performs the SelectSend action for viewChat: sends the
-// composed message (wired as an edit/reply/reaction as appropriate given
-// the current compose state), clears the input, and refreshes the
-// viewport. Shared by the SelectSend keybinding and a click on the mouse
-// send button — both must produce identical behavior.
+// sendCurrentInput sends what's composed - a message, reply, edit or
+// attachments - and clears the input.
 func (m *Model) sendCurrentInput() tea.Cmd {
 	var cmds []tea.Cmd
 
@@ -78,10 +69,6 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	shown := len(m.currentMessages())
 
 	if hasAttachments {
-		// Uploading (and the send it feeds into) runs async, same as
-		// SendFile — the compose box is cleared optimistically, but unlike
-		// a plain text send there's no message to echo into the chat until
-		// ComposedSendResultMsg reports the upload actually succeeded.
 		chat, ok := m.currentChat()
 		if !ok || chat.Address == "" {
 			return m.showNotification("no chat selected")
@@ -95,12 +82,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			delete(m.finishedTransfers, a.path)
 		}
 		if text != "" {
-			// A caption typed alongside staged attachments always goes out as
-			// its own independent message - never folded into an attachment's
-			// body (see startAttachedSend's doc comment: other clients only
-			// read the first XEP-0066 URL in a message body anyway, and
-			// combining also entangled the caption's send/retry state with
-			// the attachment's own upload/queue state).
+			// The caption is its own message (see startAttachedSend).
 			cmds = append(cmds, m.sendText(text, chat, sendOpts))
 		}
 		cmds = append(cmds, m.startAttachedSend(chat.Address, sendOpts))
@@ -114,24 +96,12 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	}
 
 	if !m.editingMsg.empty() {
-		// Apply edit in-place, and wire it as a XEP-0308 correction so the
-		// other party actually sees the update — a message can only be
-		// corrected on the network if it was sent with an ID in the first
-		// place (e.g. locally-seeded/demo data never was), so degrade to a
-		// local-only edit otherwise.
-		//
-		// The target is looked up by identity every time rather than held as
-		// an index: messages arriving while the edit is being typed can trim
-		// the front of the chat (maxMessagesPerChat), which would slide a
-		// remembered index onto a neighbouring message - one that may not
-		// even be ours - and correct that instead.
+		// An edit, sent as a XEP-0308 correction if the message has an ID.
+		// Looked up by identity: indices move while the edit is typed.
 		msgs := m.currentMessages()
 		editIdx := m.editingMsg.index(msgs)
 		switch {
 		case editIdx < 0:
-			// The message went out of the loaded window while it was being
-			// edited. Nothing to apply the edit to; say so rather than
-			// writing it onto whatever sits nearby now.
 			cmds = append(cmds, m.showNotification("message no longer loaded; edit not saved"))
 		case text == msgs[editIdx].Content:
 			// Unchanged edit: nothing to send or record.
@@ -165,13 +135,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		}
 		chat, ok := m.currentChat()
 		if !ok || chat.Address == "" {
-			// Nothing was ever handed to Send - showing a local echo here
-			// would be a message the network has never heard of and never
-			// will, indistinguishable on screen from one that actually went
-			// out. Surface the problem and bail before the shared tail below
-			// clears m.input via restoreStashedDraft - the typed text is
-			// worth keeping around for a retry, not silently dropped along
-			// with the failed send.
+			// Nothing sent: keep the typed text rather than clearing it.
 			cmds = append(cmds, m.showNotification("not connected; message not sent"))
 			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
 				cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
@@ -184,10 +148,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 
 	m.notifyTypingStopped()
 	m.restoreStashedDraft()
-	// Re-read rather than reusing the chatIdx this function opened with: the
-	// send bumped the chat's activity, which re-sorts the list (see
-	// setChatLastMessage), and the old index now names a different chat -
-	// whose draft this would otherwise overwrite with the cleared input.
+	// Re-read: the send re-sorted the chat list.
 	if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
 		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
 	}
@@ -200,17 +161,9 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// pendingReplyOptions turns the pending reply target (m.replyTo) into the reply
-// half of a SendOptions. The target is located by identity, never by the
-// index the reply was started at - see Model.replyTo.
-//
-// A target that has left the loaded window (trimmed off the front, or a
-// history window loaded around something else) still threads the reply by
-// its stanza ID: that is all XEP-0461 needs, and dropping the reply because
-// the quote preview can no longer be built would silently ignore what the
-// user asked for. Only the in-band quote fallback goes missing. A target
-// with no stanza ID yet (a message still being sent) can't be replied to at
-// all, and sends as a plain message.
+// pendingReplyOptions is the reply half of a SendOptions for m.replyTo. A
+// target no longer loaded is still replied to by ID (XEP-0461), only without
+// the quote; one without an ID yet can't be.
 func (m Model) pendingReplyOptions() SendOptions {
 	msgs := m.currentMessages()
 	if idx := m.replyTo.index(msgs); idx >= 0 {
@@ -230,11 +183,8 @@ func (m Model) pendingReplyOptions() SendOptions {
 	return SendOptions{ReplyToID: m.replyTo.id}
 }
 
-// replySendOptions builds the reply half of a SendOptions for a message
-// whose reply target is replyToID, filling the quoted author/body fallback
-// from the target if it's still in the loaded window (it may not be - a
-// reply older than the window it was loaded in still knows what it replies
-// to, it just can't quote it). Zero value when replyToID is empty.
+// replySendOptions is the reply half of a SendOptions for replyToID, quoting
+// the target if it's loaded.
 func replySendOptions(msgs []Message, replyToID string) SendOptions {
 	if replyToID == "" {
 		return SendOptions{}
@@ -268,10 +218,8 @@ func (m *Model) sendText(text string, chat Chat, sendOpts SendOptions) tea.Cmd {
 	switch {
 	case err == nil:
 		newMsg.ID = id
-		// Send only succeeds without falling back to plaintext, so a
-		// configured encryption mode here means the message really went out
-		// encrypted - mirrors what the daemon persists, which this echo has
-		// no way to read back before the next reload.
+		// Send never falls back to plaintext, so the chat's mode is how it
+		// went out.
 		switch mode := m.encryptionModeOrDefault(chat.EncryptionMode); {
 		case mode == "gpg", mode == "omemo-v1", mode == "omemo-v2":
 			newMsg.Encrypted, newMsg.EncMethod = true, mode
@@ -300,17 +248,11 @@ func (m *Model) sendText(text string, chat Chat, sendOpts SendOptions) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// The action* methods below each implement one message/chat action against
-// the current selection (m.selectedMsg / m.currentChatIndex()). They exist
-// so the DeleteMsg/YankMsg/EditMsg/etc. keybindings and the mouse
-// context-menu (see ui/contextmenu.go) share one implementation instead of
-// drifting apart.
+// The action* methods act on the selected message or chat, for keys and
+// menus alike.
 
-// actionDeleteMessage opens the delete-confirmation popup for the selected
-// message (viewChat's DeleteMsg / a message context-menu's "Delete").
-// Deleting a message that's already flagged retracted - i.e. a second delete
-// on content the chat view is already hiding - asks for the irreversible
-// local purge instead (see purgeSelectedMsg).
+// actionDeleteMessage asks to delete the selected message; a retracted one,
+// to purge it (see purgeSelectedMsg).
 func (m *Model) actionDeleteMessage() tea.Cmd {
 	if m.currentChatIndex() < 0 {
 		return nil
@@ -340,10 +282,8 @@ func (m *Model) actionDeleteMessage() tea.Cmd {
 		(*Model).deleteSelectedMessage)
 }
 
-// actionRetryMessage re-sends the selected message after a failed send
-// (Message.Failed). Reuses the same LocalID so a later MessageSendResolvedMsg
-// (if this retry itself only gets queued, e.g. the account just went offline
-// again) still finds and patches this row.
+// actionRetryMessage resends a failed message under its LocalID, so a
+// MessageSendResolvedMsg for a queued retry still finds it.
 func (m *Model) actionRetryMessage() tea.Cmd {
 	if m.currentChatIndex() < 0 {
 		return nil
@@ -354,9 +294,7 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 	}
 	idx := m.selectedMsg
 	if len(msgs[idx].PendingAttachmentPaths) > 0 {
-		// A failed startAttachedSend batch (see failedAttachmentPlaceholder) -
-		// re-upload rather than the plain-text retry below, since there's
-		// nothing sent yet for sender.Send to correct/supersede.
+		// Failed attachments (see failedAttachmentPlaceholder): upload again.
 		chat, ok := m.currentChat()
 		if !ok || chat.Address == "" {
 			return m.showNotification("not connected; message not sent")
@@ -377,9 +315,7 @@ func (m *Model) actionRetryMessage() tea.Cmd {
 		sendOpts.LocalID = newLocalID()
 	}
 	if msgs[idx].ID != "" {
-		// Already made it into storage under a real ID before being flagged
-		// Failed (an ack-timeout, not an offline/immediate failure) - see
-		// SendOptions.SupersedesID's doc comment.
+		// See SendOptions.SupersedesID.
 		sendOpts.SupersedesID = msgs[idx].ID
 	}
 	if reply := replySendOptions(msgs, msgs[idx].ReplyToID); reply.ReplyToID != "" {
@@ -434,11 +370,8 @@ func (m *Model) actionHideChat() tea.Cmd {
 		(*Model).hideSelectedChat)
 }
 
-// actionRenameChat opens the rename-contact prompt for the selected chat
-// (viewChats' RenameChat keybind / a chat-item context-menu's "Rename").
-// Prefilled with the chat's current custom name if it has one; the field is
-// left empty (showing the JID as a placeholder) otherwise, so submitting it
-// unchanged clears any custom name rather than pinning it to the JID text.
+// actionRenameChat asks for the selected chat's name, prefilled with its
+// custom one if any - not with the JID, which would pin it as the name.
 func (m *Model) actionRenameChat() tea.Cmd {
 	chat, ok := m.currentChat()
 	if !ok {
@@ -459,11 +392,7 @@ func (m *Model) actionRenameChat() tea.Cmd {
 	})
 }
 
-// renameChat names the chat at idx: pushes the name to the server as a
-// roster set and mirrors it locally (see Daemon), then updates the
-// in-memory chat name shown in the sidebar. An empty name clears the custom
-// one — the chat falls back to displaying its JID, matching what a fresh
-// roster fetch would show.
+// renameChat names the chat at idx; "" clears the name.
 func (m *Model) renameChat(idx int, typed string) tea.Cmd {
 	items := m.chats.Items()
 	if idx < 0 || idx >= len(items) {
@@ -492,10 +421,7 @@ func (m *Model) renameChat(idx int, typed string) tea.Cmd {
 	chat.Name = name
 	m.accounts[m.currentAccount].Chats[idx] = chat
 
-	// Message.Author is a resolved display name, not a live lookup (see
-	// IncomingMessageMsg/loadHistory) — it needs to be patched everywhere
-	// it was stamped with the old name, or already-shown messages would
-	// keep displaying it forever.
+	// Message.Author is the name, so loaded messages need it changed too.
 	msgs := m.accounts[m.currentAccount].Messages[idx]
 	for i := range msgs {
 		if !msgs[i].IsMe && msgs[i].Author == oldName {
@@ -510,9 +436,7 @@ func (m *Model) renameChat(idx int, typed string) tea.Cmd {
 	return cmd
 }
 
-// actionSearchChat opens the search-in-chat query prompt (viewChat's
-// SearchChat keybind, Ctrl+/). Submitting it (see submitSearchChat) searches
-// the chat's entire persisted history, not just what's currently loaded.
+// actionSearchChat asks for a query to search the chat's whole history for.
 func (m *Model) actionSearchChat() tea.Cmd {
 	if m.currentChatIndex() < 0 {
 		return m.showNotification("no chat selected")
@@ -536,9 +460,7 @@ func (m *Model) actionSearchChat() tea.Cmd {
 	})
 }
 
-// searchChat kicks off
-// historySearcher.SearchHistory as a tea.Cmd, opening the results busy so
-// they show at once while the scan runs.
+// searchChat searches the chat, opening the results busy meanwhile.
 func (m *Model) searchChat(query string) tea.Cmd {
 	query = strings.TrimSpace(query)
 	chat, ok := m.currentChat()
@@ -594,9 +516,7 @@ func (m *Model) actionEditMessage() tea.Cmd {
 	return m.input.Focus()
 }
 
-// lastOwnMessageIdx returns the index of the last message with IsMe set, or
-// -1 if the chat has none — what ctrl+e edits when the selected message
-// isn't ours (callers must separately reject it if it's an attachment).
+// lastOwnMessageIdx is the index of our last message, -1 if none.
 func lastOwnMessageIdx(msgs []Message) int {
 	for i := range slices.Backward(msgs) {
 		if msgs[i].IsMe {
@@ -666,11 +586,8 @@ func (m *Model) actionInfoMessage() tea.Cmd {
 		return m.showNotification("no message selected")
 	}
 
-	// Fetch a size for each attachment on this message that doesn't already
-	// have one locally measurable and hasn't already been fetched/attempted
-	// this session - deliberately only here (an explicit "tell me about this
-	// message" action), not on every render, since it means an HTTP HEAD
-	// request to whatever server hosts the file (see fetchAttachmentSizeCmd).
+	// Attachment sizes are fetched here, on asking for the info, not on
+	// render: each is a HEAD request (see fetchAttachmentSizeCmd).
 	msg := msgs[m.selectedMsg]
 	chat, _ := m.currentChat()
 	var cmds []tea.Cmd
@@ -742,12 +659,8 @@ func (m *Model) actionSaveMessage() tea.Cmd {
 	}
 }
 
-// actionSaveMessageAs is actionSaveMessage's counterpart for Ctrl+Shift+S:
-// instead of downloading straight to the default downloads directory, it
-// prompts for a destination path first (openSaveAsPrompt). With multiple
-// links/attachments on the message, the item picker opens first (in
-// "save as" mode) so the user chooses which one before being prompted for
-// where to put it.
+// actionSaveMessageAs is actionSaveMessage asking where to save, after
+// picking which item if there are several.
 func (m *Model) actionSaveMessageAs() tea.Cmd {
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
@@ -766,9 +679,8 @@ func (m *Model) actionSaveMessageAs() tea.Cmd {
 	}
 }
 
-// openSaveAsPrompt opens the single-field "save as" popup for target,
-// prefilled with the default downloads-directory destination so submitting
-// unchanged behaves the same as a plain save.
+// openSaveAsPrompt asks where to save target, prefilled with where a plain
+// save would.
 func (m *Model) openSaveAsPrompt(target string) tea.Cmd {
 	dest := target
 	if dir, err := downloadsDir(); err == nil {
@@ -788,10 +700,7 @@ func (m *Model) openSaveAsPrompt(target string) tea.Cmd {
 	})
 }
 
-// actionReactMessage opens the emoji picker popup (see ui/emojipicker) on
-// the selected message. The compose box is untouched — reacting no longer
-// goes through it at all, unlike edit/reply — so there's no stash/restore
-// dance here the way actionEditMessage needs.
+// actionReactMessage opens the emoji picker on the selected message.
 func (m *Model) actionReactMessage() tea.Cmd {
 	msgs := m.currentMessages()
 	if m.selectedMsg < 0 || m.selectedMsg >= len(msgs) {
@@ -809,10 +718,8 @@ func (m *Model) actionReactMessage() tea.Cmd {
 	}))
 }
 
-// openPendingChat opens pendingOpenChatAddress (set from config's
-// open_last_chat/last_chat_address on startup) once the current account's
-// chats have loaded and contain a matching chat, then clears it so it's
-// only attempted once.
+// openPendingChat opens pendingOpenChatAddress once the current account's
+// chats are loaded.
 func (m *Model) openPendingChat() tea.Cmd {
 	if m.pendingOpenChatAddress == "" {
 		return nil
@@ -828,43 +735,20 @@ func (m *Model) openPendingChat() tea.Cmd {
 			return cmd
 		}
 	}
-	// Kept for the next attempt rather than consumed here: Init fires this
-	// before any account exists (the model is deliberately built with no
-	// accounts so the first frame doesn't wait on the daemon - see runTUI),
-	// so the chat list is empty on that first pass and the address has to
-	// survive it for AccountsSnapshotMsg/AccountLiveMsg to honour. Clearing
-	// it here dropped the last-opened chat on the floor, which also meant
-	// the TUI came up sitting in a chat that nothing had actually *opened*:
-	// no openCurrentChat, so its stored unread count was never reset and the
-	// chat-list badge and tray dot stayed on a chat being read.
+	// Kept: Init runs this before any account is loaded.
 	return nil
 }
 
-// landedInChat covers the chat the TUI comes up *in* without anything
-// having opened it: the model is constructed in viewChat with the chat
-// list's cursor on the first row (and runTUI builds it with no accounts at
-// all, so the chats only arrive with the snapshot), which means the user is
-// reading that chat although openCurrentChat never ran for it. So do the two
-// things opening it would have done - put the view on the newest message,
-// scrolled to the bottom, instead of leaving it at the top of the loaded
-// page, and clear the chat's stored unread count so its chat-list badge and
-// the tray dot don't stay lit on a chat being read.
-//
-// Called from every message that can first bring the current account's chats
-// in - the snapshot, AccountConnectedMsg, AccountLiveMsg - since which one
-// wins the race depends on whether the daemon was already running. It only
-// ever acts once (landedOnce): any later chat arrival (AccountLiveMsg fires
-// on every reconnect) must leave the viewport where the user left it. The
-// snapshot re-arms it, being the attach-time truth about every account and
-// arriving before the user can have scrolled anywhere.
+// landedInChat does what opening it would to the chat the TUI starts in,
+// which nothing opened: shows the newest message and clears its unread
+// count. Called by whichever message first brings the chats in, it acts
+// once (landedOnce); the snapshot re-arms it.
 func (m *Model) landedInChat() tea.Cmd {
 	if m.landedOnce || m.currentChatIndex() < 0 {
 		return nil
 	}
 	m.landedOnce = true
-	// The restore had its chance and the chat wasn't there (hidden, or gone
-	// from the roster); dropping it keeps a much later chat arrival from
-	// yanking the user into it mid-session.
+	// Not found: a later arrival mustn't jump to it mid-session.
 	m.pendingOpenChatAddress = ""
 	if m.selectedView != viewChat {
 		return nil
@@ -877,13 +761,8 @@ func (m *Model) landedInChat() tea.Cmd {
 	return m.resetChatUnread(m.currentAccount, m.currentChatIndex())
 }
 
-// readOpenChat marks the chat on screen as read, if there is one, because
-// the user is looking at it again: the terminal just regained focus, or the
-// session came back from idle. Those are exactly the states in which an
-// arriving message counts as unread even though its chat never stopped being
-// open (see isChatFocused), so without this the chat-list badge and the tray
-// dot would stay lit on a chat being read until the user navigated away and
-// back.
+// readOpenChat marks the chat on screen read, when focus or input returns:
+// messages arriving meanwhile counted as unread (see isChatFocused).
 func (m *Model) readOpenChat() tea.Cmd {
 	if m.selectedView != viewChat {
 		return nil
@@ -897,13 +776,8 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.setSelectedView(viewChat)
-	// If the loaded window isn't the live tail (left mid-history from a
-	// previous page-up, e.g. by switching to another chat and back without
-	// jumping to latest first), opening the chat must fetch back to the true
-	// tail rather than just scrolling to the bottom of the stale window -
-	// otherwise a message that arrived while HistoryNewer was set never got
-	// appended (see IncomingMessageMsg's HistoryNewer branch) and stays
-	// invisible until something else happens to trigger this same fetch.
+	// Left mid-history, load the latest window: messages arriving meanwhile
+	// weren't appended (see IncomingMessageMsg).
 	var jumpCmd tea.Cmd
 	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) &&
 		m.accounts[m.currentAccount].HistoryNewer[chatIdx] {
@@ -919,10 +793,7 @@ func (m Model) openCurrentChat() (tea.Model, tea.Cmd) {
 	}
 	draftCmd := m.swapComposeDraft(m.currentAccount, m.currentChatIndex())
 	m.updateSizes()
-	// Rendered and scrolled after updateSizes, not before: swapping in this
-	// chat's draft changes the compose box's height and so the viewport's,
-	// and a bottom computed against the old height isn't the bottom once the
-	// pane has been resized under it.
+	// After updateSizes: the draft changes the viewport's height.
 	m.refreshViewport()
 	m.viewport.GotoBottom()
 	unreadCmd := m.resetChatUnread(m.currentAccount, m.currentChatIndex())
@@ -938,10 +809,7 @@ func (m Model) canEdit(msgs []Message) bool {
 	return msgs[m.selectedMsg].IsMe && len(msgs[m.selectedMsg].Attachments) == 0
 }
 
-// retractSelectedMsg flags the current message as deleted rather than
-// removing it — content is kept (visible in the info popup, attachments
-// stay openable) but the chat view shows it as retracted. Mirrors the
-// MessageRetractedMsg handling for a remotely-received retraction.
+// retractSelectedMsg flags the selected message deleted; its content is kept.
 func (m *Model) retractSelectedMsg() tea.Cmd {
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
@@ -959,12 +827,8 @@ func (m *Model) retractSelectedMsg() tea.Cmd {
 	return cmd
 }
 
-// purgeSelectedMsg erases the current message locally for good - the second
-// step of the two-step delete, only reachable for a message already flagged
-// Retracted. Unlike retractSelectedMsg nothing is kept: the storage row and
-// its reactions go (adapter.PurgeMessage, which also tells every other
-// attached client via MessagePurgedMsg) and the message leaves the chat.
-// Local-only - there's no stanza that erases a message from the peer's copy.
+// purgeSelectedMsg erases a retracted message for good, locally - the second
+// delete (see Daemon.PurgeMessage).
 func (m *Model) purgeSelectedMsg() tea.Cmd {
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
@@ -1013,20 +877,15 @@ func (m Model) yankSelectedMsg() error {
 	return clipboard.WriteAll(msgs[m.selectedMsg].Content)
 }
 
-// hideSelectedChat takes the selected chat out of the list. Nothing is
-// deleted: the contact stays in the roster, message history stays in
-// storage, and the chat comes back from the contact manager or — unless
-// auto_unhide_disabled is set — the next time they write. This replaced a
-// "leave chat" that removed the row locally and nothing else, which read
-// as destructive while being purely cosmetic, and silently dropped that
-// contact's incoming messages for the rest of the session.
+// hideSelectedChat takes the selected chat out of the list, deleting nothing.
+// It comes back from the contact manager, or when they write unless
+// auto_unhide_disabled.
 func (m *Model) hideSelectedChat() tea.Cmd {
 	return m.hideChat(m.currentAccount, m.currentChatIndex())
 }
 
-// sendReaction updates our own reaction set on the message at idx (in the
-// current chat) to newMine, both locally (optimistic aggregate update) and
-// over the network via XEP-0444.
+// sendReaction sets our reactions on the message at idx to newMine
+// (XEP-0444).
 func (m *Model) sendReaction(idx int, newMine []string) tea.Cmd {
 	msgs := m.currentMessages()
 	if idx < 0 || idx >= len(msgs) {
