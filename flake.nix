@@ -43,7 +43,7 @@
         {
           packages.default =
             let
-              v = "0.9.0";
+              v = "0.12.0";
             in
             pkgs.buildGoModule {
               pname = "kage";
