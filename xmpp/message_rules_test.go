@@ -181,3 +181,44 @@ func TestReceiptPolicy(t *testing.T) {
 		t.Errorf("policy asked about %q, want the senders' bare JIDs", asked)
 	}
 }
+
+// TestChatStateActiveOnContentMessages checks ChatStateActive puts
+// <active/> on a content message, and on no reaction or retraction.
+func TestChatStateActiveOnContentMessages(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body   string
+		opts   SendOptions
+		active bool
+	}{
+		"message":    {"hi", SendOptions{ChatStateActive: true}, true},
+		"not asked":  {"hi", SendOptions{}, false},
+		"reaction":   {"", SendOptions{ChatStateActive: true, ReactionTargetID: "m1", Reactions: []string{"👍"}}, false},
+		"retraction": {"", SendOptions{ChatStateActive: true, RetractID: "m1"}, false},
+		"correction": {"fixed", SendOptions{ChatStateActive: true, ReplaceID: "m1"}, true},
+		"encrypted":  {"", SendOptions{ChatStateActive: true, Encrypted: &OmemoEncryptedElem{}}, true},
+	} {
+		msg, err := newMessage("bob@example.test", tc.body, tc.opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, _ := xml.Marshal(msg)
+		if got := strings.Contains(string(out), `<active xmlns="http://jabber.org/protocol/chatstates">`); got != tc.active {
+			t.Errorf("%s: <active/> %v, want %v:\n%s", name, got, tc.active, out)
+		}
+	}
+}
+
+// TestMessageEventChatStates checks a content message says whether it
+// carried a chat state - one without tells the contact doesn't do them.
+func TestMessageEventChatStates(t *testing.T) {
+	for payload, want := range map[string]bool{
+		`<message xmlns="jabber:client" from="bob@example.test/pc" type="chat" id="a"><body>hi</body><active xmlns="http://jabber.org/protocol/chatstates"/></message>`: true,
+		`<message xmlns="jabber:client" from="bob@example.test/pc" type="chat" id="b"><body>hi</body></message>`:                                                        false,
+	} {
+		_, events := serveMessage(t, payload)
+		msgs := messages(events)
+		if len(msgs) != 1 || msgs[0].ChatStates != want {
+			t.Errorf("%s: messages %+v, want one with ChatStates %v", payload, msgs, want)
+		}
+	}
+}

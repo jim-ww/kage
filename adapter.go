@@ -665,9 +665,12 @@ func (a *adapter) DeleteQueued(accountIdx int, localID string) error {
 // SetTyping sends a XEP-0085 chat state. "composing" is remembered per TUI
 // for clearTyping.
 func (a *adapter) SetTyping(tuiClient ipc.ClientID, accountIdx int, to string, composing bool) error {
-	_, client, err := a.online(accountIdx)
+	s, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
+	}
+	if _, standalone := s.chatStatesTo(to); !standalone {
+		return nil
 	}
 	state := xmpp.ChatStateActive
 	if composing {
@@ -1113,6 +1116,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	if !e2eEncrypted {
 		sendOpts.OOBURLs = opts.OOBURLs
 	}
+	sendOpts.ChatStateActive, _ = s.chatStatesTo(to)
 
 	id, err = client.Send(ctx, to, wireBody, sendOpts)
 	if err != nil {

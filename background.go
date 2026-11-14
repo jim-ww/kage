@@ -19,6 +19,10 @@ import (
 	"github.com/jim-ww/kage/ui"
 )
 
+// chatStatesEnabled mirrors !cfg.ChatStatesDisabled for the chat states
+// adapter.go sends - same reasoning as notifyEnabled below.
+var chatStatesEnabled atomic.Bool
+
 // notifyEnabled mirrors !cfg.NotificationsDisabled for handleIncomingMessage's
 // notify-or-not check (events.go) — only meaningful in --background mode;
 // the TUI process never reads it.
@@ -370,6 +374,7 @@ func (b *backend) Reload(cfg config.Config) { applyConfig(cfg) }
 // the globals above.
 func applyConfig(cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
+	chatStatesEnabled.Store(!cfg.ChatStatesDisabled)
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
 	hiddenChats.replace(cfg.State.HiddenChats)
 	pinnedChats.replace(cfg.State.PinnedChats)

@@ -55,6 +55,10 @@ type MessageEvent struct {
 	// message: the chat is with To.
 	Outgoing bool
 
+	// ChatStates is set if the message carried a chat state (XEP-0085):
+	// one without, from a contact, says they don't do chat states.
+	ChatStates bool
+
 	// To is the stanza's original recipient. Only meaningful (and only set)
 	// when Outgoing is true; a normal inbound message is always addressed
 	// to us, so callers key ordinary messages off From instead.
@@ -261,7 +265,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 
 		// A sent carbon's chat state is our own, typed on another of our
 		// devices - not anything the contact is doing.
-		if state, ok := msg.chatState(); ok && !outgoing {
+		state, chatStates := msg.chatState()
+		if chatStates && !outgoing {
 			c.enqueue(ChatStateEvent{From: msg.From.String(), State: state})
 		}
 
@@ -305,14 +310,15 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				replaceID = msg.Replace.ID
 			}
 			c.enqueue(MessageEvent{
-				ID:        msg.selfID(),
-				From:      msg.From.String(),
-				SentAt:    time.Now(),
-				Encrypted: msg.Encrypted,
-				ReplyToID: replyToID,
-				ReplaceID: replaceID,
-				Outgoing:  outgoing,
-				To:        msg.To.String(),
+				ID:         msg.selfID(),
+				From:       msg.From.String(),
+				SentAt:     time.Now(),
+				Encrypted:  msg.Encrypted,
+				ReplyToID:  replyToID,
+				ReplaceID:  replaceID,
+				Outgoing:   outgoing,
+				To:         msg.To.String(),
+				ChatStates: chatStates,
 			})
 			return
 		}
@@ -334,6 +340,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				ReplaceID:   replaceID,
 				Outgoing:    outgoing,
 				To:          msg.To.String(),
+				ChatStates:  chatStates,
 			})
 			return
 		}
@@ -361,15 +368,16 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		c.enqueue(MessageEvent{
-			ID:        msg.selfID(),
-			From:      msg.From.String(),
-			Body:      body,
-			SentAt:    time.Now(),
-			ReplaceID: replaceID,
-			ReplyToID: replyToID,
-			OOBURLs:   oobURLs,
-			Outgoing:  outgoing,
-			To:        msg.To.String(),
+			ID:         msg.selfID(),
+			From:       msg.From.String(),
+			Body:       body,
+			SentAt:     time.Now(),
+			ReplaceID:  replaceID,
+			ReplyToID:  replyToID,
+			OOBURLs:    oobURLs,
+			Outgoing:   outgoing,
+			To:         msg.To.String(),
+			ChatStates: chatStates,
 		})
 	case "presence":
 		var p presenceBody

@@ -43,6 +43,10 @@ type Config struct {
 	// incoming messages (the background daemon itself always runs); off
 	// by default.
 	NotificationsDisabled bool `toml:"notifications_disabled,omitempty"`
+	// ChatStatesDisabled stops telling contacts we're typing (XEP-0085
+	// chat states), for which the XEP has clients offer a switch; off by
+	// default.
+	ChatStatesDisabled bool `toml:"chat_states_disabled,omitempty"`
 	// TerminalCmd is the terminal emulator to launch from the tray icon;
 	// unset means fall back to $TERMINAL, then xdg-terminal-exec, then a
 	// hardcoded list.

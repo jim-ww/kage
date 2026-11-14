@@ -253,6 +253,12 @@ type SendOptions struct {
 	ReactionTargetID string
 	Reactions        []string
 
+	// ChatStateActive puts an <active/> chat state on a content message
+	// (XEP-0085 §5.3) - which is also how a contact not known to do chat
+	// states gets asked whether they do (§5.1). Not on a reaction or a
+	// retraction, which are no conversation.
+	ChatStateActive bool
+
 	// Encrypted, if set, sends a XEP-0384 <encrypted/> element instead of a
 	// plaintext body. Mutually exclusive with the other options above and
 	// with EncryptedV1.

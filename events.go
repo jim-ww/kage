@@ -25,6 +25,13 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		peer = bareJID(msgEv.To)
 	}
 
+	// A contact's message without a chat state says their client doesn't
+	// do them; a message with one was noted already, as a ChatStateEvent.
+	content := msgEv.Body != "" || msgEv.Encrypted != nil || msgEv.EncryptedV1 != nil
+	if content && !msgEv.Outgoing && !msgEv.ChatStates && msgEv.ReactionTargetID == "" && msgEv.RetractID == "" {
+		s.noteChatStates(peer, false)
+	}
+
 	if msgEv.ReactionTargetID != "" {
 		from := peer
 		if err := replaceReactions(ctx, s, from, msgEv.ReactionTargetID, from, msgEv.Reactions); err != nil {

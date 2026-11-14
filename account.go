@@ -69,6 +69,12 @@ type accountSession struct {
 
 	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
 
+	// chatStates is what each contact (bare JID) has shown of chat states
+	// (XEP-0085): true once they've sent one, false once they've sent a
+	// message without; absent until either. See chatStatesTo.
+	chatStatesMu sync.Mutex
+	chatStates   map[string]bool
+
 	// rosterMu serializes roster's copy-modify-store cycles (see
 	// mutateRoster): presence, device names and avatars update it from
 	// separate goroutines, and overlapping cycles would drop updates.
@@ -409,6 +415,31 @@ func (s *accountSession) liveClient() (*xmpp.Client, error) {
 		return nil, fmt.Errorf("account %s is offline", s.account.JID)
 	}
 	return client, nil
+}
+
+// noteChatStates records whether peer has shown doing chat states.
+func (s *accountSession) noteChatStates(peer string, supported bool) {
+	s.chatStatesMu.Lock()
+	defer s.chatStatesMu.Unlock()
+	if s.chatStates == nil {
+		s.chatStates = map[string]bool{}
+	}
+	s.chatStates[peer] = supported
+}
+
+// chatStatesTo says what chat states may go to peer, as XEP-0085 §5.1 has
+// it without asking their client: content messages carry <active/> until
+// peer replies without chat states - that's how they're asked - and
+// typing notifications on their own only go once peer has shown sending
+// chat states too. None at all when chat_states_disabled.
+func (s *accountSession) chatStatesTo(peer string) (inMessages, standalone bool) {
+	if !chatStatesEnabled.Load() {
+		return false, false
+	}
+	s.chatStatesMu.Lock()
+	defer s.chatStatesMu.Unlock()
+	supported, known := s.chatStates[peer]
+	return !known || supported, known && supported
 }
 
 // receiptsAllowed reports whether bareJID may have delivery receipts from
@@ -1039,6 +1070,7 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 	case xmpp.MessageBouncedEvent:
 		s.handleBounce(ctx, srv, accountIdx, ev)
 	case xmpp.ChatStateEvent:
+		s.noteChatStates(bareJID(ev.From), true)
 		broadcast(srv, ui.TypingMsg{
 			AccountIdx: accountIdx,
 			From:       bareJID(ev.From),

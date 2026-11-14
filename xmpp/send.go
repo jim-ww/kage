@@ -98,6 +98,9 @@ func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 	for _, u := range opts.OOBURLs {
 		msg.OOB = append(msg.OOB, oobElem{URL: u})
 	}
+	if opts.ChatStateActive && opts.RetractID == "" && opts.ReactionTargetID == "" {
+		msg.setChatState(ChatStateActive)
+	}
 	return msg, nil
 }
 
