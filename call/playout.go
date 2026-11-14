@@ -27,6 +27,11 @@ const (
 
 	// maxPacketSamples is the longest Opus packet, 120ms.
 	maxPacketSamples = SampleRate * 120 / 1000
+
+	// fadeSamples (5ms) is how long playback fades into and out of
+	// silence: the audio doesn't run on from what played before there, and
+	// a jump is a loud click.
+	fadeSamples = SampleRate * 5 / 1000
 )
 
 // Playout turns the peer's received Opus packets into PCM for a Speaker
@@ -42,6 +47,7 @@ type Playout struct {
 	pcm     []int16
 	overFor int     // frames in a row over softExcess that weren't shortened
 	credit  float64 // samples of speech accelerate may still cut
+	silent  bool    // the last frame played was silence
 }
 
 // NewPlayout returns a Playout with nothing received yet.
@@ -50,7 +56,7 @@ func NewPlayout() (*Playout, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Playout{jb: NewJitterBuffer(), dec: dec, pcm: make([]int16, maxPacketSamples*Channels)}, nil
+	return &Playout{jb: NewJitterBuffer(), dec: dec, pcm: make([]int16, maxPacketSamples*Channels), silent: true}, nil
 }
 
 // Push queues one received RTP packet's Opus payload.
@@ -69,7 +75,7 @@ func (p *Playout) NextFrame() []int16 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	payload, kind := p.jb.Pop()
-	frame := p.decode(payload, kind)
+	frame := p.smooth(kind, p.decode(payload, kind))
 	excess := p.jb.Excess()
 	if kind != popPacket || excess <= softExcess {
 		p.overFor = 0
@@ -93,6 +99,37 @@ func (p *Playout) NextFrame() []int16 {
 		p.credit -= float64(cut)
 	}
 	return frame
+}
+
+// smooth fades frame in when it ends a silence, and when it starts one,
+// fades out what played before it instead: either way the frame doesn't
+// run on from the one before.
+func (p *Playout) smooth(kind popKind, frame []int16) []int16 {
+	wasSilent := p.silent
+	p.silent = kind == popSilence
+	n := min(fadeSamples, len(frame))
+	switch {
+	case p.silent && !wasSilent:
+		if err := p.dec.Conceal(frame); err != nil {
+			clear(frame)
+		}
+		fade(frame[:n], false)
+		clear(frame[n:])
+	case !p.silent && wasSilent:
+		fade(frame[:n], true)
+	}
+	return frame
+}
+
+// fade ramps pcm's level up from silence, or down to it.
+func fade(pcm []int16, in bool) {
+	for i := range pcm {
+		w := float64(i) / float64(len(pcm))
+		if !in {
+			w = 1 - w
+		}
+		pcm[i] = int16(float64(pcm[i]) * w)
+	}
 }
 
 func (p *Playout) decode(payload []byte, kind popKind) []int16 {
