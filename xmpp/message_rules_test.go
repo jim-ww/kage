@@ -3,6 +3,7 @@ package xmpp
 import (
 	"bytes"
 	"encoding/xml"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -93,6 +94,27 @@ func TestReceiptsNotForCarbons(t *testing.T) {
 	for name, payload := range map[string]string{"received": received, "sent": sentCarbon("alice@example.test")} {
 		if reply, _ := serveMessage(t, payload); strings.Contains(reply, "receipts") {
 			t.Errorf("receipt sent for a %s carbon: %q", name, reply)
+		}
+	}
+}
+
+// TestMessageFeaturesAdvertised pins the message extensions kage handles
+// coming in, each of whose XEPs has an entity supporting it advertise so
+// (0184 §6, 0308 §2, 0424 §2, 0444 §2.1, 0461 §2, 0066 §4; 0428 §2.1 makes
+// it optional): clients that check before sending won't otherwise.
+func TestMessageFeaturesAdvertised(t *testing.T) {
+	for _, want := range []string{
+		"http://jabber.org/protocol/chatstates",
+		"urn:xmpp:receipts",
+		"urn:xmpp:message-correct:0",
+		"urn:xmpp:message-retract:1",
+		"urn:xmpp:reactions:0",
+		"urn:xmpp:reply:0",
+		"urn:xmpp:fallback:0",
+		"jabber:x:oob",
+	} {
+		if !slices.Contains(discoFeatures, want) {
+			t.Errorf("discoFeatures is missing %q", want)
 		}
 	}
 }
