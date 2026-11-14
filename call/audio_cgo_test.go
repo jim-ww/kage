@@ -5,19 +5,13 @@ package call
 import (
 	"testing"
 	"time"
-
-	"github.com/gen2brain/malgo"
 )
 
 // useNullAudio runs the test against miniaudio's null backend - real device
 // plumbing (contexts, callbacks, enumeration) without sound hardware.
 func useNullAudio(t *testing.T) {
 	t.Helper()
-	prev := audioBackends
-	// malgo's BackendNull is off by one: its enum skips miniaudio's
-	// ma_backend_custom, so the constant names custom and null is the next.
-	audioBackends = []malgo.Backend{malgo.BackendNull + 1}
-	t.Cleanup(func() { audioBackends = prev })
+	t.Cleanup(UseNullAudio())
 }
 
 func TestAudioDevicesListsNullDevices(t *testing.T) {

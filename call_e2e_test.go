@@ -37,6 +37,14 @@ func skipIfNoCallNetwork(t *testing.T) {
 	}
 }
 
+// useNullCallAudio gives the test's calls audio devices that need no sound
+// card: a speaker that fails to open ends the call, which where there's
+// none it would right after connecting - or before, racing the test.
+func useNullCallAudio(t *testing.T) {
+	t.Helper()
+	t.Cleanup(call.UseNullAudio())
+}
+
 // newCallTestSession dials a devtest prosody account and wires a bare
 // accountSession around it - just enough state for the call/Jingle path
 // (callsession.go), same shape as mam_live_race_test.go's sessions. A real
@@ -126,6 +134,7 @@ func waitCallState(t *testing.T, s *accountSession, want callState, timeout time
 // already proves pion itself handles a video-from-start offer/answer fine).
 func TestCallVideoFromStartReachesConnected(t *testing.T) {
 	skipIfNoCallNetwork(t)
+	useNullCallAudio(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -161,6 +170,7 @@ func TestCallVideoFromStartReachesConnected(t *testing.T) {
 // same two accounts, which the historical logs show reliably connecting.
 func TestCallAudioOnlyReachesConnected(t *testing.T) {
 	skipIfNoCallNetwork(t)
+	useNullCallAudio(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

@@ -12,6 +12,9 @@ import "fmt"
 
 var errNoAudio = fmt.Errorf("audio not supported in this build")
 
+// UseNullAudio does nothing on non-cgo builds, which have no audio.
+func UseNullAudio() (restore func()) { return func() {} }
+
 // AudioDevices always errors on non-cgo builds.
 func AudioDevices() (inputs, outputs []AudioDevice, err error) { return nil, nil, errNoAudio }
 

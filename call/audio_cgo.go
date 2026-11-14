@@ -21,8 +21,30 @@ import (
 
 // audioBackends is the backend list every malgo context here is initialized
 // with - nil lets miniaudio pick (PulseAudio, then ALSA, ... on Linux;
-// CoreAudio/WASAPI elsewhere). Tests swap in the null backend.
-var audioBackends []malgo.Backend
+// CoreAudio/WASAPI elsewhere). Tests swap in the null backend (see
+// UseNullAudio).
+var (
+	audioBackendsMu sync.Mutex
+	audioBackends   []malgo.Backend
+)
+
+// UseNullAudio makes audio devices opened from now on use miniaudio's null
+// backend: real device plumbing, keeping time, that plays and records
+// nothing - for tests, which may run where there's no sound card at all.
+// It returns what undoes it.
+func UseNullAudio() (restore func()) {
+	audioBackendsMu.Lock()
+	defer audioBackendsMu.Unlock()
+	prev := audioBackends
+	// malgo's BackendNull is off by one: its enum skips miniaudio's
+	// ma_backend_custom, so the constant names custom and null is the next.
+	audioBackends = []malgo.Backend{malgo.BackendNull + 1}
+	return func() {
+		audioBackendsMu.Lock()
+		defer audioBackendsMu.Unlock()
+		audioBackends = prev
+	}
+}
 
 // audioAppName is the application name kage's streams carry on a
 // PulseAudio/PipeWire server, so they're identifiable in its mixer. C
@@ -34,7 +56,10 @@ var audioAppName = C.CString("kage")
 func newAudioContext() (*malgo.AllocatedContext, error) {
 	var cfg malgo.ContextConfig
 	cfg.Pulse.PApplicationName = (*byte)(unsafe.Pointer(audioAppName))
-	return malgo.InitContext(audioBackends, cfg, func(string) {})
+	audioBackendsMu.Lock()
+	backends := audioBackends
+	audioBackendsMu.Unlock()
+	return malgo.InitContext(backends, cfg, func(string) {})
 }
 
 // AudioDevices lists the capture and playback devices the audio backend can
