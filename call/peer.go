@@ -29,6 +29,13 @@ type PeerConnection struct {
 	mu       sync.Mutex
 	ours     map[uint32]bool              // our senders' SSRCs, for link
 	draining map[*webrtc.RTPReceiver]bool // receivers drainReceiverRTCP reads
+
+	// sent counts the media bytes written, sentRate what LinkStats last
+	// made of it as of sentAt.
+	sent     atomic.Int64
+	sentAt   time.Time
+	sentLast int64
+	sentRate int
 }
 
 // NewPeerConnection creates a PeerConnection with an Opus track, using
@@ -157,9 +164,24 @@ func (p *PeerConnection) isOurs(ssrc uint32) bool {
 	return p.ours[ssrc]
 }
 
-// LinkStats is what the peer's feedback says about the link to them.
+// LinkStats is what the peer's feedback says about the link to them, and
+// what we've been sending over it since the last call (meant to be about
+// once a second).
 func (p *PeerConnection) LinkStats() LinkStats {
-	return p.link.stats(time.Now())
+	now := time.Now()
+	s := p.link.stats(now)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	sent := p.sent.Load()
+	switch elapsed := now.Sub(p.sentAt); {
+	case p.sentAt.IsZero():
+		p.sentAt, p.sentLast = now, sent
+	case elapsed >= 500*time.Millisecond:
+		p.sentRate = int(float64(sent-p.sentLast) * 8 / elapsed.Seconds())
+		p.sentAt, p.sentLast = now, sent
+	}
+	s.Sent = p.sentRate
+	return s
 }
 
 // AddVideoTrack adds our video track, to renegotiate before writing to it:
@@ -408,6 +430,7 @@ func (p *PeerConnection) AddICECandidate(candidate webrtc.ICECandidateInit) erro
 // The caller reads PCM frames off a Mic, runs them through an Encoder, and
 // passes the resulting packet here on a steady FrameMillis cadence.
 func (p *PeerConnection) WriteSample(data []byte, duration time.Duration) error {
+	p.sent.Add(int64(len(data)))
 	return p.track.WriteSample(media.Sample{Data: data, Duration: duration})
 }
 
@@ -417,6 +440,7 @@ func (p *PeerConnection) WriteVideoSample(data []byte, duration time.Duration) e
 	if p.videoTrack == nil {
 		return fmt.Errorf("no video track added yet")
 	}
+	p.sent.Add(int64(len(data)))
 	return p.videoTrack.WriteSample(media.Sample{Data: data, Duration: duration})
 }
 

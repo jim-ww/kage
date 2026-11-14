@@ -30,6 +30,8 @@ type LinkStats struct {
 	// Bitrate is congestion control's estimate of what can be sent, in
 	// bits/s - only with LinkFeedbackTransportCC, 0 otherwise.
 	Bitrate int
+	// Sent is what we've been sending lately, in bits/s.
+	Sent int
 	// Loss is the share of our packets lost, 0-1, over the last interval.
 	Loss float64
 	// RTT is the round-trip time, 0 until measured.
