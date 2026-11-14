@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -408,14 +409,13 @@ func TestSDPFromJingleContentsSingleSSRCPerMid(t *testing.T) {
 
 // TestJingleContentsFromSDPSingleSSRCPerContent is
 // TestSDPFromJingleContentsSingleSSRCPerMid's counterpart for our own
-// outgoing offers/answers: pion auto-negotiates RTX for a video track (it
-// did for kage's own screen-share content-add live, unprompted) and so its
-// generated SDP can carry two a=ssrc lines under one m= section - a primary
-// and a repair SSRC, both sharing the same msid/cname, telling them apart
-// only by an a=ssrc-group:FID line we don't parse. Emitting the repair SSRC
-// as an ordinary second <source/> left at least one real peer (Conversations)
-// confused about which SSRC was the actual video and reporting zero frames
-// received. jingleContentsFromSDP must keep only the first SSRC per content.
+// outgoing offers/answers: pion auto-negotiates RTX for a video track and
+// so its generated SDP carries two a=ssrc lines under one m= section - a
+// primary and a repair SSRC, both sharing the same msid/cname. Emitting the
+// repair SSRC as an ordinary second <source/> left at least one real peer
+// (Conversations) confused about which SSRC was the actual video and
+// reporting zero frames received; it must go out as an FID <ssrc-group/>
+// tying it to the primary, or not at all.
 func TestJingleContentsFromSDPSingleSSRCPerContent(t *testing.T) {
 	const offerWithRTX = `v=0
 o=- 1 1 IN IP4 0.0.0.0
@@ -448,11 +448,154 @@ a=sendonly
 	if len(contents) != 1 {
 		t.Fatalf("got %d contents, want 1", len(contents))
 	}
-	sources := contents[0].Description.Sources
-	if len(sources) != 1 {
-		t.Fatalf("got %d sources, want 1 (RTX ssrc must be dropped): %+v", len(sources), sources)
+	d := contents[0].Description
+	if len(d.Sources) != 2 || d.Sources[0].SSRC != 2399846864 || d.Sources[1].SSRC != 3594954464 {
+		t.Fatalf("sources %+v, want the primary 2399846864 then its RTX 3594954464", d.Sources)
 	}
-	if sources[0].SSRC != 2399846864 {
-		t.Fatalf("kept ssrc %d, want the primary 2399846864", sources[0].SSRC)
+	want := []xmpp.JingleSourceGroup{{Semantics: "FID", Sources: []xmpp.JingleSourceRef{{SSRC: 2399846864}, {SSRC: 3594954464}}}}
+	if !slices.EqualFunc(d.SourceGroups, want, func(a, b xmpp.JingleSourceGroup) bool {
+		return a.Semantics == b.Semantics && slices.Equal(a.Sources, b.Sources)
+	}) {
+		t.Fatalf("source groups %+v, want %+v", d.SourceGroups, want)
+	}
+
+	ungrouped := strings.Replace(offerWithRTX, "a=ssrc-group:FID 2399846864 3594954464\n", "", 1)
+	contents, err = jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: ungrouped}, true)
+	if err != nil {
+		t.Fatalf("translating offer to jingle: %v", err)
+	}
+	if d := contents[0].Description; len(d.Sources) != 1 || d.SourceGroups != nil {
+		t.Fatalf("ungrouped second ssrc kept: %+v / %+v", d.Sources, d.SourceGroups)
+	}
+}
+
+// TestFeedbackAndExtensionsRoundTrip checks RTCP feedback (XEP-0293),
+// header extensions (XEP-0294) and an RTX FID group (XEP-0339) survive SDP
+// -> Jingle -> SDP, which is what lets NACK, keyframe requests and
+// congestion control feedback be negotiated at all.
+func TestFeedbackAndExtensionsRoundTrip(t *testing.T) {
+	const offer = `v=0
+o=- 1 1 IN IP4 0.0.0.0
+s=-
+t=0 0
+a=fingerprint:sha-256 F5:3C:1E:9A:44:2B:70:D8:6C:11:A0:5F:93:2E:88:47:6D:CA:31:05:9B:E2:74:AF:60:13:8C:29:B7:4E:D1:52
+a=extmap-allow-mixed
+a=group:BUNDLE 0
+m=video 9 UDP/TLS/RTP/SAVPF 96 97
+c=IN IP4 0.0.0.0
+a=setup:actpass
+a=mid:0
+a=ice-ufrag:BCkjvJhCEcYkAWGP
+a=ice-pwd:GVQhZbPTHmzDdWuJDeMdrHwYrEEJDMRF
+a=rtcp-mux
+a=rtpmap:96 VP8/90000
+a=rtcp-fb:96 nack
+a=rtcp-fb:96 nack pli
+a=rtcp-fb:96 transport-cc
+a=rtcp-fb:* ccm fir
+a=rtpmap:97 rtx/90000
+a=fmtp:97 apt=96
+a=extmap:4 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+a=extmap:5/sendonly urn:3gpp:video-orientation
+a=ssrc-group:FID 111 222
+a=ssrc:111 cname:kage
+a=ssrc:222 cname:kage
+a=sendonly
+`
+	contents, err := jingleContentsFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offer}, true)
+	if err != nil {
+		t.Fatalf("translating offer to jingle: %v", err)
+	}
+	d := contents[0].Description
+	if ext := d.HeaderExtensions; len(ext) != 2 || ext[0].Senders != "" || ext[1].Senders != "initiator" {
+		t.Errorf("header extensions %+v, want TWCC for both and orientation sent by us, the initiator", ext)
+	}
+	if len(d.Feedback) != 1 || d.ExtmapAllowMixed == nil {
+		t.Errorf("wildcard feedback %+v, extmap-allow-mixed %v", d.Feedback, d.ExtmapAllowMixed != nil)
+	}
+
+	// Read back as the peer: they're not the initiator.
+	rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer, true)
+	if err != nil {
+		t.Fatalf("translating jingle back to sdp: %v", err)
+	}
+	for _, want := range []string{
+		"a=rtcp-fb:96 nack\r\n", "a=rtcp-fb:96 nack pli\r\n", "a=rtcp-fb:96 transport-cc\r\n",
+		"a=rtcp-fb:96 ccm fir\r\n", "a=rtcp-fb:97 ccm fir\r\n",
+		"a=extmap:4 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\n",
+		"a=extmap:5/sendonly urn:3gpp:video-orientation\r\n",
+		"a=extmap-allow-mixed\r\n",
+		"a=ssrc-group:FID 111 222\r\n", "a=ssrc:111 cname:kage\r\n", "a=ssrc:222 cname:kage\r\n",
+	} {
+		if !strings.Contains(rebuilt.SDP, want) {
+			t.Errorf("rebuilt sdp lacks %q:\n%s", want, rebuilt.SDP)
+		}
+	}
+}
+
+// TestFeedbackNegotiatedWithPion checks what a peer offering feedback gets
+// from pion through the Jingle translation: NACK, keyframe requests and
+// transport-wide congestion control feedback, answered and so in use - and
+// that a peer offering none of it gets none of it, rather than feedback it
+// never asked for.
+func TestFeedbackNegotiatedWithPion(t *testing.T) {
+	offerer, err := call.NewPeerConnection()
+	if err != nil {
+		t.Skipf("no usable pion peer connection here: %v", err)
+	}
+	defer offerer.Close()
+	if err := offerer.AddVideoTrack(); err != nil {
+		t.Fatal(err)
+	}
+	offer, err := offerer.CreateOffer()
+	if err != nil {
+		t.Skipf("no usable pion peer connection here: %v", err)
+	}
+	contents, err := jingleContentsFromSDP(offer, true)
+	if err != nil {
+		t.Fatalf("translating offer to jingle: %v", err)
+	}
+
+	answer := func(contents []xmpp.JingleContent) string {
+		t.Helper()
+		rebuilt, err := sdpFromJingleContents(contents, webrtc.SDPTypeOffer, true)
+		if err != nil {
+			t.Fatalf("translating jingle back to sdp: %v", err)
+		}
+		answerer, err := call.NewPeerConnection()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer answerer.Close()
+		if err := answerer.SetRemoteDescription(rebuilt); err != nil {
+			t.Fatalf("pion rejected the rebuilt offer: %v\n%s", err, rebuilt.SDP)
+		}
+		a, err := answerer.CreateAnswer()
+		if err != nil {
+			t.Fatalf("creating answer: %v", err)
+		}
+		return a.SDP
+	}
+
+	got := answer(contents)
+	for _, want := range []string{" nack\r\n", " nack pli\r\n", " transport-cc\r\n", "transport-wide-cc-extensions"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("answer lacks %q, so it isn't in use:\n%s", strings.TrimSpace(want), got)
+		}
+	}
+
+	// A client without XEP-0293/0294 sends none of it.
+	for i := range contents {
+		d := contents[i].Description
+		d.Feedback, d.HeaderExtensions, d.ExtmapAllowMixed = nil, nil, nil
+		for j := range d.PayloadTypes {
+			d.PayloadTypes[j].Feedback = nil
+		}
+	}
+	got = answer(contents)
+	for _, unwanted := range []string{"a=rtcp-fb:", "a=extmap:"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("answer to a peer offering no feedback has %q:\n%s", unwanted, got)
+		}
 	}
 }

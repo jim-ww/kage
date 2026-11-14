@@ -16,6 +16,7 @@ package main
 import (
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -45,14 +46,19 @@ func jingleContentsFromSDP(desc webrtc.SessionDescription, isInitiator bool) ([]
 		name := attrOr(media, &parsed, "mid", jingleContentName)
 		direction := getSDPDirection(media)
 		senders := directionToSenders(direction, isInitiator)
+		pts, feedback := payloadTypesFromSDP(media)
+		sources, groups := sourcesFromSDP(media)
 		content := xmpp.JingleContent{
 			Creator: "initiator",
 			Name:    name,
 			Senders: senders,
 			Description: &xmpp.RTPDescription{
-				Media:        media.MediaName.Media,
-				PayloadTypes: payloadTypesFromSDP(media),
-				Sources:      sourcesFromSDP(media),
+				Media:            media.MediaName.Media,
+				PayloadTypes:     pts,
+				Feedback:         feedback,
+				Sources:          sources,
+				SourceGroups:     groups,
+				HeaderExtensions: headerExtensionsFromSDP(media, isInitiator),
 			},
 			Transport: &xmpp.ICEUDPTransport{
 				Ufrag: attrOr(media, &parsed, "ice-ufrag", ""),
@@ -61,6 +67,9 @@ func jingleContentsFromSDP(desc webrtc.SessionDescription, isInitiator bool) ([]
 		}
 		if _, ok := media.Attribute("rtcp-mux"); ok {
 			content.Description.RTCPMux = &struct{}{}
+		}
+		if attrOr(media, &parsed, "extmap-allow-mixed", "-") != "-" {
+			content.Description.ExtmapAllowMixed = &struct{}{}
 		}
 		if fp := attrOr(media, &parsed, "fingerprint", ""); fp != "" {
 			hash, value, _ := strings.Cut(fp, " ")
@@ -89,57 +98,100 @@ func jingleContentsFromSDP(desc webrtc.SessionDescription, isInitiator bool) ([]
 }
 
 // sourcesFromSDP reads the `a=ssrc:<id> cname:<value>` lines pion generates
-// for a media section's local track into a single XEP-0167/XEP-0339
-// <source/> element. Only cname is carried today - it's the one parameter
-// every consumer of this needs (stream identity), and pion itself doesn't
-// emit msid/label/mslabel on its generated offers.
+// for a media section's local track into XEP-0167/XEP-0339 <source/>
+// elements: the first (primary) SSRC, and the RTX SSRC carrying its
+// retransmissions if an a=ssrc-group:FID ties one to it, with that group.
+// Only cname is carried - it's the one parameter every consumer of this
+// needs (stream identity), and pion itself doesn't emit msid/label/mslabel
+// on its generated offers.
 //
-// Only the first (primary) SSRC is kept, even if pion auto-negotiated RTX
-// for the m= section and so declared a second one there: without full
-// XEP-0339 <ssrc-group/> support (out of scope - see JingleSource's doc) to
-// tell a peer the second SSRC is a repair stream for the first, sending it
-// as an ordinary, ungrouped second <source/> leaves the peer either
-// confused about which SSRC is the actual media (observed live: a peer
-// declared both under the same msid and then received zero frames) or
-// tripping the same Plan-B misdetection sdpFromJingleContents already
-// guards against on the receiving end - this is that fix's counterpart for
-// our own outgoing offers/answers.
-func sourcesFromSDP(media *sdp.MediaDescription) []xmpp.JingleSource {
-	var src *xmpp.JingleSource
+// Any other SSRC is dropped: declared as an ordinary, ungrouped second
+// <source/>, a peer can't tell which is the actual media (observed live: a
+// peer declared both under the same msid and then received zero frames),
+// and on the receiving end it trips the Plan-B misdetection
+// sdpFromJingleContents guards against.
+func sourcesFromSDP(media *sdp.MediaDescription) ([]xmpp.JingleSource, []xmpp.JingleSourceGroup) {
+	var order []uint32
+	params := map[uint32][]xmpp.JingleSourceParam{}
+	repairOf := map[uint32]uint32{}
 	for _, a := range media.Attributes {
-		if a.Key != "ssrc" {
+		switch a.Key {
+		case "ssrc":
+			idStr, rest, ok := strings.Cut(a.Value, " ")
+			if !ok {
+				continue
+			}
+			id, err := strconv.ParseUint(idStr, 10, 32)
+			if err != nil {
+				continue
+			}
+			ssrc := uint32(id)
+			if _, seen := params[ssrc]; !seen {
+				order = append(order, ssrc)
+				params[ssrc] = nil
+			}
+			if name, value, ok := strings.Cut(rest, ":"); ok {
+				params[ssrc] = append(params[ssrc], xmpp.JingleSourceParam{Name: name, Value: value})
+			}
+		case "ssrc-group":
+			fields := strings.Fields(a.Value)
+			if len(fields) != 3 || fields[0] != "FID" {
+				continue
+			}
+			primary, err1 := strconv.ParseUint(fields[1], 10, 32)
+			repair, err2 := strconv.ParseUint(fields[2], 10, 32)
+			if err1 == nil && err2 == nil {
+				repairOf[uint32(primary)] = uint32(repair)
+			}
+		}
+	}
+	if len(order) == 0 {
+		return nil, nil
+	}
+	primary := order[0]
+	sources := []xmpp.JingleSource{{SSRC: primary, Parameters: params[primary]}}
+	repair, ok := repairOf[primary]
+	if _, declared := params[repair]; !ok || !declared {
+		return sources, nil
+	}
+	sources = append(sources, xmpp.JingleSource{SSRC: repair, Parameters: params[repair]})
+	return sources, []xmpp.JingleSourceGroup{{Semantics: "FID", Sources: []xmpp.JingleSourceRef{{SSRC: primary}, {SSRC: repair}}}}
+}
+
+// headerExtensionsFromSDP reads a media section's a=extmap lines into
+// XEP-0294 <rtp-hdrext/> elements. isInitiator is our role, as for
+// directionToSenders.
+func headerExtensionsFromSDP(media *sdp.MediaDescription, isInitiator bool) []xmpp.RTPHeaderExtension {
+	var out []xmpp.RTPHeaderExtension
+	for _, a := range media.Attributes {
+		if a.Key != "extmap" {
 			continue
 		}
-		idStr, rest, ok := strings.Cut(a.Value, " ")
-		if !ok {
+		fields := strings.Fields(a.Value)
+		if len(fields) < 2 {
 			continue
 		}
-		id, err := strconv.ParseUint(idStr, 10, 32)
+		idStr, direction, hasDirection := strings.Cut(fields[0], "/")
+		id, err := strconv.Atoi(idStr)
 		if err != nil {
 			continue
 		}
-		ssrc := uint32(id)
-		if src == nil {
-			src = &xmpp.JingleSource{SSRC: ssrc}
-		} else if src.SSRC != ssrc {
-			continue // a second, presumably RTX, SSRC - not carried, see doc above
+		ext := xmpp.RTPHeaderExtension{ID: id, URI: fields[1]}
+		if hasDirection && direction != "sendrecv" {
+			ext.Senders = directionToSenders(direction, isInitiator)
 		}
-		attrName, attrValue, ok := strings.Cut(rest, ":")
-		if ok {
-			src.Parameters = append(src.Parameters, xmpp.JingleSourceParam{Name: attrName, Value: attrValue})
-		}
+		out = append(out, ext)
 	}
-	if src == nil {
-		return nil
-	}
-	return []xmpp.JingleSource{*src}
+	return out
 }
 
-// payloadTypesFromSDP reads the rtpmap/fmtp lines of one media section into
-// XEP-0167 <payload-type/> elements, in the offer's preference order.
-func payloadTypesFromSDP(media *sdp.MediaDescription) []xmpp.RTPPayloadType {
+// payloadTypesFromSDP reads the rtpmap/fmtp/rtcp-fb lines of one media
+// section into XEP-0167 <payload-type/> elements, in the offer's preference
+// order, along with the a=rtcp-fb:* feedback offered for all of them.
+func payloadTypesFromSDP(media *sdp.MediaDescription) ([]xmpp.RTPPayloadType, []xmpp.RTCPFeedback) {
 	rtpmaps := map[string]string{}
 	fmtps := map[string]string{}
+	feedback := map[string][]xmpp.RTCPFeedback{}
 	for _, a := range media.Attributes {
 		id, rest, ok := strings.Cut(a.Value, " ")
 		if !ok {
@@ -150,6 +202,9 @@ func payloadTypesFromSDP(media *sdp.MediaDescription) []xmpp.RTPPayloadType {
 			rtpmaps[id] = rest
 		case "fmtp":
 			fmtps[id] = rest
+		case "rtcp-fb":
+			typ, subtype, _ := strings.Cut(strings.TrimSpace(rest), " ")
+			feedback[id] = append(feedback[id], xmpp.RTCPFeedback{Type: typ, Subtype: strings.TrimSpace(subtype)})
 		}
 	}
 
@@ -181,9 +236,10 @@ func payloadTypesFromSDP(media *sdp.MediaDescription) []xmpp.RTPPayloadType {
 			k, v, _ := strings.Cut(param, "=")
 			pt.Parameters = append(pt.Parameters, xmpp.RTPParameter{Name: k, Value: v})
 		}
+		pt.Feedback = feedback[format]
 		out = append(out, pt)
 	}
-	return out
+	return out, feedback["*"]
 }
 
 // sdpFromJingleContents rebuilds a full SDP offer/answer from an incoming
@@ -250,27 +306,55 @@ func sdpFromJingleContents(contents []xmpp.JingleContent, typ webrtc.SDPType, is
 				}
 				attrs = append(attrs, sdp.Attribute{Key: "fmtp", Value: id + " " + strings.Join(params, ";")})
 			}
+			// Feedback for all payload types alike is spelled out per
+			// payload type rather than as a=rtcp-fb:*, which not every SDP
+			// consumer reads.
+			for _, fb := range slices.Concat(pt.Feedback, content.Description.Feedback) {
+				value := id + " " + fb.Type
+				if fb.Subtype != "" {
+					value += " " + fb.Subtype
+				}
+				attrs = append(attrs, sdp.Attribute{Key: "rtcp-fb", Value: value})
+			}
+		}
+		for _, ext := range content.Description.HeaderExtensions {
+			id := strconv.Itoa(ext.ID)
+			if ext.Senders != "" && ext.Senders != "both" {
+				if dir := sendersToDirection(ext.Senders, isInitiator); dir != "sendrecv" {
+					id += "/" + dir
+				}
+			}
+			attrs = append(attrs, sdp.Attribute{Key: "extmap", Value: id + " " + ext.URI})
+		}
+		if content.Description.ExtmapAllowMixed != nil {
+			attrs = append(attrs, sdp.Attribute{Key: "extmap-allow-mixed"})
 		}
 		if len(formats) == 0 {
 			return webrtc.SessionDescription{}, fmt.Errorf("jingle %s content %q offers no payload types", typ, mid)
 		}
-		// Only the first source: a peer sending RTX/FEC lists those as
-		// additional <source/> elements alongside the primary one (grouped
-		// via <ssrc-group/> in full XEP-0339, which we don't parse - see
-		// JingleSource's doc). Emitting every one of them as an ungrouped
-		// a=ssrc here would leave pion's Plan-B heuristic seeing multiple
-		// unlinked tracks under one mid (it specifically special-cases
-		// a=ssrc-group:FID to rule that out - see pion's trackDetailsFromSDP)
-		// and it then refuses to answer at all ("Expected UnifiedPlan, but
-		// RemoteDescription is PlanB"). We don't do RTX/FEC ourselves, so
-		// the primary source - conventionally listed first - is all we
-		// actually need here.
+		// Only the first (primary) source, and the RTX one carrying its
+		// retransmissions if an FID <ssrc-group/> ties it to the primary. A
+		// peer sending RTX/FEC lists those as additional <source/>s
+		// alongside the primary one; emitted ungrouped here, pion's Plan-B
+		// heuristic would see multiple unlinked tracks under one mid (it
+		// specifically special-cases a=ssrc-group:FID to rule that out -
+		// see pion's trackDetailsFromSDP) and refuse to answer at all
+		// ("Expected UnifiedPlan, but RemoteDescription is PlanB").
 		if srcs := content.Description.Sources; len(srcs) > 0 {
-			for _, p := range srcs[0].Parameters {
-				attrs = append(attrs, sdp.Attribute{
-					Key:   "ssrc",
-					Value: fmt.Sprintf("%d %s:%s", srcs[0].SSRC, p.Name, p.Value),
-				})
+			kept := []xmpp.JingleSource{srcs[0]}
+			if repair, ok := fidRepair(content.Description.SourceGroups, srcs[0].SSRC); ok {
+				if i := slices.IndexFunc(srcs, func(s xmpp.JingleSource) bool { return s.SSRC == repair }); i >= 0 {
+					kept = append(kept, srcs[i])
+					attrs = append(attrs, sdp.Attribute{Key: "ssrc-group", Value: fmt.Sprintf("FID %d %d", srcs[0].SSRC, repair)})
+				}
+			}
+			for _, src := range kept {
+				for _, p := range src.Parameters {
+					attrs = append(attrs, sdp.Attribute{
+						Key:   "ssrc",
+						Value: fmt.Sprintf("%d %s:%s", src.SSRC, p.Name, p.Value),
+					})
+				}
 			}
 		}
 		for _, c := range content.Transport.Candidates {
@@ -313,6 +397,16 @@ func sdpFromJingleContents(contents []xmpp.JingleContent, typ webrtc.SDPType, is
 		return webrtc.SessionDescription{}, fmt.Errorf("marshaling sdp from jingle %s: %w", typ, err)
 	}
 	return webrtc.SessionDescription{Type: typ, SDP: string(raw)}, nil
+}
+
+// fidRepair finds the SSRC an FID group names as primary's repair stream.
+func fidRepair(groups []xmpp.JingleSourceGroup, primary uint32) (uint32, bool) {
+	for _, g := range groups {
+		if g.Semantics == "FID" && len(g.Sources) == 2 && g.Sources[0].SSRC == primary {
+			return g.Sources[1].SSRC, true
+		}
+	}
+	return 0, false
 }
 
 // setupOrDefault fills in the DTLS role for a peer that omitted a=setup:
