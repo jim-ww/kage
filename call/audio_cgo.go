@@ -207,8 +207,8 @@ func (m *Mic) Close() error {
 
 // Speaker plays back 16-bit PCM frames through an output device via malgo.
 // Playback is pulled by the device's own audio thread: whenever it runs dry
-// it plays silence rather than waiting, so a late network packet is a gap,
-// not a stall.
+// it plays silence rather than waiting, so a late frame is a gap, not a
+// stall.
 type Speaker struct {
 	ctx       *malgo.AllocatedContext
 	device    *malgo.Device
@@ -222,9 +222,32 @@ type Speaker struct {
 // see AudioDevices for names) at SampleRate/Channels. Close must be called
 // when the call ends.
 func NewSpeaker(device string) (*Speaker, error) {
+	return newSpeaker(device, nil)
+}
+
+// NewSpeakerFrom opens a speaker like NewSpeaker, playing whatever next
+// returns instead of what's written to it: next is called on the device's
+// own audio thread each time the frame before has been played, so the
+// device's clock sets the pace and next must never block. A nil or empty
+// frame plays silence until the device next needs samples.
+func NewSpeakerFrom(device string, next func() []int16) (*Speaker, error) {
+	return newSpeaker(device, next)
+}
+
+func newSpeaker(device string, next func() []int16) (*Speaker, error) {
 	s := &Speaker{
 		samples: make(chan []int16, 8),
 		closed:  make(chan struct{}),
+	}
+	if next == nil {
+		next = func() []int16 {
+			select {
+			case frame := <-s.samples:
+				return frame
+			default:
+				return nil
+			}
+		}
 	}
 
 	var pending []int16
@@ -232,10 +255,7 @@ func NewSpeaker(device string) (*Speaker, error) {
 		n := 0
 		for n+1 < len(out) {
 			if len(pending) == 0 {
-				select {
-				case frame := <-s.samples:
-					pending = frame
-				default:
+				if pending = next(); len(pending) == 0 {
 					clear(out[n:])
 					return
 				}
@@ -258,8 +278,9 @@ func NewSpeaker(device string) (*Speaker, error) {
 // system default was opened in its place.
 func (s *Speaker) UsingDefaultInstead() bool { return s.fellBack }
 
-// Write queues one frame of mono 16-bit PCM samples for playback. It blocks
-// if the queue is full (the playback engine isn't keeping up).
+// Write queues one frame of mono 16-bit PCM samples for playback, on a
+// speaker opened by NewSpeaker. It blocks if the queue is full (the
+// playback engine isn't keeping up).
 func (s *Speaker) Write(frame []int16) error {
 	select {
 	case s.samples <- frame:

@@ -27,7 +27,8 @@ func (m *Mic) Close() error              { return nil }
 // Speaker is a stub on non-cgo builds; NewSpeaker always errors.
 type Speaker struct{}
 
-func NewSpeaker(string) (*Speaker, error) { return nil, errNoAudio }
+func NewSpeaker(string) (*Speaker, error)                     { return nil, errNoAudio }
+func NewSpeakerFrom(string, func() []int16) (*Speaker, error) { return nil, errNoAudio }
 
 func (s *Speaker) Write([]int16) error       { return errNoAudio }
 func (s *Speaker) UsingDefaultInstead() bool { return false }

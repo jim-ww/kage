@@ -112,3 +112,13 @@ func (d *Decoder) Decode(packet []byte, out []int16) (int, error) {
 	}
 	return n, nil
 }
+
+// Conceal makes up one FrameSamples frame for a packet that never came,
+// into out (at least FrameSamples*Channels int16s), continuing from what
+// was last decoded rather than cutting to silence.
+func (d *Decoder) Conceal(out []int16) error {
+	if err := d.dec.DecodePLC(out[:FrameSamples*Channels]); err != nil {
+		return fmt.Errorf("concealing lost opus packet: %w", err)
+	}
+	return nil
+}
