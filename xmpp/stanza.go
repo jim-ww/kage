@@ -35,6 +35,10 @@ type messageBody struct {
 	// OOB marks URLs as files rather than links (XEP-0066).
 	OOB []oobElem `xml:"jabber:x:oob x"`
 
+	// Store asks servers to archive a message they might not otherwise,
+	// having no <body/> or only a fallback one (XEP-0334).
+	Store *struct{} `xml:"urn:xmpp:hints store"`
+
 	// XEP-0353 call ringing, received; at most one set. Sent with jmiMessage.
 	JMIPropose *jmiProposeElem `xml:"urn:xmpp:jingle-message:0 propose"`
 	JMIRinging *jmiIDElem      `xml:"urn:xmpp:jingle-message:0 ringing"`

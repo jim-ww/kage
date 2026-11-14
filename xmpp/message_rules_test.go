@@ -118,3 +118,29 @@ func TestMessageFeaturesAdvertised(t *testing.T) {
 		}
 	}
 }
+
+// TestStoreHints checks reactions and retractions ask to be archived, a
+// server otherwise free to skip a message with no body (XEP-0444 §4) or
+// only a fallback one (XEP-0424 §3), and plain messages don't need to.
+func TestStoreHints(t *testing.T) {
+	for name, tc := range map[string]struct {
+		opts  SendOptions
+		store bool
+	}{
+		"reaction":   {SendOptions{ReactionTargetID: "m1", Reactions: []string{"👍"}}, true},
+		"retraction": {SendOptions{RetractID: "m1"}, true},
+		"message":    {SendOptions{}, false},
+	} {
+		msg, err := newMessage("bob@example.test", "", tc.opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := xml.Marshal(msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(string(out), `<store xmlns="urn:xmpp:hints">`); got != tc.store {
+			t.Errorf("%s: store hint %v, want %v:\n%s", name, got, tc.store, out)
+		}
+	}
+}

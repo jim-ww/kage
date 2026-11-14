@@ -12,9 +12,22 @@ import (
 // Send sends a chat-message stanza with the given body to "to", returning
 // the stanza ID it was sent with (needed to later correct or be replied to).
 func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (string, error) {
+	msg, err := newMessage(to, body, opts)
+	if err != nil {
+		return "", err
+	}
+	logXML("OUT", c.JID.String(), msg)
+	if err := c.session.Encode(ctx, msg); err != nil {
+		return "", err
+	}
+	return msg.ID, nil
+}
+
+// newMessage builds the stanza Send sends.
+func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 	toJID, err := jid.Parse(to)
 	if err != nil {
-		return "", fmt.Errorf("parsing recipient %q: %w", to, err)
+		return messageBody{}, fmt.Errorf("parsing recipient %q: %w", to, err)
 	}
 	id := randomID()
 	msg := messageBody{
@@ -52,6 +65,8 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 		}
 	case opts.ReactionTargetID != "":
 		msg.Reactions = &reactionsElem{ID: opts.ReactionTargetID, Reactions: opts.Reactions}
+		// No body to get it archived by (XEP-0444 §4).
+		msg.Store = &struct{}{}
 	case opts.RetractID != "":
 		msg.Retract = &retractElem{ID: opts.RetractID}
 		msg.Body = retractFallbackBody
@@ -59,6 +74,9 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 			For:  "urn:xmpp:message-retract:1",
 			Body: &fallbackBodyElem{}, // no start/end: the whole body is fallback text
 		}
+		// Its body is fallback only, which a server may well not archive
+		// (XEP-0424 §3).
+		msg.Store = &struct{}{}
 	case opts.ReplaceID != "":
 		msg.Replace = &replaceElem{ID: opts.ReplaceID}
 	case opts.ReplyToID != "":
@@ -80,11 +98,7 @@ func (c *Client) Send(ctx context.Context, to, body string, opts SendOptions) (s
 	for _, u := range opts.OOBURLs {
 		msg.OOB = append(msg.OOB, oobElem{URL: u})
 	}
-	logXML("OUT", c.JID.String(), msg)
-	if err := c.session.Encode(ctx, msg); err != nil {
-		return "", err
-	}
-	return id, nil
+	return msg, nil
 }
 
 // SendChatState sends a standalone XEP-0085 chat state notification to "to"
