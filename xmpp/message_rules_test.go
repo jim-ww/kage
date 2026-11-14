@@ -222,3 +222,23 @@ func TestMessageEventChatStates(t *testing.T) {
 		}
 	}
 }
+
+// TestArchiveResultsOnlyFromOwnAccount checks results for a query to our
+// archive are taken only from our own account, like carbons.
+func TestArchiveResultsOnlyFromOwnAccount(t *testing.T) {
+	result := func(from string) string {
+		return `<message xmlns="jabber:client" from="` + from + `" to="alice@example.test/laptop">
+			<result xmlns="urn:xmpp:mam:2" queryid="q1" id="a1"><forwarded xmlns="urn:xmpp:forward:0">
+				<message xmlns="jabber:client" from="bob@example.test/pc" to="alice@example.test" type="chat" id="m1"><body>archived</body></message>
+			</forwarded></result>
+		</message>`
+	}
+	for from, want := range map[string]bool{"alice@example.test": true, "mallory@example.test": false} {
+		ch := make(chan ArchivedMessage, 1)
+		c := &Client{JID: jid.MustParse("alice@example.test/laptop"), mamWaiters: map[string]chan ArchivedMessage{"q1": ch}}
+		serveMessageTo(t, c, result(from))
+		if got := len(ch) == 1; got != want {
+			t.Errorf("result from %s taken: %v, want %v", from, got, want)
+		}
+	}
+}
