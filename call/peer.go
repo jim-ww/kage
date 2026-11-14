@@ -61,6 +61,48 @@ func (p *PeerConnection) AddVideoTrack() error {
 	if p.videoTrack != nil {
 		return nil
 	}
+	track, err := newVideoTrack()
+	if err != nil {
+		return err
+	}
+	// Sendonly: AddTrack's sendrecv would negotiate video back to us too.
+	if _, err := p.pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
+		Direction: webrtc.RTPTransceiverDirectionSendonly,
+	}); err != nil {
+		return fmt.Errorf("adding local video track: %w", err)
+	}
+	p.videoTrack = track
+	return nil
+}
+
+// AttachVideoTrack puts our video track on the video transceiver of the
+// remote offer just applied, so the answer accepts that content sendrecv
+// instead of us needing a content of our own. Needs an offer that lets us
+// send on it (sendrecv or recvonly).
+func (p *PeerConnection) AttachVideoTrack() error {
+	if p.videoTrack != nil {
+		return nil
+	}
+	track, err := newVideoTrack()
+	if err != nil {
+		return err
+	}
+	sender, err := p.pc.AddTrack(track)
+	if err != nil {
+		return fmt.Errorf("adding local video track: %w", err)
+	}
+	for _, t := range p.pc.GetTransceivers() {
+		if t.Sender() == sender && t.Mid() != "" {
+			p.videoTrack = track
+			return nil
+		}
+	}
+	// A transceiver of its own, which an answer can't carry.
+	_ = p.pc.RemoveTrack(sender)
+	return fmt.Errorf("remote offer has no video we can send on")
+}
+
+func newVideoTrack() (*webrtc.TrackLocalStaticSample, error) {
 	track, err := webrtc.NewTrackLocalStaticSample(
 		webrtc.RTPCodecCapability{
 			MimeType:  webrtc.MimeTypeH264,
@@ -73,16 +115,9 @@ func (p *PeerConnection) AddVideoTrack() error {
 		"video", "kage",
 	)
 	if err != nil {
-		return fmt.Errorf("creating local video track: %w", err)
+		return nil, fmt.Errorf("creating local video track: %w", err)
 	}
-	// Sendonly: AddTrack's sendrecv would negotiate video back to us too.
-	if _, err := p.pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
-		Direction: webrtc.RTPTransceiverDirectionSendonly,
-	}); err != nil {
-		return fmt.Errorf("adding local video track: %w", err)
-	}
-	p.videoTrack = track
-	return nil
+	return track, nil
 }
 
 // CreateOffer generates a local SDP offer (as the Jingle initiator) and sets

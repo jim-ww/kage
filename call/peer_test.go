@@ -106,3 +106,82 @@ func TestVideoMidIgnoresPreExistingVideoTransceiver(t *testing.T) {
 		}
 	}
 }
+
+// offerVideo makes an offer with audio and one video m-line in direction,
+// the way a peer's video call session-initiate arrives.
+func offerVideo(t *testing.T, direction webrtc.RTPTransceiverDirection) webrtc.SessionDescription {
+	t.Helper()
+	peer, err := NewPeerConnection()
+	if err != nil {
+		t.Fatalf("NewPeerConnection (remote side): %v", err)
+	}
+	t.Cleanup(func() { peer.Close() })
+	if direction == webrtc.RTPTransceiverDirectionSendonly {
+		if err := peer.AddVideoTrack(); err != nil {
+			t.Fatalf("AddVideoTrack (remote side): %v", err)
+		}
+	} else if _, err := peer.pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{Direction: direction}); err != nil {
+		t.Fatalf("adding remote video transceiver: %v", err)
+	}
+	offer, err := peer.CreateOffer()
+	if err != nil {
+		skipOfferErrIfNoNetwork(t, err)
+		t.Fatalf("remote side creating offer: %v", err)
+	}
+	return offer
+}
+
+func TestAttachVideoTrackAnswersOfferedVideoSendrecv(t *testing.T) {
+	offer := offerVideo(t, webrtc.RTPTransceiverDirectionSendrecv)
+	p, err := NewPeerConnection()
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+	if err := p.SetRemoteDescription(offer); err != nil {
+		t.Fatalf("applying offer: %v", err)
+	}
+	if err := p.AttachVideoTrack(); err != nil {
+		t.Fatalf("AttachVideoTrack: %v", err)
+	}
+	answer, err := p.CreateAnswer()
+	if err != nil {
+		t.Fatalf("CreateAnswer: %v", err)
+	}
+
+	if got, want := strings.Count(answer.SDP, "m=video"), 1; got != want {
+		t.Errorf("answer has %d video m-lines, want %d:\n%s", got, want, answer.SDP)
+	}
+	video := answer.SDP[strings.Index(answer.SDP, "m=video"):]
+	if !strings.Contains(video, "a=sendrecv") {
+		t.Errorf("answer's video isn't sendrecv:\n%s", video)
+	}
+	if mid := p.VideoMid(); mid == "" || !strings.Contains(video, "a=mid:"+mid) {
+		t.Errorf("VideoMid = %q, want the offered video's mid:\n%s", mid, video)
+	}
+}
+
+func TestAttachVideoTrackRefusesSendonlyOffer(t *testing.T) {
+	offer := offerVideo(t, webrtc.RTPTransceiverDirectionSendonly)
+	p, err := NewPeerConnection()
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+	if err := p.SetRemoteDescription(offer); err != nil {
+		t.Fatalf("applying offer: %v", err)
+	}
+	if err := p.AttachVideoTrack(); err == nil {
+		t.Fatal("AttachVideoTrack on a sendonly offer succeeded, want an error")
+	}
+	answer, err := p.CreateAnswer()
+	if err != nil {
+		t.Fatalf("CreateAnswer: %v", err)
+	}
+	if got := strings.Count(answer.SDP, "m=video"); got != 1 {
+		t.Errorf("answer has %d video m-lines, want 1:\n%s", got, answer.SDP)
+	}
+	if p.VideoMid() != "" {
+		t.Errorf("VideoMid = %q after a refused attach, want empty", p.VideoMid())
+	}
+}

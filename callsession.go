@@ -842,6 +842,19 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	}
 	c.markRemoteSet()
 
+	// A video call offering video both ways, as Conversations and Dino do,
+	// gets our video on that same content: they reject a content-add of
+	// our own once the call has video. Capture starts once we share.
+	if in, ok := firstContentOfKind(jingle.Contents, "video"); ok && canRespondSend(in.Senders) {
+		if err := c.pc.AttachVideoTrack(); err != nil {
+			slog.Warn("answering with our video", "sid", c.sid, "err", err)
+		} else {
+			c.mu.Lock()
+			c.videoNegotiated = true
+			c.mu.Unlock()
+		}
+	}
+
 	answer, err := c.pc.CreateAnswer()
 	if err != nil {
 		return err
@@ -879,6 +892,12 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	c.rememberTransport(contents)
 	c.flushLocalCandidates(ctx)
 	return nil
+}
+
+// canRespondSend reports whether an offered content's senders let us, the
+// responder, send on it. No senders attribute means both (XEP-0166).
+func canRespondSend(senders string) bool {
+	return senders == "" || senders == "both" || senders == "responder"
 }
 
 // applyAnswer is the outgoing path's final signaling step: the callee's
