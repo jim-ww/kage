@@ -186,9 +186,9 @@ func TestAttachVideoTrackRefusesSendonlyOffer(t *testing.T) {
 	}
 }
 
-// vp8OnlyVideoOffer is an offer from a peer that only has VP8, as Dino
-// built without its rtp-h264 option (the default, and what distros ship).
-func vp8OnlyVideoOffer(t *testing.T) webrtc.SessionDescription {
+// vp8OnlyPeer is a peer that only has VP8, as Dino built without its
+// rtp-h264 option (the default, and what distros ship).
+func vp8OnlyPeer(t *testing.T) *webrtc.PeerConnection {
 	t.Helper()
 	m := &webrtc.MediaEngine{}
 	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
@@ -208,6 +208,11 @@ func vp8OnlyVideoOffer(t *testing.T) webrtc.SessionDescription {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { peer.Close() })
+	return peer
+}
+
+func TestAttachVideoTrackVP8OnlyOffer(t *testing.T) {
+	peer := vp8OnlyPeer(t)
 	for _, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo} {
 		if _, err := peer.AddTransceiverFromKind(kind); err != nil {
 			t.Fatal(err)
@@ -218,22 +223,89 @@ func vp8OnlyVideoOffer(t *testing.T) webrtc.SessionDescription {
 		skipOfferErrIfNoNetwork(t, err)
 		t.Fatal(err)
 	}
-	return offer
-}
 
-func TestAttachVideoTrackVP8OnlyOffer(t *testing.T) {
 	p, err := NewPeerConnection()
 	if err != nil {
 		t.Fatalf("NewPeerConnection: %v", err)
 	}
 	t.Cleanup(func() { p.Close() })
-	if err := p.SetRemoteDescription(vp8OnlyVideoOffer(t)); err != nil {
+	if err := p.SetRemoteDescription(offer); err != nil {
 		t.Fatalf("applying offer: %v", err)
 	}
-	if err := p.AttachVideoTrack(); err == nil {
-		t.Error("AttachVideoTrack on a VP8-only offer succeeded, want an error")
+	if err := p.AttachVideoTrack(); err != nil {
+		t.Fatalf("AttachVideoTrack: %v", err)
 	}
-	if _, err := p.CreateAnswer(); err != nil {
+	if p.VideoCodec() != VideoCodecVP8 {
+		t.Errorf("VideoCodec = %v, want VP8", p.VideoCodec())
+	}
+	answer, err := p.CreateAnswer()
+	if err != nil {
 		t.Fatalf("CreateAnswer: %v", err)
+	}
+	if !strings.Contains(answer.SDP, "a=sendrecv") {
+		t.Errorf("answer's video isn't sendrecv:\n%s", answer.SDP)
+	}
+}
+
+// TestVP8OnlyAnswerSwitchesOurVideo covers offering our video to a peer
+// without H.264: its answer switches our track to VP8.
+func TestVP8OnlyAnswerSwitchesOurVideo(t *testing.T) {
+	p, err := NewPeerConnection()
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+	if err := p.AddVideoTrack(); err != nil {
+		t.Fatal(err)
+	}
+	offer, err := p.CreateOffer()
+	if err != nil {
+		skipOfferErrIfNoNetwork(t, err)
+		t.Fatal(err)
+	}
+
+	peer := vp8OnlyPeer(t)
+	if err := peer.SetRemoteDescription(offer); err != nil {
+		t.Fatalf("peer applying offer: %v", err)
+	}
+	answer, err := peer.CreateAnswer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.SetLocalDescription(answer); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetRemoteDescription(answer); err != nil {
+		t.Fatalf("applying the VP8-only answer: %v", err)
+	}
+	if p.VideoCodec() != VideoCodecVP8 {
+		t.Errorf("VideoCodec = %v, want VP8", p.VideoCodec())
+	}
+	if p.VideoMid() == "" {
+		t.Error("VideoMid empty after switching codec")
+	}
+}
+
+func TestSendableVideoCodec(t *testing.T) {
+	sdpWith := func(lines ...string) *webrtc.SessionDescription {
+		return &webrtc.SessionDescription{SDP: "v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\n" +
+			"m=video 9 UDP/TLS/RTP/SAVPF 96 98\r\na=mid:1\r\n" + strings.Join(lines, "\r\n") + "\r\n"}
+	}
+	for name, tc := range map[string]struct {
+		desc *webrtc.SessionDescription
+		want VideoCodec
+		ok   bool
+	}{
+		"constrained baseline": {sdpWith("a=rtpmap:96 H264/90000", "a=fmtp:96 packetization-mode=1;profile-level-id=42e01f", "a=rtpmap:98 VP8/90000"), VideoCodecH264, true},
+		"h264 without fmtp":    {sdpWith("a=rtpmap:96 H264/90000"), VideoCodecH264, true},
+		"high profile only":    {sdpWith("a=rtpmap:96 H264/90000", "a=fmtp:96 packetization-mode=1;profile-level-id=640c1f", "a=rtpmap:98 VP8/90000"), VideoCodecVP8, true},
+		"vp8 only":             {sdpWith("a=rtpmap:98 VP8/90000"), VideoCodecVP8, true},
+		"neither":              {sdpWith("a=rtpmap:98 VP9/90000"), 0, false},
+		"no description":       {nil, 0, false},
+	} {
+		got, ok := sendableVideoCodec(tc.desc, "")
+		if ok != tc.ok || (ok && got != tc.want) {
+			t.Errorf("%s: got %v, %v; want %v, %v", name, got, ok, tc.want, tc.ok)
+		}
 	}
 }

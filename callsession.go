@@ -1850,12 +1850,14 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	c.mu.Unlock()
 
 	quality := currentVideoQuality()
+	// What the peer took: VP8 if it has no H.264.
+	codec := pc.VideoCodec()
 	var share call.VideoSource
 	var err error
 	if useCamera {
-		share, err = call.NewCamera(defaultCameraDevice, quality, call.VideoCodecH264)
+		share, err = call.NewCamera(defaultCameraDevice, quality, codec)
 	} else {
-		share, err = call.NewScreenShare(currentScreenRecorder(), quality, call.VideoCodecH264)
+		share, err = call.NewScreenShare(currentScreenRecorder(), quality, codec)
 	}
 	if err != nil {
 		slog.Warn("starting video capture", "sid", c.sid, "camera", useCamera, "err", err)
@@ -1864,7 +1866,7 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 		c.broadcastNotice(fmt.Sprintf("couldn't start %s: %v", videoSourceLabel(useCamera), err))
 		return
 	}
-	slog.Debug("screen share: capture started", "sid", c.sid, "camera", useCamera, "video_sender_ssrc", pc.VideoSenderSSRC())
+	slog.Debug("screen share: capture started", "sid", c.sid, "camera", useCamera, "vp8", codec == call.VideoCodecVP8, "video_sender_ssrc", pc.VideoSenderSSRC())
 
 	c.mu.Lock()
 	c.videoSource = share

@@ -17,6 +17,7 @@ type PeerConnection struct {
 	pc         *webrtc.PeerConnection
 	track      *webrtc.TrackLocalStaticSample
 	videoTrack *webrtc.TrackLocalStaticSample
+	videoCodec VideoCodec
 }
 
 // NewPeerConnection creates a PeerConnection with an Opus track, using
@@ -57,13 +58,14 @@ func NewPeerConnection() (*PeerConnection, error) {
 	return &PeerConnection{pc: pc, track: track}, nil
 }
 
-// AddVideoTrack adds our H.264 video track, to renegotiate before writing
-// to it.
+// AddVideoTrack adds our video track, to renegotiate before writing to it:
+// H.264, or VP8 once the answer turns out to have no H.264 (see
+// SetRemoteDescription).
 func (p *PeerConnection) AddVideoTrack() error {
 	if p.videoTrack != nil {
 		return nil
 	}
-	track, err := newVideoTrack()
+	track, err := newVideoTrack(VideoCodecH264)
 	if err != nil {
 		return err
 	}
@@ -73,23 +75,30 @@ func (p *PeerConnection) AddVideoTrack() error {
 	}); err != nil {
 		return fmt.Errorf("adding local video track: %w", err)
 	}
-	p.videoTrack = track
+	p.videoTrack, p.videoCodec = track, VideoCodecH264
 	return nil
+}
+
+// VideoCodec is the codec our video track sends, for its capture to
+// encode.
+func (p *PeerConnection) VideoCodec() VideoCodec {
+	return p.videoCodec
 }
 
 // AttachVideoTrack puts our video track on the video transceiver of the
 // remote offer just applied, so the answer accepts that content sendrecv
 // instead of us needing a content of our own. Needs an offer that lets us
-// send on it (sendrecv or recvonly), with H.264 among its codecs: we send
-// nothing else, and pion fails the whole answer over a track it can't bind.
+// send on it (sendrecv or recvonly), with H.264 or VP8 among its codecs:
+// pion fails the whole answer over a track it can't bind.
 func (p *PeerConnection) AttachVideoTrack() error {
 	if p.videoTrack != nil {
 		return nil
 	}
-	if !remoteOffersH264(p.pc.RemoteDescription()) {
-		return fmt.Errorf("remote offer's video has no H.264")
+	codec, ok := sendableVideoCodec(p.pc.RemoteDescription(), "")
+	if !ok {
+		return fmt.Errorf("remote offer's video has neither H.264 nor VP8")
 	}
-	track, err := newVideoTrack()
+	track, err := newVideoTrack(codec)
 	if err != nil {
 		return err
 	}
@@ -99,7 +108,7 @@ func (p *PeerConnection) AttachVideoTrack() error {
 	}
 	for _, t := range p.pc.GetTransceivers() {
 		if t.Sender() == sender && t.Mid() != "" {
-			p.videoTrack = track
+			p.videoTrack, p.videoCodec = track, codec
 			return nil
 		}
 	}
@@ -108,40 +117,77 @@ func (p *PeerConnection) AttachVideoTrack() error {
 	return fmt.Errorf("remote offer has no video we can send on")
 }
 
-// remoteOffersH264 reports whether desc has a video m-line with H.264.
-func remoteOffersH264(desc *webrtc.SessionDescription) bool {
+// sendableVideoCodec picks what we send on desc's video m-line mid (the
+// first video one for ""): H.264 if pion can bind our track to one of its
+// H.264s, else VP8.
+func sendableVideoCodec(desc *webrtc.SessionDescription, mid string) (VideoCodec, bool) {
 	if desc == nil {
-		return false
+		return 0, false
 	}
 	var parsed sdp.SessionDescription
 	if err := parsed.UnmarshalString(desc.SDP); err != nil {
-		return false
+		return 0, false
 	}
 	for _, m := range parsed.MediaDescriptions {
 		if m.MediaName.Media != "video" {
 			continue
 		}
+		if v, _ := m.Attribute("mid"); mid != "" && v != mid {
+			continue
+		}
+		names, fmtps := map[string]string{}, map[string]string{}
 		for _, a := range m.Attributes {
-			if a.Key == "rtpmap" && strings.Contains(strings.ToUpper(a.Value), " H264/") {
-				return true
+			pt, rest, _ := strings.Cut(a.Value, " ")
+			switch a.Key {
+			case "rtpmap":
+				name, _, _ := strings.Cut(rest, "/")
+				names[pt] = strings.ToUpper(name)
+			case "fmtp":
+				fmtps[pt] = rest
 			}
 		}
+		vp8 := false
+		for pt, name := range names {
+			switch {
+			case name == "H264" && bindableH264(fmtps[pt]):
+				return VideoCodecH264, true
+			case name == "VP8":
+				vp8 = true
+			}
+		}
+		return VideoCodecVP8, vp8
 	}
-	return false
+	return 0, false
 }
 
-func newVideoTrack() (*webrtc.TrackLocalStaticSample, error) {
-	track, err := webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{
+// bindableH264 reports whether pion matches our track's H.264 to one with
+// fmtp: none at all, or the same packetization-mode and profile (the level
+// is free).
+func bindableH264(fmtp string) bool {
+	if fmtp == "" {
+		return true
+	}
+	params := map[string]string{}
+	for _, kv := range strings.Split(fmtp, ";") {
+		k, v, _ := strings.Cut(strings.TrimSpace(kv), "=")
+		params[k] = strings.ToLower(v)
+	}
+	return params["packetization-mode"] == "1" && strings.HasPrefix(params["profile-level-id"], "42e0")
+}
+
+func newVideoTrack(codec VideoCodec) (*webrtc.TrackLocalStaticSample, error) {
+	capability := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}
+	if codec == VideoCodecH264 {
+		capability = webrtc.RTPCodecCapability{
 			MimeType:  webrtc.MimeTypeH264,
 			ClockRate: 90000,
 			// Level 5.1 (0x33), up to about 4K at 15fps: it must cover the
 			// screen's real size, as a hardware decoder sizes its buffers by
 			// it and decodes nothing bigger.
 			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e033",
-		},
-		"video", "kage",
-	)
+		}
+	}
+	track, err := webrtc.NewTrackLocalStaticSample(capability, "video", "kage")
 	if err != nil {
 		return nil, fmt.Errorf("creating local video track: %w", err)
 	}
@@ -179,8 +225,40 @@ func (p *PeerConnection) CreateAnswer() (webrtc.SessionDescription, error) {
 // SetRemoteDescription applies the peer's SDP. New ICE credentials in an
 // offer restart ICE, renewing ours too.
 func (p *PeerConnection) SetRemoteDescription(desc webrtc.SessionDescription) error {
+	if desc.Type == webrtc.SDPTypeAnswer {
+		if err := p.matchVideoCodec(&desc); err != nil {
+			return err
+		}
+	}
 	if err := p.pc.SetRemoteDescription(desc); err != nil {
 		return fmt.Errorf("setting remote description: %w", err)
+	}
+	return nil
+}
+
+// matchVideoCodec switches the video track we offered to the codec answer
+// takes, before applying it binds the track: VP8 for a peer without H.264.
+func (p *PeerConnection) matchVideoCodec(answer *webrtc.SessionDescription) error {
+	mid := p.VideoMid()
+	if mid == "" {
+		return nil
+	}
+	codec, ok := sendableVideoCodec(answer, mid)
+	if !ok || codec == p.videoCodec {
+		return nil
+	}
+	track, err := newVideoTrack(codec)
+	if err != nil {
+		return err
+	}
+	for _, t := range p.pc.GetTransceivers() {
+		if t.Mid() == mid && t.Sender() != nil {
+			if err := t.Sender().ReplaceTrack(track); err != nil {
+				return fmt.Errorf("switching video to the answer's codec: %w", err)
+			}
+			p.videoTrack, p.videoCodec = track, codec
+			return nil
+		}
 	}
 	return nil
 }
