@@ -94,7 +94,9 @@ type callSession struct {
 	mic   *call.Mic
 	spk   *call.Speaker
 	enc   *call.Encoder
-	dec   *call.Decoder
+	// playout is the peer's audio on its way to spk: playRemote pushes
+	// into it, spk pulls from it. It outlives a speaker switch.
+	playout *call.Playout
 
 	// micStop/micDone stop and await the current mic's pump goroutine (see
 	// switchMic) - nil while there's no mic.
@@ -1303,18 +1305,18 @@ func (c *callSession) startMedia() error {
 	if err != nil {
 		return err
 	}
-	dec, err := call.NewDecoder()
+	playout, err := call.NewPlayout()
 	if err != nil {
 		return err
 	}
 	input, output := currentAudioDevices()
-	spk, err := call.NewSpeaker(output)
+	spk, err := call.NewSpeakerFrom(output, playout.NextFrame)
 	if err != nil {
 		return err
 	}
 
 	c.mu.Lock()
-	c.enc, c.dec, c.spk = enc, dec, spk
+	c.enc, c.playout, c.spk = enc, playout, spk
 	c.mu.Unlock()
 
 	if spk.UsingDefaultInstead() {
@@ -1501,9 +1503,14 @@ func (c *callSession) syncDesktopAudio() {
 }
 
 // switchSpeaker moves the call's playback to the named output device.
-// playRemote picks the new speaker up on its next packet.
 func (c *callSession) switchSpeaker(device string) error {
-	spk, err := call.NewSpeaker(device)
+	c.mu.Lock()
+	playout := c.playout
+	c.mu.Unlock()
+	if playout == nil {
+		return nil
+	}
+	spk, err := call.NewSpeakerFrom(device, playout.NextFrame)
 	if err != nil {
 		return err
 	}
@@ -1546,10 +1553,11 @@ func (c *callSession) setAudioDevices(input, output string, inputChanged, output
 	return nil
 }
 
-// playRemote plays the peer's audio track. Packets arriving before startMedia
-// opened the speaker are dropped.
+// playRemote feeds the peer's audio track to the call's playout. It never
+// waits on playback, so packets can't back up behind a slow speaker into
+// pion's receive buffer and play seconds late. Packets arriving before
+// startMedia are dropped.
 func (c *callSession) playRemote(track *webrtc.TrackRemote) {
-	pcm := make([]int16, call.FrameSamples*call.Channels)
 	for {
 		select {
 		case <-c.done:
@@ -1566,29 +1574,10 @@ func (c *callSession) playRemote(track *webrtc.TrackRemote) {
 		}
 
 		c.mu.Lock()
-		dec, spk := c.dec, c.spk
+		playout := c.playout
 		c.mu.Unlock()
-		if dec == nil || spk == nil {
-			continue
-		}
-
-		n, err := dec.Decode(packet.Payload, pcm)
-		if err != nil {
-			slog.Warn("decoding call audio", "sid", c.sid, "err", err)
-			continue
-		}
-		// Speaker.Write keeps the slice until playback consumes it, so it
-		// can't be the reused decode buffer.
-		frame := make([]int16, n*call.Channels)
-		copy(frame, pcm[:n*call.Channels])
-		if err := spk.Write(frame); err != nil {
-			c.mu.Lock()
-			replaced := c.spk != nil && c.spk != spk
-			c.mu.Unlock()
-			if replaced {
-				continue // switchSpeaker closed the old one under us
-			}
-			return
+		if playout != nil {
+			playout.Push(packet.SequenceNumber, packet.Timestamp, packet.Payload)
 		}
 	}
 }
@@ -2312,7 +2301,7 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 		}
 		c.state = callEnded
 		pc, mic, spk, share, desktop := c.pc, c.mic, c.spk, c.videoSource, c.desktop
-		c.pc, c.mic, c.spk, c.enc, c.dec = nil, nil, nil, nil, nil
+		c.pc, c.mic, c.spk, c.enc, c.playout = nil, nil, nil, nil, nil
 		c.micStop, c.micDone, c.desktop = nil, nil, nil
 		c.videoSource, c.sharing = nil, false
 		if c.disconnectTimer != nil {
