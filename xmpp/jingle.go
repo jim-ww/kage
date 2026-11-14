@@ -50,6 +50,10 @@ const (
 
 	// JingleActionContentRemove (XEP-0166 §7.2.8) withdraws a content.
 	JingleActionContentRemove = "content-remove"
+
+	// JingleActionSessionInfo (XEP-0166 §7.2.13) carries XEP-0167's
+	// informational messages, such as <mute/>.
+	JingleActionSessionInfo = "session-info"
 )
 
 // JingleIQ is the <jingle/> payload of a Jingle IQ (XEP-0166). SID is the
@@ -61,6 +65,17 @@ type JingleIQ struct {
 	Responder string          `xml:"responder,attr,omitempty"`
 	Contents  []JingleContent `xml:"content"`
 	Reason    *JingleReason   `xml:"reason"`
+
+	// Mute and Unmute are a session-info's XEP-0167 §7.4 messages.
+	Mute   *RTPInfo `xml:"urn:xmpp:jingle:apps:rtp:info:1 mute"`
+	Unmute *RTPInfo `xml:"urn:xmpp:jingle:apps:rtp:info:1 unmute"`
+}
+
+// RTPInfo names the content a XEP-0167 <mute/> or <unmute/> is about; with
+// no name it's about all of them.
+type RTPInfo struct {
+	Creator string `xml:"creator,attr,omitempty"`
+	Name    string `xml:"name,attr,omitempty"`
 }
 
 // JingleContent is one <content/> within a Jingle session — for an
@@ -288,6 +303,18 @@ func (c *Client) SendContentRemove(ctx context.Context, to, sid string, content 
 		SID:      sid,
 		Contents: []JingleContent{content},
 	})
+}
+
+// SendMute sends a XEP-0167 <mute/>, or <unmute/>, for one content: we
+// stopped, or started again, sending media on it.
+func (c *Client) SendMute(ctx context.Context, to, sid string, content RTPInfo, muted bool) error {
+	jingle := JingleIQ{Action: JingleActionSessionInfo, SID: sid}
+	if muted {
+		jingle.Mute = &content
+	} else {
+		jingle.Unmute = &content
+	}
+	return c.sendJingleIQ(ctx, to, jingle)
 }
 
 // jmiIDElem is the shape shared by every XEP-0353 element that carries

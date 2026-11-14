@@ -144,8 +144,12 @@ type callSession struct {
 	// sharing is set while we send our own video, captured by screenShare.
 	// pendingShare is set from sending a content-add offering video until the
 	// peer accepts it: capture only starts then (see applyContentAccept).
-	sharing      bool
-	pendingShare bool
+	// videoNegotiated is set once the peer accepted our video content: it
+	// stays for the rest of the call, so sharing again just resumes sending
+	// on it (see withdrawVideoShare).
+	sharing         bool
+	pendingShare    bool
+	videoNegotiated bool
 	// videoUseCamera is the source startVideoShare was asked for, the camera
 	// or the screen, for beginScreenShareCapture.
 	videoUseCamera bool
@@ -711,6 +715,11 @@ func (s *accountSession) handleJingle(ctx context.Context, srv *ipc.Server, acco
 	case xmpp.JingleActionContentRemove:
 		c.applyContentRemove(ev.Jingle)
 
+	case xmpp.JingleActionSessionInfo:
+		if ev.Jingle.Mute != nil {
+			c.applyVideoMute(ev.Jingle.Mute.Name)
+		}
+
 	case xmpp.JingleActionSessionTerminate:
 		c.end(ctx, "ended", terminateReason(ev.Jingle.Reason))
 	}
@@ -900,6 +909,9 @@ func (c *callSession) applyAnswer(ctx context.Context, jingle xmpp.JingleIQ) err
 	// A video call's video was in the offer (see initiateSession): once the
 	// answer accepts it, capture starts, as applyContentAccept does.
 	if _, ok := firstContentOfKind(jingle.Contents, "video"); ok {
+		c.mu.Lock()
+		c.videoNegotiated = true
+		c.mu.Unlock()
 		c.beginScreenShareCapture(pc)
 	}
 	return nil
@@ -1586,11 +1598,17 @@ func (c *callSession) startVideoShare(useCamera bool) error {
 		}
 		return nil
 	}
-	pc, state, remote := c.pc, c.state, c.remoteJID
+	pc, state, remote, negotiated := c.pc, c.state, c.remoteJID, c.videoNegotiated
 	c.videoUseCamera = useCamera
 	c.mu.Unlock()
 	if pc == nil || state != callConnected {
 		return fmt.Errorf("call is not connected")
+	}
+	if negotiated {
+		slog.Debug("screen share: resuming on the negotiated video content", "sid", c.sid, "camera", useCamera)
+		c.sendVideoMute(context.Background(), false)
+		c.beginScreenShareCapture(pc)
+		return nil
 	}
 
 	slog.Debug("screen share: starting", "sid", c.sid, "camera", useCamera)
@@ -1721,6 +1739,7 @@ func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.Jingle
 	c.mu.Lock()
 	c.remoteContents = merged
 	c.pendingShare = false
+	c.videoNegotiated = true
 	c.mu.Unlock()
 
 	slog.Debug("screen share: content-add negotiation complete, starting capture", "sid", c.sid)
@@ -1762,9 +1781,8 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	}
 	if err != nil {
 		slog.Warn("starting video capture", "sid", c.sid, "camera", useCamera, "err", err)
-		// Withdraw the content nothing will be sent on.
 		c.stopScreenShare()
-		c.removeVideoContent(context.Background())
+		c.sendVideoMute(context.Background(), true)
 		c.broadcastNotice(fmt.Sprintf("couldn't start %s: %v", videoSourceLabel(useCamera), err))
 		return
 	}
@@ -1847,12 +1865,11 @@ func (c *callSession) stopScreenShare() {
 	c.broadcastUpdate()
 }
 
-// withdrawVideoShare stops our video and tells the peer with a XEP-0166
-// content-remove, or its viewer would sit on the last frame.
-//
-// The m-line stays negotiated, so sharing again re-offers the same mid.
-// The content is dropped from remoteContents, or that answer would get two
-// m-lines for one mid.
+// withdrawVideoShare stops our video and tells the peer, or its viewer
+// would sit on the last frame. A content-add not accepted yet is retracted
+// with a content-remove; an accepted content stays, with a XEP-0167
+// <mute/> naming it: Conversations only takes a content-remove as a
+// retraction and ends the call on any other.
 func (c *callSession) withdrawVideoShare(ctx context.Context) {
 	c.mu.Lock()
 	sharing, pending := c.sharing, c.pendingShare
@@ -1865,11 +1882,34 @@ func (c *callSession) withdrawVideoShare(ctx context.Context) {
 	}
 
 	c.stopScreenShare()
-	c.removeVideoContent(ctx)
+	if pending {
+		c.removeVideoContent(ctx)
+		return
+	}
+	c.sendVideoMute(ctx, true)
 }
 
-// removeVideoContent sends the content-remove for our video content and drops
-// it from remoteContents.
+// sendVideoMute tells the peer we stopped, or resumed, sending on our video
+// content.
+func (c *callSession) sendVideoMute(ctx context.Context, muted bool) {
+	c.mu.Lock()
+	remote, videoMid := c.remoteJID, ""
+	if c.pc != nil {
+		videoMid = c.pc.VideoMid()
+	}
+	c.mu.Unlock()
+	if videoMid == "" || remote == "" {
+		return
+	}
+	info := xmpp.RTPInfo{Creator: "initiator", Name: videoMid}
+	if err := c.client.SendMute(ctx, remote, c.sid, info, muted); err != nil {
+		slog.Warn("sending video mute", "sid", c.sid, "muted", muted, "err", err)
+	}
+}
+
+// removeVideoContent sends the content-remove retracting our video
+// content-add and drops it from remoteContents, or sharing again would
+// answer two m-lines for one mid.
 func (c *callSession) removeVideoContent(ctx context.Context) {
 	c.mu.Lock()
 	remote, videoMid := c.remoteJID, ""
@@ -1924,25 +1964,50 @@ func (c *callSession) applyContentRemove(jingle xmpp.JingleIQ) {
 				break
 			}
 		}
-		var viewer *call.ScreenViewer
-		if wasVideo {
-			viewer, c.remoteVideoViewer = c.remoteVideoViewer, nil
-			// A later re-share from the peer is a new stream worth showing,
-			// even if this one's window had been closed.
-			c.remoteVideo, c.viewerDismissed = false, false
-		}
 		c.mu.Unlock()
 		if !found {
 			continue
 		}
 		slog.Debug("screen share: peer withdrew content", "sid", c.sid, "content", req.Name, "video", wasVideo)
-		if viewer != nil {
-			viewer.Close()
-		}
 		if wasVideo {
-			c.broadcastUpdate()
+			c.closeRemoteVideo()
 		}
 	}
+}
+
+// applyVideoMute handles the peer's XEP-0167 <mute/> for one of its video
+// contents: it stopped sending, so its window closes like on a
+// content-remove, and reopens once it sends again.
+func (c *callSession) applyVideoMute(name string) {
+	c.mu.Lock()
+	video := false
+	for _, rc := range c.remoteContents {
+		if rc.Name == name && rc.Description != nil && rc.Description.Media == "video" {
+			video = true
+			break
+		}
+	}
+	c.mu.Unlock()
+	if !video {
+		return
+	}
+	slog.Debug("screen share: peer muted video", "sid", c.sid, "content", name)
+	c.closeRemoteVideo()
+}
+
+// closeRemoteVideo closes the peer's video window because its stream
+// stopped. A later stream is worth showing, even if this one's window had
+// been closed by hand.
+func (c *callSession) closeRemoteVideo() {
+	c.mu.Lock()
+	viewer := c.remoteVideoViewer
+	c.remoteVideoViewer = nil
+	c.remoteVideo, c.viewerDismissed = false, false
+	c.mu.Unlock()
+	if viewer != nil {
+		viewer.Close()
+	}
+	c.broadcastUpdate()
 }
 
 // playRemoteVideo pipes the peer's video track into an mpv window, which
@@ -2037,6 +2102,16 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				break
 			}
 			samples++
+			if viewer != nil {
+				c.mu.Lock()
+				closed := c.remoteVideoViewer != viewer
+				c.mu.Unlock()
+				if closed {
+					// By closeRemoteVideo: the stream resumes with a
+					// keyframe, possibly this one, for a new window.
+					viewer, sawKeyframe = nil, false
+				}
+			}
 			if hasKeyframe(sample.Data) && !sawKeyframe {
 				sawKeyframe = true
 				slog.Debug("screen share: first keyframe assembled", "sid", c.sid, "sample", samples, "bytes", len(sample.Data))
@@ -2076,10 +2151,9 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				c.broadcastUpdate()
 			}
 			if err := viewer.WriteFrame(sample.Data); err != nil {
-				// The window was closed: keep draining the track, without
-				// reopening it until reopenRemoteVideo.
+				// The window was closed by hand: keep draining the track,
+				// without reopening it until reopenRemoteVideo.
 				slog.Debug("screen share: writing to mpv failed, closing viewer", "sid", c.sid, "err", err)
-				// Closed by applyContentRemove, not by hand: a re-share shows.
 				viewer.Close()
 				c.mu.Lock()
 				dismissed := c.remoteVideoViewer == viewer

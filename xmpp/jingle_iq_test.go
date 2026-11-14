@@ -68,3 +68,30 @@ func TestJingleIQAcknowledged(t *testing.T) {
 		t.Errorf("event = %#v, want the content-add", ev)
 	}
 }
+
+func TestJingleSessionInfoMuteDecoded(t *testing.T) {
+	_, ev := serveJingleIQ(t, `<jingle xmlns="urn:xmpp:jingle:1" action="session-info" sid="s1">
+		<mute xmlns="urn:xmpp:jingle:apps:rtp:info:1" creator="initiator" name="1"/>
+	</jingle>`)
+	je, ok := ev.(JingleEvent)
+	if !ok || je.Jingle.Action != JingleActionSessionInfo {
+		t.Fatalf("event = %#v, want the session-info", ev)
+	}
+	if je.Jingle.Mute == nil || je.Jingle.Mute.Name != "1" || je.Jingle.Unmute != nil {
+		t.Errorf("Mute = %#v, Unmute = %#v, want a mute of content 1", je.Jingle.Mute, je.Jingle.Unmute)
+	}
+}
+
+func TestJingleMuteEncoded(t *testing.T) {
+	out, err := xml.Marshal(JingleIQ{Action: JingleActionSessionInfo, SID: "s1", Mute: &RTPInfo{Creator: "initiator", Name: "1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `<mute xmlns="urn:xmpp:jingle:apps:rtp:info:1" creator="initiator" name="1"></mute>`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("encoded %s, want it to contain %s", out, want)
+	}
+	if strings.Contains(string(out), "unmute") || strings.Contains(string(out), "<reason") {
+		t.Errorf("encoded %s, want no unset elements", out)
+	}
+}
