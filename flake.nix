@@ -98,6 +98,9 @@
                     pkgs.xclip
                     pkgs.wf-recorder
                     pkgs.mpv
+                    # camera capture, VP8 encoding, and decoding received
+                    # video (call/screenshare.go, call/viewer.go)
+                    pkgs.ffmpeg
                     # pw-record/pw-dump/pw-link: desktop audio while sharing
                     # the screen (call/desktopaudio.go)
                     pkgs.pipewire
@@ -123,6 +126,7 @@
               pkgs.pkg-config
               pkgs.wf-recorder
               pkgs.mpv
+              pkgs.ffmpeg
             ];
             # Same RUNPATH entry the package adds in postFixup, for binaries
             # built here (`go run .`): lets miniaudio dlopen libpulse.
