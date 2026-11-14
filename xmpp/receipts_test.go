@@ -32,16 +32,14 @@ func TestMessageDeliveryReceipt(t *testing.T) {
 		t.Fatalf("Send: %v", err)
 	}
 
-	ev := waitForMessageDelivered(t, alice, 5*time.Second)
-	if ev.ID != id {
-		t.Fatalf("got receipt for id %q, want %q", ev.ID, id)
-	}
+	waitForMessageDelivered(t, alice, id, 5*time.Second)
 }
 
-// waitForMessageDelivered reads c's Events channel until a
-// MessageDeliveredEvent shows up (other event types, like an incoming
-// message or presence, are ignored) or the timeout elapses.
-func waitForMessageDelivered(t *testing.T, c *Client, timeout time.Duration) MessageDeliveredEvent {
+// waitForMessageDelivered reads c's Events channel until the receipt for
+// the message sent with id shows up, or the timeout elapses. Anything else
+// is passed over, receipts for other messages included: devtest's server
+// hands an account those stored while it was offline, earlier tests' too.
+func waitForMessageDelivered(t *testing.T, c *Client, id string, timeout time.Duration) MessageDeliveredEvent {
 	t.Helper()
 	deadline := time.After(timeout)
 	for {
@@ -50,7 +48,7 @@ func waitForMessageDelivered(t *testing.T, c *Client, timeout time.Duration) Mes
 			if !ok {
 				t.Fatal("events channel closed before a MessageDeliveredEvent arrived")
 			}
-			if d, ok := ev.(MessageDeliveredEvent); ok {
+			if d, ok := ev.(MessageDeliveredEvent); ok && d.ID == id {
 				return d
 			}
 		case <-deadline:
