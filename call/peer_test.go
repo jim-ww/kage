@@ -185,3 +185,55 @@ func TestAttachVideoTrackRefusesSendonlyOffer(t *testing.T) {
 		t.Errorf("VideoMid = %q after a refused attach, want empty", p.VideoMid())
 	}
 }
+
+// vp8OnlyVideoOffer is an offer from a peer that only has VP8, as Dino
+// built without its rtp-h264 option (the default, and what distros ship).
+func vp8OnlyVideoOffer(t *testing.T) webrtc.SessionDescription {
+	t.Helper()
+	m := &webrtc.MediaEngine{}
+	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
+		PayloadType:        111,
+	}, webrtc.RTPCodecTypeAudio); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
+		PayloadType:        98,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		t.Fatal(err)
+	}
+	peer, err := webrtc.NewAPI(webrtc.WithMediaEngine(m)).NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { peer.Close() })
+	for _, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo} {
+		if _, err := peer.AddTransceiverFromKind(kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	offer, err := peer.CreateOffer(nil)
+	if err != nil {
+		skipOfferErrIfNoNetwork(t, err)
+		t.Fatal(err)
+	}
+	return offer
+}
+
+func TestAttachVideoTrackVP8OnlyOffer(t *testing.T) {
+	p, err := NewPeerConnection()
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+	if err := p.SetRemoteDescription(vp8OnlyVideoOffer(t)); err != nil {
+		t.Fatalf("applying offer: %v", err)
+	}
+	if err := p.AttachVideoTrack(); err == nil {
+		t.Error("AttachVideoTrack on a VP8-only offer succeeded, want an error")
+	}
+	if _, err := p.CreateAnswer(); err != nil {
+		t.Fatalf("CreateAnswer: %v", err)
+	}
+}

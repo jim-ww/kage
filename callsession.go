@@ -853,7 +853,7 @@ func (c *callSession) acceptSession(ctx context.Context, jingle xmpp.JingleIQ) e
 	// our own once the call has video. Capture starts once we share.
 	if in, ok := firstContentOfKind(jingle.Contents, "video"); ok && canRespondSend(in.Senders) {
 		if err := c.pc.AttachVideoTrack(); err != nil {
-			slog.Warn("answering with our video", "sid", c.sid, "err", err)
+			slog.Debug("answering without our video", "sid", c.sid, "err", err)
 		} else {
 			c.mu.Lock()
 			c.videoNegotiated = true

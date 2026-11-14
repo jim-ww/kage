@@ -2,9 +2,11 @@ package call
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pion/rtcp"
+	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 )
@@ -78,10 +80,14 @@ func (p *PeerConnection) AddVideoTrack() error {
 // AttachVideoTrack puts our video track on the video transceiver of the
 // remote offer just applied, so the answer accepts that content sendrecv
 // instead of us needing a content of our own. Needs an offer that lets us
-// send on it (sendrecv or recvonly).
+// send on it (sendrecv or recvonly), with H.264 among its codecs: we send
+// nothing else, and pion fails the whole answer over a track it can't bind.
 func (p *PeerConnection) AttachVideoTrack() error {
 	if p.videoTrack != nil {
 		return nil
+	}
+	if !remoteOffersH264(p.pc.RemoteDescription()) {
+		return fmt.Errorf("remote offer's video has no H.264")
 	}
 	track, err := newVideoTrack()
 	if err != nil {
@@ -100,6 +106,28 @@ func (p *PeerConnection) AttachVideoTrack() error {
 	// A transceiver of its own, which an answer can't carry.
 	_ = p.pc.RemoveTrack(sender)
 	return fmt.Errorf("remote offer has no video we can send on")
+}
+
+// remoteOffersH264 reports whether desc has a video m-line with H.264.
+func remoteOffersH264(desc *webrtc.SessionDescription) bool {
+	if desc == nil {
+		return false
+	}
+	var parsed sdp.SessionDescription
+	if err := parsed.UnmarshalString(desc.SDP); err != nil {
+		return false
+	}
+	for _, m := range parsed.MediaDescriptions {
+		if m.MediaName.Media != "video" {
+			continue
+		}
+		for _, a := range m.Attributes {
+			if a.Key == "rtpmap" && strings.Contains(strings.ToUpper(a.Value), " H264/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newVideoTrack() (*webrtc.TrackLocalStaticSample, error) {
