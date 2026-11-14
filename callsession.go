@@ -150,6 +150,9 @@ type callSession struct {
 	sharing         bool
 	pendingShare    bool
 	videoNegotiated bool
+	// pendingShareContent is the content our pending content-add offered,
+	// for applyContentReject to settle our offer with.
+	pendingShareContent xmpp.JingleContent
 	// videoUseCamera is the source startVideoShare was asked for, the camera
 	// or the screen, for beginScreenShareCapture.
 	videoUseCamera bool
@@ -711,6 +714,9 @@ func (s *accountSession) handleJingle(ctx context.Context, srv *ipc.Server, acco
 
 	case xmpp.JingleActionContentAccept:
 		c.applyContentAccept(ctx, ev.Jingle)
+
+	case xmpp.JingleActionContentReject:
+		c.applyContentReject()
 
 	case xmpp.JingleActionContentRemove:
 		c.applyContentRemove(ev.Jingle)
@@ -1661,6 +1667,7 @@ func (c *callSession) startVideoShare(useCamera bool) error {
 
 	c.mu.Lock()
 	c.pendingShare = true
+	c.pendingShareContent = videoContent
 	c.mu.Unlock()
 	c.broadcastUpdate()
 
@@ -1727,6 +1734,58 @@ func (c *callSession) applyContentAdd(ctx context.Context, jingle xmpp.JingleIQ)
 	}
 	slog.Debug("screen share: content-accept sent, waiting for remote video track", "sid", c.sid, "content_name", videoAnswer.Name)
 	slog.Debug("screen share: transceiver state after content-add", "sid", c.sid, "transceivers", pc.DebugTransceivers())
+}
+
+// applyContentReject handles the peer turning down our video content-add,
+// as Conversations does in a call that already has video. pion can't roll
+// our offer back, so it's settled with an answer of our own making that
+// takes the content as senders=none, as Conversations does: the call is
+// back to stable, and sharing can be offered again.
+func (c *callSession) applyContentReject() {
+	c.mu.Lock()
+	pending, pc, useCamera, offered := c.pendingShare, c.pc, c.videoUseCamera, c.pendingShareContent
+	remoteContents := c.remoteContents
+	c.pendingShare = false
+	c.mu.Unlock()
+	if !pending {
+		slog.Debug("screen share: content-reject but no share was pending, ignoring", "sid", c.sid)
+		return
+	}
+	slog.Debug("screen share: peer rejected our content-add", "sid", c.sid)
+	if pc != nil {
+		if err := settleRejectedContent(pc, remoteContents, offered, c.incoming); err != nil {
+			slog.Warn("screen share: settling rejected content-add", "sid", c.sid, "err", err)
+		}
+	}
+	c.broadcastUpdate()
+	c.broadcastNotice(fmt.Sprintf("they declined your %s", videoSourceLabel(useCamera)))
+}
+
+// settleRejectedContent answers our pending offer with the peer's
+// negotiated contents plus offered, rejected, as senders=none on the peer's
+// transport (bundled, it's the same for every content).
+func settleRejectedContent(pc *call.PeerConnection, remoteContents []xmpp.JingleContent, offered xmpp.JingleContent, incoming bool) error {
+	var transport *xmpp.ICEUDPTransport
+	for _, rc := range remoteContents {
+		if rc.Transport != nil && rc.Transport.Fingerprint != nil {
+			t := *rc.Transport
+			t.Candidates = nil
+			transport = &t
+			break
+		}
+	}
+	if transport == nil || offered.Description == nil {
+		return fmt.Errorf("nothing to answer the rejected content with")
+	}
+	desc := *offered.Description
+	desc.Sources = nil
+	rejected := xmpp.JingleContent{Creator: offered.Creator, Name: offered.Name, Senders: "none", Description: &desc, Transport: transport}
+	merged := append(append([]xmpp.JingleContent(nil), remoteContents...), rejected)
+	answer, err := sdpFromJingleContents(merged, webrtc.SDPTypeAnswer, incoming)
+	if err != nil {
+		return err
+	}
+	return pc.SetRemoteDescription(answer)
 }
 
 // applyContentAccept applies the peer's answer to our content-add and starts

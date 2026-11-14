@@ -39,9 +39,10 @@ const (
 	JingleActionTransportAccept  = "transport-accept"
 	JingleActionTransportReject  = "transport-reject"
 
-	// Adding a content, like video, to a session (XEP-0166 §7.2.4/5).
+	// Adding a content, like video, to a session (XEP-0166 §7.2.4/5/6).
 	JingleActionContentAdd    = "content-add"
 	JingleActionContentAccept = "content-accept"
+	JingleActionContentReject = "content-reject"
 
 	// JingleActionContentModify (XEP-0166 §7.2.9) changes a content's
 	// senders. kage can't, and declines it with an IQ error (see
