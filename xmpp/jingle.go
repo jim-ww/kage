@@ -99,16 +99,45 @@ type RTPDescription struct {
 	// pointer so its absence round-trips.
 	RTCPMux *struct{} `xml:"urn:xmpp:jingle:apps:rtp:1 rtcp-mux"`
 
-	// Sources name the content's SSRCs (XEP-0339), telling streams apart.
-	Sources []JingleSource `xml:"urn:xmpp:jingle:apps:rtp:ssma:0 source"`
+	// Sources name the content's SSRCs (XEP-0339), telling streams apart,
+	// and SourceGroups tie a repair stream's SSRC to the one it repairs
+	// (an FID group: RTX retransmissions of the primary stream).
+	Sources      []JingleSource      `xml:"urn:xmpp:jingle:apps:rtp:ssma:0 source"`
+	SourceGroups []JingleSourceGroup `xml:"urn:xmpp:jingle:apps:rtp:ssma:0 ssrc-group"`
+
+	// Feedback is RTCP feedback (XEP-0293) offered for every payload type
+	// alike, SDP's a=rtcp-fb:* lines; RTPPayloadType.Feedback has each
+	// one's own.
+	Feedback []RTCPFeedback `xml:"urn:xmpp:jingle:apps:rtp:rtcp-fb:0 rtcp-fb"`
+
+	// HeaderExtensions are the RTP header extensions offered (XEP-0294),
+	// SDP's a=extmap lines - e.g. transport-wide sequence numbers, which
+	// congestion control's feedback refers to.
+	HeaderExtensions []RTPHeaderExtension `xml:"urn:xmpp:jingle:apps:rtp:rtp-hdrext:0 rtp-hdrext"`
+
+	// ExtmapAllowMixed is SDP's a=extmap-allow-mixed (XEP-0294 §3.1): one-
+	// and two-byte header extensions may be mixed in one packet.
+	ExtmapAllowMixed *struct{} `xml:"urn:xmpp:jingle:apps:rtp:rtp-hdrext:0 extmap-allow-mixed"`
 }
 
 // JingleSource is one XEP-0339 SSMA <source/>, declaring a single SSRC and
-// its parameters (just cname, here — enough to identify the stream; RTX/FEC
-// grouping via <ssrc-group/> is out of scope).
+// its parameters (just cname, here — enough to identify the stream).
 type JingleSource struct {
 	SSRC       uint32              `xml:"ssrc,attr"`
 	Parameters []JingleSourceParam `xml:"urn:xmpp:jingle:apps:rtp:ssma:0 parameter"`
+}
+
+// JingleSourceGroup is a XEP-0339 <ssrc-group/>, SDP's a=ssrc-group:
+// Semantics says how its SSRCs relate (FID: the second carries the first's
+// retransmissions).
+type JingleSourceGroup struct {
+	Semantics string            `xml:"semantics,attr"`
+	Sources   []JingleSourceRef `xml:"urn:xmpp:jingle:apps:rtp:ssma:0 source"`
+}
+
+// JingleSourceRef is one SSRC in a <ssrc-group/>.
+type JingleSourceRef struct {
+	SSRC uint32 `xml:"ssrc,attr"`
 }
 
 // JingleSourceParam is one <parameter/> of a <source/>, e.g. cname.
@@ -128,6 +157,25 @@ type RTPPayloadType struct {
 	// Parameters are the codec's format parameters, SDP's a=fmtp key=value
 	// pairs (XEP-0167 §3) - e.g. Opus's useinbandfec=1.
 	Parameters []RTPParameter `xml:"urn:xmpp:jingle:apps:rtp:1 parameter"`
+
+	// Feedback is the RTCP feedback (XEP-0293) offered for this payload
+	// type, SDP's a=rtcp-fb:<id> lines - e.g. nack, or transport-cc.
+	Feedback []RTCPFeedback `xml:"urn:xmpp:jingle:apps:rtp:rtcp-fb:0 rtcp-fb"`
+}
+
+// RTCPFeedback is one XEP-0293 <rtcp-fb/>: a feedback message type, and
+// its subtype if it has one (nack pli, ccm fir).
+type RTCPFeedback struct {
+	Type    string `xml:"type,attr"`
+	Subtype string `xml:"subtype,attr,omitempty"`
+}
+
+// RTPHeaderExtension is one XEP-0294 <rtp-hdrext/>: the ID packets carry
+// the extension under, its URI, and which party sends it (empty: both).
+type RTPHeaderExtension struct {
+	ID      int    `xml:"id,attr"`
+	URI     string `xml:"uri,attr"`
+	Senders string `xml:"senders,attr,omitempty"`
 }
 
 // RTPParameter is one XEP-0167 <parameter/>, one key=value pair of an SDP

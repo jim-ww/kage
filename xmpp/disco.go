@@ -36,6 +36,9 @@ var discoFeatures = featureList{
 	"urn:xmpp:jingle:apps:rtp:1",
 	"urn:xmpp:jingle:apps:rtp:audio",
 	"urn:xmpp:jingle:apps:dtls:0",
+	"urn:xmpp:jingle:apps:rtp:ssma:0",
+	"urn:xmpp:jingle:apps:rtp:rtcp-fb:0",
+	"urn:xmpp:jingle:apps:rtp:rtp-hdrext:0",
 	"urn:xmpp:jingle:transports:ice-udp:1",
 	"urn:xmpp:jingle-message:0",
 }
