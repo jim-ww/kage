@@ -66,24 +66,25 @@ func VideoQualityFromString(s string) VideoQuality {
 }
 
 // videoQualityProfile is a VideoQuality's capture settings: the camera's
-// size (and gpu-screen-recorder's limit), libx264's crf, and the screen's
-// bitrate (wf-recorder captures the output's real size).
+// size (and gpu-screen-recorder's limit), libx264's crf for the camera, and
+// the bitrate - the screen's, and the most the camera's crf may take
+// (wf-recorder captures the output's real size).
 type videoQualityProfile struct {
 	camWidth, camHeight int
 	crf                 int
-	screenBitrateKbps   int
+	bitrateKbps         int
 }
 
 func (q VideoQuality) profile() videoQualityProfile {
 	switch q {
 	case VideoQualityVeryLow:
-		return videoQualityProfile{camWidth: 320, camHeight: 240, crf: 32, screenBitrateKbps: 300}
+		return videoQualityProfile{camWidth: 320, camHeight: 240, crf: 32, bitrateKbps: 300}
 	case VideoQualityLow:
-		return videoQualityProfile{camWidth: 640, camHeight: 480, crf: 26, screenBitrateKbps: 800}
+		return videoQualityProfile{camWidth: 640, camHeight: 480, crf: 26, bitrateKbps: 800}
 	case VideoQualityHigh:
-		return videoQualityProfile{camWidth: 1920, camHeight: 1080, crf: 18, screenBitrateKbps: 4000}
+		return videoQualityProfile{camWidth: 1920, camHeight: 1080, crf: 18, bitrateKbps: 4000}
 	default: // VideoQualityMedium
-		return videoQualityProfile{camWidth: 1280, camHeight: 720, crf: 20, screenBitrateKbps: 1800}
+		return videoQualityProfile{camWidth: 1280, camHeight: 720, crf: 20, bitrateKbps: 1800}
 	}
 }
 
@@ -368,7 +369,7 @@ func wfRecorderCmd(profile videoQualityProfile, codec VideoCodec) *exec.Cmd {
 	args := []string{"-y"}
 	if codec == VideoCodecVP8 {
 		args = append(args, "-c", "libvpx")
-		vp8 := vp8Args(profile.screenBitrateKbps)
+		vp8 := vp8Args(profile.bitrateKbps)
 		for i := 0; i+1 < len(vp8); i += 2 {
 			args = append(args, "-p", strings.TrimPrefix(vp8[i], "-")+"="+vp8[i+1])
 		}
@@ -380,7 +381,7 @@ func wfRecorderCmd(profile videoQualityProfile, codec VideoCodec) *exec.Cmd {
 			// Baseline, as the SDP declares (call/peer.go); libx264 would
 			// pick High, which the peer then can't decode.
 			"-p", "profile=baseline",
-			"-p", fmt.Sprintf("b=%dk", profile.screenBitrateKbps),
+			"-p", fmt.Sprintf("b=%dk", profile.bitrateKbps),
 			"-m", "h264",
 		)
 	}
@@ -399,7 +400,7 @@ func gpuScreenRecorderCmd(profile videoQualityProfile) *exec.Cmd {
 		// quality caps resolution here too, not just bitrate.
 		"-s", fmt.Sprintf("%dx%d", profile.camWidth, profile.camHeight),
 		"-bm", "cbr",
-		"-q", fmt.Sprint(profile.screenBitrateKbps),
+		"-q", fmt.Sprint(profile.bitrateKbps),
 		// - profile: Baseline, as for wf-recorder (h264_vaapi's name).
 		// - coder: Baseline has no CABAC.
 		// - flags: no global_header, which takes SPS/PPS out of the
@@ -419,7 +420,7 @@ func vp8TranscodeCmd(profile videoQualityProfile) *exec.Cmd {
 		"-f", "h264", "-framerate", fmt.Sprint(videoCaptureFramerate), "-i", "-",
 		"-c:v", "libvpx",
 	}
-	args = append(args, vp8Args(profile.screenBitrateKbps)...)
+	args = append(args, vp8Args(profile.bitrateKbps)...)
 	args = append(args, "-f", "ivf", "-flush_packets", "1", "-")
 	return exec.Command("ffmpeg", args...)
 }
@@ -451,7 +452,7 @@ func cameraCmd(device string, profile videoQualityProfile, codec VideoCodec) *ex
 	}
 	if codec == VideoCodecVP8 {
 		args = append(args, "-c:v", "libvpx")
-		args = append(args, vp8Args(profile.screenBitrateKbps)...)
+		args = append(args, vp8Args(profile.bitrateKbps)...)
 		args = append(args, "-f", "ivf", "-flush_packets", "1", "-")
 	} else {
 		args = append(args,
@@ -460,6 +461,11 @@ func cameraCmd(device string, profile videoQualityProfile, codec VideoCodec) *ex
 			"-preset", "superfast",
 			"-tune", "zerolatency",
 			"-crf", fmt.Sprint(profile.crf),
+			// Capped: crf alone spends whatever a busy picture takes,
+			// spiking past what the link carries. Half a second's buffer
+			// keeps the cap close.
+			"-maxrate", fmt.Sprintf("%dk", profile.bitrateKbps),
+			"-bufsize", fmt.Sprintf("%dk", profile.bitrateKbps/2),
 			"-f", "h264",
 			"-",
 		)

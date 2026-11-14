@@ -274,7 +274,7 @@ func TestCaptureCommandsFollowCodec(t *testing.T) {
 			t.Errorf("%s: %s, want libvpx at 800k into IVF", name, joined)
 		}
 	}
-	if joined := strings.Join(cameraCmd("/dev/video0", profile, VideoCodecH264).Args, " "); !strings.Contains(joined, "libx264") {
-		t.Errorf("camera H.264: %s, want libx264", joined)
+	if joined := strings.Join(cameraCmd("/dev/video0", profile, VideoCodecH264).Args, " "); !strings.Contains(joined, "libx264") || !strings.Contains(joined, "-maxrate 800k") {
+		t.Errorf("camera H.264: %s, want libx264 capped at 800k", joined)
 	}
 }
