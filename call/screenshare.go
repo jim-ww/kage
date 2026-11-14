@@ -526,6 +526,44 @@ const (
 	VideoCodecVP8
 )
 
+// IsKeyframe reports whether an assembled frame of codec is a keyframe,
+// one a decoder can start from.
+func IsKeyframe(codec VideoCodec, frame []byte) bool {
+	if codec == VideoCodecVP8 {
+		return isVP8Keyframe(frame)
+	}
+	return hasH264IDR(frame)
+}
+
+// isVP8Keyframe reports whether a VP8 frame is a keyframe: the low bit of
+// VP8's first byte (the uncompressed data chunk's frame tag) is 0 for a
+// key frame, 1 for an interframe (RFC 6386 §9.1).
+func isVP8Keyframe(data []byte) bool {
+	return len(data) > 0 && data[0]&0x1 == 0
+}
+
+// hasH264IDR reports whether an H.264 access unit (Annex-B) contains an
+// IDR slice, a keyframe.
+func hasH264IDR(data []byte) bool {
+	for i := 0; i+3 < len(data); i++ {
+		if data[i] != 0 || data[i+1] != 0 {
+			continue
+		}
+		var nalStart int
+		if data[i+2] == 1 {
+			nalStart = i + 3
+		} else if data[i+2] == 0 && i+3 < len(data) && data[i+3] == 1 {
+			nalStart = i + 4
+		} else {
+			continue
+		}
+		if nalStart < len(data) && data[nalStart]&0x1f == 5 {
+			return true
+		}
+	}
+	return false
+}
+
 // ScreenViewer plays a peer's video by piping it into mpv, which decodes it.
 type ScreenViewer struct {
 	cmd       *exec.Cmd

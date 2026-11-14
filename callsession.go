@@ -2133,16 +2133,13 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 	mimeType := strings.ToLower(track.Codec().RTPCodecCapability.MimeType)
 	var depacketizer rtp.Depacketizer
 	var videoCodec call.VideoCodec
-	var hasKeyframe func([]byte) bool
 	switch mimeType {
 	case strings.ToLower(webrtc.MimeTypeVP8):
 		depacketizer = &codecs.VP8Packet{}
 		videoCodec = call.VideoCodecVP8
-		hasKeyframe = hasVP8Keyframe
 	case strings.ToLower(webrtc.MimeTypeH264):
 		depacketizer = &codecs.H264Packet{}
 		videoCodec = call.VideoCodecH264
-		hasKeyframe = hasH264IDRNAL
 	default:
 		slog.Warn("screen share: remote video track has an unsupported codec, not viewing it", "sid", c.sid, "mime_type", mimeType)
 		c.broadcastNotice(fmt.Sprintf("can't show their video: unsupported codec %s", mimeType))
@@ -2181,7 +2178,7 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 					viewer, sawKeyframe = nil, false
 				}
 			}
-			if hasKeyframe(sample.Data) && !sawKeyframe {
+			if call.IsKeyframe(videoCodec, sample.Data) && !sawKeyframe {
 				sawKeyframe = true
 				slog.Debug("screen share: first keyframe assembled", "sid", c.sid, "sample", samples, "bytes", len(sample.Data))
 				c.mu.Lock()
@@ -2254,35 +2251,6 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 		packets++
 		sb.Push(packet)
 	}
-}
-
-// hasVP8Keyframe reports whether an assembled VP8 frame is a keyframe: the
-// low bit of VP8's first byte (the uncompressed data chunk's frame tag) is
-// 0 for a key frame, 1 for an interframe (RFC 6386 §9.1).
-func hasVP8Keyframe(data []byte) bool {
-	return len(data) > 0 && data[0]&0x1 == 0
-}
-
-// hasH264IDRNAL reports whether an H.264 access unit (Annex-B) contains an
-// IDR slice, a keyframe.
-func hasH264IDRNAL(data []byte) bool {
-	for i := 0; i+3 < len(data); i++ {
-		if data[i] != 0 || data[i+1] != 0 {
-			continue
-		}
-		var nalStart int
-		if data[i+2] == 1 {
-			nalStart = i + 3
-		} else if data[i+2] == 0 && i+3 < len(data) && data[i+3] == 1 {
-			nalStart = i + 4
-		} else {
-			continue
-		}
-		if nalStart < len(data) && data[nalStart]&0x1f == 5 {
-			return true
-		}
-	}
-	return false
 }
 
 // --- teardown -----------------------------------------------------------
