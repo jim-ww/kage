@@ -32,6 +32,14 @@ func skipIfNoNetwork(t *testing.T, err error) {
 // limitation apart from a bug in our own plumbing.
 func connectLoopback(t *testing.T) (a, b *PeerConnection) {
 	t.Helper()
+	return connectLoopbackWith(t, nil)
+}
+
+// connectLoopbackWith is connectLoopback calling setup, if any, on both
+// connections before the offer: OnTrack fires as the offer is applied
+// (SetFireOnTrackBeforeFirstRTP), so a handler registered later misses it.
+func connectLoopbackWith(t *testing.T, setup func(a, b *PeerConnection)) (a, b *PeerConnection) {
+	t.Helper()
 
 	a, err := NewPeerConnection()
 	if err != nil {
@@ -59,6 +67,9 @@ func connectLoopback(t *testing.T) (a, b *PeerConnection) {
 		}
 		_ = a.AddICECandidate(c.ToJSON())
 	})
+	if setup != nil {
+		setup(a, b)
+	}
 
 	offer, err := a.CreateOffer()
 	skipIfNoNetwork(t, err)
@@ -277,5 +288,42 @@ func TestLoopbackVideoFromStart(t *testing.T) {
 		t.Logf("b: successfully read a video RTP packet")
 	case <-time.After(3 * time.Second):
 		t.Errorf("b: never received a single video RTP packet despite a writing samples for 3s")
+	}
+}
+
+// TestLoopbackLinkFeedback checks what the sender learns about the link
+// from a peer that negotiated everything (two pions): receiver reports with
+// a round trip, and transport-wide feedback giving congestion control an
+// estimate.
+func TestLoopbackLinkFeedback(t *testing.T) {
+	a, _ := connectLoopbackWith(t, func(_, b *PeerConnection) {
+		b.OnTrack(func(track *webrtc.TrackRemote) {
+			// RTCP about a stream is only made from what's read of it.
+			go func() {
+				for {
+					if _, _, err := track.ReadRTP(); err != nil {
+						return
+					}
+				}
+			}()
+		})
+	})
+	payload := make([]byte, 80)
+	deadline := time.Now().Add(15 * time.Second)
+	var got LinkStats
+	for time.Now().Before(deadline) {
+		if err := a.WriteSample(payload, FrameMillis*time.Millisecond); err != nil {
+			t.Fatalf("writing audio: %v", err)
+		}
+		time.Sleep(FrameMillis * time.Millisecond)
+		if got = a.LinkStats(); got.Feedback == LinkFeedbackTransportCC && got.RTT > 0 {
+			break
+		}
+	}
+	if got.Feedback != LinkFeedbackTransportCC || got.Bitrate <= 0 || got.RTT <= 0 {
+		t.Fatalf("link stats %+v, want transport-wide feedback with an estimate, and a round trip", got)
+	}
+	if got.Congested || got.Loss > 0 {
+		t.Errorf("link stats %+v on loopback, want clean", got)
 	}
 }

@@ -3,7 +3,13 @@ package call
 import (
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/pion/interceptor"
+	"github.com/pion/interceptor/pkg/cc"
+	"github.com/pion/interceptor/pkg/gcc"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/sdp/v3"
@@ -18,6 +24,11 @@ type PeerConnection struct {
 	track      *webrtc.TrackLocalStaticSample
 	videoTrack *webrtc.TrackLocalStaticSample
 	videoCodec VideoCodec
+	link       *linkMonitor
+
+	mu       sync.Mutex
+	ours     map[uint32]bool              // our senders' SSRCs, for link
+	draining map[*webrtc.RTPReceiver]bool // receivers drainReceiverRTCP reads
 }
 
 // NewPeerConnection creates a PeerConnection with an Opus track, using
@@ -33,12 +44,23 @@ func NewPeerConnection() (*PeerConnection, error) {
 	// OnTrack at once; the codec comes from the SDP.
 	settingEngine := webrtc.SettingEngine{}
 	settingEngine.SetFireOnTrackBeforeFirstRTP(true)
-	api := webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
+	mediaEngine := &webrtc.MediaEngine{}
+	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
+		return nil, fmt.Errorf("registering codecs: %w", err)
+	}
+	registry := &interceptor.Registry{}
+	bitrate, err := registerInterceptors(mediaEngine, registry)
+	if err != nil {
+		return nil, err
+	}
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine), webrtc.WithMediaEngine(mediaEngine), webrtc.WithInterceptorRegistry(registry))
 
 	pc, err := api.NewPeerConnection(config)
 	if err != nil {
 		return nil, fmt.Errorf("creating peer connection: %w", err)
 	}
+	p := &PeerConnection{pc: pc, ours: map[uint32]bool{}}
+	p.link = newLinkMonitor(p.isOurs, bitrate)
 
 	track, err := webrtc.NewTrackLocalStaticSample(
 		// Opus is always channels=2 in SDP (RFC 7587 §7), though we send
@@ -50,12 +72,94 @@ func NewPeerConnection() (*PeerConnection, error) {
 		pc.Close()
 		return nil, fmt.Errorf("creating local audio track: %w", err)
 	}
-	if _, err := pc.AddTrack(track); err != nil {
+	sender, err := pc.AddTrack(track)
+	if err != nil {
 		pc.Close()
 		return nil, fmt.Errorf("adding local audio track: %w", err)
 	}
+	p.track = track
+	p.readRTCP(sender)
+	return p, nil
+}
 
-	return &PeerConnection{pc: pc, track: track}, nil
+// registerInterceptors sets up pion's RTP/RTCP processing: its defaults
+// (NACK, RTCP reports, transport-wide feedback on what we receive), plus
+// transport-wide sequence numbers on what we send, for congestion control
+// (GCC) to estimate the bandwidth from the peer's feedback on them. Each
+// only takes effect if the peer negotiated it. The returned func reads
+// GCC's estimate.
+func registerInterceptors(m *webrtc.MediaEngine, registry *interceptor.Registry) (func() int, error) {
+	congestion, err := cc.NewInterceptor(func() (cc.BandwidthEstimator, error) {
+		// No pacing: GCC's pacer queues what's over its estimate, which
+		// our encoders, not following it, would only fill with delay.
+		return gcc.NewSendSideBWE(
+			gcc.SendSideBWEInitialBitrate(initialBitrate),
+			gcc.SendSideBWEMinBitrate(minBitrate),
+			gcc.SendSideBWEMaxBitrate(maxBitrate),
+			gcc.SendSideBWEPacer(gcc.NewNoOpPacer()),
+		)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating congestion control: %w", err)
+	}
+	var estimator atomic.Pointer[cc.BandwidthEstimator]
+	congestion.OnNewPeerConnection(func(_ string, e cc.BandwidthEstimator) { estimator.Store(&e) })
+	// The last added runs first on what's sent: sequence numbers have to
+	// be on a packet by the time congestion control sees it go out.
+	registry.Add(congestion)
+	if err := webrtc.ConfigureTWCCHeaderExtensionSender(m, registry); err != nil {
+		return nil, fmt.Errorf("registering transport-wide sequence numbers: %w", err)
+	}
+	if err := webrtc.RegisterDefaultInterceptors(m, registry); err != nil {
+		return nil, fmt.Errorf("registering interceptors: %w", err)
+	}
+	return func() int {
+		if e := estimator.Load(); e != nil {
+			return (*e).GetTargetBitrate()
+		}
+		return 0
+	}, nil
+}
+
+// Congestion control's bounds, in bits/s.
+const (
+	initialBitrate = 1_000_000
+	minBitrate     = 50_000
+	maxBitrate     = 8_000_000
+)
+
+// readRTCP reads what the peer sends back about sender's stream, for as
+// long as it lasts: pion's interceptors (answering NACKs, congestion
+// control) only see RTCP that's read, and link sums it up.
+func (p *PeerConnection) readRTCP(sender *webrtc.RTPSender) {
+	p.mu.Lock()
+	for _, e := range sender.GetParameters().Encodings {
+		p.ours[uint32(e.SSRC)] = true
+		if e.RTX.SSRC != 0 {
+			p.ours[uint32(e.RTX.SSRC)] = true
+		}
+	}
+	p.mu.Unlock()
+	go func() {
+		for {
+			pkts, _, err := sender.ReadRTCP()
+			if err != nil {
+				return
+			}
+			p.link.onRTCP(pkts, time.Now())
+		}
+	}()
+}
+
+func (p *PeerConnection) isOurs(ssrc uint32) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ours[ssrc]
+}
+
+// LinkStats is what the peer's feedback says about the link to them.
+func (p *PeerConnection) LinkStats() LinkStats {
+	return p.link.stats(time.Now())
 }
 
 // AddVideoTrack adds our video track, to renegotiate before writing to it:
@@ -70,11 +174,13 @@ func (p *PeerConnection) AddVideoTrack() error {
 		return err
 	}
 	// Sendonly: AddTrack's sendrecv would negotiate video back to us too.
-	if _, err := p.pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
+	transceiver, err := p.pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionSendonly,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("adding local video track: %w", err)
 	}
+	p.readRTCP(transceiver.Sender())
 	p.videoTrack, p.videoCodec = track, VideoCodecH264
 	return nil
 }
@@ -109,6 +215,7 @@ func (p *PeerConnection) AttachVideoTrack() error {
 	for _, t := range p.pc.GetTransceivers() {
 		if t.Sender() == sender && t.Mid() != "" {
 			p.videoTrack, p.videoCodec = track, codec
+			p.readRTCP(sender)
 			return nil
 		}
 	}
@@ -315,7 +422,34 @@ func (p *PeerConnection) WriteVideoSample(data []byte, duration time.Duration) e
 
 // OnTrack registers f for each of the peer's tracks, audio or video.
 func (p *PeerConnection) OnTrack(f func(*webrtc.TrackRemote)) {
-	p.pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) { f(track) })
+	p.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		p.drainReceiverRTCP(receiver)
+		f(track)
+	})
+}
+
+// drainReceiverRTCP reads what the peer sends about the stream receiver
+// gets, for as long as it lasts: pion's interceptors only see RTCP that's
+// read, and its sender reports are what our receiver reports echo for the
+// peer to tell the round trip by.
+func (p *PeerConnection) drainReceiverRTCP(receiver *webrtc.RTPReceiver) {
+	p.mu.Lock()
+	if p.draining == nil {
+		p.draining = map[*webrtc.RTPReceiver]bool{}
+	}
+	started := p.draining[receiver]
+	p.draining[receiver] = true
+	p.mu.Unlock()
+	if started {
+		return
+	}
+	go func() {
+		for {
+			if _, _, err := receiver.ReadRTCP(); err != nil {
+				return
+			}
+		}
+	}()
 }
 
 // SendPLI asks ssrc's sender for a keyframe (RTCP PLI): its encoder ran
