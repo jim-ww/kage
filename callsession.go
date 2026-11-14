@@ -711,9 +711,6 @@ func (s *accountSession) handleJingle(ctx context.Context, srv *ipc.Server, acco
 	case xmpp.JingleActionContentRemove:
 		c.applyContentRemove(ev.Jingle)
 
-	case xmpp.JingleActionContentModify:
-		c.applyContentModify(ctx, ev.Jingle)
-
 	case xmpp.JingleActionSessionTerminate:
 		c.end(ctx, "ended", terminateReason(ev.Jingle.Reason))
 	}
@@ -1729,51 +1726,6 @@ func (c *callSession) applyContentAccept(ctx context.Context, jingle xmpp.Jingle
 	slog.Debug("screen share: content-add negotiation complete, starting capture", "sid", c.sid)
 	slog.Debug("screen share: transceiver state after content-accept", "sid", c.sid, "transceivers", pc.DebugTransceivers())
 	c.beginScreenShareCapture(pc)
-}
-
-// applyContentModify answers a peer's XEP-0166 content-modify (such as
-// making our video content bidirectional) by removing the content, stopping
-// our capture if it was ours. Pion can't make a negotiated transceiver
-// bidirectional (see call.PeerConnection.VideoMid), and Conversations treats
-// a declined modify as accepted, so a content-remove is the unambiguous
-// answer.
-func (c *callSession) applyContentModify(ctx context.Context, jingle xmpp.JingleIQ) {
-	c.mu.Lock()
-	remote, remoteContents, ourVideoMid := c.remoteJID, c.remoteContents, ""
-	if c.pc != nil {
-		ourVideoMid = c.pc.VideoMid()
-	}
-	c.mu.Unlock()
-
-	for _, req := range jingle.Contents {
-		// content-modify names the content, without a <description/>.
-		var ok bool
-		for _, rc := range remoteContents {
-			if rc.Name == req.Name {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			continue
-		}
-		slog.Debug("screen share: can't honor content-modify, withdrawing content", "sid", c.sid, "content", req.Name, "requested_senders", req.Senders)
-		remove := xmpp.JingleContent{Creator: req.Creator, Name: req.Name}
-		if err := c.client.SendContentRemove(ctx, remote, c.sid, remove); err != nil {
-			slog.Warn("withdrawing content after unsupported content-modify", "sid", c.sid, "err", err)
-		}
-		if req.Name != "" && req.Name == ourVideoMid {
-			c.stopScreenShare()
-		}
-		c.mu.Lock()
-		for i, rc := range c.remoteContents {
-			if rc.Name == req.Name {
-				c.remoteContents = append(c.remoteContents[:i], c.remoteContents[i+1:]...)
-				break
-			}
-		}
-		c.mu.Unlock()
-	}
 }
 
 // videoSourceCamera/videoSourceScreen are ui.CallStateMsg.Video's values.

@@ -44,8 +44,8 @@ const (
 	JingleActionContentAccept = "content-accept"
 
 	// JingleActionContentModify (XEP-0166 §7.2.9) changes a content's
-	// senders. kage can't, and answers with a content-remove (see
-	// applyContentModify).
+	// senders. kage can't, and declines it with an IQ error (see
+	// handleJingleIQ).
 	JingleActionContentModify = "content-modify"
 
 	// JingleActionContentRemove (XEP-0166 §7.2.8) withdraws a content.
@@ -417,7 +417,9 @@ func (JingleMessageEvent) isEvent() {}
 var jingleIQName = xml.Name{Space: jingleNS, Local: "jingle"}
 
 // handleJingleIQ acknowledges a Jingle IQ, as XEP-0166 requires before
-// acting on it, and emits it as a JingleEvent.
+// acting on it, and emits it as a JingleEvent. A content-modify is declined
+// with an IQ error instead: that's what peers act on (Conversations then
+// keeps the content as it was), while a result reads as accepted.
 func (c *Client) handleJingleIQ(iq stanza.IQ, t xmlstream.TokenReadEncoder, start *xml.StartElement) error {
 	var jingle JingleIQ
 	// Same decode caveat as handleStanza's message path: the stream is
@@ -425,6 +427,13 @@ func (c *Client) handleJingleIQ(iq stanza.IQ, t xmlstream.TokenReadEncoder, star
 	// tag as an "unexpected end element" even on a fully successful decode.
 	_ = xml.NewTokenDecoder(t).DecodeElement(&jingle, start)
 
+	if jingle.Action == JingleActionContentModify {
+		decline := iq.Error(stanza.Error{Type: stanza.Cancel, Condition: stanza.FeatureNotImplemented})
+		if _, err := xmlstream.Copy(t, decline); err != nil {
+			slog.Warn("declining jingle content-modify", "err", err)
+		}
+		return nil
+	}
 	if _, err := xmlstream.Copy(t, iq.Result(nil)); err != nil {
 		slog.Warn("acknowledging jingle iq", "action", jingle.Action, "err", err)
 	}
