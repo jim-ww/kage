@@ -2,6 +2,7 @@ package xmpp
 
 import (
 	"encoding/xml"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -67,6 +68,25 @@ func TestRTPDescriptionFeedbackAndExtensions(t *testing.T) {
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("encoded description lacks %s:\n%s", want, out)
+		}
+	}
+}
+
+// TestCallFeaturesAdvertised pins what other clients look for before
+// calling us. XEP-0167 §10 has an entity advertise every media type it
+// supports, and Conversations, for one, only places a video call to a
+// resource advertising all of these.
+func TestCallFeaturesAdvertised(t *testing.T) {
+	for _, want := range []string{
+		"urn:xmpp:jingle:1",
+		"urn:xmpp:jingle:transports:ice-udp:1",
+		"urn:xmpp:jingle:apps:rtp:1",
+		"urn:xmpp:jingle:apps:dtls:0",
+		"urn:xmpp:jingle:apps:rtp:audio",
+		"urn:xmpp:jingle:apps:rtp:video",
+	} {
+		if !slices.Contains(discoFeatures, want) {
+			t.Errorf("discoFeatures is missing %q", want)
 		}
 	}
 }
