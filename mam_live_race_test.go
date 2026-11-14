@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/storage"
@@ -80,6 +81,9 @@ func TestMAMBackfillVsLiveMessageRaceDoesNotCorruptDecrypt(t *testing.T) {
 	setupOmemo(ctx, aliceSess)
 	a := &adapter{sessions: []*accountSession{aliceSess}}
 
+	// A second's slack: the server stamps archived messages by its own
+	// clock, which may be a little behind ours.
+	sentFrom := time.Now().Add(-time.Second)
 	sentID, err := a.send(ctx, 0, "bob@localhost", "race message", ui.SendOptions{})
 	if err != nil {
 		t.Fatalf("alice send while bob offline: %v", err)
@@ -96,13 +100,12 @@ func TestMAMBackfillVsLiveMessageRaceDoesNotCorruptDecrypt(t *testing.T) {
 	setupOmemo(ctx, bobSess)
 
 	// bob@localhost is a real, persistent devtest account shared by every
-	// live test in this package, and MAM archives everything forever
-	// (devtest/prosody's default_archive_policy), so his archive with
-	// alice can carry a lot of unrelated history from other tests run
-	// earlier in this or a previous process against the same server - find
-	// this test's own message by stanza ID rather than assuming it's the
-	// most recent item, paging through as far as it takes.
-	am, err := findArchivedByID(ctx, t, bobClient2, "alice@localhost", sentID)
+	// live test, and MAM archives everything forever (devtest/prosody's
+	// default_archive_policy), so his archive with alice carries every
+	// earlier run's history too - find this test's own message by stanza
+	// ID, from when it was sent, rather than assuming it's the most recent
+	// item.
+	am, err := findArchivedByID(ctx, t, bobClient2, "alice@localhost", sentID, sentFrom)
 	if err != nil {
 		t.Fatalf("finding this test's message in bob's MAM archive: %v", err)
 	}
@@ -162,13 +165,21 @@ func TestMAMBackfillVsLiveMessageRaceDoesNotCorruptDecrypt(t *testing.T) {
 	}
 }
 
-// findArchivedByID pages through peerJID's MAM archive (oldest first) until
-// it finds the item with stanza id wantID, or exhausts the archive.
-func findArchivedByID(ctx context.Context, t *testing.T, client *xmpp.Client, peerJID, wantID string) (xmpp.ArchivedMessage, error) {
+// findArchivedByID pages through peerJID's MAM archive from since (oldest
+// first) until it finds the item with stanza id wantID, or exhausts the
+// archive. Walked from the archive's start instead, the devtest server's
+// history of every earlier run would soon outgrow any page budget.
+func findArchivedByID(ctx context.Context, t *testing.T, client *xmpp.Client, peerJID, wantID string, since time.Time) (xmpp.ArchivedMessage, error) {
 	t.Helper()
 	after := ""
 	for page := 0; page < 50; page++ {
-		res, err := client.FetchArchive(ctx, peerJID, after, 200)
+		var res xmpp.ArchivePage
+		var err error
+		if page == 0 {
+			res, err = client.FetchArchiveSince(ctx, peerJID, since, 200)
+		} else {
+			res, err = client.FetchArchive(ctx, peerJID, after, 200)
+		}
 		if err != nil {
 			return xmpp.ArchivedMessage{}, err
 		}
