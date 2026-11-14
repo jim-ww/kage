@@ -44,11 +44,12 @@ func TestCarbonsDeliverToSecondResource(t *testing.T) {
 	defer bob.Close()
 
 	const body = "carbons regression check"
-	if _, err := bob.Send(ctx, "alice@localhost", body, SendOptions{}); err != nil {
+	id, err := bob.Send(ctx, "alice@localhost", body, SendOptions{})
+	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
-	ev := waitForMessage(t, alice2, 5*time.Second)
+	ev := waitForMessage(t, alice2, id, 5*time.Second)
 	if ev.Body != body {
 		t.Fatalf("alice2 (second resource) got body %q, want %q", ev.Body, body)
 	}
@@ -89,11 +90,12 @@ func TestCarbonsSentRoutesByTo(t *testing.T) {
 	defer bob.Close()
 
 	const body = "sent-carbon routing check"
-	if _, err := alice1.Send(ctx, "bob@localhost", body, SendOptions{}); err != nil {
+	id, err := alice1.Send(ctx, "bob@localhost", body, SendOptions{})
+	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
-	ev := waitForMessage(t, alice2, 5*time.Second)
+	ev := waitForMessage(t, alice2, id, 5*time.Second)
 	if ev.Body != body {
 		t.Fatalf("alice2 got body %q, want %q", ev.Body, body)
 	}
@@ -106,10 +108,12 @@ func TestCarbonsSentRoutesByTo(t *testing.T) {
 	}
 }
 
-// waitForMessage reads c's Events channel until a MessageEvent with a
-// non-empty Body shows up (other event types, and our own presence/caps
-// churn, are ignored) or the timeout elapses.
-func waitForMessage(t *testing.T, c *Client, timeout time.Duration) MessageEvent {
+// waitForMessage reads c's Events channel until the MessageEvent of the
+// message sent with id shows up, or the timeout elapses. Anything else is
+// passed over: other events, and other messages - devtest's server hands
+// its accounts every message stored for them while they were offline,
+// earlier tests' included, as soon as they log in.
+func waitForMessage(t *testing.T, c *Client, id string, timeout time.Duration) MessageEvent {
 	t.Helper()
 	deadline := time.After(timeout)
 	for {
@@ -118,7 +122,7 @@ func waitForMessage(t *testing.T, c *Client, timeout time.Duration) MessageEvent
 			if !ok {
 				t.Fatal("events channel closed before a MessageEvent arrived")
 			}
-			if me, ok := ev.(MessageEvent); ok && me.Body != "" {
+			if me, ok := ev.(MessageEvent); ok && me.ID == id {
 				return me
 			}
 		case <-deadline:
