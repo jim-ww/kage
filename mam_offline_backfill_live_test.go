@@ -156,7 +156,9 @@ func TestMAMBackfillsPeerMessagesReceivedWhileOffline(t *testing.T) {
 // ends here", stranding the sync permanently before whatever follows.
 //
 // A small max forces several pages out of a handful of messages, so the walk
-// has to chain Last correctly to see all of them.
+// has to chain Last correctly to see all of them. It starts at when they were
+// sent: devtest's archive keeps every earlier run's messages too, and walked
+// from its start, those soon outnumber any page budget.
 func TestMAMPagingWalksEveryPageViaRSMLast(t *testing.T) {
 	tlsConfig := devtestTLSConfig(t)
 	ctx := context.Background()
@@ -171,6 +173,9 @@ func TestMAMPagingWalksEveryPageViaRSMLast(t *testing.T) {
 		prefix + "page two b",
 		prefix + "page three a",
 	}
+	// A second's slack: the server stamps archived messages by its own
+	// clock, which may be a little behind ours.
+	sentFrom := time.Now().Add(-time.Second)
 	sendAll(t, ctx, bob, "alice@localhost", want)
 
 	alice := dialLive(t, ctx, "alice@localhost", "alicepw", tlsConfig)
@@ -180,7 +185,13 @@ func TestMAMPagingWalksEveryPageViaRSMLast(t *testing.T) {
 	after := ""
 	pages := 0
 	for ; pages < 500; pages++ {
-		res, err := alice.FetchArchive(ctx, "bob@localhost", after, perPage)
+		var res xmpp.ArchivePage
+		var err error
+		if pages == 0 {
+			res, err = alice.FetchArchiveSince(ctx, "bob@localhost", sentFrom, perPage)
+		} else {
+			res, err = alice.FetchArchive(ctx, "bob@localhost", after, perPage)
+		}
 		if err != nil {
 			t.Fatalf("FetchArchive(after=%q): %v", after, err)
 		}
