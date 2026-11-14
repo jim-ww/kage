@@ -7,6 +7,7 @@ import (
 
 	omemolib "github.com/jim-ww/omemo-go"
 	"mellium.im/xmlstream"
+	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/stanza"
 )
 
@@ -165,6 +166,13 @@ func (c *Client) Events() <-chan Event {
 	return c.events
 }
 
+// fromOwnAccount reports whether a stanza from from was sent by our own
+// account (our bare JID), as a carbon or an archive result must be. No from
+// at all is the server speaking for our account (RFC 6120 §8.1.2.1).
+func (c *Client) fromOwnAccount(from jid.JID) bool {
+	return from.Equal(jid.JID{}) || from.Equal(c.JID.Bare())
+}
+
 func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElement) {
 	switch start.Name.Local {
 	case "iq":
@@ -189,8 +197,16 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		// Carbons (XEP-0280) are unwrapped. A "sent" one is from our own JID,
-		// its chat being To.
+		// its chat being To. Only our own account forwards them: from anyone
+		// else, a carbon is a forgery passing someone's message off as
+		// another's, or as one of ours (XEP-0280 §11), and is dropped.
 		outgoing := false
+		if msg.CarbonReceived != nil || msg.CarbonSent != nil {
+			if !c.fromOwnAccount(msg.From) {
+				slog.Warn("dropping a carbon not from our own account", "from", msg.From.String())
+				return
+			}
+		}
 		switch {
 		case msg.CarbonReceived != nil:
 			msg = msg.CarbonReceived.Forwarded.Message
