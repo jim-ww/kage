@@ -73,3 +73,26 @@ func TestCarbonsOnlyFromOwnAccount(t *testing.T) {
 		}
 	}
 }
+
+// TestReceiptsNotForCarbons checks a receipt request is answered on a
+// message delivered to us, and on no carbon of one: a received carbon's
+// device answers it, and a sent carbon is ours (XEP-0280 §10.4).
+func TestReceiptsNotForCarbons(t *testing.T) {
+	direct := `<message xmlns="jabber:client" from="bob@example.test/pc" to="alice@example.test/laptop" type="chat" id="m2">
+		<body>hi alice</body><request xmlns="urn:xmpp:receipts"/>
+	</message>`
+	if reply, _ := serveMessage(t, direct); !strings.Contains(reply, `<received xmlns="urn:xmpp:receipts" id="m2">`) {
+		t.Errorf("no receipt for a message to us: %q", reply)
+	}
+
+	received := `<message xmlns="jabber:client" from="alice@example.test" to="alice@example.test/laptop">
+		<received xmlns="urn:xmpp:carbons:2"><forwarded xmlns="urn:xmpp:forward:0">
+			` + direct + `
+		</forwarded></received>
+	</message>`
+	for name, payload := range map[string]string{"received": received, "sent": sentCarbon("alice@example.test")} {
+		if reply, _ := serveMessage(t, payload); strings.Contains(reply, "receipts") {
+			t.Errorf("receipt sent for a %s carbon: %q", name, reply)
+		}
+	}
+}

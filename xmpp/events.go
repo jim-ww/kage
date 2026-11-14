@@ -201,7 +201,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		// else, a carbon is a forgery passing someone's message off as
 		// another's, or as one of ours (XEP-0280 §11), and is dropped.
 		outgoing := false
-		if msg.CarbonReceived != nil || msg.CarbonSent != nil {
+		carbon := msg.CarbonReceived != nil || msg.CarbonSent != nil
+		if carbon {
 			if !c.fromOwnAccount(msg.From) {
 				slog.Warn("dropping a carbon not from our own account", "from", msg.From.String())
 				return
@@ -225,7 +226,9 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			return
 		}
 
-		if msg.Request != nil && msg.ID != "" {
+		// Not for a carbon: the device it was sent to answers for a received
+		// one, and a sent one is ours (XEP-0280 §10.4).
+		if msg.Request != nil && msg.ID != "" && !carbon {
 			// The receipt, written onto t as mellium's receipts.Handler does.
 			reply := stanza.Message{To: msg.From, Type: msg.Type}
 			_, err := xmlstream.Copy(t, reply.Wrap(xmlstream.Wrap(nil, xml.StartElement{
