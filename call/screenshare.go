@@ -1,6 +1,7 @@
 package call
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -94,31 +95,87 @@ type VideoSource interface {
 	Stop()
 }
 
-// annexBSource runs a process writing raw H.264 Annex-B to stdout and frames
-// it; the sources differ only in their command.
-type annexBSource struct {
+// captureProcess is the capture behind a VideoSource: a process, or a
+// pipeline of them, writing encoded video to stdout.
+type captureProcess struct {
 	label  string // for log lines, e.g. "screen share", "camera"
-	cmd    *exec.Cmd
+	cmds   []*exec.Cmd
 	stdout io.ReadCloser
 	stderr *syncBuffer
 	done   chan struct{}
 }
 
-// startAnnexBSource starts cmd (which must write a raw H.264 Annex-B stream
-// to stdout) and returns once the subprocess is running. Run must be called
-// (typically in its own goroutine) to actually pump captured NAL units.
-func startAnnexBSource(label string, cmd *exec.Cmd) (*annexBSource, error) {
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("opening %s stdout: %w", cmd.Path, err)
-	}
+// startCapture starts cmds as a pipeline, each one's stdout the next one's
+// stdin, and returns once they run; Run reads the last one's stdout.
+func startCapture(label string, cmds ...*exec.Cmd) (*captureProcess, error) {
 	// Kept: why a capture failed is only on stderr.
 	stderr := &syncBuffer{}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting %s: %w", cmd.Path, err)
+	for i, cmd := range cmds {
+		cmd.Stderr = stderr
+		if i > 0 {
+			in, err := cmds[i-1].StdoutPipe()
+			if err != nil {
+				return nil, fmt.Errorf("opening %s stdout: %w", cmds[i-1].Path, err)
+			}
+			cmd.Stdin = in
+		}
 	}
-	return &annexBSource{label: label, cmd: cmd, stdout: stdout, stderr: stderr, done: make(chan struct{})}, nil
+	last := cmds[len(cmds)-1]
+	stdout, err := last.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("opening %s stdout: %w", last.Path, err)
+	}
+	s := &captureProcess{label: label, stdout: stdout, stderr: stderr, done: make(chan struct{})}
+	for _, cmd := range cmds {
+		if err := cmd.Start(); err != nil {
+			s.Stop()
+			return nil, fmt.Errorf("starting %s: %w", cmd.Path, err)
+		}
+		s.cmds = append(s.cmds, cmd)
+	}
+	return s, nil
+}
+
+// ended is Run's result once reading stdout failed with err: nil after Stop;
+// otherwise the capture exited by itself, an error with its stderr.
+func (s *captureProcess) ended(err error, frames int) error {
+	select {
+	case <-s.done:
+		return nil
+	default:
+	}
+	if err != io.EOF && err != io.ErrUnexpectedEOF {
+		return err
+	}
+	stderr := s.stderr.String()
+	slog.Debug(s.label+": capture process stream ended", "frames", frames, "stderr", stderr)
+	if reason := lastLine(stderr); reason != "" {
+		return errors.New(reason)
+	}
+	return errors.New("capture process exited")
+}
+
+// Stop terminates the capture and unblocks Run.
+func (s *captureProcess) Stop() {
+	select {
+	case <-s.done:
+		return
+	default:
+		close(s.done)
+	}
+	for _, cmd := range s.cmds {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
+	for _, cmd := range s.cmds {
+		_ = cmd.Wait()
+	}
+}
+
+// annexBSource frames a capture writing raw H.264 Annex-B.
+type annexBSource struct {
+	*captureProcess
 }
 
 // Run groups stdout's NAL units into frames, calling write with each, until
@@ -168,19 +225,73 @@ func (s *annexBSource) Run(write func(frame []byte, sinceLast time.Duration) err
 			}
 		}
 		if err != nil {
-			if err == io.EOF {
-				// Stop returns above, so EOF here means the process exited
-				// by itself: an error, with its stderr.
-				stderr := s.stderr.String()
-				slog.Debug(s.label+": capture process stream ended", "frames", frames, "stderr", stderr)
-				if reason := lastLine(stderr); reason != "" {
-					return errors.New(reason)
-				}
-				return errors.New("capture process exited")
-			}
+			return s.ended(err, frames)
+		}
+	}
+}
+
+// ivfSource frames a capture writing VP8 in IVF: a 32-byte file header,
+// then each frame behind a 12-byte header holding its size.
+type ivfSource struct {
+	*captureProcess
+}
+
+// maxIVFFrame bounds a frame's size, against reading a corrupt header's.
+const maxIVFFrame = 16 << 20
+
+// Run calls write with each frame until the stream ends or Stop. Blocks.
+func (s *ivfSource) Run(write func(frame []byte, sinceLast time.Duration) error) error {
+	r := bufio.NewReaderSize(s.stdout, 1<<16)
+	var hdr [32]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return s.ended(err, 0)
+	}
+	if string(hdr[:4]) != "DKIF" {
+		return fmt.Errorf("%s: capture didn't write IVF", s.label)
+	}
+	if n := int(binary.LittleEndian.Uint16(hdr[6:8])); n > len(hdr) {
+		if _, err := r.Discard(n - len(hdr)); err != nil {
+			return s.ended(err, 0)
+		}
+	}
+	last := time.Now()
+	frames := 0
+	var fh [12]byte
+	for {
+		if _, err := io.ReadFull(r, fh[:]); err != nil {
+			return s.ended(err, frames)
+		}
+		size := binary.LittleEndian.Uint32(fh[:4])
+		if size > maxIVFFrame {
+			return fmt.Errorf("%s: IVF frame of %d bytes", s.label, size)
+		}
+		frame := make([]byte, size)
+		if _, err := io.ReadFull(r, frame); err != nil {
+			return s.ended(err, frames)
+		}
+		now := time.Now()
+		sinceLast := now.Sub(last)
+		last = now
+		frames++
+		if frames == 1 || frames%60 == 0 {
+			slog.Debug(s.label+": encoded frame", "frames", frames, "bytes", len(frame), "since_last", sinceLast)
+		}
+		if err := write(frame, sinceLast); err != nil {
 			return err
 		}
 	}
+}
+
+// startSource starts cmds as a capture framed for codec.
+func startSource(label string, codec VideoCodec, cmds ...*exec.Cmd) (VideoSource, error) {
+	p, err := startCapture(label, cmds...)
+	if err != nil {
+		return nil, err
+	}
+	if codec == VideoCodecVP8 {
+		return &ivfSource{p}, nil
+	}
+	return &annexBSource{p}, nil
 }
 
 // lastLine is the last non-blank line of s - for a capture process that
@@ -188,20 +299,6 @@ func (s *annexBSource) Run(write func(frame []byte, sinceLast time.Duration) err
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])
-}
-
-// Stop terminates the capture process and unblocks Run.
-func (s *annexBSource) Stop() {
-	select {
-	case <-s.done:
-		return
-	default:
-		close(s.done)
-	}
-	if s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-	}
-	_ = s.cmd.Wait()
 }
 
 // ScreenRecorder selects the program ScreenShare captures the screen with -
@@ -225,41 +322,70 @@ func ScreenRecorderFromString(s string) ScreenRecorder {
 	}
 }
 
-// ScreenShare captures the screen as raw H.264 Annex-B, with wf-recorder
-// (libx264) or gpu-screen-recorder (VAAPI/NVENC).
+// ScreenShare captures the screen, with wf-recorder (libx264, libvpx) or
+// gpu-screen-recorder (VAAPI/NVENC).
 type ScreenShare struct {
-	*annexBSource
+	VideoSource
 }
 
-// NewScreenShare starts recorder; Run reads its frames.
-func NewScreenShare(recorder ScreenRecorder, quality VideoQuality) (*ScreenShare, error) {
-	var cmd *exec.Cmd
+// NewScreenShare starts recorder encoding codec; Run reads its frames.
+// gpu-screen-recorder only encodes VP8 on GPUs that have it, and on the CPU
+// only H.264, so for VP8 its H.264 is transcoded instead.
+func NewScreenShare(recorder ScreenRecorder, quality VideoQuality, codec VideoCodec) (*ScreenShare, error) {
+	profile := quality.profile()
+	cmds := []*exec.Cmd{gpuScreenRecorderCmd(profile)}
 	if recorder == ScreenRecorderWF {
-		cmd = wfRecorderCmd(quality.profile())
-	} else {
-		cmd = gpuScreenRecorderCmd(quality.profile())
+		cmds = []*exec.Cmd{wfRecorderCmd(profile, codec)}
+	} else if codec == VideoCodecVP8 {
+		cmds = append(cmds, vp8TranscodeCmd(profile))
 	}
-	src, err := startAnnexBSource("screen share", cmd)
+	src, err := startSource("screen share", codec, cmds...)
 	if err != nil {
 		return nil, err
 	}
 	return &ScreenShare{src}, nil
 }
 
-func wfRecorderCmd(profile videoQualityProfile) *exec.Cmd {
-	return exec.Command(
-		"wf-recorder",
-		"-y", // "-f -" still prompts to overwrite "-" as if it were a real file without this
-		"-c", "libx264",
-		"-p", "tune=zerolatency",
-		// Baseline, as the SDP declares (call/peer.go); libx264 would pick
-		// High, which the peer then can't decode.
-		"-p", "profile=baseline",
-		"-p", fmt.Sprintf("b=%dk", profile.screenBitrateKbps),
-		"-m", "h264",
-		"-r", fmt.Sprint(videoCaptureFramerate),
-		"-f", "/dev/stdout",
-	)
+// vp8Args are libvpx's settings for a live call, as ffmpeg options
+// ("-key", "value", ...): realtime, no frames held back, and a keyframe
+// every 2s, as gpu-screen-recorder's default, since a peer's keyframe
+// request isn't answered.
+func vp8Args(bitrateKbps int) []string {
+	return []string{
+		"-deadline", "realtime",
+		"-cpu-used", "8",
+		"-lag-in-frames", "0",
+		"-error-resilient", "1",
+		"-b", fmt.Sprintf("%dk", bitrateKbps),
+		"-g", fmt.Sprint(2 * videoCaptureFramerate),
+		"-threads", "4",
+	}
+}
+
+func wfRecorderCmd(profile videoQualityProfile, codec VideoCodec) *exec.Cmd {
+	// "-f -" still prompts to overwrite "-" as if it were a real file
+	// without -y.
+	args := []string{"-y"}
+	if codec == VideoCodecVP8 {
+		args = append(args, "-c", "libvpx")
+		vp8 := vp8Args(profile.screenBitrateKbps)
+		for i := 0; i+1 < len(vp8); i += 2 {
+			args = append(args, "-p", strings.TrimPrefix(vp8[i], "-")+"="+vp8[i+1])
+		}
+		args = append(args, "-m", "ivf")
+	} else {
+		args = append(args,
+			"-c", "libx264",
+			"-p", "tune=zerolatency",
+			// Baseline, as the SDP declares (call/peer.go); libx264 would
+			// pick High, which the peer then can't decode.
+			"-p", "profile=baseline",
+			"-p", fmt.Sprintf("b=%dk", profile.screenBitrateKbps),
+			"-m", "h264",
+		)
+	}
+	args = append(args, "-r", fmt.Sprint(videoCaptureFramerate), "-f", "/dev/stdout")
+	return exec.Command("wf-recorder", args...)
 }
 
 func gpuScreenRecorderCmd(profile videoQualityProfile) *exec.Cmd {
@@ -284,17 +410,37 @@ func gpuScreenRecorderCmd(profile videoQualityProfile) *exec.Cmd {
 	)
 }
 
-// Camera captures a webcam (v4l2) with ffmpeg, as ScreenShare's stream.
-type Camera struct {
-	*annexBSource
+// vp8TranscodeCmd re-encodes raw H.264 on stdin as VP8 in IVF on stdout.
+// Probing is cut to the minimum, or the first frame waits seconds for it.
+func vp8TranscodeCmd(profile videoQualityProfile) *exec.Cmd {
+	args := []string{
+		"-hide_banner", "-loglevel", "error",
+		"-probesize", "32", "-analyzeduration", "0",
+		"-f", "h264", "-framerate", fmt.Sprint(videoCaptureFramerate), "-i", "-",
+		"-c:v", "libvpx",
+	}
+	args = append(args, vp8Args(profile.screenBitrateKbps)...)
+	args = append(args, "-f", "ivf", "-flush_packets", "1", "-")
+	return exec.Command("ffmpeg", args...)
 }
 
-// NewCamera starts capturing device (e.g. "/dev/video0"); Run reads its
-// frames.
-func NewCamera(device string, quality VideoQuality) (*Camera, error) {
-	profile := quality.profile()
-	cmd := exec.Command(
-		"ffmpeg",
+// Camera captures a webcam (v4l2) with ffmpeg, as ScreenShare's stream.
+type Camera struct {
+	VideoSource
+}
+
+// NewCamera starts capturing device (e.g. "/dev/video0") encoding codec;
+// Run reads its frames.
+func NewCamera(device string, quality VideoQuality, codec VideoCodec) (*Camera, error) {
+	src, err := startSource("camera", codec, cameraCmd(device, quality.profile(), codec))
+	if err != nil {
+		return nil, err
+	}
+	return &Camera{src}, nil
+}
+
+func cameraCmd(device string, profile videoQualityProfile, codec VideoCodec) *exec.Cmd {
+	args := []string{
 		"-f", "v4l2",
 		"-framerate", fmt.Sprint(videoCaptureFramerate),
 		"-video_size", fmt.Sprintf("%dx%d", profile.camWidth, profile.camHeight),
@@ -302,19 +448,23 @@ func NewCamera(device string, quality VideoQuality) (*Camera, error) {
 		// 4:2:0: webcams' 4:2:2 makes libx264 leave Baseline (see
 		// wfRecorderCmd).
 		"-pix_fmt", "yuv420p",
-		"-c:v", "libx264",
-		"-profile:v", "baseline",
-		"-preset", "superfast",
-		"-tune", "zerolatency",
-		"-crf", fmt.Sprint(profile.crf),
-		"-f", "h264",
-		"-",
-	)
-	src, err := startAnnexBSource("camera", cmd)
-	if err != nil {
-		return nil, err
 	}
-	return &Camera{src}, nil
+	if codec == VideoCodecVP8 {
+		args = append(args, "-c:v", "libvpx")
+		args = append(args, vp8Args(profile.screenBitrateKbps)...)
+		args = append(args, "-f", "ivf", "-flush_packets", "1", "-")
+	} else {
+		args = append(args,
+			"-c:v", "libx264",
+			"-profile:v", "baseline",
+			"-preset", "superfast",
+			"-tune", "zerolatency",
+			"-crf", fmt.Sprint(profile.crf),
+			"-f", "h264",
+			"-",
+		)
+	}
+	return exec.Command("ffmpeg", args...)
 }
 
 // isVCLNAL reports whether nal (start code included, 3- or 4-byte) is a
@@ -367,8 +517,8 @@ func indexStartCode(buf []byte, from int) int {
 	return -1
 }
 
-// VideoCodec is an incoming video track's codec, for mpv: kage sends H.264,
-// but a peer may send VP8.
+// VideoCodec is a video track's codec: H.264, or VP8 for a peer without
+// it.
 type VideoCodec int
 
 const (

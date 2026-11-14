@@ -1853,9 +1853,9 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	var share call.VideoSource
 	var err error
 	if useCamera {
-		share, err = call.NewCamera(defaultCameraDevice, quality)
+		share, err = call.NewCamera(defaultCameraDevice, quality, call.VideoCodecH264)
 	} else {
-		share, err = call.NewScreenShare(currentScreenRecorder(), quality)
+		share, err = call.NewScreenShare(currentScreenRecorder(), quality, call.VideoCodecH264)
 	}
 	if err != nil {
 		slog.Warn("starting video capture", "sid", c.sid, "camera", useCamera, "err", err)

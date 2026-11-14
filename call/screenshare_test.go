@@ -2,7 +2,10 @@ package call
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,7 +41,7 @@ func TestScreenShareRunGroupsNALsIntoFrames(t *testing.T) {
 		pw.Close()
 	}()
 
-	s := &ScreenShare{&annexBSource{label: "screen share", stdout: pr, stderr: &syncBuffer{}, done: make(chan struct{})}}
+	s := &ScreenShare{&annexBSource{&captureProcess{label: "screen share", stdout: pr, stderr: &syncBuffer{}, done: make(chan struct{})}}}
 
 	var frames [][]byte
 	err := s.Run(func(frame []byte, _ time.Duration) error {
@@ -71,7 +74,7 @@ func TestRunReportsCaptureExitReason(t *testing.T) {
 	pw.Close()
 	stderr := &syncBuffer{}
 	stderr.Write([]byte("ffmpeg version 9\n  configuration: ...\n[video4linux2] /dev/video0: No such file or directory\n\n"))
-	s := &annexBSource{label: "camera", stdout: pr, stderr: stderr, done: make(chan struct{})}
+	s := &annexBSource{&captureProcess{label: "camera", stdout: pr, stderr: stderr, done: make(chan struct{})}}
 	err := s.Run(func([]byte, time.Duration) error { return nil })
 	if err == nil || err.Error() != "[video4linux2] /dev/video0: No such file or directory" {
 		t.Fatalf("Run error = %v, want the last stderr line", err)
@@ -175,5 +178,103 @@ func TestScreenRecorderFromString(t *testing.T) {
 		if got := ScreenRecorderFromString(in); got != want {
 			t.Errorf("ScreenRecorderFromString(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// ivfStream builds an IVF stream holding frames.
+func ivfStream(frames ...[]byte) []byte {
+	hdr := make([]byte, 32)
+	copy(hdr, "DKIF")
+	binary.LittleEndian.PutUint16(hdr[6:], 32)
+	copy(hdr[8:], "VP80")
+	out := hdr
+	for i, f := range frames {
+		fh := make([]byte, 12)
+		binary.LittleEndian.PutUint32(fh, uint32(len(f)))
+		binary.LittleEndian.PutUint64(fh[4:], uint64(i))
+		out = append(append(out, fh...), f...)
+	}
+	return out
+}
+
+func TestIVFSourceRunSplitsFrames(t *testing.T) {
+	want := [][]byte{{0x10, 1, 2, 3}, {0x11}, {0x11, 4, 5}}
+	pr, pw := io.Pipe()
+	go func() {
+		// Split mid-header, as a pipe may deliver it.
+		stream := ivfStream(want...)
+		pw.Write(stream[:40])
+		pw.Write(stream[40:])
+		pw.Close()
+	}()
+	s := &ivfSource{&captureProcess{label: "camera", stdout: pr, stderr: &syncBuffer{}, done: make(chan struct{})}}
+	var got [][]byte
+	err := s.Run(func(frame []byte, _ time.Duration) error {
+		got = append(got, frame)
+		return nil
+	})
+	if err == nil {
+		t.Error("Run returned nil for a capture stream that ended on its own")
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d frames, want %d: %x", len(got), len(want), got)
+	}
+	for i := range want {
+		if !bytes.Equal(got[i], want[i]) {
+			t.Errorf("frame %d = %x, want %x", i, got[i], want[i])
+		}
+	}
+}
+
+func TestIVFSourceRejectsOtherStreams(t *testing.T) {
+	s := &ivfSource{&captureProcess{label: "camera", stdout: io.NopCloser(strings.NewReader(strings.Repeat("x", 64))), stderr: &syncBuffer{}, done: make(chan struct{})}}
+	if err := s.Run(func([]byte, time.Duration) error { return nil }); err == nil || !strings.Contains(err.Error(), "IVF") {
+		t.Errorf("Run error = %v, want one about IVF", err)
+	}
+}
+
+// TestVP8TranscodeYieldsKeyframeFirst runs the transcode gpu-screen-recorder's
+// H.264 goes through for a VP8 peer, fed by ffmpeg's test source: frames
+// come out, a keyframe first.
+func TestVP8TranscodeYieldsKeyframeFirst(t *testing.T) {
+	if err := exec.Command("ffmpeg", "-hide_banner", "-h", "encoder=libvpx").Run(); err != nil {
+		t.Skipf("no ffmpeg with libvpx: %v", err)
+	}
+	src := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error",
+		"-f", "lavfi", "-i", "testsrc=size=320x240:rate=15", "-t", "2",
+		"-pix_fmt", "yuv420p", "-c:v", "libx264", "-profile:v", "baseline", "-tune", "zerolatency",
+		"-f", "h264", "-")
+	s, err := startSource("screen share", VideoCodecVP8, src, vp8TranscodeCmd(VideoQualityVeryLow.profile()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+	var frames [][]byte
+	err = s.Run(func(frame []byte, _ time.Duration) error {
+		frames = append(frames, frame)
+		return nil
+	})
+	if len(frames) == 0 {
+		t.Fatalf("no frames (Run: %v)", err)
+	}
+	if frames[0][0]&1 != 0 {
+		t.Errorf("first frame isn't a VP8 keyframe")
+	}
+}
+
+func TestCaptureCommandsFollowCodec(t *testing.T) {
+	profile := VideoQualityLow.profile()
+	for name, args := range map[string][]string{
+		"wf-recorder": wfRecorderCmd(profile, VideoCodecVP8).Args,
+		"camera":      cameraCmd("/dev/video0", profile, VideoCodecVP8).Args,
+		"transcode":   vp8TranscodeCmd(profile).Args,
+	} {
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "libvpx") || !strings.Contains(joined, "ivf") || !strings.Contains(joined, "800k") {
+			t.Errorf("%s: %s, want libvpx at 800k into IVF", name, joined)
+		}
+	}
+	if joined := strings.Join(cameraCmd("/dev/video0", profile, VideoCodecH264).Args, " "); !strings.Contains(joined, "libx264") {
+		t.Errorf("camera H.264: %s, want libx264", joined)
 	}
 }
