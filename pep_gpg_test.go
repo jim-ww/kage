@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -77,9 +79,49 @@ func devtestTLSConfig(t *testing.T) *tls.Config {
 		t.Skipf("devtest/prosody not running (run serve.sh): %v", err)
 	}
 	conn.Close()
+	lockDevtest(t)
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(certPEM)
 	return &tls.Config{ServerName: "localhost", RootCAs: pool}
+}
+
+// devtestLocked is held while this process's tests use the devtest server
+// (see lockDevtest): how many are, and the open lock file.
+var devtestLocked struct {
+	sync.Mutex
+	users int
+	file  *os.File
+}
+
+// lockDevtest gives the test the devtest server to itself until it ends:
+// every package's live tests log in as the same alice and bob, and
+// `go test ./...` runs packages at once, so one's avatar removal, roster
+// change or archive sync would land in the middle of another's. Held per
+// process, as tests within one run one at a time.
+func lockDevtest(t *testing.T) {
+	t.Helper()
+	devtestLocked.Lock()
+	defer devtestLocked.Unlock()
+	if devtestLocked.users == 0 {
+		f, err := os.OpenFile(filepath.Join(os.TempDir(), "kage-devtest-prosody.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			t.Fatalf("opening devtest lock: %v", err)
+		}
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+			f.Close()
+			t.Fatalf("taking devtest lock: %v", err)
+		}
+		devtestLocked.file = f
+	}
+	devtestLocked.users++
+	t.Cleanup(func() {
+		devtestLocked.Lock()
+		defer devtestLocked.Unlock()
+		if devtestLocked.users--; devtestLocked.users == 0 {
+			devtestLocked.file.Close() // releases the lock
+			devtestLocked.file = nil
+		}
+	})
 }
 
 // TestPEPKeyDiscoveryFlow simulates alice and bob on separate machines (two
