@@ -2203,7 +2203,11 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 				if dismissed {
 					continue
 				}
-				v, err := call.NewScreenViewer(c.peer+" — video", videoCodec)
+				v, err := call.NewScreenViewer(c.peer+" — video", videoCodec, func() {
+					if err := pc.SendPLI(track.SSRC()); err != nil {
+						slog.Debug("screen share: sending PLI failed", "sid", c.sid, "err", err)
+					}
+				})
 				if err != nil {
 					slog.Warn("starting screen share viewer", "sid", c.sid, "err", err)
 					c.broadcastNotice(fmt.Sprintf("can't show their video: %v", err))

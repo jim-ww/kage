@@ -569,13 +569,16 @@ type ScreenViewer struct {
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
 	codec     VideoCodec
+	queue     *frameQueue
 	ivfHeader bool
 	frameNum  uint64
 }
 
 // NewScreenViewer launches mpv reading a raw H.264 Annex-B or IVF-wrapped
-// VP8 stream (see WriteFrame) on stdin, depending on codec.
-func NewScreenViewer(title string, codec VideoCodec) (*ScreenViewer, error) {
+// VP8 stream (see WriteFrame) on stdin, depending on codec. needKeyframe
+// is called when mpv has fallen so far behind that frames are dropped
+// until the next keyframe, to ask the sender for one sooner.
+func NewScreenViewer(title string, codec VideoCodec, needKeyframe func()) (*ScreenViewer, error) {
 	format := "h264"
 	if codec == VideoCodecVP8 {
 		format = "ivf"
@@ -588,6 +591,13 @@ func NewScreenViewer(title string, codec VideoCodec) (*ScreenViewer, error) {
 		"--demuxer=lavf",
 		"--demuxer-lavf-format="+format,
 		"--untimed",
+		// Read no further ahead than decoding needs, so a backlog stays
+		// in WriteFrame's queue, which keeps it short, rather than
+		// growing in mpv's cache.
+		"--cache=no",
+		"--demuxer-readahead-secs=0",
+		"--demuxer-max-bytes=2MiB",
+		"--demuxer-max-back-bytes=0",
 		"-",
 	)
 	stdin, err := cmd.StdinPipe()
@@ -597,13 +607,22 @@ func NewScreenViewer(title string, codec VideoCodec) (*ScreenViewer, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting mpv: %w", err)
 	}
-	return &ScreenViewer{cmd: cmd, stdin: stdin, codec: codec}, nil
+	v := &ScreenViewer{cmd: cmd, stdin: stdin, codec: codec}
+	v.queue = newFrameQueue(v.writeFrame, func(frame []byte) bool { return IsKeyframe(codec, frame) }, needKeyframe)
+	return v, nil
 }
 
-// WriteFrame writes a frame to mpv: H.264 Annex-B NALs as they are, a VP8
+// WriteFrame queues a frame for mpv without waiting for it (see
+// frameQueue). It returns the error writing an earlier frame failed with,
+// as when the window's been closed.
+func (v *ScreenViewer) WriteFrame(data []byte) error {
+	return v.queue.Push(data)
+}
+
+// writeFrame writes a frame to mpv: H.264 Annex-B NALs as they are, a VP8
 // frame in IVF framing, VP8 having no start codes. IVF's size and rate are
 // placeholders; decoders use the keyframe's.
-func (v *ScreenViewer) WriteFrame(data []byte) error {
+func (v *ScreenViewer) writeFrame(data []byte) error {
 	if v.codec != VideoCodecVP8 {
 		_, err := v.stdin.Write(data)
 		return err
@@ -637,9 +656,11 @@ func (v *ScreenViewer) WriteFrame(data []byte) error {
 
 // Close stops mpv.
 func (v *ScreenViewer) Close() {
+	v.queue.Close()
 	_ = v.stdin.Close()
 	if v.cmd.Process != nil {
 		_ = v.cmd.Process.Kill()
 	}
 	_ = v.cmd.Wait()
+	v.queue.Wait()
 }
