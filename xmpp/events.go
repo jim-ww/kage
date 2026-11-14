@@ -228,7 +228,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 
 		// Not for a carbon: the device it was sent to answers for a received
 		// one, and a sent one is ours (XEP-0280 §10.4).
-		if msg.Request != nil && msg.ID != "" && !carbon {
+		if msg.Request != nil && msg.ID != "" && !carbon && c.receiptAllowed(msg.From) {
 			// The receipt, written onto t as mellium's receipts.Handler does.
 			reply := stanza.Message{To: msg.From, Type: msg.Type}
 			_, err := xmlstream.Copy(t, reply.Wrap(xmlstream.Wrap(nil, xml.StartElement{

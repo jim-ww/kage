@@ -15,8 +15,16 @@ import (
 // client would, returning what it wrote back and the events it emitted.
 func serveMessage(t *testing.T, payload string) (reply string, events []Event) {
 	t.Helper()
-	c := &Client{JID: jid.MustParse("alice@example.test/laptop")}
-	c.evCond = sync.NewCond(&c.evMu)
+	return serveMessageTo(t, &Client{JID: jid.MustParse("alice@example.test/laptop")}, payload)
+}
+
+// serveMessageTo is serveMessage on c.
+func serveMessageTo(t *testing.T, c *Client, payload string) (reply string, events []Event) {
+	t.Helper()
+	if c.evCond == nil {
+		c.evCond = sync.NewCond(&c.evMu)
+	}
+	before := len(c.evBuf)
 	dec := xml.NewDecoder(strings.NewReader(payload))
 	tok, err := dec.Token()
 	if err != nil {
@@ -29,7 +37,7 @@ func serveMessage(t *testing.T, payload string) (reply string, events []Event) {
 	if err := enc.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	return out.String(), c.evBuf
+	return out.String(), c.evBuf[before:]
 }
 
 func messages(events []Event) []MessageEvent {
@@ -142,5 +150,34 @@ func TestStoreHints(t *testing.T) {
 		if got := strings.Contains(string(out), `<store xmlns="urn:xmpp:hints">`); got != tc.store {
 			t.Errorf("%s: store hint %v, want %v:\n%s", name, got, tc.store, out)
 		}
+	}
+}
+
+// TestReceiptPolicy checks a receipt goes only to a sender the policy lets
+// have one, judged by bare JID, the message itself still taken in.
+func TestReceiptPolicy(t *testing.T) {
+	c := &Client{JID: jid.MustParse("alice@example.test/laptop")}
+	var asked []string
+	c.SetReceiptPolicy(func(bareJID string) bool {
+		asked = append(asked, bareJID)
+		return bareJID == "bob@example.test"
+	})
+	msg := func(from string) string {
+		return `<message xmlns="jabber:client" from="` + from + `" to="alice@example.test/laptop" type="chat" id="m3">
+			<body>hi</body><request xmlns="urn:xmpp:receipts"/>
+		</message>`
+	}
+	if reply, _ := serveMessageTo(t, c, msg("bob@example.test/pc")); !strings.Contains(reply, "urn:xmpp:receipts") {
+		t.Errorf("no receipt for an allowed sender: %q", reply)
+	}
+	reply, events := serveMessageTo(t, c, msg("stranger@example.test/pc"))
+	if strings.Contains(reply, "urn:xmpp:receipts") {
+		t.Errorf("receipt for a sender the policy refuses: %q", reply)
+	}
+	if len(messages(events)) != 1 {
+		t.Errorf("the refused sender's message itself wasn't taken in")
+	}
+	if !slices.Equal(asked, []string{"bob@example.test", "stranger@example.test"}) {
+		t.Errorf("policy asked about %q, want the senders' bare JIDs", asked)
 	}
 }

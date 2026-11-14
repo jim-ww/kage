@@ -32,6 +32,10 @@ type Client struct {
 
 	closed atomic.Bool // set by Close; distinguishes intentional shutdown from a dropped connection
 
+	// receiptsFor, if set, says who may have delivery receipts from us (see
+	// SetReceiptPolicy).
+	receiptsFor atomic.Pointer[func(bareJID string) bool]
+
 	// evMu/evCond/evBuf/evClosed buffer events without bound, so the stream
 	// reader never blocks on a slow Events() reader: it also delivers our
 	// IQ responses, so blocking it would wedge the connection.
@@ -203,6 +207,17 @@ func (c *Client) serve() {
 	c.mu.Lock()
 	c.err = err
 	c.mu.Unlock()
+}
+
+// SetReceiptPolicy has delivery receipts (XEP-0184) answered only for
+// senders allow lets have them, by bare JID. Until it's set, all are.
+func (c *Client) SetReceiptPolicy(allow func(bareJID string) bool) {
+	c.receiptsFor.Store(&allow)
+}
+
+func (c *Client) receiptAllowed(from jid.JID) bool {
+	allow := c.receiptsFor.Load()
+	return allow == nil || (*allow)(from.Bare().String())
 }
 
 // enqueue buffers ev for forwardEvents. Never blocks, see Client.evBuf.

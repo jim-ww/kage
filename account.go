@@ -411,6 +411,22 @@ func (s *accountSession) liveClient() (*xmpp.Client, error) {
 	return client, nil
 }
 
+// receiptsAllowed reports whether bareJID may have delivery receipts from
+// us: a receipt tells its sender we're online, so only someone who may see
+// our presence anyway, or our own account (XEP-0184 §8). Until the roster's
+// loaded, anyone, as before it was asked.
+func (s *accountSession) receiptsAllowed(sender string) bool {
+	if sender == bareJID(s.account.JID) {
+		return true
+	}
+	entries := s.roster.Load()
+	if entries == nil {
+		return true
+	}
+	e, ok := (*entries)[sender]
+	return ok && (e.Subs == "from" || e.Subs == "both")
+}
+
 // rosterName is bareJID's roster name, or bareJID if it has none.
 func (s *accountSession) rosterName(bareJID string) string {
 	entries := s.roster.Load()
@@ -639,6 +655,7 @@ func connectAccountLive(ctx context.Context, sess *accountSession, existingChatC
 	slog.Debug("dialed", "jid", sess.account.JID, "elapsed", time.Since(start))
 	sess.tlsConfig = tlsConfig
 	sess.client.Store(client)
+	client.SetReceiptPolicy(sess.receiptsAllowed)
 
 	if show != "" {
 		if err := client.SetPresence(ctx, show); err != nil {
@@ -944,6 +961,7 @@ func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 					}
 				}
 				s.client.Store(client)
+				client.SetReceiptPolicy(s.receiptsAllowed)
 				// The OMEMO managers' Transport is bound to the dead client.
 				setupOmemo(ctx, s)
 				// First: a new stream gets no roster pushes until it asked
