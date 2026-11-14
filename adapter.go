@@ -606,6 +606,7 @@ func (a *adapter) MarkRetracted(accountIdx int, to, id string) error {
 		AccountJid: s.account.JID,
 		IDAttr:     nullString(id),
 		RosterJid:  nullString(to),
+		Sent:       false,
 	}); err != nil {
 		return err
 	}
@@ -1021,6 +1022,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			AccountJid: s.account.JID,
 			IDAttr:     nullString(opts.RetractID),
 			RosterJid:  nullString(to),
+			Sent:       true,
 		}); err != nil {
 			slog.Warn("marking retracted message in storage", "err", err)
 		}
@@ -1130,6 +1132,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			Edited:       true,
 			IDAttr:       nullString(opts.ReplaceID),
 			RosterJid:    nullString(to),
+			Sent:         true,
 		}); err != nil {
 			slog.Warn("persisting correction", "err", err)
 		}

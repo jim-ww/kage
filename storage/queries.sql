@@ -135,9 +135,10 @@ WHERE accountJID = sqlc.arg(account_jid)
 
 -- name: UpdateMessageBodyByID :execrows
 -- XEP-0308: apply a correction to a previously sent/received message,
--- identified by its own idAttr within a given contact's history. Also used
--- to opportunistically re-seal a plaintext row once a local storage
--- password becomes available.
+-- identified by its own idAttr within a given contact's history - and by
+-- direction: only the message's own sender may correct it (XEP-0308 4),
+-- never the other side of the same chat. Also used to opportunistically
+-- re-seal a plaintext row once a local storage password becomes available.
 UPDATE messages
 SET
 	body = sqlc.arg(body),
@@ -147,15 +148,19 @@ SET
 	edited = sqlc.arg(edited)
 WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
-	AND rosterJID = sqlc.arg(roster_jid);
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND sent = sqlc.arg(sent);
 
 
 -- name: MarkMessageRetracted :execrows
+-- XEP-0424: flag a message retracted, matched by direction too: only the
+-- message's own sender may retract it, as with a correction.
 UPDATE messages
 SET retracted = TRUE
 WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
-	AND rosterJID = sqlc.arg(roster_jid);
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND sent = sqlc.arg(sent);
 
 
 -- name: MarkMessageEdited :execrows

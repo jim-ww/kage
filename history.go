@@ -35,6 +35,7 @@ func readStoredBody(ctx context.Context, s *accountSession, chatAddr string, row
 				Edited:       row.Edited,
 				IDAttr:       row.Idattr,
 				RosterJid:    nullString(chatAddr),
+				Sent:         row.Sent,
 			}); err != nil {
 				slog.Warn("encrypting stored message", "err", err)
 			}

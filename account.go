@@ -1323,6 +1323,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			AccountJid: s.account.JID,
 			IDAttr:     nullString(am.RetractID),
 			RosterJid:  nullString(peerJID),
+			Sent:       bareJID(am.From) == ownBare,
 		}); err != nil {
 			slog.Warn("persisting mam retraction", "peer", peerJID, "err", err)
 		}
@@ -1423,6 +1424,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			Edited:       true,
 			IDAttr:       nullString(am.ReplaceID),
 			RosterJid:    nullString(peerJID),
+			Sent:         sent,
 		}); err != nil {
 			slog.Warn("persisting mam correction", "peer", peerJID, "err", err)
 		}

@@ -344,7 +344,7 @@ func runImport(cfgPath, inPath string, accountMap map[string]string) error {
 		}
 		if m.Retracted {
 			if _, err := queries.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
-				AccountJid: m.AccountJID, IDAttr: nullString(m.ID), RosterJid: nullString(m.RosterJID),
+				AccountJid: m.AccountJID, IDAttr: nullString(m.ID), RosterJid: nullString(m.RosterJID), Sent: m.Sent,
 			}); err != nil {
 				return fmt.Errorf("marking %s/%s retracted: %w", m.AccountJID, m.ID, err)
 			}

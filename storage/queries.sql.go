@@ -2263,16 +2263,25 @@ SET retracted = TRUE
 WHERE accountJID = ?1
 	AND idAttr = ?2
 	AND rosterJID = ?3
+	AND sent = ?4
 `
 
 type MarkMessageRetractedParams struct {
 	AccountJid string         `db:"account_jid"`
 	IDAttr     sql.NullString `db:"id_attr"`
 	RosterJid  sql.NullString `db:"roster_jid"`
+	Sent       bool           `db:"sent"`
 }
 
+// XEP-0424: flag a message retracted, matched by direction too: only the
+// message's own sender may retract it, as with a correction.
 func (q *Queries) MarkMessageRetracted(ctx context.Context, arg MarkMessageRetractedParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markMessageRetracted, arg.AccountJid, arg.IDAttr, arg.RosterJid)
+	result, err := q.db.ExecContext(ctx, markMessageRetracted,
+		arg.AccountJid,
+		arg.IDAttr,
+		arg.RosterJid,
+		arg.Sent,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -2643,6 +2652,7 @@ SET
 WHERE accountJID = ?6
 	AND idAttr = ?7
 	AND rosterJID = ?8
+	AND sent = ?9
 `
 
 type UpdateMessageBodyByIDParams struct {
@@ -2654,12 +2664,14 @@ type UpdateMessageBodyByIDParams struct {
 	AccountJid   string         `db:"account_jid"`
 	IDAttr       sql.NullString `db:"id_attr"`
 	RosterJid    sql.NullString `db:"roster_jid"`
+	Sent         bool           `db:"sent"`
 }
 
 // XEP-0308: apply a correction to a previously sent/received message,
-// identified by its own idAttr within a given contact's history. Also used
-// to opportunistically re-seal a plaintext row once a local storage
-// password becomes available.
+// identified by its own idAttr within a given contact's history - and by
+// direction: only the message's own sender may correct it (XEP-0308 4),
+// never the other side of the same chat. Also used to opportunistically
+// re-seal a plaintext row once a local storage password becomes available.
 func (q *Queries) UpdateMessageBodyByID(ctx context.Context, arg UpdateMessageBodyByIDParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateMessageBodyByID,
 		arg.Body,
@@ -2670,6 +2682,7 @@ func (q *Queries) UpdateMessageBodyByID(ctx context.Context, arg UpdateMessageBo
 		arg.AccountJid,
 		arg.IDAttr,
 		arg.RosterJid,
+		arg.Sent,
 	)
 	if err != nil {
 		return 0, err

@@ -45,6 +45,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			AccountJid: s.account.JID,
 			IDAttr:     nullString(msgEv.RetractID),
 			RosterJid:  nullString(from),
+			Sent:       msgEv.Outgoing,
 		}); err != nil {
 			slog.Warn("persisting retraction flag", "err", err)
 		}
@@ -179,6 +180,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			Edited:       true,
 			IDAttr:       nullString(msgEv.ReplaceID),
 			RosterJid:    nullString(from),
+			Sent:         msgEv.Outgoing,
 		}); err != nil {
 			slog.Warn("persisting correction", "err", err)
 		}
