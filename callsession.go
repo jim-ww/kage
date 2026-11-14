@@ -2079,9 +2079,9 @@ func (c *callSession) closeRemoteVideo() {
 	c.broadcastUpdate()
 }
 
-// playRemoteVideo pipes the peer's video track into an mpv window, which
-// decodes it (see call.ScreenViewer). The window only opens on the first
-// keyframe, so a negotiated but silent track shows nothing.
+// playRemoteVideo shows the peer's video track in a window (see
+// call.ScreenViewer). The window only opens on the first keyframe, so a
+// negotiated but silent track shows nothing.
 func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.TrackRemote) {
 	slog.Debug("screen share: remote video track registered, waiting for packets", "sid", c.sid, "track_id", track.ID(), "ssrc", track.SSRC())
 
