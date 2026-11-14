@@ -8,13 +8,22 @@ import (
 
 const (
 	// quietLevel is the mean absolute sample level (about -47 dBFS) below
-	// which a frame can be dropped unnoticed to catch up on a backlog.
+	// which a frame can be shortened as much as accelerate likes.
 	quietLevel = 150
 
-	// driftDropAfter is how many frames in a row the buffer may stay over
-	// softExcess with nothing quiet to drop before one is dropped anyway,
-	// so a sender who never stops talking can't build up a delay either.
-	driftDropAfter = 50
+	// forceAfter is how many frames in a row the buffer may stay over
+	// softExcess with nothing voiced or quiet to accelerate before a frame
+	// is shortened anyway, so audio that's neither (music, noise) can't
+	// build up a delay either.
+	forceAfter = 25
+
+	// catchUpRate is the share of speech accelerate may cut while catching
+	// up (1.25x speed), fastCatchUpRate past fastExcess packets of backlog
+	// (1.5x): fast enough to catch up in seconds, slow enough to follow.
+	// Quiet frames are halved regardless.
+	catchUpRate     = 0.2
+	fastCatchUpRate = 1.0 / 3
+	fastExcess      = 10
 
 	// maxPacketSamples is the longest Opus packet, 120ms.
 	maxPacketSamples = SampleRate * 120 / 1000
@@ -31,7 +40,8 @@ type Playout struct {
 	mu      sync.Mutex
 	dec     *Decoder
 	pcm     []int16
-	overFor int // frames in a row the buffer's been over softExcess
+	overFor int     // frames in a row over softExcess that weren't shortened
+	credit  float64 // samples of speech accelerate may still cut
 }
 
 // NewPlayout returns a Playout with nothing received yet.
@@ -58,22 +68,31 @@ func (p *Playout) push(seq uint16, ts uint32, payload []byte, now time.Time) {
 func (p *Playout) NextFrame() []int16 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for {
-		payload, kind := p.jb.Pop()
-		frame := p.decode(payload, kind)
-		if kind != popPacket || p.jb.Excess() <= softExcess {
-			p.overFor = 0
-			return frame
-		}
-		// Every packet is still decoded, dropped or not: Opus decoding
-		// carries state from one packet to the next.
-		p.overFor++
-		if quiet(frame) || p.overFor >= driftDropAfter {
-			p.overFor = 0
-			continue
-		}
+	payload, kind := p.jb.Pop()
+	frame := p.decode(payload, kind)
+	excess := p.jb.Excess()
+	if kind != popPacket || excess <= softExcess {
+		p.overFor = 0
 		return frame
 	}
+	rate := catchUpRate
+	if excess > fastExcess {
+		rate = fastCatchUpRate
+	}
+	// Capped at one longest pitch period, so a stretch with nothing to cut
+	// doesn't save up for a burst of cuts after it.
+	p.credit = min(p.credit+float64(len(frame))*rate, maxPitch)
+	wasQuiet := quiet(frame)
+	frame, cut := accelerate(frame, p.overFor >= forceAfter, int(p.credit))
+	if cut == 0 {
+		p.overFor++
+		return frame
+	}
+	p.overFor = 0
+	if !wasQuiet {
+		p.credit -= float64(cut)
+	}
+	return frame
 }
 
 func (p *Playout) decode(payload []byte, kind popKind) []int16 {

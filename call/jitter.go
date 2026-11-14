@@ -13,17 +13,19 @@ const (
 	// jitterSlots is the ring the buffer keeps packets in, indexed by
 	// sequence number: it bounds how far ahead of playback a packet can
 	// arrive and still be kept, so it must exceed maxTarget+hardExcess.
-	jitterSlots = 64
+	jitterSlots = 128
 
 	minTarget     = 2
 	maxTarget     = 15
 	initialTarget = 3
 
 	// softExcess is how far over target the buffer may run before
-	// Playout starts dropping frames to catch up (see JitterBuffer.Excess);
-	// past hardExcess, Pop skips straight back to target.
+	// Playout starts playing faster to catch up (see JitterBuffer.Excess).
+	// hardExcess (1s) is the most it may ever run over: past it, Pop skips
+	// the oldest packets, as a backlog that long would take too long to
+	// catch up on.
 	softExcess = 2
-	hardExcess = 10
+	hardExcess = 50
 
 	// maxConceal is how many frames are made up by packet loss concealment
 	// once the buffer runs dry, before playing silence: enough to hide a
@@ -59,7 +61,7 @@ const (
 // while the network (or a busy CPU on either end) is jittery and shrinks
 // back once it calms down. Whatever piles up beyond that - a burst after a
 // stall, or the sender's sound card running slightly faster than ours -
-// is dropped rather than played late, so latency never accumulates.
+// Playout plays faster until it's caught up, so latency never accumulates.
 type JitterBuffer struct {
 	mu sync.Mutex
 
@@ -70,6 +72,7 @@ type JitterBuffer struct {
 	highest   uint16 // highest sequence number pushed
 	target    int    // packets to hold, including the one about to play
 	concealed int    // frames concealed since a packet last played
+	skipped   int    // packets skipped past hardExcess, for tests
 
 	// Delay estimation: transits are arrival time minus RTP timestamp for
 	// the last delayWindow packets, against an arbitrary epoch.
@@ -79,6 +82,7 @@ type JitterBuffer struct {
 	gotPacket   bool  // highest is a packet pushed since restart
 	epoch       time.Time
 	lastArrival time.Time
+	afterGap    bool // no packet has come at its usual pace since a gap
 	transits    []time.Duration
 	transitIdx  int
 	pushes      int
@@ -125,10 +129,21 @@ func (b *JitterBuffer) Push(seq uint16, ts uint32, payload []byte, now time.Time
 	}
 	b.slots[seq%jitterSlots] = jitterSlot{seq: seq, payload: payload, ok: true}
 
-	if now.Sub(b.lastArrival) > pauseGap {
-		b.transits, b.transitIdx = b.transits[:0], 0
-	}
+	// After a gap - a pause, or a stall whose held-up packets now arrive
+	// in a burst - delay is measured afresh once packets come at their
+	// usual pace again: a stall is a one-off no buffer size could have
+	// hidden, so sizing for it would only add delay.
+	gap := now.Sub(b.lastArrival)
 	b.lastArrival = now
+	switch {
+	case gap > pauseGap:
+		b.transits, b.transitIdx = b.transits[:0], 0
+		b.afterGap = true
+		return
+	case b.afterGap && gap < b.frameDur/2:
+		return
+	}
+	b.afterGap = false
 	b.addTransit(now.Sub(b.epoch) - time.Duration(ext)*time.Second/SampleRate)
 }
 
@@ -197,9 +212,10 @@ func (b *JitterBuffer) Pop() ([]byte, popKind) {
 		b.buffering = false
 	}
 	if excess := depth - b.target; excess > hardExcess {
-		for range excess {
+		for range excess - hardExcess {
 			b.slots[b.next%jitterSlots] = jitterSlot{}
 			b.next++
+			b.skipped++
 		}
 	}
 
@@ -214,8 +230,8 @@ func (b *JitterBuffer) Pop() ([]byte, popKind) {
 	return s.payload, popPacket
 }
 
-// Excess is how many packets past target the buffer holds - Playout drops
-// frames to catch up while it's over softExcess.
+// Excess is how many packets past target the buffer holds - Playout plays
+// faster to catch up while it's over softExcess.
 func (b *JitterBuffer) Excess() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()

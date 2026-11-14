@@ -135,19 +135,35 @@ func TestJitterBufferConcealsLoss(t *testing.T) {
 	}
 }
 
-// TestJitterBufferDropsBacklog checks a stall's burst doesn't add its
-// length to the delay for the rest of the call - what made a lag stay put
-// until the call was redialed.
-func TestJitterBufferDropsBacklog(t *testing.T) {
+// TestJitterBufferKeepsBacklog checks a stall's burst is all kept, for
+// Playout to catch up on rather than lose.
+func TestJitterBufferKeepsBacklog(t *testing.T) {
 	s := newJitterSim(0)
 	at := s.talk(0, 100, noDelay)
-	// 2s of packets held up, then arriving all at once.
+	stall := 600 * time.Millisecond
+	at = s.talk(at, 30, func(i int) time.Duration { return stall - time.Duration(i)*frame })
+	end := s.talk(at, 100, noDelay)
+	s.advance(end + time.Second)
+	if len(s.played) != 230 || s.b.skipped != 0 {
+		t.Fatalf("played %d packets, skipped %d; want all 230 played", len(s.played), s.b.skipped)
+	}
+}
+
+// TestJitterBufferCapsBacklog checks a backlog longer than hardExcess is
+// cut down to it, so a long stall can't leave the call that far behind.
+func TestJitterBufferCapsBacklog(t *testing.T) {
+	s := newJitterSim(0)
+	at := s.talk(0, 100, noDelay)
 	stall := 2 * time.Second
 	at = s.talk(at, 100, func(i int) time.Duration { return stall - time.Duration(i)*frame })
 	end := s.talk(at, 500, noDelay)
 	s.advance(end + time.Second)
-	if l := s.latencies[len(s.latencies)-1]; l > 100*time.Millisecond {
-		t.Errorf("latency after the stall settled at %v, want it back under 100ms", l)
+	limit := time.Duration(minTarget+hardExcess+1) * frame
+	if l := slices.Max(s.latencies[len(s.latencies)-100:]); l > limit {
+		t.Errorf("latency after the stall %v, want at most %v", l, limit)
+	}
+	if s.b.skipped == 0 {
+		t.Error("nothing skipped, want the backlog past hardExcess skipped")
 	}
 }
 
