@@ -523,34 +523,6 @@ func (p *PeerConnection) DebugTransceivers() []string {
 	return out
 }
 
-// Stats is the packet loss the peer reports and the candidate pair's RTT.
-// 0 means no data yet.
-func (p *PeerConnection) Stats() (lossPct, rttMs float64) {
-	report := p.pc.GetStats()
-	var lost int32
-	var received uint32
-	for _, s := range report {
-		switch st := s.(type) {
-		case webrtc.RemoteInboundRTPStreamStats:
-			if st.Kind == "audio" && st.PacketsLost > 0 {
-				lost += st.PacketsLost
-			}
-		case webrtc.InboundRTPStreamStats:
-			if st.Kind == "audio" {
-				received += st.PacketsReceived
-			}
-		case webrtc.ICECandidatePairStats:
-			if st.Nominated && st.State == webrtc.StatsICECandidatePairStateSucceeded {
-				rttMs = st.CurrentRoundTripTime * 1000
-			}
-		}
-	}
-	if total := received + uint32(lost); total > 0 {
-		lossPct = float64(lost) / float64(total) * 100
-	}
-	return lossPct, rttMs
-}
-
 // VideoSenderSSRC is our video sender's SSRC, 0 before it sends. GetStats
 // doesn't report a renegotiated track's sending (see loopback_test.go).
 func (p *PeerConnection) VideoSenderSSRC() webrtc.SSRC {

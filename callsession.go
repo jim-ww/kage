@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jim-ww/kage/call"
@@ -143,6 +144,12 @@ type callSession struct {
 	qualityTicker *time.Ticker
 	qualityDone   chan struct{}
 
+	// adapter steps the video quality sent to the link (see
+	// sampleQuality); videoAdapter makes it. linkLossPct is the loss the
+	// peer last reported, for pumpMic's encoder.
+	adapter     *call.QualityAdapter
+	linkLossPct atomic.Int32
+
 	// sharing is set while we send our own video, captured by screenShare.
 	// pendingShare is set from sending a content-add offering video until the
 	// peer accepts it: capture only starts then (see applyContentAccept).
@@ -250,8 +257,9 @@ func (c *callSession) stopRing() {
 	}
 }
 
-// qualitySampleInterval is how often a call's ICE/RTP stats are sampled.
-const qualitySampleInterval = 3 * time.Second
+// qualitySampleInterval is how often a call's link is sampled (see
+// sampleQuality).
+const qualitySampleInterval = time.Second
 
 // Packet loss and RTT limits of the "good" and "fair" call quality; past
 // them it's "poor". Round numbers, not tuned.
@@ -261,6 +269,18 @@ const (
 	qualityFairLossPct = 8.0
 	qualityFairRTTMs   = 400.0
 )
+
+// linkQuality is the call quality s tells, "" with no word from the peer
+// yet: poor while the link is congested, else by loss and round trip.
+func linkQuality(s call.LinkStats) string {
+	switch {
+	case s.Feedback == call.LinkFeedbackNone:
+		return ""
+	case s.Congested:
+		return "poor"
+	}
+	return qualityBucket(s.Loss*100, float64(s.RTT)/float64(time.Millisecond))
+}
 
 func qualityBucket(lossPct, rttMs float64) string {
 	switch {
@@ -1376,6 +1396,7 @@ func (c *callSession) switchMic(device string) error {
 func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Encoder, pc *call.PeerConnection) {
 	const frameDuration = call.FrameMillis * time.Millisecond
 	music := false
+	lossPct := int32(0)
 	for {
 		select {
 		case <-c.done:
@@ -1409,6 +1430,12 @@ func (c *callSession) pumpMic(mic *call.Mic, stop <-chan struct{}, enc *call.Enc
 				music = desktop != nil
 				if err := enc.SetMusic(music); err != nil {
 					slog.Warn("retuning call audio encoder", "sid", c.sid, "music", music, "err", err)
+				}
+			}
+			if loss := c.linkLossPct.Load(); loss != lossPct {
+				lossPct = loss
+				if err := enc.SetLossRate(int(loss)); err != nil {
+					slog.Warn("telling call audio encoder of loss", "sid", c.sid, "loss_pct", loss, "err", err)
 				}
 			}
 			packet, err := enc.Encode(frame)
@@ -1838,7 +1865,9 @@ func (c *callSession) beginScreenShareCapture(pc *call.PeerConnection) {
 	useCamera := c.videoUseCamera
 	c.mu.Unlock()
 
-	quality := currentVideoQuality()
+	c.mu.Lock()
+	quality := c.videoAdapter().Current()
+	c.mu.Unlock()
 	// What the peer took: VP8 if it has no H.264.
 	codec := pc.VideoCodec()
 	var share call.VideoSource
@@ -2477,8 +2506,10 @@ func (c *callSession) stopQualitySampler() {
 	}
 }
 
-// sampleQuality reads the peer connection's current stats and, if it
-// produced anything, recomputes and broadcasts the quality bucket.
+// sampleQuality takes in what the peer's feedback says about the link:
+// the quality shown, broadcast when it changes; the loss the mic's encoder
+// is told of; and, while sharing, the video quality sent, its capture
+// restarted at a new one.
 func (c *callSession) sampleQuality() {
 	c.mu.Lock()
 	pc, state := c.pc, c.state
@@ -2486,13 +2517,43 @@ func (c *callSession) sampleQuality() {
 	if pc == nil || state != callConnected {
 		return
 	}
-	lossPct, rttMs := pc.Stats()
-	bucket := qualityBucket(lossPct, rttMs)
+	s := pc.LinkStats()
+	c.linkLossPct.Store(int32(s.Loss * 100))
 
 	c.mu.Lock()
+	bucket, changed := linkQuality(s), false
+	shown := bucket != c.quality
 	c.quality = bucket
+	sharing, useCamera := c.sharing && c.videoSource != nil, c.videoUseCamera
+	adapter := c.videoAdapter()
+	before := adapter.Current()
+	adapter.SetCeiling(currentVideoQuality())
+	if sharing {
+		// Only while video goes out: without it, the link shows nothing
+		// about what video would do to it.
+		adapter.Update(s, time.Now())
+	}
+	after := adapter.Current()
+	changed = after != before
 	c.mu.Unlock()
-	c.broadcastState(callConnected, "")
+
+	if changed && sharing {
+		slog.Info("call: video quality follows the link", "sid", c.sid, "from", before, "to", after,
+			"loss", s.Loss, "rtt", s.RTT, "congested", s.Congested, "estimate", s.Bitrate, "sent", s.Sent)
+		c.switchVideoSource(pc, useCamera)
+	}
+	if shown {
+		c.broadcastState(callConnected, "")
+	}
+}
+
+// videoAdapter is the call's QualityAdapter, made on first use at the
+// quality picked. c.mu must be held.
+func (c *callSession) videoAdapter() *call.QualityAdapter {
+	if c.adapter == nil {
+		c.adapter = call.NewQualityAdapter(currentVideoQuality())
+	}
+	return c.adapter
 }
 
 // callSID generates a Jingle session ID: 128 random bits, hex-encoded, same

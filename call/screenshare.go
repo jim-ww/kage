@@ -65,6 +65,20 @@ func VideoQualityFromString(s string) VideoQuality {
 	}
 }
 
+// String is q as config.toml's video_quality spells it.
+func (q VideoQuality) String() string {
+	switch q {
+	case VideoQualityVeryLow:
+		return "very_low"
+	case VideoQualityLow:
+		return "low"
+	case VideoQualityHigh:
+		return "high"
+	default:
+		return "medium"
+	}
+}
+
 // videoQualityProfile is a VideoQuality's capture settings: the camera's
 // size (and gpu-screen-recorder's limit), libx264's crf for the camera, and
 // the bitrate - the screen's, and the most the camera's crf may take

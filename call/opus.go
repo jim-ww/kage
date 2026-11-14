@@ -69,6 +69,12 @@ func (e *Encoder) SetMusic(music bool) error {
 	return e.enc.SetBitrate(bitrate)
 }
 
+// SetLossRate tells the encoder the share of packets the peer reports
+// losing, in percent, so it leans less on the ones before.
+func (e *Encoder) SetLossRate(percent int) error {
+	return e.enc.SetLossRate(max(0, min(100, percent)))
+}
+
 // Encode encodes one FrameSamples frame of 16-bit PCM into an Opus packet,
 // returning the packet bytes. The returned slice is only valid until the
 // next call to Encode.
