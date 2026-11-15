@@ -442,11 +442,11 @@ func (s *uiStyles) viewportFrame(width, height int, content string) string {
 // viewportFramePresized is viewportFrame for content of the frame's size,
 // sparing lipgloss re-scanning it (see renderViewportFrame).
 func (s *uiStyles) viewportFramePresized(content string) string {
-	return s.viewportArea.Render(content)
+	return newFgBlock(s.viewportArea).Render(content)
 }
 
 func (s *uiStyles) rootView(content string) string {
-	return s.root.Render(content)
+	return newFgBlock(s.root).Render(content)
 }
 
 func (s *uiStyles) footerBar(width int, content string) string {

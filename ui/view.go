@@ -86,7 +86,7 @@ func (m Model) View() tea.View {
 		chatArea = m.renderChatArea(colors)
 	}
 
-	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatArea)
+	mainRow := joinHorizontal(sidebar, chatArea)
 	footerText := wrapFooterHint(m.keys.helpHint(m.selectedView, len(m.pendingAttachments) > 0), max(1, m.width-2), footerMaxLines)
 	footer := m.styles.footerBar(m.width, footerText)
 	rootRows := []string{mainRow}
@@ -97,7 +97,7 @@ func (m Model) View() tea.View {
 		rootRows = append(rootRows, m.renderCallBar(m.width))
 	}
 	rootRows = append(rootRows, "", footer)
-	root := m.styles.rootView(lipgloss.JoinVertical(lipgloss.Left, rootRows...))
+	root := m.styles.rootView(joinVertical(rootRows...))
 
 	rendered := m.zone.Scan(root)
 	if panel, px, py, ok := m.avatarPanelOverlay(sidebarBody); ok {
@@ -215,11 +215,7 @@ func (m Model) renderSidebar(want sidebarCacheEntry) string {
 		c.border == want.border {
 		return c.rendered
 	}
-	inner := lipgloss.JoinVertical(
-		lipgloss.Left,
-		want.statusLine,
-		m.styles.sidebarInner(want.width, want.height, want.body),
-	)
+	inner := joinVertical(want.statusLine, m.styles.sidebarInner(want.width, want.height, want.body))
 	want.rendered = m.styles.sidebarBox(want.boxWidth, want.boxHeight, want.border, inner)
 	*c = want
 	return want.rendered
@@ -266,7 +262,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 	if m.mouseEnabled {
 		attachBtn := m.zone.Mark(zoneAttachButton, m.styles.renderAttachButton(m.icons, m.isHovered(zoneAttachButton)))
 		sendBtn := m.zone.Mark(zoneSendButton, m.styles.renderSendButton(m.isHovered(zoneSendButton)))
-		inputLine = lipgloss.JoinHorizontal(lipgloss.Top, inputLine, attachBtn, strings.Repeat(" ", buttonGap), sendBtn)
+		inputLine = joinHorizontal(inputLine, attachBtn, strings.Repeat(" ", buttonGap), sendBtn)
 	}
 	var inputRows []string
 	if hint := m.inputHint(); hint != "" {
@@ -302,12 +298,8 @@ func (m Model) renderChatArea(colors uiColors) string {
 	listHidden := m.sidebarHidden || m.narrow()
 	toggleBtn := m.zone.Mark(zoneToggleSidebar, m.styles.renderSidebarToggleButton(listHidden, m.isHovered(zoneToggleSidebar)))
 	statusWidth := max(0, m.chatAreaWidth()-lipgloss.Width(toggleBtn))
-	chatStatus := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		toggleBtn,
-		m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))),
-	)
-	return lipgloss.JoinVertical(lipgloss.Left, chatStatus, viewportArea, inputBox)
+	chatStatus := joinHorizontal(toggleBtn, m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))))
+	return joinVertical(chatStatus, viewportArea, inputBox)
 }
 
 // renderCallBar builds the call bar's one row: status, then buttons, the
