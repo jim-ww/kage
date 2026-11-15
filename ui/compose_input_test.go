@@ -3,13 +3,10 @@ package ui
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
-	"github.com/jim-ww/kage/ui/zone"
 )
 
 func shiftEnterKey() tea.KeyMsg {
@@ -401,20 +398,8 @@ func TestComposeMouseWheelScrollsOverflowingInput(t *testing.T) {
 	}
 	startLine := m.input.Line()
 
-	// Render so the input pane's zone bounds are populated. bubblezone's
-	// Scan() buffers the update through a channel/worker goroutine (its own
-	// docs warn Get() right after Scan() may not see it yet), so poll
-	// briefly instead of asserting immediately.
 	_ = m.View()
-	var z *zone.ZoneInfo
-	deadline := time.Now().Add(time.Second)
-	for {
-		z = m.zone.Get(zonePaneInput)
-		if !z.IsZero() || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	z := m.zone.Get(zonePaneInput)
 	if z.IsZero() {
 		t.Fatal("zonePaneInput has no bounds after View()")
 	}
@@ -455,15 +440,7 @@ func TestComposeClickPositionsCursor(t *testing.T) {
 	m = next.(Model)
 
 	_ = m.View()
-	var z *zone.ZoneInfo
-	deadline := time.Now().Add(time.Second)
-	for {
-		z = m.zone.Get(zoneInputTextarea)
-		if !z.IsZero() || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	z := m.zone.Get(zoneInputTextarea)
 	if z.IsZero() {
 		t.Fatal("zoneInputTextarea has no bounds after View()")
 	}

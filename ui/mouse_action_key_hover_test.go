@@ -38,13 +38,7 @@ func TestReplyKeyHoverRegistersOnSingleCellGlyph(t *testing.T) {
 	// Hover the row first so the reply/react buttons render at all (they're
 	// only drawn for the hovered message).
 	_ = m.View()
-	var vp = m.zone.Get(zonePaneViewport)
-	for range 100 {
-		if vp = m.zone.Get(zonePaneViewport); !vp.IsZero() {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	vp := m.zone.Get(zonePaneViewport)
 	if vp.IsZero() {
 		t.Fatal("zonePaneViewport not marked after View()")
 	}
@@ -57,13 +51,7 @@ func TestReplyKeyHoverRegistersOnSingleCellGlyph(t *testing.T) {
 	// Re-render now that the reply/react buttons are showing, then find the
 	// reply glyph's own zone.
 	_ = m.View()
-	var zk = m.zone.Get(zoneMessageReplyKey(0))
-	for range 100 {
-		if zk = m.zone.Get(zoneMessageReplyKey(0)); !zk.IsZero() {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	zk := m.zone.Get(zoneMessageReplyKey(0))
 	if zk.IsZero() {
 		t.Fatal("zoneMessageReplyKey(0) never got marked - reply button isn't rendering")
 	}

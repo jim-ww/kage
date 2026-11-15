@@ -6,8 +6,6 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/jim-ww/kage/ui/zone"
 )
 
 // newCacheEquivModel builds a model with fixed timestamps so two
@@ -48,23 +46,6 @@ func newCacheEquivModel() Model {
 	return m
 }
 
-// scannedZone is m's zone id, given the zone manager a moment to take in
-// the last View: it records zones on a goroutine of its own (see
-// zonePaneViewportBounds), so a pointer event straight after a render can
-// otherwise find nothing under it. nil for a zone that isn't there.
-//
-// Mind which zone a pointer event looks up: a message row is found through
-// zonePaneViewport, which is recorded after all its rows.
-func scannedZone(m *Model, id string) *zone.ZoneInfo {
-	for range 50 {
-		if z := m.zone.Get(id); z != nil {
-			return z
-		}
-		time.Sleep(time.Millisecond)
-	}
-	return nil
-}
-
 // TestViewIdenticalWithWarmAndColdCaches is the end-to-end guard on all
 // three render caches at once (rendered message rows, the chat list body,
 // the viewport frame): a model driven through a mouse sweep — so every
@@ -75,7 +56,7 @@ func scannedZone(m *Model, id string) *zone.ZoneInfo {
 func TestViewIdenticalWithWarmAndColdCaches(t *testing.T) {
 	warm := newCacheEquivModel()
 	_ = warm.View()
-	if scannedZone(&warm, zonePaneViewport) == nil {
+	if warm.zone.Get(zonePaneViewport) == nil {
 		t.Fatal("warm model's viewport never got a zone")
 	}
 
@@ -83,7 +64,7 @@ func TestViewIdenticalWithWarmAndColdCaches(t *testing.T) {
 	// a user dragging through the chat does.
 	var points []tea.Mouse
 	for i := 149 - 20; i < 150; i++ {
-		if z := scannedZone(&warm, zoneMessage(i)); z != nil {
+		if z := warm.zone.Get(zoneMessage(i)); z != nil {
 			points = append(points, tea.Mouse{X: z.StartX, Y: z.StartY})
 		}
 	}
@@ -105,7 +86,7 @@ func TestViewIdenticalWithWarmAndColdCaches(t *testing.T) {
 	// it knows where its rows are.
 	cold := newCacheEquivModel()
 	_ = cold.View()
-	if scannedZone(&cold, zonePaneViewport) == nil {
+	if cold.zone.Get(zonePaneViewport) == nil {
 		t.Fatal("cold model's viewport never got a zone")
 	}
 	next, _ = cold.Update(tea.MouseMotionMsg(final))
@@ -125,8 +106,8 @@ func TestViewIdenticalWithWarmAndColdCaches(t *testing.T) {
 func TestViewIdenticalAfterIncomingMessage(t *testing.T) {
 	warm := newCacheEquivModel()
 	_ = warm.View()
-	z := scannedZone(&warm, zoneMessage(145))
-	if z == nil || scannedZone(&warm, zonePaneViewport) == nil {
+	z := warm.zone.Get(zoneMessage(145))
+	if z == nil || warm.zone.Get(zonePaneViewport) == nil {
 		t.Fatal("message 145 or the viewport never got a zone")
 	}
 	next, _ := warm.Update(tea.MouseMotionMsg(tea.Mouse{X: z.StartX, Y: z.StartY}))

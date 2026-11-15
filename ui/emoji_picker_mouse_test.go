@@ -2,7 +2,6 @@ package ui
 
 import (
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -10,20 +9,14 @@ import (
 	"github.com/jim-ww/kage/ui/zone"
 )
 
-// awaitZone polls until id's zone is recorded - Scan buffers zone updates
-// through an internal channel/goroutine (see the Manager.Scan doc), so an
-// immediate Get right after Scan can race it.
-func awaitZone(t *testing.T, zm *zone.Manager, id string) *zone.ZoneInfo {
+// mustZone is id's zone in the last scan, failing t if there is none.
+func mustZone(t *testing.T, zm *zone.Manager, id string) *zone.ZoneInfo {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if z := zm.Get(id); !z.IsZero() {
-			return z
-		}
-		time.Sleep(time.Millisecond)
+	z := zm.Get(id)
+	if z.IsZero() {
+		t.Fatalf("zone %q not recorded", id)
 	}
-	t.Fatalf("zone %q never recorded", id)
-	return nil
+	return z
 }
 
 // TestEmojiPickerCellUnderMouseSnapsToNearestInRow guards against a click
@@ -60,8 +53,8 @@ func TestEmojiPickerCellUnderMouseSnapsToNearestInRow(t *testing.T) {
 	content := zm.Mark(picker.CellZoneID(cells[0]), "A") + "   " + zm.Mark(picker.CellZoneID(cells[1]), "B")
 	zm.Scan(content)
 
-	z0 := awaitZone(t, zm, picker.CellZoneID(cells[0]))
-	z1 := awaitZone(t, zm, picker.CellZoneID(cells[1]))
+	z0 := mustZone(t, zm, picker.CellZoneID(cells[0]))
+	z1 := mustZone(t, zm, picker.CellZoneID(cells[1]))
 	if z1.StartX-z0.EndX < 2 {
 		t.Fatalf("expected a real gap between the two cells, got z0=%+v z1=%+v", z0, z1)
 	}

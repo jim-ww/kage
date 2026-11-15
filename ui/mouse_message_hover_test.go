@@ -7,8 +7,6 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/jim-ww/kage/ui/zone"
 )
 
 // TestHoverLongMessageStraddlingViewportEdge guards against a regression
@@ -55,19 +53,7 @@ func TestHoverLongMessageStraddlingViewportEdge(t *testing.T) {
 	m.viewport.SetYOffset(msg1Header - height + 1)
 
 	_ = m.View() // populate zone bounds (zonePaneViewport etc.)
-
-	// bubblezone's Scan() hands its results to a background goroutine
-	// (zoneWorker) over a channel rather than storing them before returning
-	// - per its own doc comment, "an immediate call to Get(id) may not
-	// return the correct information" right after a scan. Poll briefly
-	// instead of asserting on the very next line.
-	var vp *zone.ZoneInfo
-	for range 100 {
-		if vp = m.zone.Get(zonePaneViewport); !vp.IsZero() {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	vp := m.zone.Get(zonePaneViewport)
 	if vp.IsZero() {
 		t.Fatal("zonePaneViewport not marked after View()")
 	}

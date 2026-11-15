@@ -41,14 +41,11 @@ func open(s *Stack[*host], title string, body Component) {
 func draw(t *testing.T, s *Stack[*host], zm *zone.Manager, zoneID string) *zone.ZoneInfo {
 	t.Helper()
 	zm.Scan(s.View())
-	for range 200 {
-		if z := zm.Get(zoneID); !z.IsZero() {
-			return z
-		}
-		time.Sleep(time.Millisecond)
+	z := zm.Get(zoneID)
+	if z.IsZero() {
+		t.Fatalf("zone %q not drawn", zoneID)
 	}
-	t.Fatalf("zone %q never drawn", zoneID)
-	return nil
+	return z
 }
 
 func click(z *zone.ZoneInfo) tea.MouseClickMsg {

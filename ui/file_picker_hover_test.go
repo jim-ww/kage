@@ -56,7 +56,7 @@ func TestFilePickerRowsFitSmallTerminal(t *testing.T) {
 			}
 
 			for row := range m.filePicker.Height() {
-				z := awaitZone(t, m.zone, pickerRowZone(m, row))
+				z := mustZone(t, m.zone, pickerRowZone(m, row))
 				if z.StartY != z.EndY {
 					t.Fatalf("row %d spans lines %d-%d, want one line", row, z.StartY, z.EndY)
 				}

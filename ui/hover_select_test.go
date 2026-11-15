@@ -31,8 +31,8 @@ func hoverSelectModel(t *testing.T, disabled bool) Model {
 	m.refreshViewport()
 
 	_ = m.View()
-	awaitZone(t, m.zone, zonePaneViewport)
-	z := awaitZone(t, m.zone, zoneMessage(0))
+	mustZone(t, m.zone, zonePaneViewport)
+	z := mustZone(t, m.zone, zoneMessage(0))
 	next, _ := m.handleMouseMotion(tea.MouseMotionMsg(tea.Mouse{X: z.StartX + 1, Y: z.StartY}))
 	return next.(Model)
 }

@@ -14,7 +14,7 @@ import (
 func clickZone(t *testing.T, m Model, id string) (Model, tea.Cmd) {
 	t.Helper()
 	_ = m.View()
-	z := awaitZone(t, m.zone, id)
+	z := mustZone(t, m.zone, id)
 	next, cmd := m.Update(tea.MouseClickMsg{X: z.StartX, Y: z.StartY, Button: tea.MouseLeft})
 	return next.(Model), cmd
 }
@@ -75,7 +75,7 @@ func TestConfirmClickOutsideCancels(t *testing.T) {
 		t.Fatalf("q opened %q, want the quit confirmation", modalTitle(m))
 	}
 	_ = m.View()
-	awaitZone(t, m.zone, "modal-frame")
+	mustZone(t, m.zone, "modal-frame")
 	next, cmd := m.Update(tea.MouseClickMsg{X: 0, Y: 0, Button: tea.MouseLeft})
 	if next.(Model).modals.Open() || nonIdleCmd(cmd) != nil {
 		t.Fatal("a click outside should close the confirmation without acting")

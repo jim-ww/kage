@@ -39,33 +39,23 @@ func newMouseSweepBenchModel(nChats, nMsgs int) Model {
 
 // messageSweepPoints returns pointer positions walking across message rows
 // [from, to), two per row so the sweep also crosses the action-key columns
-// (where several hover sub-states flip at once). bubblezone hands zone
-// bounds to a background goroutine, so the marks from a View() aren't
-// necessarily queryable the instant it returns — hence the retry rather
-// than a single render.
+// (where several hover sub-states flip at once).
 func messageSweepPoints(tb testing.TB, m *Model, from, to int) []tea.Mouse {
 	tb.Helper()
+	_ = m.View()
 	var points []tea.Mouse
-	for attempt := range 100 {
-		_ = m.View()
-		points = points[:0]
-		for i := from; i < to; i++ {
-			z := m.zone.Get(zoneMessage(i))
-			if z == nil {
-				continue
-			}
-			points = append(points, tea.Mouse{X: z.StartX, Y: z.StartY})
-			points = append(points, tea.Mouse{X: z.StartX + 30, Y: z.StartY})
+	for i := from; i < to; i++ {
+		z := m.zone.Get(zoneMessage(i))
+		if z == nil {
+			continue
 		}
-		if len(points) >= 2 {
-			return points
-		}
-		if attempt > 0 {
-			time.Sleep(time.Millisecond)
-		}
+		points = append(points, tea.Mouse{X: z.StartX, Y: z.StartY})
+		points = append(points, tea.Mouse{X: z.StartX + 30, Y: z.StartY})
 	}
-	tb.Fatal("not enough visible message zones to sweep over — check viewport height/window setup")
-	return nil
+	if len(points) < 2 {
+		tb.Fatal("not enough visible message zones to sweep over — check viewport height/window setup")
+	}
+	return points
 }
 
 // BenchmarkMouseSweepFullPipeline drives the full Update+View pipeline (not

@@ -106,7 +106,7 @@ func TestMouseHoverAndClick(t *testing.T) {
 	m.Zone = zm
 	zm.Scan(m.View())
 
-	z := awaitZone(t, zm, m.dayZoneID(date(2026, time.June, 3)))
+	z := mustZone(t, zm, m.dayZoneID(date(2026, time.June, 3)))
 	m, _ = m.Update(tea.MouseMotionMsg{X: z.StartX, Y: z.StartY})
 	if !m.hover.Equal(date(2026, time.June, 3)) {
 		t.Fatal("hovering 3 June didn't highlight it")
@@ -116,22 +116,19 @@ func TestMouseHoverAndClick(t *testing.T) {
 		t.Fatalf("clicked 3 June, picked %s", got.Date.Format(time.DateOnly))
 	}
 
-	nz := awaitZone(t, zm, m.ID+"-next")
+	nz := mustZone(t, zm, m.ID+"-next")
 	m, _ = m.Update(tea.MouseClickMsg{X: nz.StartX, Y: nz.StartY, Button: tea.MouseLeft})
 	if m.Cursor().Month() != time.July {
 		t.Fatalf("› went to %s, want July", m.Cursor().Month())
 	}
 }
 
-// awaitZone waits for bubblezone's asynchronous Scan to record id.
-func awaitZone(t *testing.T, zm *zone.Manager, id string) *zone.ZoneInfo {
+// mustZone is id's zone in the last scan, failing t if there is none.
+func mustZone(t *testing.T, zm *zone.Manager, id string) *zone.ZoneInfo {
 	t.Helper()
-	for range 200 {
-		if z := zm.Get(id); !z.IsZero() {
-			return z
-		}
-		time.Sleep(time.Millisecond)
+	z := zm.Get(id)
+	if z.IsZero() {
+		t.Fatalf("zone %q not recorded", id)
 	}
-	t.Fatalf("zone %q never recorded", id)
-	return nil
+	return z
 }

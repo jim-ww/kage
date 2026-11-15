@@ -65,26 +65,15 @@ func newScrollBoundaryTestModel(t *testing.T, n int) (*Model, *spyHistoryLoader)
 	return &m, loader
 }
 
-// zonePaneViewportBounds returns zonePaneViewport's current bounds,
-// re-rendering and retrying briefly if needed. bubblezone's Scan() (called
-// from View()) hands zone updates to a background goroutine over a channel
-// and returns immediately — its own doc comment warns "an immediate call
-// to Get(id) may not return the correct information" — so a tight
-// View()-then-Get() loop with no real I/O in between (unlike an actual
-// running program, which always has a gap before the next input) can
-// legitimately race ahead of that goroutine. Retrying briefly is the
-// library's documented workaround, not a product bug.
+// zonePaneViewportBounds returns zonePaneViewport's bounds in the last
+// render.
 func zonePaneViewportBounds(t *testing.T, m *Model) *zone.ZoneInfo {
 	t.Helper()
-	for i := 0; i < 50; i++ {
-		if z := m.zone.Get(zonePaneViewport); z != nil {
-			return z
-		}
-		_ = m.View()
-		time.Sleep(time.Millisecond)
+	z := m.zone.Get(zonePaneViewport)
+	if z == nil {
+		t.Fatal("zonePaneViewport not found — check test model setup")
 	}
-	t.Fatal("zonePaneViewport not found after retrying — check test model setup")
-	return nil
+	return z
 }
 
 func wheelUpInViewport(t *testing.T, m *Model) {

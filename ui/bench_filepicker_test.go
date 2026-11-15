@@ -32,25 +32,17 @@ func newFilePickerBenchModel(b testing.TB, nFiles int) Model {
 // filePickerSweepPoints returns one pointer position per visible picker row.
 func filePickerSweepPoints(b testing.TB, m *Model) []tea.Mouse {
 	b.Helper()
-	for attempt := range 100 {
-		_ = m.View()
-		var points []tea.Mouse
-		for i := range m.filePicker.Height() {
-			z := m.zone.Get(pickerRowZone(*m, i))
-			if z == nil || z.IsZero() {
-				continue
-			}
+	_ = m.View()
+	var points []tea.Mouse
+	for i := range m.filePicker.Height() {
+		if z := m.zone.Get(pickerRowZone(*m, i)); !z.IsZero() {
 			points = append(points, tea.Mouse{X: z.StartX + 5, Y: z.StartY})
 		}
-		if len(points) >= 10 {
-			return points
-		}
-		if attempt > 0 {
-			time.Sleep(time.Millisecond)
-		}
 	}
-	b.Fatal("not enough visible file picker rows")
-	return nil
+	if len(points) < 10 {
+		b.Fatal("not enough visible file picker rows")
+	}
+	return points
 }
 
 // drain runs cmd and feeds every message it yields back through Update+View,
