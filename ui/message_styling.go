@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"charm.land/lipgloss/v2"
 )
@@ -40,6 +41,33 @@ var (
 // display in the chat view. Used only where the terminal renders styled
 // content directly - never for previews (see StripMessageStyling).
 func FormatMessageBody(content string) string {
+	formatted.mu.Lock()
+	out, ok := formatted.m[content]
+	formatted.mu.Unlock()
+	if ok {
+		return out
+	}
+	out = formatMessageBody(content)
+	formatted.mu.Lock()
+	if len(formatted.m) >= formattedMax {
+		clear(formatted.m)
+	}
+	formatted.m[content] = out
+	formatted.mu.Unlock()
+	return out
+}
+
+// formatted memoizes FormatMessageBody: a full chat refresh formats every
+// loaded message again, and highlighting code costs milliseconds.
+var formatted = struct {
+	mu sync.Mutex
+	m  map[string]string
+}{m: map[string]string{}}
+
+// formattedMax bounds formatted, a few history windows' worth.
+const formattedMax = 2048
+
+func formatMessageBody(content string) string {
 	content = urlPattern.ReplaceAllStringFunc(content, func(url string) string {
 		return urlStyle.Render(url)
 	})
