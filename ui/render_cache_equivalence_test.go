@@ -6,7 +6,8 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	zone "github.com/jim-ww/kage/ui/zone"
+
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // newCacheEquivModel builds a model with fixed timestamps so two

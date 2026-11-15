@@ -11,11 +11,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	zone "github.com/jim-ww/kage/ui/zone"
 
+	"github.com/jim-ww/kage/ui/cells"
 	"github.com/jim-ww/kage/ui/datepicker"
 	"github.com/jim-ww/kage/ui/emojipicker"
 	"github.com/jim-ww/kage/ui/filepicker"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 func newChatListDelegate(colors uiColors, zm *zone.Manager, mouseEnabled bool, hv *hoverState) list.ItemDelegate {
@@ -137,7 +138,7 @@ func (d *zoneChatListDelegate) Render(w io.Writer, m list.Model, index int, item
 func padLinesToWidth(content string, width int) string {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
-		if pad := width - lipgloss.Width(line); pad > 0 {
+		if pad := width - cells.BlockWidth(line); pad > 0 {
 			padding := strings.Repeat(" ", pad)
 			if strings.Contains(line, "\x1b[") {
 				// ansi.Wrap can split a styled run mid-line (e.g. a

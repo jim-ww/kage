@@ -8,12 +8,12 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	zone "github.com/jim-ww/kage/ui/zone"
 
+	"github.com/jim-ww/kage/ui/cells"
 	"github.com/jim-ww/kage/ui/filepicker"
 	"github.com/jim-ww/kage/ui/modal"
 	"github.com/jim-ww/kage/ui/viewport"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // ── Model ─────────────────────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon 
 	ti.Placeholder = "message..."
 	// On the first line only: repeated down every line of a multi-line
 	// message it reads as a column of bullets.
-	ti.SetPromptFunc(lipgloss.Width(inputPrompt), func(p textarea.PromptInfo) string {
+	ti.SetPromptFunc(cells.BlockWidth(inputPrompt), func(p textarea.PromptInfo) string {
 		if p.LineNumber == 0 {
 			return inputPrompt
 		}

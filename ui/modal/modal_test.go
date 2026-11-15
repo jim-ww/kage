@@ -8,9 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/jim-ww/kage/ui/zone"
 
 	"github.com/jim-ww/kage/ui/datepicker"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // host stands in for the embedding program: it records what its modals

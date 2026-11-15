@@ -7,8 +7,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	zone "github.com/jim-ww/kage/ui/zone"
+
+	"github.com/jim-ww/kage/ui/cells"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // Zone IDs of the clickable regions marked in View(), checked most specific
@@ -651,7 +652,7 @@ func (m *Model) positionInputCursorAt(msg tea.MouseClickMsg, z *zone.ZoneInfo) {
 
 	rowStart := m.input.Column()
 	rowWidth := m.input.LineInfo().Width
-	m.input.SetCursorColumn(rowStart + max(0, min(clickCol-lipgloss.Width(inputPrompt), rowWidth)))
+	m.input.SetCursorColumn(rowStart + max(0, min(clickCol-cells.BlockWidth(inputPrompt), rowWidth)))
 }
 
 // handleRightClick selects what was clicked, as a left-click would, and

@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/jim-ww/kage/ui/cells"
 	"github.com/jim-ww/kage/ui/datepicker"
 	"github.com/jim-ww/kage/ui/modal"
 )
@@ -195,9 +196,9 @@ func (b *searchResultsBody) relist() {
 	for i, idx := range b.shown {
 		text, date := b.m.searchResultLabel(b.messages[idx])
 		if b.width > 0 {
-			room := max(1, b.width-lipgloss.Width(date)-2)
+			room := max(1, b.width-cells.BlockWidth(date)-2)
 			text = ansi.Truncate(text, room, "…")
-			text += strings.Repeat(" ", max(2, b.width-lipgloss.Width(text)-lipgloss.Width(date)))
+			text += strings.Repeat(" ", max(2, b.width-cells.BlockWidth(text)-cells.BlockWidth(date)))
 		} else {
 			text += "  "
 		}

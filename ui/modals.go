@@ -4,9 +4,9 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	zone "github.com/jim-ww/kage/ui/zone"
 
 	"github.com/jim-ww/kage/ui/modal"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // newModalStack is the Model's stack of open modals (see ui/modal), drawn

@@ -2,6 +2,8 @@
 package cells
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -65,4 +67,13 @@ func skipEscape(s string, i int) int {
 		}
 	}
 	return -1
+}
+
+// BlockWidth is lipgloss.Width: the widest of s's lines.
+func BlockWidth(s string) int {
+	w := 0
+	for line := range strings.SplitSeq(s, "\n") {
+		w = max(w, Width(line))
+	}
+	return w
 }

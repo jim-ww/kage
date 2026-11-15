@@ -3,9 +3,9 @@ package modal
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/jim-ww/kage/ui/zone"
 
 	"github.com/jim-ww/kage/ui/datepicker"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // Date is a calendar: picking a day (enter, or a click) submits it, a

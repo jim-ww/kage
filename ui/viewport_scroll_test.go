@@ -5,8 +5,9 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
+
 	"github.com/jim-ww/kage/ui/viewport"
-	zone "github.com/jim-ww/kage/ui/zone"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // newScrollTestModel builds a Model with n one-line messages and a viewport

@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jim-ww/kage/ui/cells"
 )
 
 // renderMessagesWithOffsets renders every loaded message of the chat and
@@ -162,7 +163,7 @@ func maxSenderNameWidth(msgs []Message) int {
 		if msg.CallLog != nil {
 			continue
 		}
-		if w := lipgloss.Width(senderDisplayName(msg.Author)); w > width {
+		if w := cells.BlockWidth(senderDisplayName(msg.Author)); w > width {
 			width = w
 		}
 	}
@@ -276,8 +277,8 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		nameStyle = m.styles.messageNickMe
 	}
 	name := senderDisplayName(msg.Author)
-	label := strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name))) + name
-	prefixWidth := lipgloss.Width(label) + 1 // trailing space between name and what follows it
+	label := strings.Repeat(" ", max(0, nameWidth-cells.BlockWidth(name))) + name
+	prefixWidth := cells.BlockWidth(label) + 1 // trailing space between name and what follows it
 	pad := strings.Repeat(" ", prefixWidth)
 
 	headerLine := nameStyle.Render(label)
@@ -556,7 +557,7 @@ func (m Model) replyHeaderFragment(idx int, allMsgs []Message, budget int) strin
 	name := nameStyle.Render(displayName)
 	sep := m.styles.messageTime.Render("│")
 	// "↑ " + name + " " + "│" + " "
-	fixed := 2 + lipgloss.Width(displayName) + 3
+	fixed := 2 + cells.BlockWidth(displayName) + 3
 	preview := m.styles.messageTime.Render(previewText(MessagePreviewContent(orig), min(previewLen, budget-fixed)))
 	return "↑ " + name + " " + sep + " " + preview
 }
@@ -571,7 +572,7 @@ func (m Model) replyHeaderFragmentFallback(author, preview string, budget int) s
 	displayName := senderDisplayName(author)
 	name := nameStyle.Render(displayName)
 	sep := m.styles.messageTime.Render("│")
-	fixed := 2 + lipgloss.Width(displayName) + 3
+	fixed := 2 + cells.BlockWidth(displayName) + 3
 	previewRendered := m.styles.messageTime.Render(previewText(preview, min(previewLen, budget-fixed)))
 	return "↑ " + name + " " + sep + " " + previewRendered
 }

@@ -8,10 +8,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	zone "github.com/jim-ww/kage/ui/zone"
 
+	"github.com/jim-ww/kage/ui/cells"
 	"github.com/jim-ww/kage/ui/filepicker"
 	"github.com/jim-ww/kage/ui/modal"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // filePickerModalID finds the open file picker, to close it with the
@@ -138,9 +139,9 @@ func (b *filePickerBody) navButton(glyph, id string, enabled bool) string {
 func (b *filePickerBody) View() string {
 	nav := b.navButton("‹", b.id+"-back", b.picker.CanGoBack()) + " " + b.navButton("›", b.id+"-forward", b.picker.CanGoForward()) + "  "
 	dir := b.picker.CurrentDirectory
-	if avail := b.width - lipgloss.Width(nav); avail > 1 && lipgloss.Width(dir) > avail {
+	if avail := b.width - cells.BlockWidth(nav); avail > 1 && cells.BlockWidth(dir) > avail {
 		// Cut from the left, keeping the directory's most specific end.
-		dir = "…" + ansi.TruncateLeft(dir, lipgloss.Width(dir)-avail+1, "")
+		dir = "…" + ansi.TruncateLeft(dir, cells.BlockWidth(dir)-avail+1, "")
 	}
 	lines := strings.Split(b.picker.View(), "\n")
 	for i := range lines {

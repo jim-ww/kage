@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	zone "github.com/jim-ww/kage/ui/zone"
 
 	"github.com/jim-ww/kage/ui/modal"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // The desktop audio volume modal: a slider for how loud the audio shared

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/jim-ww/kage/ui/cells"
 )
 
 const (
@@ -244,7 +246,7 @@ func (s *uiStyles) inputContainer(border color.Color, content string) string {
 // around it — see sendButtonWidth.
 const sendButtonLabel = " Send "
 
-// sendButtonWidth is lipgloss.Width(rendered send button): the label plus
+// sendButtonWidth is cells.BlockWidth(rendered send button): the label plus
 // its Padding(0, 1).
 const sendButtonWidth = len(sendButtonLabel) + 2
 
@@ -265,10 +267,10 @@ func attachButtonLabel(icons bool) string {
 	return "Attach"
 }
 
-// attachButtonWidth is lipgloss.Width(rendered attach button): the label
+// attachButtonWidth is cells.BlockWidth(rendered attach button): the label
 // plus its Padding(0, 1).
 func attachButtonWidth(icons bool) int {
-	return lipgloss.Width(attachButtonLabel(icons)) + 2
+	return cells.BlockWidth(attachButtonLabel(icons)) + 2
 }
 
 // renderStoragePasswordButton renders the storage password button of the
@@ -426,7 +428,7 @@ func (s *uiStyles) viewportContent(width, height int, content string) string {
 func (s *uiStyles) noticeToast(maxWidth int, content string) string {
 	style := s.notice
 	// -4 for border and padding; a width only when the text must wrap.
-	if textWidth := max(1, maxWidth-4); lipgloss.Width(content) > textWidth {
+	if textWidth := max(1, maxWidth-4); cells.BlockWidth(content) > textWidth {
 		style = style.Width(textWidth)
 	}
 	return style.Render(content)

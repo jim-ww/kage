@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/jim-ww/kage/ui/cells"
 	"github.com/jim-ww/kage/ui/modal"
 )
 
@@ -41,7 +42,7 @@ func (m Model) View() tea.View {
 	}
 	// Built first, so the name is laid out in what the button leaves.
 	menuBtn := m.zone.Mark(zoneAccountMenuButton, m.styles.renderAccountMenuButton(m.icons, accountRow, m.isHovered(zoneAccountMenuButton)))
-	nameWidth := max(1, scw-lipgloss.Width(menuBtn))
+	nameWidth := max(1, scw-cells.BlockWidth(menuBtn))
 	accountName, accountStatus := m.renderAccountBar(nameWidth, scw, accountHovered, accountOpen)
 	nameRow := m.zone.Mark(zoneAccountBarName, m.styles.accountBarNameRow(nameWidth, accountRow, accountName)) + menuBtn
 	statusRow := ""
@@ -51,7 +52,7 @@ func (m Model) View() tea.View {
 		// text) the rest of the time.
 		keyIconHovered := m.isHovered(zoneStoragePasswordButton)
 		keyIcon := m.zone.Mark(zoneStoragePasswordButton, m.styles.renderStoragePasswordButton(m.icons, keyIconHovered))
-		keyIconWidth := lipgloss.Width(keyIcon)
+		keyIconWidth := cells.BlockWidth(keyIcon)
 		statusHovered := m.isHovered(zoneAccountBarStatus)
 		statusText := m.zone.Mark(zoneAccountBarStatus, m.styles.accountBarStatusRow(max(1, scw-keyIconWidth), accountStatus, statusHovered))
 		statusRow = keyIcon + statusText
@@ -297,7 +298,7 @@ func (m Model) renderChatArea(colors uiColors) string {
 	// In narrow mode the list is hidden whenever the chat shows.
 	listHidden := m.sidebarHidden || m.narrow()
 	toggleBtn := m.zone.Mark(zoneToggleSidebar, m.styles.renderSidebarToggleButton(listHidden, m.isHovered(zoneToggleSidebar)))
-	statusWidth := max(0, m.chatAreaWidth()-lipgloss.Width(toggleBtn))
+	statusWidth := max(0, m.chatAreaWidth()-cells.BlockWidth(toggleBtn))
 	chatStatus := joinHorizontal(toggleBtn, m.zone.Mark(zoneChatStatusBar, m.styles.chatStatusLine(statusWidth, m.renderChatStatusBar(statusWidth))))
 	return joinVertical(chatStatus, viewportArea, inputBox)
 }
@@ -317,7 +318,7 @@ func (m Model) renderCallBar(width int) string {
 			parts[i] = m.zone.Mark(b.zone, m.styles.renderCallBarButton("["+b.label+"]", m.isHovered(b.zone)))
 		}
 		out := strings.Join(parts, m.styles.callBarText(" "))
-		return out, lipgloss.Width(out)
+		return out, cells.BlockWidth(out)
 	}
 	buttons = fitCallBarButtons(buttons, inner, func(bs []callBarButton) int {
 		_, w := rendered(bs)
@@ -330,7 +331,7 @@ func (m Model) renderCallBar(width int) string {
 		room -= btnsWidth + 1
 	}
 	status := ansi.Truncate(m.callStatus(), max(0, room), "…")
-	gap := max(0, inner-lipgloss.Width(status)-btnsWidth)
+	gap := max(0, inner-cells.BlockWidth(status)-btnsWidth)
 	return m.styles.callBarLine(width, m.styles.callBarText(status+strings.Repeat(" ", gap))+btns)
 }
 
@@ -339,7 +340,7 @@ func (m Model) renderCallBar(width int) string {
 func overlayBottomRight(base, toast string) string {
 	const marginBottom, marginRight = 2, 2
 	baseLines, toastLines := strings.Split(base, "\n"), strings.Split(toast, "\n")
-	x := max(0, lipgloss.Width(base)-lipgloss.Width(toast)-marginRight)
+	x := max(0, cells.BlockWidth(base)-cells.BlockWidth(toast)-marginRight)
 	y := max(0, len(baseLines)-len(toastLines)-marginBottom)
 	return overlayAt(base, toast, x, y)
 }
@@ -348,7 +349,7 @@ func overlayBottomRight(base, toast string) string {
 // and anchored marginBottom rows off the bottom edge of base.
 func overlayBottomCenter(base, content string, marginBottom int) string {
 	baseLines, contentLines := strings.Split(base, "\n"), strings.Split(content, "\n")
-	x := max(0, (lipgloss.Width(base)-lipgloss.Width(content))/2)
+	x := max(0, (cells.BlockWidth(base)-cells.BlockWidth(content))/2)
 	y := max(0, len(baseLines)-len(contentLines)-marginBottom)
 	return overlayAt(base, content, x, y)
 }
@@ -406,7 +407,7 @@ func (m Model) renderDeviceHoverPopup() (popup string, x, y int, ok bool) {
 	popup = box.Render(strings.Join(lines, "\n"))
 
 	x = z.EndX + 1
-	if popupWidth := lipgloss.Width(popup); x+popupWidth > m.width {
+	if popupWidth := cells.BlockWidth(popup); x+popupWidth > m.width {
 		x = max(0, m.width-popupWidth)
 	}
 	y = z.StartY
@@ -421,7 +422,7 @@ func (m Model) renderDeviceHoverPopup() (popup string, x, y int, ok bool) {
 // line-by-line with ansi.Cut so it doesn't break escape codes or
 // wide-character boundaries in whatever base content it covers.
 func overlayAt(base, content string, x, y int) string {
-	return overlayAtWidth(base, content, x, y, lipgloss.Width(content))
+	return overlayAtWidth(base, content, x, y, cells.BlockWidth(content))
 }
 
 // overlayAtWidth is overlayAt for content of known width, saving measuring
@@ -436,7 +437,7 @@ func overlayAtWidth(base, content string, x, y, contentWidth int) string {
 			break
 		}
 		bg := baseLines[row]
-		bgWidth := ansi.StringWidth(bg)
+		bgWidth := cells.Width(bg)
 		left := ansi.Cut(bg, 0, min(x, bgWidth))
 		right := ansi.Cut(bg, min(x+contentWidth, bgWidth), bgWidth)
 		baseLines[row] = left + contentLine + right
@@ -569,9 +570,9 @@ func (m Model) renderAccountBar(nameWidth, statusWidth int, hovered, open bool) 
 		if open {
 			arrow = "[▲]"
 		}
-		arrowW := lipgloss.Width(arrow)
+		arrowW := cells.BlockWidth(arrow)
 		name = ansi.Truncate(name, max(1, w-arrowW-1), "…")
-		pad := max(1, w-lipgloss.Width(name)-arrowW)
+		pad := max(1, w-cells.BlockWidth(name)-arrowW)
 		name += strings.Repeat(" ", pad) + arrow
 	} else {
 		name = ansi.Truncate(name, w, "…")
