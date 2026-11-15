@@ -24,7 +24,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/bubblezone/v2"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // Component is what a modal shows. Update gets every message meant for it

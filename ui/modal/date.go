@@ -3,7 +3,7 @@ package modal
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/lrstanley/bubblezone/v2"
+	"github.com/jim-ww/kage/ui/zone"
 
 	"github.com/jim-ww/kage/ui/datepicker"
 )

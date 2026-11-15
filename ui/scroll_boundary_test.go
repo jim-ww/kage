@@ -8,7 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	zone "github.com/lrstanley/bubblezone/v2"
+	zone "github.com/jim-ww/kage/ui/zone"
 )
 
 // spyHistoryLoader records every LoadHistoryWindow call, standing in for a

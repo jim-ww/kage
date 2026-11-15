@@ -5,7 +5,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	zone "github.com/lrstanley/bubblezone/v2"
+	zone "github.com/jim-ww/kage/ui/zone"
 
 	"github.com/jim-ww/kage/ui/emojipicker"
 )
@@ -39,7 +39,6 @@ func awaitZone(t *testing.T, zm *zone.Manager, id string) *zone.ZoneInfo {
 // miss and do nothing.
 func TestEmojiPickerCellUnderMouseSnapsToNearestInRow(t *testing.T) {
 	zm := zone.New()
-	t.Cleanup(zm.Close)
 
 	picker := emojipicker.New(nil)
 	picker.Zone = zm

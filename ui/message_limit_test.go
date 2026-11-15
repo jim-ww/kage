@@ -6,7 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	"github.com/jim-ww/kage/ui/viewport"
-	zone "github.com/lrstanley/bubblezone/v2"
+	zone "github.com/jim-ww/kage/ui/zone"
 )
 
 func TestTrimMessagesFront(t *testing.T) {

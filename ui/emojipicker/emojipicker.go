@@ -15,7 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/enescakir/emoji"
-	"github.com/lrstanley/bubblezone/v2"
+	"github.com/jim-ww/kage/ui/zone"
 	"github.com/sahilm/fuzzy"
 )
 

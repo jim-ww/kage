@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/bubblezone/v2"
+	"github.com/jim-ww/kage/ui/zone"
 
 	"github.com/jim-ww/kage/ui/datepicker"
 )

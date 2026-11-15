@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lrstanley/bubblezone/v2"
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 func date(y int, m time.Month, d int) time.Time {

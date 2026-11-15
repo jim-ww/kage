@@ -10,12 +10,10 @@ require (
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.7
-	github.com/charmbracelet/x/exp/golden v0.0.0-20250806222409-83e3a29d542f
 	github.com/dustin/go-humanize v1.0.1
 	github.com/enescakir/emoji v1.0.0
 	github.com/gen2brain/malgo v0.11.25
 	github.com/jim-ww/omemo-go v0.1.4
-	github.com/lrstanley/bubblezone/v2 v2.0.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pion/interceptor v0.1.47
 	github.com/pion/opus v0.1.1-0.20260806214105-56fe97fcac80
@@ -23,7 +21,6 @@ require (
 	github.com/pion/rtp v1.10.5
 	github.com/pion/sdp/v3 v3.0.19
 	github.com/pion/webrtc/v4 v4.2.18
-	github.com/rivo/uniseg v0.4.7
 	github.com/sahilm/fuzzy v0.1.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
@@ -36,7 +33,6 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/aymanbagabas/go-udiff v0.4.1 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260416155717-489999b90468 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
@@ -67,6 +63,7 @@ require (
 	github.com/pion/transport/v4 v4.0.2 // indirect
 	github.com/pion/turn/v5 v5.0.12 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect

@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	zone "github.com/lrstanley/bubblezone/v2"
+	zone "github.com/jim-ww/kage/ui/zone"
 )
 
 // Zone IDs of the clickable regions marked in View(), checked most specific

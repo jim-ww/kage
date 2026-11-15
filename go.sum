@@ -71,8 +71,6 @@ github.com/jim-ww/xochimilco v0.1.0 h1:6Fl+pgmNiigeZC1+SWl4tyt1opBXS6NKw1OSG2N3d
 github.com/jim-ww/xochimilco v0.1.0/go.mod h1:Xs6/H60D4Q/fxJ78DnUz4pexjfFAWRVzzVCpW3ncIhw=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
-github.com/lrstanley/bubblezone/v2 v2.0.0 h1:pMb9fHKs0slJF6OrzQ2hEgWusqyl9VU/S0UZ5hyh7ZA=
-github.com/lrstanley/bubblezone/v2 v2.0.0/go.mod h1:yV/QTjcm4Zu5cqvGvdHi7xVUfnB36w/SafOuDp57dgY=
 github.com/lucasb-eyer/go-colorful v1.4.0 h1:UtrWVfLdarDgc44HcS7pYloGHJUjHV/4FwW4TvVgFr4=
 github.com/lucasb-eyer/go-colorful v1.4.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
