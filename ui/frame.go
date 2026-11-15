@@ -5,75 +5,14 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jim-ww/kage/ui/cells"
 )
 
 // Frame-sized blocks are measured line by line on every View, and
 // ansi.StringWidth segments graphemes even for plain ASCII. These are
 // lipgloss's JoinVertical(Left)/JoinHorizontal(Top) and a foreground-only
-// Render, byte for byte (see frame_test.go), measuring with textWidth.
-
-// textWidth is ansi.StringWidth with a fast path for ASCII: a printable
-// ASCII byte not followed by a non-ASCII one (a combining mark could join
-// it) is a one-column grapheme on its own.
-func textWidth(s string) int {
-	w := 0
-	for i := 0; i < len(s); {
-		c := s[i]
-		switch {
-		case c >= 0x20 && c < 0x7f && (i+1 == len(s) || s[i+1] < 0x80):
-			w++
-			i++
-		case c == ansi.ESC:
-			j := skipEscape(s, i)
-			if j < 0 {
-				return w + ansi.StringWidth(s[i:])
-			}
-			i = j
-		case c < 0x20 || c == 0x7f:
-			i++
-		default:
-			// Non-ASCII: hand the run up to the next escape to ansi.
-			j := strings.IndexByte(s[i:], ansi.ESC)
-			if j < 0 {
-				return w + ansi.StringWidth(s[i:])
-			}
-			w += ansi.StringWidth(s[i : i+j])
-			i += j
-		}
-	}
-	return w
-}
-
-// skipEscape returns the index just past the CSI or OSC sequence starting
-// at s[i], or -1 for any other escape, left to ansi.StringWidth.
-func skipEscape(s string, i int) int {
-	if i+1 >= len(s) {
-		return -1
-	}
-	switch s[i+1] {
-	case '[':
-		for j := i + 2; j < len(s); j++ {
-			if s[j] >= 0x40 && s[j] <= 0x7e {
-				return j + 1
-			}
-			if s[j] < 0x20 || s[j] > 0x7e {
-				return -1
-			}
-		}
-	case ']':
-		for j := i + 2; j < len(s); j++ {
-			switch {
-			case s[j] == 0x07:
-				return j + 1
-			case s[j] == ansi.ESC && j+1 < len(s) && s[j+1] == '\\':
-				return j + 2
-			case s[j] < 0x20:
-				return -1
-			}
-		}
-	}
-	return -1
-}
+// Render, byte for byte (see frame_test.go), measuring with cells.Width.
 
 // blockLines is lipgloss's getLines with textWidth.
 func blockLines(s string) (lines []string, widest int) {
@@ -81,7 +20,7 @@ func blockLines(s string) (lines []string, widest int) {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	lines = strings.Split(s, "\n")
 	for _, l := range lines {
-		widest = max(widest, textWidth(l))
+		widest = max(widest, cells.Width(l))
 	}
 	return lines, widest
 }
@@ -108,7 +47,7 @@ func joinVertical(strs ...string) string {
 				b.WriteByte('\n')
 			}
 			b.WriteString(line)
-			b.WriteString(strings.Repeat(" ", widest-textWidth(line)))
+			b.WriteString(strings.Repeat(" ", widest-cells.Width(line)))
 		}
 	}
 	return b.String()
@@ -140,7 +79,7 @@ func joinHorizontal(strs ...string) string {
 				line = block[row]
 			}
 			b.WriteString(line)
-			b.WriteString(strings.Repeat(" ", widths[i]-textWidth(line)))
+			b.WriteString(strings.Repeat(" ", widths[i]-cells.Width(line)))
 		}
 	}
 	return b.String()
@@ -180,7 +119,7 @@ func (f fgBlock) Render(s string) string {
 			b.WriteString(line)
 		}
 		if len(lines) > 1 {
-			b.WriteString(strings.Repeat(" ", widest-textWidth(line)))
+			b.WriteString(strings.Repeat(" ", widest-cells.Width(line)))
 		}
 	}
 	return b.String()

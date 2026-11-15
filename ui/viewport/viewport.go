@@ -8,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jim-ww/kage/ui/cells"
 )
 
 // wheelDelta is how many lines one mouse wheel tick scrolls.
@@ -97,10 +99,10 @@ func (m *Model) View() string {
 			continue
 		}
 		line := m.lines[idx]
-		w := ansi.StringWidth(line)
+		w := cells.Width(line)
 		if w > m.width {
 			line = ansi.Truncate(line, m.width, "")
-			w = ansi.StringWidth(line)
+			w = cells.Width(line)
 		}
 		b.WriteString(line)
 		b.WriteString(blank[:m.width-w])

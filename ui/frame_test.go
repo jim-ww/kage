@@ -7,6 +7,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jim-ww/kage/ui/cells"
 )
 
 // framePieces are the kinds of text a frame is built of.
@@ -29,12 +31,12 @@ func randomFrameText(r *rand.Rand, lines int) string {
 	return b.String()
 }
 
-func TestTextWidthMatchesAnsi(t *testing.T) {
+func TestCellsWidthMatchesAnsi(t *testing.T) {
 	r := rand.New(rand.NewPCG(1, 2))
 	for range 20000 {
 		s := randomFrameText(r, 1)
-		if got, want := textWidth(s), ansi.StringWidth(s); got != want {
-			t.Fatalf("textWidth(%q) = %d, want %d", s, got, want)
+		if got, want := cells.Width(s), ansi.StringWidth(s); got != want {
+			t.Fatalf("Width(%q) = %d, want %d", s, got, want)
 		}
 	}
 }
