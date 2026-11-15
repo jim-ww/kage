@@ -2,16 +2,6 @@ package ui
 
 import "strings"
 
-// messageRowMaxWidth is the widest a rendered message row can ever be: every
-// row (renderMessage reserves 2 columns up front for its left gutter, then
-// wraps/pads everything else to fit what's left) tops out at chatAreaWidth().
-// Passed to viewport.SetContentLinesWidth so it can skip its own ansi-width
-// scan over every line — see bench_scroll_test.go for what that scan costs
-// on a long chat history.
-func messageRowMaxWidth(cw int) int {
-	return cw
-}
-
 // refreshViewport re-renders all messages and updates the viewport content.
 func (m *Model) refreshViewport() {
 	// Every message-content change routes through here (that's what lets
@@ -37,7 +27,7 @@ func (m *Model) refreshViewport() {
 	content, offsets := m.renderMessagesWithOffsets()
 	m.msgOffsets = offsets
 	m.viewportLines = strings.Split(content, "\n")
-	m.viewport.SetContentLinesWidth(m.viewportLines, messageRowMaxWidth(m.chatAreaWidth()))
+	m.viewport.SetContentLines(m.viewportLines)
 }
 
 // refreshViewportSelection re-renders only the messages at oldIdx and newIdx
@@ -58,7 +48,7 @@ func (m *Model) refreshViewportSelection(oldIdx, newIdx int) {
 // motion event that flips several independent hover states at once
 // (selectedMsg, reply-key hover, react-key hover, expand-button hover,
 // reaction-chip hover — see handleMouseMotion) re-renders each distinct row
-// once and pays maxSenderNameWidth's/SetContentLinesWidth's cost once,
+// once and pays maxSenderNameWidth's cost once,
 // instead of once per hover state. Duplicate/invalid indices are silently
 // deduped/skipped.
 func (m *Model) refreshViewportSelectionMulti(indices ...int) {
@@ -114,11 +104,7 @@ func (m *Model) refreshViewportSelectionMulti(indices ...int) {
 		return
 	}
 
-	// SetContentLinesWidth takes the already-split lines directly, skipping
-	// the join-then-resplit that SetContent(strings.Join(...)) would do, and
-	// the longest-line width directly too, since only the changed rows out
-	// of the whole cached content changed (see messageRowMaxWidth).
-	m.viewport.SetContentLinesWidth(m.viewportLines, messageRowMaxWidth(cw))
+	m.viewport.SetContentLines(m.viewportLines)
 }
 
 // refreshViewportScrollTo re-renders only the messages at oldIdx and msgIdx
