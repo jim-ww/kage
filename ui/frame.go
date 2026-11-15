@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"sync"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -14,13 +15,45 @@ import (
 // lipgloss's JoinVertical(Left)/JoinHorizontal(Top) and a foreground-only
 // Render, byte for byte (see frame_test.go), measuring with cells.Width.
 
-// blockLines is lipgloss's getLines with textWidth.
+// lineWidths caches cells.Width of the lines frames are built of: the same
+// lines come back frame after frame, and a map lookup is far cheaper than
+// segmenting graphemes again.
+var lineWidths = struct {
+	mu sync.Mutex
+	m  map[string]int
+}{m: map[string]int{}}
+
+// lineWidthsMax bounds lineWidths at a few large frames' worth of lines.
+const lineWidthsMax = 8192
+
+// lineWidth is cells.Width(s), cached for lines long enough to be worth it.
+func lineWidth(s string) int {
+	if len(s) < 32 {
+		return cells.Width(s)
+	}
+	lineWidths.mu.Lock()
+	w, ok := lineWidths.m[s]
+	lineWidths.mu.Unlock()
+	if ok {
+		return w
+	}
+	w = cells.Width(s)
+	lineWidths.mu.Lock()
+	if len(lineWidths.m) >= lineWidthsMax {
+		clear(lineWidths.m)
+	}
+	lineWidths.m[s] = w
+	lineWidths.mu.Unlock()
+	return w
+}
+
+// blockLines is lipgloss's getLines with lineWidth.
 func blockLines(s string) (lines []string, widest int) {
 	s = strings.ReplaceAll(s, "\t", "    ")
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	lines = strings.Split(s, "\n")
 	for _, l := range lines {
-		widest = max(widest, cells.Width(l))
+		widest = max(widest, lineWidth(l))
 	}
 	return lines, widest
 }
@@ -47,7 +80,7 @@ func joinVertical(strs ...string) string {
 				b.WriteByte('\n')
 			}
 			b.WriteString(line)
-			b.WriteString(strings.Repeat(" ", widest-cells.Width(line)))
+			b.WriteString(strings.Repeat(" ", widest-lineWidth(line)))
 		}
 	}
 	return b.String()
@@ -79,7 +112,7 @@ func joinHorizontal(strs ...string) string {
 				line = block[row]
 			}
 			b.WriteString(line)
-			b.WriteString(strings.Repeat(" ", widths[i]-cells.Width(line)))
+			b.WriteString(strings.Repeat(" ", widths[i]-lineWidth(line)))
 		}
 	}
 	return b.String()
@@ -119,7 +152,7 @@ func (f fgBlock) Render(s string) string {
 			b.WriteString(line)
 		}
 		if len(lines) > 1 {
-			b.WriteString(strings.Repeat(" ", widest-cells.Width(line)))
+			b.WriteString(strings.Repeat(" ", widest-lineWidth(line)))
 		}
 	}
 	return b.String()
