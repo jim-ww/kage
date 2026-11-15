@@ -23,7 +23,11 @@ var fencedCodeBlock = regexp.MustCompile("(?s)```([a-zA-Z0-9_+-]*)(.*?)```")
 // language from lang (a fenced-block tag) or, failing that, from the code
 // content itself.
 func highlightCode(lang, code string) (string, error) {
-	lexer := lexers.Get(lang)
+	var lexer chroma.Lexer
+	if lang != "" {
+		// Get("") glob-matches every lexer's filename patterns.
+		lexer = lexers.Get(lang)
+	}
 	if lexer == nil {
 		lexer = lexers.Analyse(code)
 	}
