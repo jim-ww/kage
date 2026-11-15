@@ -96,6 +96,9 @@ type Model struct {
 	// viewportFrameCache is renderSidebar's counterpart for the message
 	// pane's border/frame — see viewportFrameCacheEntry's doc comment.
 	viewportFrameCache *viewportFrameCacheEntry
+	// lastFrame is the last View, reused when a mouse motion changed
+	// nothing it shows (see handleMouseMotion).
+	lastFrame *lastFrame
 	// msgRowCache memoizes individual rendered message rows — see
 	// msgRowCacheState's doc comment.
 	msgRowCache *msgRowCacheState
@@ -329,6 +332,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon 
 		chats:                  &l,
 		sidebarRenderCache:     &sidebarCacheEntry{},
 		viewportFrameCache:     &viewportFrameCacheEntry{},
+		lastFrame:              &lastFrame{},
 		msgRowCache:            newMsgRowCacheState(),
 		chatListViewCache:      &chatListCacheEntry{},
 		input:                  &ti,

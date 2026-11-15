@@ -227,6 +227,15 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	before := m.motionState()
+	defer func() {
+		// Terminals report every cell the pointer crosses; most moves
+		// don't change what's drawn, and View needn't run again for them.
+		if m.motionState() == before && m.lastFrame != nil {
+			m.lastFrame.reuse = true
+		}
+	}()
+
 	m.hover.x = msg.Mouse().X
 	m.hover.y = msg.Mouse().Y
 
@@ -333,6 +342,24 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, hoverCmd
+}
+
+// motionFrameState is everything handleMouseMotion changes that a frame
+// shows. The pointer position itself only shows through the hover fields.
+type motionFrameState struct {
+	hover        hoverState
+	selectedMsg  int
+	selectedView selectedView
+	yOffset      int
+}
+
+func (m Model) motionState() motionFrameState {
+	s := motionFrameState{selectedMsg: m.selectedMsg, selectedView: m.selectedView, yOffset: m.viewport.YOffset()}
+	if m.hover != nil {
+		s.hover = *m.hover
+		s.hover.x, s.hover.y = 0, 0
+	}
+	return s
 }
 
 // zoneUnderMouse is the most specific zone under mouse, "" for none, in

@@ -32,6 +32,7 @@
 - search window doesnt have vim bindings.
 
 ## Refactor
+- ui/zone replaced bubblezone (linear Scan, synchronous zones): maybe publish it as a bubblezone fork / upstream PR
 - live tests share the alice/bob devtest accounts, so `go test -tags integration ./...` is flaky two ways: packages run in parallel and fight over the same roster/archive, and MAM paging tests depend on an archive that grows every run. give each test its own throwaway accounts (see newThrowawayAccount) or reset devtest/prosody/data per run
 - create generic ui components and reuse them across repo:
   many ui places of app have its own one-off modals, instead of sharing single, well defined and dynamic modal component. and beside modal rendering itself, we also need proper 'list' component. not using random bullshit in every place.

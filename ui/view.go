@@ -13,8 +13,30 @@ import (
 	"github.com/jim-ww/kage/ui/modal"
 )
 
+// lastFrame is Model.lastFrame.
+type lastFrame struct {
+	view tea.View
+	ok   bool
+	// reuse is set by an Update that changed nothing the frame shows, for
+	// the View right after it.
+	reuse bool
+}
+
 // View implements tea.Model.
 func (m Model) View() tea.View {
+	if f := m.lastFrame; f != nil {
+		if f.reuse && f.ok {
+			f.reuse = false
+			return f.view
+		}
+		v := m.render()
+		f.view, f.ok, f.reuse = v, true, false
+		return v
+	}
+	return m.render()
+}
+
+func (m Model) render() tea.View {
 	if m.width == 0 {
 		v := tea.NewView("loading...")
 		v.AltScreen = true
