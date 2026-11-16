@@ -1,4 +1,5 @@
 ## Bugs
+- drag & drop in chat stopped working
 - video stream worsens call quality (adds lag)
 - problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ
 - hide chat keybind doesnt trigger
