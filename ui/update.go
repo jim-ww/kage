@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -263,6 +264,24 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		}
 	}
 
+	// Dragging a file onto most terminal emulators isn't a distinct
+	// bubbletea event — the terminal just bracketed-pastes the dropped
+	// file's absolute path(s) as text. Treat a paste that resolves entirely
+	// to existing files, rather than typed/pasted prose, as a drop and stage
+	// them as pending attachments of the open chat, wherever focus is.
+	if pasteMsg, ok := msg.(tea.PasteMsg); ok && m.currentChatIndex() >= 0 &&
+		!(m.selectedView == viewChats && m.chats.FilterState() == list.Filtering) {
+		if paths, ok := droppedFilePaths(pasteMsg.Content); ok {
+			for _, path := range paths {
+				m.stageAttachment(path)
+			}
+			if m.selectedView != viewChat {
+				m.setSelectedView(viewChat)
+			}
+			return m, nil
+		}
+	}
+
 	// Route remaining events to the focused component.
 	var cmd tea.Cmd
 	switch m.selectedView {
@@ -277,19 +296,7 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 			cmds = append(cmds, chatSwitchTimer(m.chatSwitchGen))
 		}
 	case viewChat:
-		// Dragging a file onto most terminal emulators isn't a distinct
-		// bubbletea event — the terminal just bracketed-pastes the dropped
-		// file's absolute path(s) as text. Treat a paste that resolves
-		// entirely to existing files, rather than typed/pasted prose, as a
-		// drop and stage them as pending attachments instead of inserting
-		// the path into the compose box.
 		if pasteMsg, ok := msg.(tea.PasteMsg); ok {
-			if paths, ok := droppedFilePaths(pasteMsg.Content); ok {
-				for _, path := range paths {
-					m.stageAttachment(path)
-				}
-				return m, nil
-			}
 			// A long paste (log dump, code, config) or a binary one (e.g.
 			// an image copied in a browser landing here as raw bytes) is
 			// unreadable and unwieldy inline — stage it as an attachment

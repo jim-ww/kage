@@ -1038,6 +1038,33 @@ func TestDraggedFilePastedIntoChatStagesAttachment(t *testing.T) {
 	}
 }
 
+// TestDraggedFileWithChatListFocusedStagesAttachment verifies a drop while
+// the chat list has focus still attaches to the open chat and moves focus to
+// it, rather than being lost.
+func TestDraggedFileWithChatListFocusedStagesAttachment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(path, []byte("contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModelWithSender(&fakeFileSender{}, nil)
+	chat := Chat{Name: "Bob", Address: "bob@example.test"}
+	m.accounts = []Account{{Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		_ = cmd()
+	}
+	m.selectedView = viewChats
+
+	next, _ := m.Update(tea.PasteMsg{Content: path})
+	m = next.(Model)
+	if len(m.pendingAttachments) != 1 || m.pendingAttachments[0].path != path {
+		t.Fatalf("pendingAttachments = %#v, want %q staged", m.pendingAttachments, path)
+	}
+	if m.selectedView != viewChat {
+		t.Fatalf("selectedView = %v, want viewChat after a drop", m.selectedView)
+	}
+}
+
 // TestMultiFileDroppedIntoChatStagesEachAttachment verifies a multi-file drop
 // (delivered as either newline-separated paths, or space-separated
 // individually-quoted paths on one line, depending on the terminal) stages
