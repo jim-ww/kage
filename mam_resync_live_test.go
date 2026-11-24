@@ -54,7 +54,15 @@ func TestResyncRecoversSkippedMessage(t *testing.T) {
 	// had been pushed to it.
 	deliver := func(sess *accountSession, client *xmpp.Client, peer, id string) {
 		t.Helper()
-		am, err := findArchivedByID(ctx, t, client, peer, id, since)
+		// The send went out on the other account's stream, so the archive
+		// may not have it yet.
+		var am xmpp.ArchivedMessage
+		var err error
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+			if am, err = findArchivedByID(ctx, t, client, peer, id, since); err == nil || time.Now().After(deadline) {
+				break
+			}
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
