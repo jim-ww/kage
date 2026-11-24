@@ -101,6 +101,8 @@ type omemoV1BundleElem struct {
 // PublishOmemoBundleV1 publishes bundle to our own legacy PEP bundle node
 // for its device ID.
 func (c *Client) PublishOmemoBundleV1(ctx context.Context, bundle omemolib.Bundle) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	pkElems := make([]xml.TokenReader, len(bundle.PreKeys))
 	for i, pk := range bundle.PreKeys {
 		pkElems[i] = xmlstream.Wrap(

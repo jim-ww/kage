@@ -74,6 +74,8 @@ type avatarDataElem struct {
 // metadata item with no <info/>, which is how XEP-0084 says "I removed my
 // avatar" — so a caller can tell that apart from an error.
 func (c *Client) FetchAvatarMetadata(ctx context.Context, peerJID string) (info AvatarInfo, ok bool, err error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	peer, err := jid.Parse(peerJID)
 	if err != nil {
 		return AvatarInfo{}, false, fmt.Errorf("parsing peer jid %q: %w", peerJID, err)
@@ -115,6 +117,8 @@ func (c *Client) FetchAvatarMetadata(ctx context.Context, peerJID string) (info 
 // verified against that hash; callers that care (see the daemon's avatar
 // cache) check it themselves, since it's also what they key the cache on.
 func (c *Client) FetchAvatarData(ctx context.Context, peerJID, id string) ([]byte, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	peer, err := jid.Parse(peerJID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing peer jid %q: %w", peerJID, err)
@@ -159,6 +163,8 @@ func (c *Client) FetchAvatarData(ctx context.Context, peerJID, id string) ([]byt
 // PublishOpenPGPKey does it: an avatar nobody can fetch is pointless, and
 // PEP's default access model is not "anyone".
 func (c *Client) PublishAvatar(ctx context.Context, data []byte, mediaType string, width, height int) (string, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	if len(data) == 0 {
 		return "", fmt.Errorf("avatar is empty")
 	}
@@ -220,6 +226,8 @@ func avatarID(data []byte) string {
 // unreachable, and retracting them is an extra round trip that can fail
 // separately and leave the two nodes disagreeing.
 func (c *Client) DeleteAvatar(ctx context.Context) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	empty := xmlstream.Wrap(nil, xml.StartElement{
 		Name: xml.Name{Space: avatarMetadataNS, Local: "metadata"},
 	})

@@ -62,6 +62,25 @@ type Client struct {
 	// stream in, ahead of the <iq> fin that FetchArchive is blocked on.
 	mamMu      sync.Mutex
 	mamWaiters map[string]chan ArchivedMessage
+
+	// life ends with the stream (see bound); nil for a Client not from Dial.
+	life    context.Context
+	endLife context.CancelFunc
+}
+
+// bound is ctx, also ended when the stream does. mellium waits for an IQ's
+// answer until its context ends, and a dead stream never brings one: with a
+// context that doesn't end by itself, the caller would wait forever.
+func (c *Client) bound(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.life == nil {
+		return ctx, func() {}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(c.life, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // Dial connects and authenticates address with password, sends initial
@@ -87,6 +106,7 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	}
 
 	c := &Client{JID: j, session: session, events: make(chan Event, 32)}
+	c.life, c.endLife = context.WithCancel(context.Background())
 	c.evCond = sync.NewCond(&c.evMu)
 	c.discoMux = newDiscoMux(c.handleJingleIQ, c.handleRosterPush)
 	go c.serve()
@@ -110,6 +130,8 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 const carbonsNS = "urn:xmpp:carbons:2"
 
 func (c *Client) enableCarbons(ctx context.Context) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	iq := stanza.IQ{Type: stanza.SetIQ, ID: randomID()}
 	rc, err := c.session.SendIQElement(ctx, xmlstream.Wrap(nil, xml.StartElement{Name: xml.Name{Space: carbonsNS, Local: "enable"}}), iq)
 	if err != nil {
@@ -141,6 +163,8 @@ const invisibleNS = "urn:xmpp:invisible:0"
 // InvisibleSupported reports whether the server offers XEP-0186 invisible
 // presence, caching the answer.
 func (c *Client) InvisibleSupported(ctx context.Context) bool {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	c.mu.Lock()
 	if c.invisibleSupportedSet {
 		supported := c.invisibleSupported
@@ -200,6 +224,7 @@ func showOrOnline(show string) string {
 // serve reads the stream until it closes; IQ responses need it read.
 func (c *Client) serve() {
 	defer c.closeEventQueue()
+	defer c.endLife()
 	err := c.session.Serve(xmpp.HandlerFunc(func(t xmlstream.TokenReadEncoder, start *xml.StartElement) error {
 		c.handleStanza(t, start)
 		return nil
@@ -306,6 +331,8 @@ type Contact struct {
 // rather than through mellium's roster.Fetch for the same reason as roster
 // pushes (see rosterPushItem): its Item drops the ask attribute.
 func (c *Client) Roster(ctx context.Context) ([]Contact, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	var q rosterPushQuery
 	query := xmlstream.Wrap(nil, xml.StartElement{Name: rosterQueryName})
 	if err := c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.GetIQ}, &q); err != nil {
@@ -329,6 +356,8 @@ func (c *Client) Roster(ctx context.Context) ([]Contact, error) {
 
 // SetRosterName sets addr's roster name, "" to clear it (RFC 6121).
 func (c *Client) SetRosterName(ctx context.Context, addr, name string) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	j, err := jid.Parse(addr)
 	if err != nil {
 		return fmt.Errorf("parsing JID %q: %w", addr, err)
@@ -340,6 +369,8 @@ func (c *Client) SetRosterName(ctx context.Context, addr, name string) error {
 // the usual RFC 6121 add-a-contact flow: a roster set followed by
 // presence type="subscribe" so the peer's server prompts them to approve.
 func (c *Client) AddContact(ctx context.Context, addr, name string) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	j, err := jid.Parse(addr)
 	if err != nil {
 		return fmt.Errorf("parsing JID %q: %w", addr, err)
@@ -372,11 +403,15 @@ func (c *Client) ProbePresence(ctx context.Context, addr string) error {
 
 // Ping pings our server (XEP-0199) and waits for its answer.
 func (c *Client) Ping(ctx context.Context) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	return ping.Send(ctx, c.session, jid.JID{})
 }
 
 // DeviceName is the client name fullJID advertises (XEP-0030), "" if none.
 func (c *Client) DeviceName(ctx context.Context, fullJID string) (string, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	j, err := jid.Parse(fullJID)
 	if err != nil {
 		return "", fmt.Errorf("parsing JID %q: %w", fullJID, err)
@@ -405,6 +440,8 @@ func (c *Client) ResubscribeContact(ctx context.Context, addr string) error {
 // RemoveContact removes addr from the roster and cancels both directions of
 // the subscription, which the removal alone wouldn't.
 func (c *Client) RemoveContact(ctx context.Context, addr string) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	j, err := jid.Parse(addr)
 	if err != nil {
 		return fmt.Errorf("parsing JID %q: %w", addr, err)

@@ -28,6 +28,8 @@ const (
 // gpg.Export — not armored) to our own PEP nodes: the key itself, and the
 // metadata node advertising its fingerprint so contacts can discover it.
 func (c *Client) PublishOpenPGPKey(ctx context.Context, fingerprint string, keyData []byte) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	keyElem := xmlstream.Wrap(
 		xmlstream.Wrap(
 			xmlstream.Token(xml.CharData(base64.StdEncoding.EncodeToString(keyData))),
@@ -66,6 +68,8 @@ func (c *Client) PublishOpenPGPKey(ctx context.Context, fingerprint string, keyD
 // that rejects this leaves the node invisible to contacts with no other
 // symptom on our end (the publish itself still succeeds).
 func (c *Client) makeNodeOpen(ctx context.Context, node string) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	cfg := form.New(
 		form.Hidden("FORM_TYPE", form.Value("http://jabber.org/protocol/pubsub#node_config")),
 		form.List("pubsub#access_model", form.Value("open")),
@@ -95,6 +99,8 @@ type pubkeyElem struct {
 // fingerprints of the OpenPGP keys they've published, most-recently-added
 // first (per the node's own item order).
 func (c *Client) FetchOpenPGPFingerprints(ctx context.Context, peerJID string) ([]string, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	peer, err := jid.Parse(peerJID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing peer jid %q: %w", peerJID, err)
@@ -125,6 +131,8 @@ func (c *Client) FetchOpenPGPFingerprints(ctx context.Context, peerJID string) (
 // FetchOpenPGPKey fetches the raw (decoded, not armored) OpenPGP public key
 // data for the given fingerprint from peerJID's PEP key node.
 func (c *Client) FetchOpenPGPKey(ctx context.Context, peerJID, fingerprint string) ([]byte, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	peer, err := jid.Parse(peerJID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing peer jid %q: %w", peerJID, err)
@@ -163,6 +171,8 @@ const pubsubOwnerNS = "http://jabber.org/protocol/pubsub#owner"
 // the ID it just stopped using, and a leftover node there is untidy rather
 // than harmful.
 func (c *Client) deleteNode(ctx context.Context, node string) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	return c.session.UnmarshalIQElement(ctx, xmlstream.Wrap(
 		xmlstream.Wrap(
 			nil,

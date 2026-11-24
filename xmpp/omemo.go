@@ -65,6 +65,8 @@ func (c *Client) FetchOmemoDeviceList(ctx context.Context, peerJID string) (omem
 }
 
 func (c *Client) publishOmemoDeviceList(ctx context.Context, w omemoWire, list omemolib.DeviceList) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	children := make([]xml.TokenReader, len(list.Devices))
 	for i, id := range list.Devices {
 		children[i] = xmlstream.Wrap(nil, xml.StartElement{
@@ -84,6 +86,8 @@ func (c *Client) publishOmemoDeviceList(ctx context.Context, w omemoWire, list o
 }
 
 func (c *Client) fetchOmemoDeviceList(ctx context.Context, w omemoWire, peerJID string) (omemolib.DeviceList, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	peer, err := jid.Parse(peerJID)
 	if err != nil {
 		return omemolib.DeviceList{}, fmt.Errorf("parsing peer jid %q: %w", peerJID, err)
@@ -147,6 +151,8 @@ type omemoBundleElem struct {
 // PublishOmemoBundle publishes bundle to our own PEP bundle node for its
 // device ID.
 func (c *Client) PublishOmemoBundle(ctx context.Context, bundle omemolib.Bundle) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	pkElems := make([]xml.TokenReader, len(bundle.PreKeys))
 	for i, pk := range bundle.PreKeys {
 		pkElems[i] = xmlstream.Wrap(
@@ -202,6 +208,8 @@ func (c *Client) FetchOmemoBundle(ctx context.Context, dev omemolib.Device) (ome
 
 // fetchOmemoBundle decodes dev's published bundle into b.
 func (c *Client) fetchOmemoBundle(ctx context.Context, w omemoWire, dev omemolib.Device, b any) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	peer, err := jid.Parse(dev.JID)
 	if err != nil {
 		return fmt.Errorf("parsing peer jid %q: %w", dev.JID, err)

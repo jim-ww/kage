@@ -176,6 +176,8 @@ func (c *Client) FetchArchiveSince(ctx context.Context, peerJID string, since ti
 }
 
 func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID string, since time.Time, max uint64) (ArchivePage, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
 	queryID := randomID()
 
 	ch := make(chan ArchivedMessage, max+8)
