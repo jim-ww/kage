@@ -69,7 +69,11 @@ func (d *daemonServer) listAccounts() []ui.Account {
 						continue
 					}
 					if e, ok := (*live)[chat.Address]; ok {
-						chat.Presence = e.Presence
+						// Resources too: the TUI recomputes Presence from
+						// them on each presence stanza, and without them
+						// one device going away would show the contact
+						// offline while another is still online.
+						chat.Presence, chat.Resources = e.Presence, e.Resources
 						uiAcct.Chats[ci] = chat
 					}
 				}
