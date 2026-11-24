@@ -92,6 +92,54 @@ func (m *Model) placeAndTrim(accountIdx, chatIdx int, newMsgs ...Message) (newes
 	return newest
 }
 
+// retime dates the loaded message at i by sentAt, if known: what the
+// daemon stored our own message under, by the server's clock, where it was
+// shown by ours when sent. It moves if the new time places it elsewhere.
+func (m *Model) retime(accountIdx, chatIdx, i int, sentAt time.Time) {
+	if sentAt.IsZero() {
+		return
+	}
+	msgs := m.accounts[accountIdx].Messages[chatIdx]
+	msg := msgs[i]
+	msg.SentAt = sentAt
+	at := sentAt.Unix()
+	msgs = slices.Delete(msgs, i, i+1)
+	j := len(msgs)
+	for j > 0 && msgs[j-1].SentAt.Unix() > at {
+		j--
+	}
+	// Among messages of the same second, it keeps its place.
+	for j > i && msgs[j-1].SentAt.Unix() == at {
+		j--
+	}
+	msgs = slices.Insert(msgs, j, msg)
+	m.accounts[accountIdx].Messages[chatIdx] = msgs
+
+	if j != i && accountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
+		// The selection and flash stay on their messages.
+		moved := func(k int) int {
+			switch {
+			case k == i:
+				return j
+			case i < k && k <= j:
+				return k - 1
+			case j <= k && k < i:
+				return k + 1
+			}
+			return k
+		}
+		if m.selectedMsg < len(msgs) {
+			m.selectedMsg = moved(m.selectedMsg)
+		}
+		if m.flashMsgIdx >= 0 {
+			m.flashMsgIdx = moved(m.flashMsgIdx)
+		}
+	}
+	if m.isChatOnScreen(accountIdx, chatIdx) {
+		m.followTail()
+	}
+}
+
 // noteNewest makes msg, now the newest loaded in a chat, its preview and
 // activity: its own time, never moving the activity back.
 func (m *Model) noteNewest(accountIdx, chatIdx int, msg Message) tea.Cmd {
@@ -429,12 +477,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			next, cmd, handled := m.handleEventMsg(msg)
 			return next, tea.Batch(unhideCmd, cmd), handled
 		}
-		if messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.ID) >= 0 {
+		if i := messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.ID); i >= 0 {
 			// Our own message, shown already when we sent it.
+			m.retime(msg.AccountIdx, chatIdx, i, msg.Message.SentAt)
 			return m, nil, true
 		}
-		if messageIndexByLocalID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.LocalID) >= 0 {
+		if i := messageIndexByLocalID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.LocalID); i >= 0 {
 			// A replayed queued send, whose placeholder has no ID yet.
+			m.retime(msg.AccountIdx, chatIdx, i, msg.Message.SentAt)
 			return m, nil, true
 		}
 		if m.accounts[msg.AccountIdx].Messages == nil {

@@ -121,3 +121,47 @@ func TestSyncedMessagesPlacedBySentTime(t *testing.T) {
 		t.Errorf("preview = %q, want c's", got)
 	}
 }
+
+// TestOwnMessageTakesStoredTime checks our own message, shown at our clock's
+// time when sent, takes the time the daemon stored it under when that comes
+// back, and moves where that places it.
+func TestOwnMessageTakesStoredTime(t *testing.T) {
+	m, base := orderModel(t)
+	shown := base.Add(3 * time.Minute)
+	m.accounts[0].Messages[0] = append(m.accounts[0].Messages[0], Message{ID: "x", Content: "x", IsMe: true, SentAt: shown})
+	m.selectedMsg = 2 // c
+
+	stored := base.Add(3*time.Minute + 400*time.Millisecond)
+	next, _, _ := m.handleEventMsg(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.com",
+		Message: Message{ID: "x", Content: "x", IsMe: true, SentAt: stored}})
+	msgs := next.accounts[0].Messages[0]
+	if got := messageIDs(msgs); got != "a,b,c,x" {
+		t.Errorf("same place: order = %s", got)
+	}
+	if !msgs[3].SentAt.Equal(stored) {
+		t.Errorf("SentAt = %v, want the stored %v", msgs[3].SentAt, stored)
+	}
+
+	stored = base.Add(30 * time.Second)
+	next, _, _ = next.handleEventMsg(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.com",
+		Message: Message{ID: "x", Content: "x", IsMe: true, SentAt: stored}})
+	if got := messageIDs(next.accounts[0].Messages[0]); got != "a,x,b,c" {
+		t.Errorf("moved: order = %s", got)
+	}
+	if next.selectedMsg != 3 {
+		t.Errorf("selectedMsg = %d, want 3 (still c)", next.selectedMsg)
+	}
+}
+
+// TestQueuedMessageTakesStoredTime checks a queued send's placeholder, known
+// only by its local ID, takes the stored time too.
+func TestQueuedMessageTakesStoredTime(t *testing.T) {
+	m, base := orderModel(t)
+	m.accounts[0].Messages[0] = append(m.accounts[0].Messages[0], Message{LocalID: "l1", Content: "q", IsMe: true, Pending: true, SentAt: base.Add(3 * time.Minute)})
+	next, _, _ := m.handleEventMsg(IncomingMessageMsg{AccountIdx: 0, From: "bob@example.com",
+		Message: Message{ID: "q", LocalID: "l1", Content: "q", IsMe: true, SentAt: base.Add(90 * time.Second)}})
+	msgs := next.accounts[0].Messages[0]
+	if len(msgs) != 4 || msgs[2].LocalID != "l1" || !msgs[2].SentAt.Equal(base.Add(90*time.Second)) {
+		t.Errorf("placeholder not retimed between b and c: %+v", msgs)
+	}
+}
