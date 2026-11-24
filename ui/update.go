@@ -201,6 +201,15 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	} else if isActivityMsg(msg) {
 		markRead = markRead || m.idle
 		m.idle = false
+		// Typing or clicking here means the terminal has focus, whatever
+		// the last focus event said: a focus-in can go missing (tmux
+		// switching panes or sessions, a terminal that only reports the
+		// blur), which left messages counted unread mid-conversation.
+		switch msg.(type) {
+		case tea.KeyMsg, tea.MouseClickMsg:
+			markRead = markRead || !m.focused
+			m.focused = true
+		}
 		m.idleGen++
 		gen := m.idleGen
 		defer func() {

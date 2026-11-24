@@ -2,13 +2,12 @@
 - sending message while far in history (e.g. jumped via ctrl+/), should first load last message window
 - cannot jump to msg in history (was able after ctrl+/ jump, but not after)
 - messages seen as 'unead' when chat open, even your own
-- drag & drop in chat stopped working
+- drag & drop in chat: probably fixed, needs testing
 - video stream worsens call quality (adds lag)
 - problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ
 - add new 'attachments' screen (for every chat).
 - on nixos rebuild, call hangs or something. or one of clients dies
 - after switching to new account, tray icon started showing 'new message' alert all the time
-- message save as dialog doesnt ask path
 - focused state is broken, unread tray icon doesnt show (after switching focus from window), same thing other way, even when viewing chat, unread count in chats list AND unread tray icon appear (even though app open & chat focused)
 - call widget is ugly and unhelpful. some keybindings do not work
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password

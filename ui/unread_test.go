@@ -350,3 +350,27 @@ func TestFocusAfterIdleCountsAsActivity(t *testing.T) {
 		t.Fatalf("Unread right after regaining focus = %d, want 0", got)
 	}
 }
+
+// A keystroke means the terminal has focus even if the focus-in event never
+// came: a message arriving mid-conversation isn't counted unread.
+func TestKeystrokeAfterLostFocusInCountsAsFocused(t *testing.T) {
+	sender := &fakeReadTrackerSender{}
+	m := newUnreadTestModel(sender, viewChat)
+
+	next, cmd := m.Update(tea.BlurMsg{})
+	m = next.(Model)
+	runCmd(cmd)
+	next, cmd = m.Update(keyText("x"))
+	m = next.(Model)
+	runCmd(cmd)
+	if !m.focused {
+		t.Fatal("not focused after typing in the terminal")
+	}
+
+	next, cmd = m.Update(ChatUnreadMsg{AccountJID: "me@example.test", ChatAddress: "bob@example.test", Count: 1})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := unreadOf(m); got != 0 {
+		t.Fatalf("Unread while typing in the chat = %d, want 0", got)
+	}
+}
