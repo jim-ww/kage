@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"mellium.im/sasl"
 	"mellium.im/xmlstream"
@@ -66,6 +67,10 @@ type Client struct {
 	// life ends with the stream (see bound); nil for a Client not from Dial.
 	life    context.Context
 	endLife context.CancelFunc
+
+	// clockOffset is how far the server's clock is ahead of ours, in
+	// nanoseconds (see Now).
+	clockOffset atomic.Int64
 }
 
 // bound is ctx, also ended when the stream does. mellium waits for an IQ's
@@ -111,6 +116,16 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	c.discoMux = newDiscoMux(c.handleJingleIQ, c.handleRosterPush)
 	go c.serve()
 	go c.forwardEvents()
+
+	// Before presence, so the offline messages it brings on are timed by it.
+	// Best-effort: without it, Now is the local clock.
+	clockCtx, cancelClock := context.WithTimeout(ctx, clockQueryTimeout)
+	if err := c.measureClock(clockCtx); err != nil {
+		slog.Debug("reading server time", "jid", j.String(), "err", err)
+	} else if off := time.Duration(c.clockOffset.Load()); off != 0 {
+		slog.Info("local clock differs from server", "jid", j.String(), "server_ahead", off)
+	}
+	cancelClock()
 
 	// Caps (XEP-0115) in presence tell contacts which resource to ask about
 	// features: the server answers disco#info to our bare JID itself.

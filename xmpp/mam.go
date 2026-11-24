@@ -97,7 +97,7 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 	// Left zero without a stamp: the caller decides what an unknown time
 	// means (see syncArchiveForContact's cursor).
 	if stamp, ok := parseStamp(r.Forwarded.Delay.Stamp); ok {
-		am.SentAt = notAfter(stamp, time.Now())
+		am.SentAt = notAfter(stamp, c.Now())
 	}
 
 	switch {

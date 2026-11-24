@@ -285,7 +285,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			c.enqueue(MessageEvent{
 				ID:        msg.selfID(),
 				From:      msg.From.String(),
-				SentAt:    time.Now(),
+				SentAt:    sentAt(c.Now(), delays),
 				RetractID: msg.Retract.ID,
 				Outgoing:  outgoing,
 				To:        msg.To.String(),
@@ -301,7 +301,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			c.enqueue(MessageEvent{
 				ID:               msg.selfID(),
 				From:             msg.From.String(),
-				SentAt:           time.Now(),
+				SentAt:           sentAt(c.Now(), delays),
 				ReactionTargetID: msg.Reactions.ID,
 				Reactions:        reactions,
 				Outgoing:         outgoing,
@@ -323,7 +323,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			c.enqueue(MessageEvent{
 				ID:         msg.selfID(),
 				From:       msg.From.String(),
-				SentAt:     time.Now(),
+				SentAt:     sentAt(c.Now(), delays),
 				Encrypted:  msg.Encrypted,
 				ReplyToID:  replyToID,
 				ReplaceID:  replaceID,
@@ -345,7 +345,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			c.enqueue(MessageEvent{
 				ID:          msg.selfID(),
 				From:        msg.From.String(),
-				SentAt:      time.Now(),
+				SentAt:      sentAt(c.Now(), delays),
 				EncryptedV1: msg.EncryptedV1,
 				ReplyToID:   replyToID,
 				ReplaceID:   replaceID,
@@ -382,7 +382,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			ID:         msg.selfID(),
 			From:       msg.From.String(),
 			Body:       body,
-			SentAt:     sentAt(time.Now(), delays),
+			SentAt:     sentAt(c.Now(), delays),
 			ReplaceID:  replaceID,
 			ReplyToID:  replyToID,
 			OOBURLs:    oobURLs,
