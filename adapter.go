@@ -268,6 +268,22 @@ func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySea
 	return ui.HistorySearchResultMsg{AccountIdx: accountIdx, From: to, Query: query, Messages: msgs, Matches: matches}, nil
 }
 
+// ChatFiles lists the messages of to's whole history carrying attachments,
+// oldest first.
+func (a *adapter) ChatFiles(accountIdx int, to string) (ui.ChatFilesMsg, error) {
+	sess, err := a.session(accountIdx)
+	if err != nil {
+		return ui.ChatFilesMsg{}, err
+	}
+	var files []ui.Message
+	for _, msg := range loadHistory(context.Background(), sess, to, sess.rosterName(to)) {
+		if len(msg.Attachments) > 0 {
+			files = append(files, msg)
+		}
+	}
+	return ui.ChatFilesMsg{AccountIdx: accountIdx, From: to, Messages: files}, nil
+}
+
 // MessageSlots lists the 15-minute slots, as unix seconds, to's history
 // has messages in (see ListMessageQuarterHours).
 func (a *adapter) MessageSlots(accountIdx int, to string) ([]int64, error) {

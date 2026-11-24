@@ -162,6 +162,16 @@ func (c *ipcClient) SearchHistory(accountIdx int, to, query string) tea.Cmd {
 	}
 }
 
+func (c *ipcClient) ChatFiles(accountIdx int, to string) tea.Cmd {
+	return func() tea.Msg {
+		msg, err := do(c.conn, chatFilesReq{AccountIdx: accountIdx, To: to})
+		if err != nil {
+			return ui.ChatFilesMsg{AccountIdx: accountIdx, From: to, Err: err}
+		}
+		return msg
+	}
+}
+
 // MessageDays buckets the daemon's 15-minute slots into days here, in the
 // TUI's time zone, which the daemon's needn't match.
 func (c *ipcClient) MessageDays(accountIdx int, to string) ([]time.Time, error) {

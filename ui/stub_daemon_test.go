@@ -22,6 +22,7 @@ func (stubDaemon) UploadFile(int, string, string, string, SendOptions) tea.Msg {
 func (stubDaemon) CancelUpload(string)                                         {}
 func (stubDaemon) LoadHistoryWindow(int, string, *HistoryAnchor) tea.Cmd       { return nil }
 func (stubDaemon) SearchHistory(int, string, string) tea.Cmd                   { return nil }
+func (stubDaemon) ChatFiles(int, string) tea.Cmd                               { return nil }
 func (stubDaemon) MessageDays(int, string) ([]time.Time, error)                { return nil, nil }
 func (stubDaemon) RenameContact(int, string, string) error                     { return nil }
 func (stubDaemon) AddContact(int, string) tea.Msg                              { return nil }

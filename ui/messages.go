@@ -51,6 +51,15 @@ type HistorySearchResultMsg struct {
 	Err        error
 }
 
+// ChatFilesMsg reports Daemon.ChatFiles's result: the chat's messages
+// carrying attachments, oldest first.
+type ChatFilesMsg struct {
+	AccountIdx int
+	From       string
+	Messages   []Message
+	Err        error
+}
+
 // ContactAddedMsg reports the result of Daemon.AddContact.
 type ContactAddedMsg struct {
 	AccountIdx int
