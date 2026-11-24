@@ -26,7 +26,6 @@
 ## UX
 - in search by message text, on results, show full/truncated preview of selected msg
 - search by message results do not have VIM bindings
-- bad UX: when replying to some message, new message from other participant can hide behind reply-to notice.
 - delete message modal has no mouse support. other modals must be checked too.
 - hard to grab left/bottom panel border for resize
 - add scrollbar for messages list, and perhaps, for chat list too

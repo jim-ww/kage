@@ -59,8 +59,15 @@ func (m *Model) updateSizes() {
 	m.chats.SetHeight(max(0, m.height-sidebarStatusHeight))
 	m.chats.SetWidth(m.sidebarContentWidth())
 
+	// Kept at the bottom if it was: a row taken by the reply hint or a
+	// growing compose box would otherwise hide the newest line, and the
+	// viewport no longer at the bottom stops following new messages.
+	atBottom := m.viewport.TotalLineCount() > 0 && m.viewport.AtBottom()
 	m.viewport.SetWidth(cw)
 	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
+	if atBottom {
+		m.viewport.GotoBottom()
+	}
 	m.modals.SetSize(m.chatAreaWidth(), m.popupAreaHeight())
 }
 
