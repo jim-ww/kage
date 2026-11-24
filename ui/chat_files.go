@@ -6,9 +6,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-
-	"github.com/jim-ww/kage/ui/modal"
 )
 
 // chatFilesModalID finds the open files list, to fill it when
@@ -40,31 +37,8 @@ func (m *Model) openChatFiles(filter string) tea.Cmd {
 	if m.attachmentSizeFailed == nil {
 		m.attachmentSizeFailed = make(map[string]bool)
 	}
-	menu := modal.NewMenu()
-	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
-	menu.MatchKey = matchesLetter
-	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
-	body := &searchResultsBody{Menu: menu, accountIdx: accountIdx, chatAddress: chat.Address, peerName: chat.Name, files: true, filter: strings.TrimSpace(filter), status: "loading…", m: m}
-	open := m.openModal(&modal.Modal[*Model]{
-		ID:       chatFilesModalID,
-		Title:    "Files",
-		Body:     body,
-		MaxWidth: body.PreferredWidth(),
-		OnSubmit: func(m *Model, v any) tea.Cmd {
-			return m.loadSearchResult(body.accountIdx, body.chatAddress, body.messages[body.shown[v.(int)]])
-		},
-		OnAct: func(m *Model, _ any) tea.Cmd {
-			return m.openModal(&modal.Modal[*Model]{
-				Title: "Filter files",
-				Body:  m.newInput(body.filter, "filter by name", "/ ", "filter"),
-				OnSubmit: func(m *Model, v any) tea.Cmd {
-					body.filter = v.(string)
-					body.relist()
-					return body.sizesCmd()
-				},
-			})
-		},
-	})
+	body := &searchResultsBody{accountIdx: accountIdx, chatAddress: chat.Address, peerName: chat.Name, files: true, filter: strings.TrimSpace(filter), status: "loading…"}
+	open := m.openResults(chatFilesModalID, "Files", body)
 	return tea.Batch(open, m.daemon.ChatFiles(accountIdx, chat.Address))
 }
 

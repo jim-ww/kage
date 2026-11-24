@@ -344,26 +344,39 @@ func searchResultDate(t, now time.Time, timePart string) string {
 // openSearchResults shows the results of searching the current chat for
 // query, busy until HistorySearchResultMsg brings them.
 func (m *Model) openSearchResults(accountIdx int, chat Chat, query string) tea.Cmd {
+	body := &searchResultsBody{accountIdx: accountIdx, chatAddress: chat.Address, peerName: chat.Name, query: query, status: "searching…"}
+	return m.openResults(searchResultsModalID, "Search: "+query, body)
+}
+
+// openResults opens body, a text search's results or a chat's files: a
+// list whose pick jumps the chat to that message, and whose / asks for a
+// filter.
+func (m *Model) openResults(id, title string, body *searchResultsBody) tea.Cmd {
 	menu := modal.NewMenu()
 	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
-	menu.MatchKey = matchesLetter
 	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
-	body := &searchResultsBody{Menu: menu, accountIdx: accountIdx, chatAddress: chat.Address, peerName: chat.Name, query: query, status: "searching…", m: m}
+	menu.MatchKey = matchesLetter
+	body.Menu, body.m = menu, m
+	filterTitle, placeholder := "Filter results", "filter results"
+	if body.files {
+		filterTitle, placeholder = "Filter files", "filter by name"
+	}
 	return m.openModal(&modal.Modal[*Model]{
-		ID:    searchResultsModalID,
-		Title: "Search: " + query,
-		Body:  body,
+		ID:       id,
+		Title:    title,
+		Body:     body,
+		MaxWidth: body.PreferredWidth(),
 		OnSubmit: func(m *Model, v any) tea.Cmd {
 			return m.loadSearchResult(body.accountIdx, body.chatAddress, body.messages[body.shown[v.(int)]])
 		},
 		OnAct: func(m *Model, _ any) tea.Cmd {
 			return m.openModal(&modal.Modal[*Model]{
-				Title: "Filter results",
-				Body:  m.newInput(body.filter, "filter results", "/ ", "filter"),
+				Title: filterTitle,
+				Body:  m.newInput(body.filter, placeholder, "/ ", "filter"),
 				OnSubmit: func(m *Model, v any) tea.Cmd {
 					body.filter = v.(string)
 					body.relist()
-					return nil
+					return body.sizesCmd()
 				},
 			})
 		},
