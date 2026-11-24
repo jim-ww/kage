@@ -105,6 +105,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS appliedCorrectionsAccountArchiveID
 	ON appliedCorrections (accountJID, archiveID)
 	WHERE archiveID IS NOT NULL;
 
+-- Messages purged outright (adapter.PurgeMessage), by id only - none of
+-- what they said is kept. The archive still has them, and a walk back over
+-- it (a re-sync) would store them again, so it skips these.
+CREATE TABLE IF NOT EXISTS purgedMessages (
+	id         INTEGER  PRIMARY KEY NOT NULL,
+	accountJID TEXT     NOT NULL,
+	rosterJID  TEXT     NOT NULL,
+	idAttr     TEXT,
+	archiveID  TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS purgedMessagesAccountRosterJIDIdAttr
+	ON purgedMessages (accountJID, rosterJID, idAttr)
+	WHERE idAttr IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS purgedMessagesAccountArchiveID
+	ON purgedMessages (accountJID, archiveID)
+	WHERE archiveID IS NOT NULL;
+
 -- XEP-0373: caches a peer's OpenPGP key fingerprint, discovered from their
 -- PEP node, so we don't have to query it again on every send.
 CREATE TABLE IF NOT EXISTS pgpPeerKeys (

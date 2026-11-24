@@ -649,6 +649,14 @@ func (a *adapter) PurgeMessage(accountIdx int, to, id string) error {
 		return err
 	}
 	ctx := context.Background()
+	// Its ids only, so a walk back over the archive doesn't restore it.
+	if err := s.db.InsertPurgedMessage(ctx, storage.InsertPurgedMessageParams{
+		AccountJid: s.account.JID,
+		IDAttr:     nullString(id),
+		RosterJid:  nullString(to),
+	}); err != nil {
+		return err
+	}
 	if err := s.db.DeleteReactionsByMessage(ctx, storage.DeleteReactionsByMessageParams{
 		AccountJid: s.account.JID,
 		RosterJid:  to,

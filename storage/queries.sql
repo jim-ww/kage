@@ -898,3 +898,28 @@ SELECT EXISTS (
 	WHERE accountJID = sqlc.arg(account_jid)
 		AND archiveID = sqlc.arg(archive_id)
 );
+
+-- name: InsertPurgedMessage :exec
+-- Records the ids of a message about to be purged; see purgedMessages in
+-- schema.sql.
+INSERT INTO purgedMessages (accountJID, rosterJID, idAttr, archiveID)
+SELECT m.accountJID, m.rosterJID, m.idAttr, m.archiveID FROM messages m
+WHERE m.accountJID = sqlc.arg(account_jid)
+	AND m.idAttr = sqlc.arg(id_attr)
+	AND m.rosterJID = sqlc.arg(roster_jid)
+ON CONFLICT DO NOTHING;
+
+-- name: MessagePurgedByArchiveID :one
+SELECT EXISTS (
+	SELECT 1 FROM purgedMessages
+	WHERE accountJID = sqlc.arg(account_jid)
+		AND archiveID = sqlc.arg(archive_id)
+);
+
+-- name: MessagePurgedByIDAttr :one
+SELECT EXISTS (
+	SELECT 1 FROM purgedMessages
+	WHERE accountJID = sqlc.arg(account_jid)
+		AND rosterJID = sqlc.arg(roster_jid)
+		AND idAttr = sqlc.arg(id_attr)
+);

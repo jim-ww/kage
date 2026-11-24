@@ -1248,6 +1248,28 @@ func (q *Queries) InsertOutboxEntry(ctx context.Context, arg InsertOutboxEntryPa
 	return i, err
 }
 
+const insertPurgedMessage = `-- name: InsertPurgedMessage :exec
+INSERT INTO purgedMessages (accountJID, rosterJID, idAttr, archiveID)
+SELECT m.accountJID, m.rosterJID, m.idAttr, m.archiveID FROM messages m
+WHERE m.accountJID = ?1
+	AND m.idAttr = ?2
+	AND m.rosterJID = ?3
+ON CONFLICT DO NOTHING
+`
+
+type InsertPurgedMessageParams struct {
+	AccountJid string         `db:"account_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+// Records the ids of a message about to be purged; see purgedMessages in
+// schema.sql.
+func (q *Queries) InsertPurgedMessage(ctx context.Context, arg InsertPurgedMessageParams) error {
+	_, err := q.db.ExecContext(ctx, insertPurgedMessage, arg.AccountJid, arg.IDAttr, arg.RosterJid)
+	return err
+}
+
 const insertReaction = `-- name: InsertReaction :exec
 INSERT INTO messageReactions (accountJID, rosterJID, idAttr, fromJID, emoji)
 VALUES (?1, ?2, ?3, ?4, ?5)
@@ -2466,6 +2488,48 @@ type MessageExistsByIDAttrParams struct {
 // a second time.
 func (q *Queries) MessageExistsByIDAttr(ctx context.Context, arg MessageExistsByIDAttrParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, messageExistsByIDAttr, arg.AccountJid, arg.RosterJid, arg.IDAttr)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const messagePurgedByArchiveID = `-- name: MessagePurgedByArchiveID :one
+SELECT EXISTS (
+	SELECT 1 FROM purgedMessages
+	WHERE accountJID = ?1
+		AND archiveID = ?2
+)
+`
+
+type MessagePurgedByArchiveIDParams struct {
+	AccountJid string         `db:"account_jid"`
+	ArchiveID  sql.NullString `db:"archive_id"`
+}
+
+func (q *Queries) MessagePurgedByArchiveID(ctx context.Context, arg MessagePurgedByArchiveIDParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, messagePurgedByArchiveID, arg.AccountJid, arg.ArchiveID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const messagePurgedByIDAttr = `-- name: MessagePurgedByIDAttr :one
+SELECT EXISTS (
+	SELECT 1 FROM purgedMessages
+	WHERE accountJID = ?1
+		AND rosterJID = ?2
+		AND idAttr = ?3
+)
+`
+
+type MessagePurgedByIDAttrParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  string         `db:"roster_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+}
+
+func (q *Queries) MessagePurgedByIDAttr(ctx context.Context, arg MessagePurgedByIDAttrParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, messagePurgedByIDAttr, arg.AccountJid, arg.RosterJid, arg.IDAttr)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

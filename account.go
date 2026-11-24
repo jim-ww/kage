@@ -1369,6 +1369,23 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		}
 	}
 
+	// ...or purged here since (see purgedMessages in schema.sql)...
+	if purged, err := s.db.MessagePurgedByArchiveID(ctx, storage.MessagePurgedByArchiveIDParams{
+		AccountJid: s.account.JID,
+		ArchiveID:  nullString(am.ArchiveID),
+	}); err == nil && purged {
+		return mamItemOutcome{}
+	}
+	if am.ID != "" {
+		if purged, err := s.db.MessagePurgedByIDAttr(ctx, storage.MessagePurgedByIDAttrParams{
+			AccountJid: s.account.JID,
+			RosterJid:  peerJID,
+			IDAttr:     nullString(am.ID),
+		}); err == nil && purged {
+			return mamItemOutcome{}
+		}
+	}
+
 	// ...or a correction already applied, which has no row of its own (see
 	// appliedCorrections in schema.sql).
 	if am.ArchiveID != "" {
