@@ -17,7 +17,7 @@ import (
 // Needed here so Daemon side effects (which ride inline func()
 // tea.Msg closures batched alongside the list-item refresh) actually fire.
 func runCmd(cmd tea.Cmd) {
-	if cmd == nil {
+	if cmd == nil || isIdleTimerCmd(cmd) {
 		return
 	}
 	msg := cmd()
@@ -321,5 +321,32 @@ func TestUnreadWhileIdleAndClearedOnActivity(t *testing.T) {
 	m = next.(Model)
 	if got := unreadOf(m); got != 0 {
 		t.Fatalf("Unread after the next keystroke = %d, want 0", got)
+	}
+}
+
+// Returning to the terminal after going idle is activity too: a message
+// arriving right after, before any keystroke, is being read.
+func TestFocusAfterIdleCountsAsActivity(t *testing.T) {
+	sender := &fakeReadTrackerSender{}
+	m := newUnreadTestModel(sender, viewChat)
+
+	next, cmd := m.Update(tea.BlurMsg{})
+	m = next.(Model)
+	runCmd(cmd)
+	next, cmd = m.Update(idleMsg{gen: m.idleGen})
+	m = next.(Model)
+	runCmd(cmd)
+	next, cmd = m.Update(tea.FocusMsg{})
+	m = next.(Model)
+	runCmd(cmd)
+	if m.idle {
+		t.Fatal("still idle after the terminal regained focus")
+	}
+
+	next, cmd = m.Update(ChatUnreadMsg{AccountJID: "me@example.test", ChatAddress: "bob@example.test", Count: 1})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := unreadOf(m); got != 0 {
+		t.Fatalf("Unread right after regaining focus = %d, want 0", got)
 	}
 }

@@ -170,3 +170,17 @@ func TestBlurIsReported(t *testing.T) {
 		t.Errorf("reported focused=%v after blur, want false", last.focused)
 	}
 }
+
+// TestStaleFocusReportDropped: a report overtaken by a later one before it
+// ran isn't sent, so the daemon can't end up with the older state.
+func TestStaleFocusReportDropped(t *testing.T) {
+	reporter := &recordingFocusReporter{}
+	r := &focusReporter{}
+	first := r.report(reporter, "me@example.com", "bob@example.com", true)
+	second := r.report(reporter, "me@example.com", "bob@example.com", false)
+	second()
+	first()
+	if len(reporter.calls) != 1 || reporter.calls[0].focused {
+		t.Fatalf("reports sent = %+v, want only the later unfocused one", reporter.calls)
+	}
+}

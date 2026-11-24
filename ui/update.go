@@ -158,7 +158,7 @@ func splitQuotedTokens(s string) []string {
 // receive with nobody actually at the keyboard — see Model.idle.
 func isActivityMsg(msg tea.Msg) bool {
 	switch msg.(type) {
-	case tea.KeyMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+	case tea.KeyMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.FocusMsg:
 		return true
 	default:
 		return false
@@ -225,17 +225,8 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		if newFocused == oldFocused && newAccountJID == oldAccountJID && newChatAddress == oldChatAddress {
 			return
 		}
-		reporter := rm.daemon
 		slog.Debug("ui: focus state changed, reporting to daemon", "oldFocused", oldFocused, "newFocused", newFocused, "accountJID", newAccountJID, "chatAddress", newChatAddress)
-		retCmd = tea.Batch(retCmd, func() tea.Msg {
-			start := time.Now()
-			if err := reporter.SetFocusState(newAccountJID, newChatAddress, newFocused); err != nil {
-				slog.Warn("ui: SetFocusState RPC failed", "err", err, "elapsed", time.Since(start))
-			} else {
-				slog.Debug("ui: SetFocusState RPC done", "elapsed", time.Since(start))
-			}
-			return nil
-		})
+		retCmd = tea.Batch(retCmd, rm.focusReport.report(rm.daemon, newAccountJID, newChatAddress, newFocused))
 	}()
 
 	msg = normalizeKey(msg)

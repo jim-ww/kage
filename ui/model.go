@@ -177,6 +177,8 @@ type Model struct {
 	// focused is whether the terminal has focus. Starts true, for terminals
 	// that never report it.
 	focused bool
+	// focusReport keeps focus reports to the daemon in order.
+	focusReport *focusReporter
 
 	// idle is set after notifyIdleTimeout without input, so a chat left on
 	// screen still gets notified. idleGen counts input, see idleMsg.
@@ -343,6 +345,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon 
 		expandedMsgs:           make(map[string]bool),
 		lastClickedMsgIdx:      -1,
 		focused:                true,
+		focusReport:            &focusReporter{},
 		openChatAccountIdx:     -1,
 		loadingHistoryWindow:   make(map[int]bool),
 		pendingOpenChatAddress: openLastChatAddress,
@@ -397,12 +400,7 @@ func (m Model) Init() tea.Cmd {
 	// starting chat runTUI already reported.
 	if len(m.accounts) > 0 || m.pendingOpenChatAddress == "" {
 		accountJID, chatAddress := m.activeChatKey()
-		focused := m.focused && !m.idle
-		reporter := m.daemon
-		cmds = append(cmds, func() tea.Msg {
-			_ = reporter.SetFocusState(accountJID, chatAddress, focused)
-			return nil
-		})
+		cmds = append(cmds, m.focusReport.report(m.daemon, accountJID, chatAddress, m.focused && !m.idle))
 	}
 	return tea.Batch(cmds...)
 }
