@@ -1525,7 +1525,13 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		return mamItemOutcome{}
 	}
 
-	_, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+	// An item without a stamp is placed as if it arrived now; the cursor
+	// keeps it unknown (see mamCursor).
+	sentAt := am.SentAt
+	if sentAt.IsZero() {
+		sentAt = time.Now()
+	}
+	storeID, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:        s.account.JID,
 		Sent:              sent,
 		ToAttr:            nullString(am.To),
@@ -1536,7 +1542,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		E2eEncrypted:      e2eEncrypted,
 		E2eeMethod:        nullString(e2eeMethod),
 		StanzaType:        "chat",
-		Delay:             am.SentAt.Unix(),
+		Delay:             sentAt.Unix(),
 		RosterJid:         nullString(peerJID),
 		ArchiveID:         nullString(am.ArchiveID),
 		OobUrls:           joinOOBURLs(oobURLs),
@@ -1559,9 +1565,10 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 	}
 	return mamItemOutcome{msg: &ui.Message{
 		ID:            am.ID,
+		StoreID:       storeID,
 		Author:        author,
 		Content:       body,
-		SentAt:        am.SentAt,
+		SentAt:        sentAt,
 		IsMe:          sent,
 		Encrypted:     e2eEncrypted,
 		EncMethod:     e2eeMethod,

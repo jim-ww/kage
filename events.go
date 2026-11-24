@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jim-ww/kage/crypto/gpg"
 	"github.com/jim-ww/kage/daemon"
@@ -231,8 +232,13 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	// message follows as IncomingMessageMsg.
 	ensureChat(ctx, srv, accountIdx, s, from)
 
+	// Unknown only to a caller that didn't say; xmpp always does.
+	sentAt := msgEv.SentAt
+	if sentAt.IsZero() {
+		sentAt = time.Now()
+	}
 	sealedBody, encrypted := encryptForStorage(s, body)
-	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+	storeID, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:        s.account.JID,
 		Sent:              msgEv.Outgoing,
 		FromAttr:          nullString(msgEv.From),
@@ -242,12 +248,14 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		E2eEncrypted:      e2eEncrypted,
 		E2eeMethod:        nullString(e2eeMethod),
 		StanzaType:        "chat",
+		Delay:             sentAt.Unix(),
 		RosterJid:         nullString(from),
 		ReplyToIDAttr:     nullString(msgEv.ReplyToID),
 		ReplyQuoteAuthor:  nullString(quotedAuthor),
 		ReplyQuotePreview: nullString(quotedPreview),
 		OobUrls:           joinOOBURLs(oobURLs),
-	}); err != nil {
+	})
+	if err != nil {
 		// Not broadcast without a stored row.
 		slog.Warn("persisting received message", "err", err)
 		return
@@ -261,9 +269,10 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	}
 	newMsg := ui.Message{
 		ID:            msgEv.ID,
+		StoreID:       storeID,
 		Author:        author,
 		Content:       body,
-		SentAt:        msgEv.SentAt,
+		SentAt:        sentAt,
 		IsMe:          msgEv.Outgoing,
 		Encrypted:     e2eEncrypted,
 		EncMethod:     e2eeMethod,
