@@ -94,16 +94,20 @@ type searchResultsBody struct {
 	chatAddress string
 	peerName    string // the chat's display name, for authorFilter's label
 	query       string
-	messages    []Message
-	matches     []int
-	shown       []int // matches narrowed by author and filter: the list's rows
-	author      authorFilter
-	filter      string
-	status      string
-	err         string
-	m           *Model // for searchResultLabel's formatting only
-	width       int
-	height      int
+	// files lists attachments rather than text matches: messages holds one
+	// entry per attachment (see openChatFiles), rows show its name, size and
+	// date, and the filter matches names.
+	files    bool
+	messages []Message
+	matches  []int
+	shown    []int // matches narrowed by author and filter: the list's rows
+	author   authorFilter
+	filter   string
+	status   string
+	err      string
+	m        *Model // for searchResultLabel's formatting only
+	width    int
+	height   int
 }
 
 // What the results act with: ask for a filter (/).
@@ -165,7 +169,14 @@ func (b *searchResultsBody) SetSize(width, height int) {
 	b.relist()
 }
 
-func (b *searchResultsBody) PreferredWidth() int { return 60 }
+// PreferredWidth leaves the files list room for a size column too (see
+// openChatFiles's MaxWidth).
+func (b *searchResultsBody) PreferredWidth() int {
+	if b.files {
+		return 72
+	}
+	return 60
+}
 
 func (b *searchResultsBody) Hints() []modal.Hint {
 	if b.status != "" || b.err != "" {
@@ -187,7 +198,7 @@ func (b *searchResultsBody) relist() {
 		if b.author != authorFilterAll && msg.IsMe != (b.author == authorFilterMe) {
 			continue
 		}
-		if strings.TrimSpace(b.filter) != "" && !fuzzyContains(msg.Content, b.filter) {
+		if strings.TrimSpace(b.filter) != "" && !fuzzyContains(b.filterText(msg), b.filter) {
 			continue
 		}
 		b.shown = append(b.shown, idx)
@@ -195,17 +206,33 @@ func (b *searchResultsBody) relist() {
 	items := make([]modal.MenuItem, len(b.shown))
 	for i, idx := range b.shown {
 		text, date := b.m.searchResultLabel(b.messages[idx])
-		if b.width > 0 {
-			room := max(1, b.width-cells.BlockWidth(date)-2)
+		if b.files {
+			text, date = b.m.fileResultLabel(b.chatAddress, b.messages[idx])
+		}
+		// The menu keeps a row's last column for an item key.
+		if width := b.width - 1; width > 0 {
+			room := max(1, width-cells.BlockWidth(date)-2)
 			text = ansi.Truncate(text, room, "…")
-			text += strings.Repeat(" ", max(2, b.width-cells.BlockWidth(text)-cells.BlockWidth(date)))
+			text += strings.Repeat(" ", max(2, width-cells.BlockWidth(text)-cells.BlockWidth(date)))
 		} else {
 			text += "  "
 		}
 		items[i] = modal.MenuItem{Label: text + date}
 	}
 	b.Empty = "no matches"
+	if b.files {
+		b.Empty = "no files"
+	}
 	b.SetItems(items...)
+}
+
+// filterText is what the filter matches msg against: its content, or for a
+// file its name.
+func (b *searchResultsBody) filterText(msg Message) string {
+	if b.files && len(msg.Attachments) > 0 {
+		return attachmentDisplayName(msg.Attachments[0])
+	}
+	return msg.Content
 }
 
 // authorFilter narrows the search-results popup to messages from one

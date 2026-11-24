@@ -296,10 +296,16 @@ type attachmentSizeMsg struct {
 	ok     bool
 }
 
+// sizeFetchSlots bounds how many HEAD requests fetchAttachmentSizeCmd has
+// in flight: opening a chat's files list asks for every size at once.
+var sizeFetchSlots = make(chan struct{}, 4)
+
 // fetchAttachmentSizeCmd HEAD-requests target's size, only on asking for a
-// message's info (see renderAttachmentLine).
+// message's info or a chat's files (see renderAttachmentLine).
 func fetchAttachmentSizeCmd(target string) tea.Cmd {
 	return func() tea.Msg {
+		sizeFetchSlots <- struct{}{}
+		defer func() { <-sizeFetchSlots }()
 		downloadURL := attachmentDownloadURL(target)
 		if downloadURL == "" {
 			return attachmentSizeMsg{target: target}

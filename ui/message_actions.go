@@ -437,6 +437,9 @@ func (m *Model) renameChat(idx int, typed string) tea.Cmd {
 	return cmd
 }
 
+// searchTabFiles is the search's Files tab.
+const searchTabFiles = 2
+
 // actionSearchChat asks for a query to search the chat's whole history for.
 func (m *Model) actionSearchChat() tea.Cmd {
 	chat, ok := m.currentChat()
@@ -455,11 +458,15 @@ func (m *Model) actionSearchChat() tea.Cmd {
 		Body: modal.NewTabs(
 			modal.Tab{Title: "Search text", Body: m.newInput("", "search messages", "/ ", "search")},
 			modal.Tab{Title: "Go to date", Body: date},
+			modal.Tab{Title: "Files", Body: m.newInput("", "filter by name, or enter for all", "/ ", "list")},
 		),
 		OnSubmit: func(m *Model, v any) tea.Cmd {
 			r := v.(modal.TabResult)
 			if day, ok := r.Value.(time.Time); ok {
 				return m.jumpToDate(day)
+			}
+			if r.Tab == searchTabFiles {
+				return m.openChatFiles(r.Value.(string))
 			}
 			return m.searchChat(r.Value.(string))
 		},
@@ -598,17 +605,7 @@ func (m *Model) actionInfoMessage() tea.Cmd {
 	chat, _ := m.currentChat()
 	var cmds []tea.Cmd
 	for _, a := range msg.Attachments {
-		if _, ok := attachmentLocalSize(a, chat.Address); ok {
-			continue
-		}
-		if _, ok := m.attachmentSizes[a]; ok || m.attachmentSizeFetching[a] || m.attachmentSizeFailed[a] {
-			continue
-		}
-		if m.attachmentSizeFetching == nil {
-			m.attachmentSizeFetching = make(map[string]bool)
-		}
-		m.attachmentSizeFetching[a] = true
-		cmds = append(cmds, fetchAttachmentSizeCmd(a))
+		cmds = append(cmds, m.fetchAttachmentSize(a, chat.Address))
 	}
 	text := modal.NewText(m.infoLines()...)
 	text.ActLabel = "copy URL"
