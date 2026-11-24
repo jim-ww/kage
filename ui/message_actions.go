@@ -93,10 +93,12 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		m.restoreStashedDraft()
 		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
 		m.updateSizes()
+		cmds = append(cmds, m.loadTailAfterSend())
 		return tea.Batch(cmds...)
 	}
 
-	if !m.editingMsg.empty() {
+	isEdit := !m.editingMsg.empty()
+	if isEdit {
 		// An edit, sent as a XEP-0308 correction if the message has an ID.
 		// Looked up by identity: indices move while the edit is typed.
 		msgs := m.currentMessages()
@@ -159,7 +161,25 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	}
 	m.refreshViewport()
 	m.viewport.GotoBottom()
+	if !isEdit {
+		cmds = append(cmds, m.loadTailAfterSend())
+	}
 	return tea.Batch(cmds...)
+}
+
+// loadTailAfterSend loads the latest window when a message was sent while
+// an older one is shown (paged up, or jumped to a search result or date), so
+// the sent message lands where it belongs rather than at the bottom of
+// stale history.
+func (m *Model) loadTailAfterSend() tea.Cmd {
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
+		return nil
+	}
+	if !m.accounts[m.currentAccount].HistoryNewer[chatIdx] {
+		return nil
+	}
+	return m.jumpToLatestMessage()
 }
 
 // pendingReplyOptions is the reply half of a SendOptions for m.replyTo. A
