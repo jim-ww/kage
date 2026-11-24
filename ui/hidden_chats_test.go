@@ -283,3 +283,17 @@ func TestHideConfirmationMentionsNothingIsDeleted(t *testing.T) {
 }
 
 var _ tea.Msg = IncomingMessageMsg{}
+
+// The chat list's hide key is a plain letter, so it works without the Kitty
+// keyboard protocol.
+func TestHideChatKeyAsksToHide(t *testing.T) {
+	m := hiddenChatsModel(t, &fakeChatHider{}, Chat{Name: "a", Address: "a@x"})
+	m.width, m.height, m.termHeight = 120, 40, 40
+	m.updateSizes()
+	m.selectedView = viewChats
+
+	m = updated(t, m, keyText("h"))
+	if !m.modals.Open() || !strings.Contains(modalTitle(m), "Hide chat?") {
+		t.Fatal("h in the chat list did not ask to hide the chat")
+	}
+}

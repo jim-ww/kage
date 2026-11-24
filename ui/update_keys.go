@@ -127,6 +127,11 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionTogglePinChat(), true
 		}
 
+	case matchesKey(msg, m.keys.HideChat):
+		if m.selectedView == viewChats {
+			return m, m.actionHideChat(), true
+		}
+
 	case matchesKey(msg, m.keys.AttachFile):
 		if m.selectedView == viewChat {
 			if m.currentChatIndex() < 0 {
@@ -357,11 +362,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	// ── Message actions ────────────────────────────────────────────────
 	case matchesKey(msg, m.keys.DeleteMsg):
-		switch m.selectedView {
-		case viewChat:
+		if m.selectedView == viewChat {
 			return m, m.actionDeleteMessage(), true
-		case viewChats:
-			return m, m.actionHideChat(), true
 		}
 
 	case matchesKey(msg, m.keys.YankMsg):

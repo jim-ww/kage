@@ -5,7 +5,6 @@
 - drag & drop in chat stopped working
 - video stream worsens call quality (adds lag)
 - problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ
-- hide chat keybind doesnt trigger
 - add new 'attachments' screen (for every chat).
 - on nixos rebuild, call hangs or something. or one of clients dies
 - after switching to new account, tray icon started showing 'new message' alert all the time
