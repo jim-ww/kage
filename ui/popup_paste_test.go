@@ -87,3 +87,17 @@ func TestPasteIntoPromptInputs(t *testing.T) {
 		t.Errorf("compose: %q", m.input.Value())
 	}
 }
+
+// TestPasteIntoChatListFilter: a paste while filtering the chat list goes
+// to the filter.
+func TestPasteIntoChatListFilter(t *testing.T) {
+	m := pasteTestModel(t)
+	m.setSelectedView(viewChats)
+	m = updated(t, m, keyText("/"))
+	if m.chats.FilterState() != list.Filtering {
+		t.Fatal("test setup: / did not start filtering")
+	}
+	if m = paste(m, "bob"); m.chats.FilterValue() != "bob" {
+		t.Errorf("chat list filter = %q, want the paste", m.chats.FilterValue())
+	}
+}

@@ -12,7 +12,6 @@
 - focused state is broken, unread tray icon doesnt show (after switching focus from window), same thing other way, even when viewing chat, unread count in chats list AND unread tray icon appear (even though app open & chat focused)
 - call widget is ugly and unhelpful. some keybindings do not work
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
-- make sure user can paste to all textinputs (e.g. account add JID/password)
 - handle extremely large text AND images pasted in message prompt / sent in chat (lags/slow), maybe connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - if tui relaunched, then calling statusbar not shown?
