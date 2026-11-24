@@ -2376,8 +2376,10 @@ func (c *callSession) logCall(state, reason string) {
 		direction = "incoming"
 	}
 
+	endedAt := c.sess.now()
 	id, err := c.sess.db.InsertCallLog(context.Background(), storage.InsertCallLogParams{
 		AccountJid:       c.sess.account.JID,
+		Delay:            endedAt.Unix(),
 		Sent:             !incoming,
 		RosterJid:        nullString(c.peer),
 		CallDirection:    nullString(direction),
@@ -2395,7 +2397,7 @@ func (c *callSession) logCall(state, reason string) {
 		Message: ui.Message{
 			ID:     fmt.Sprintf("call-%d", id),
 			Author: c.peer,
-			SentAt: time.Now(),
+			SentAt: endedAt,
 			IsMe:   !incoming,
 			CallLog: &ui.CallLogInfo{
 				Direction: direction,

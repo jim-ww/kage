@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/jim-ww/kage/crypto/gpg"
 	"github.com/jim-ww/kage/daemon"
@@ -235,7 +234,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	// Unknown only to a caller that didn't say; xmpp always does.
 	sentAt := msgEv.SentAt
 	if sentAt.IsZero() {
-		sentAt = time.Now()
+		sentAt = s.now()
 	}
 	sealedBody, encrypted := encryptForStorage(s, body)
 	storeID, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{

@@ -477,6 +477,15 @@ func (s *accountSession) receiptsAllowed(sender string) bool {
 	return ok && (e.Subs == "from" || e.Subs == "both")
 }
 
+// now is the time by the server's clock (see xmpp.Client.Now), which dates
+// what the server archives: what we store under it sorts with that.
+func (s *accountSession) now() time.Time {
+	if client := s.client.Load(); client != nil {
+		return client.Now()
+	}
+	return time.Now()
+}
+
 // rosterName is bareJID's roster name, or bareJID if it has none.
 func (s *accountSession) rosterName(bareJID string) string {
 	entries := s.roster.Load()
@@ -1566,7 +1575,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 	// keeps it unknown (see mamCursor).
 	sentAt := am.SentAt
 	if sentAt.IsZero() {
-		sentAt = time.Now()
+		sentAt = s.now()
 	}
 	storeID, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:        s.account.JID,

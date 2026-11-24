@@ -1224,10 +1224,12 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		quotedPreview = opts.QuotedBody
 	}
 
+	sentAt := s.now()
 	sealedBody, encrypted := encryptForStorage(s, body)
 	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:        s.account.JID,
 		Sent:              true,
+		Delay:             sentAt.Unix(),
 		ToAttr:            nullString(to),
 		IDAttr:            nullString(id),
 		Body:              sealedBody,
@@ -1256,7 +1258,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			LocalID:       opts.LocalID,
 			Author:        "me",
 			Content:       body,
-			SentAt:        time.Now(),
+			SentAt:        sentAt,
 			IsMe:          true,
 			Encrypted:     e2eEncrypted,
 			EncMethod:     e2eeMethod,

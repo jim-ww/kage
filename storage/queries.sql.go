@@ -914,10 +914,13 @@ VALUES (
 	?2,
 	?3,
 	'call',
-	CAST(strftime('%s', 'now') AS INTEGER),
-	?4,
+	IFNULL(
+		NULLIF(?4, 0),
+		CAST(strftime('%s', 'now') AS INTEGER)
+	),
 	?5,
-	?6
+	?6,
+	?7
 )
 RETURNING id
 `
@@ -926,6 +929,7 @@ type InsertCallLogParams struct {
 	AccountJid       string         `db:"account_jid"`
 	Sent             bool           `db:"sent"`
 	RosterJid        sql.NullString `db:"roster_jid"`
+	Delay            interface{}    `db:"delay"`
 	CallDirection    sql.NullString `db:"call_direction"`
 	CallOutcome      sql.NullString `db:"call_outcome"`
 	CallDurationSecs sql.NullInt64  `db:"call_duration_secs"`
@@ -939,6 +943,7 @@ func (q *Queries) InsertCallLog(ctx context.Context, arg InsertCallLogParams) (i
 		arg.AccountJid,
 		arg.Sent,
 		arg.RosterJid,
+		arg.Delay,
 		arg.CallDirection,
 		arg.CallOutcome,
 		arg.CallDurationSecs,

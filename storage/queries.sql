@@ -114,7 +114,10 @@ VALUES (
 	sqlc.arg(sent),
 	sqlc.arg(roster_jid),
 	'call',
-	CAST(strftime('%s', 'now') AS INTEGER),
+	IFNULL(
+		NULLIF(sqlc.arg(delay), 0),
+		CAST(strftime('%s', 'now') AS INTEGER)
+	),
 	sqlc.arg(call_direction),
 	sqlc.arg(call_outcome),
 	sqlc.arg(call_duration_secs)
