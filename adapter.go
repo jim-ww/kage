@@ -31,16 +31,18 @@ import (
 // sessions is only appended to after startup, so indices stay stable; mu
 // guards it.
 type adapter struct {
-	mu          sync.Mutex
-	sessions    []*accountSession
-	cfgAccounts []config.Account // mirrors sessions, but populated for an index before that account finishes connecting - see daemonServer.listAccounts
-	cfgPath     string
-	srv         *ipc.Server
-	db          *sql.DB // raw handle alongside queries, needed for the transaction ChangeStoragePassword runs
-	queries     *storage.Queries
-	localKey    []byte
-	useGPG      bool
-	useKeyring  bool
+	mu sync.Mutex
+	// addAccountMu serializes AddAccount.
+	addAccountMu sync.Mutex
+	sessions     []*accountSession
+	cfgAccounts  []config.Account // mirrors sessions, but populated for an index before that account finishes connecting - see daemonServer.listAccounts
+	cfgPath      string
+	srv          *ipc.Server
+	db           *sql.DB // raw handle alongside queries, needed for the transaction ChangeStoragePassword runs
+	queries      *storage.Queries
+	localKey     []byte
+	useGPG       bool
+	useKeyring   bool
 
 	uploadCancelsMu sync.Mutex
 	uploadCancels   map[string]context.CancelFunc // keyed by local file path, see SendFile/UploadFile/CancelUpload
@@ -84,6 +86,11 @@ func (a *adapter) CancelUpload(path string) {
 // and supervises it - registering it on the server first (XEP-0077) when
 // register is set.
 func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) (ui.Account, error) {
+	// One at a time: each call runs on its own goroutine, and two adds of
+	// the same JID (a second TUI, a resubmitted form) would otherwise both
+	// pass the existence check before either wrote the config.
+	a.addAccountMu.Lock()
+	defer a.addAccountMu.Unlock()
 	// Checked before registering too: that would create the account on the
 	// server only for saving it to fail afterwards.
 	if exists, err := config.AccountExists(a.cfgPath, jid); err != nil {
@@ -116,6 +123,12 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) (ui.
 	ctx := context.Background()
 	sess, uiAcct, err := connectAccount(ctx, acct, a.queries, a.localKey, a.useGPG, a.useKeyring)
 	if err != nil {
+		// Not added: left in config.toml, retrying (with the right password,
+		// say) would be refused as a duplicate, and the next start would
+		// bring up an account the user never saw added.
+		if rmErr := config.RemoveAccount(a.cfgPath, jid); rmErr != nil {
+			slog.Warn("removing account that failed to connect from config", "jid", jid, "err", rmErr)
+		}
 		return ui.Account{}, err
 	}
 
