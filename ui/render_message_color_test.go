@@ -59,8 +59,8 @@ func TestPlainTextLineSkipsAlreadyColoredText(t *testing.T) {
 	styles := newUIStyles(TokyoNightTheme())
 	colored := "\x1b[38;5;81mfunc\x1b[0m main()"
 
-	if got := styles.plainTextLine(colored); got != colored {
-		t.Fatalf("expected already-colored line to pass through unchanged, got %q", got)
+	if got := styles.plainTextLine(colored); got != colored+"\x1b[m" {
+		t.Fatalf("expected already-colored line to pass through with only a closing reset, got %q", got)
 	}
 
 	plain := "just text"
@@ -85,5 +85,23 @@ func TestTextAreaCursorLineForegroundMatchesText(t *testing.T) {
 	}
 	if got, want := taStyles.Blurred.CursorLine.GetForeground(), taStyles.Blurred.Text.GetForeground(); got != want {
 		t.Fatalf("blurred cursor line foreground %v does not match text foreground %v", got, want)
+	}
+}
+
+// TestRenderMessageWrappedURLClosesStyle guards against a wrapped URL's
+// underline staying open at the end of a body line, which bled past the chat
+// pane onto the next terminal row (the chat list) on unhovered rows.
+func TestRenderMessageWrappedURLClosesStyle(t *testing.T) {
+	m := Model{styles: newUIStyles(TokyoNightTheme()), flashMsgIdx: -1, selectedMsg: -1}
+	msg := Message{
+		Author:  "bob",
+		Content: "see https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ok",
+		SentAt:  time.Now(),
+	}
+	out := m.renderMessage(msg, 0, 30, []Message{msg}, maxSenderNameWidth([]Message{msg}))
+	for i, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "\x1b[") && !strings.HasSuffix(line, "\x1b[m") {
+			t.Fatalf("line %d leaves a style open: %q", i, line)
+		}
 	}
 }

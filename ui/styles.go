@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jim-ww/kage/ui/cells"
 )
@@ -384,9 +385,14 @@ func (s *uiStyles) renderAccountMenuButton(icons bool, row lipgloss.Style, hover
 }
 
 // plainTextLine colors line with the body foreground, unless it's styled
-// already: an outer color would stop at its resets.
+// already: an outer color would stop at its resets. A styled line is closed
+// with a reset, since wrapping can split a styled run (an underlined URL)
+// and leave it open into whatever follows on the terminal row.
 func (s *uiStyles) plainTextLine(line string) string {
 	if strings.Contains(line, "\x1b[") {
+		if !strings.HasSuffix(line, ansi.ResetStyle) {
+			line += ansi.ResetStyle
+		}
 		return line
 	}
 	return s.plainText.Render(line)
