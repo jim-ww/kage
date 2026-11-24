@@ -58,6 +58,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS messagesAccountRosterJIDIdAttr
 CREATE INDEX IF NOT EXISTS messagesAccountRosterJIDDelay
 	ON messages (accountJID, rosterJID, delay DESC, id DESC);
 
+-- Serves ListAttachmentsByRoster: a chat's files without scanning its whole
+-- history.
+CREATE INDEX IF NOT EXISTS messagesAccountRosterJIDAttachments
+	ON messages (accountJID, rosterJID, delay DESC, id DESC)
+	WHERE oobURLs IS NOT NULL AND oobURLs != '';
+
 -- XEP-0444: each row is one reactor's one emoji on one message. A reactor's
 -- full set is replaced (not added-to) whenever a new <reactions/> stanza
 -- arrives for them, by deleting their existing rows for that idAttr first.

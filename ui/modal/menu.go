@@ -89,6 +89,11 @@ func (m *Menu) visible() int {
 	return m.height
 }
 
+// Window is the items in view: from start up to, not including, end.
+func (m *Menu) Window() (start, end int) {
+	return m.scroll, min(len(m.Items), m.scroll+m.visible())
+}
+
 // show scrolls item i into view.
 func (m *Menu) show(i int) {
 	if i < m.scroll {

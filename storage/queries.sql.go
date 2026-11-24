@@ -1451,6 +1451,59 @@ func (q *Queries) ListAllReactions(ctx context.Context) ([]ListAllReactionsRow, 
 	return items, nil
 }
 
+const listAttachmentsByRoster = `-- name: ListAttachmentsByRoster :many
+SELECT id, idAttr, delay, sent, oobURLs
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND oobURLs IS NOT NULL AND oobURLs != ''
+ORDER BY delay DESC, id DESC
+`
+
+type ListAttachmentsByRosterParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+type ListAttachmentsByRosterRow struct {
+	ID      int64          `db:"id"`
+	Idattr  sql.NullString `db:"idattr"`
+	Delay   int64          `db:"delay"`
+	Sent    bool           `db:"sent"`
+	Ooburls sql.NullString `db:"ooburls"`
+}
+
+// A chat's messages carrying attachments, newest first: only what a files
+// list shows, so nothing needs decrypting.
+func (q *Queries) ListAttachmentsByRoster(ctx context.Context, arg ListAttachmentsByRosterParams) ([]ListAttachmentsByRosterRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAttachmentsByRoster, arg.AccountJid, arg.RosterJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAttachmentsByRosterRow
+	for rows.Next() {
+		var i ListAttachmentsByRosterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Idattr,
+			&i.Delay,
+			&i.Sent,
+			&i.Ooburls,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatDrafts = `-- name: ListChatDrafts :many
 SELECT rosterJID, body, encrypted
 FROM chatDraft

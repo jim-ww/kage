@@ -52,7 +52,8 @@ type HistorySearchResultMsg struct {
 }
 
 // ChatFilesMsg reports Daemon.ChatFiles's result: the chat's messages
-// carrying attachments, oldest first.
+// carrying attachments, newest first, with nothing but what a files list
+// shows (no Content).
 type ChatFilesMsg struct {
 	AccountIdx int
 	From       string

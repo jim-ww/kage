@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -28,6 +29,17 @@ func (m *Model) openChatFiles(filter string) tea.Cmd {
 		return nil
 	}
 	accountIdx := m.currentAccount
+	// The list reads sizes through m, which may be an older copy of the
+	// model by then: maps made now are the same ones every copy sees.
+	if m.attachmentSizes == nil {
+		m.attachmentSizes = make(map[string]int64)
+	}
+	if m.attachmentSizeFetching == nil {
+		m.attachmentSizeFetching = make(map[string]bool)
+	}
+	if m.attachmentSizeFailed == nil {
+		m.attachmentSizeFailed = make(map[string]bool)
+	}
 	menu := modal.NewMenu()
 	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
 	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
@@ -47,7 +59,7 @@ func (m *Model) openChatFiles(filter string) tea.Cmd {
 				OnSubmit: func(m *Model, v any) tea.Cmd {
 					body.filter = v.(string)
 					body.relist()
-					return nil
+					return body.sizesCmd()
 				},
 			})
 		},
@@ -56,9 +68,7 @@ func (m *Model) openChatFiles(filter string) tea.Cmd {
 }
 
 // fillChatFiles puts msg's files into the open files list, if it's still
-// the one for that chat: one row per attachment, newest first. Sizes not
-// known yet are asked for here, on opening the list, as message info does
-// (see fetchAttachmentSizeCmd).
+// the one for that chat: one row per attachment, newest first.
 func (m *Model) fillChatFiles(msg ChatFilesMsg) tea.Cmd {
 	md := m.modals.Find(chatFilesModalID)
 	if md == nil {
@@ -74,45 +84,61 @@ func (m *Model) fillChatFiles(msg ChatFilesMsg) tea.Cmd {
 		body.err = msg.Err.Error()
 		return nil
 	}
-	var files []Message
-	for i := len(msg.Messages) - 1; i >= 0; i-- {
-		for _, a := range msg.Messages[i].Attachments {
-			f := msg.Messages[i]
+	files := make([]Message, 0, len(msg.Messages))
+	for _, f := range msg.Messages {
+		for _, a := range f.Attachments {
 			f.Attachments = []string{a}
 			files = append(files, f)
 		}
 	}
-	body.messages = files
+	body.messages, body.names = files, make([]string, len(files))
 	body.matches = make([]int, len(files))
 	for i := range files {
 		body.matches[i] = i
 	}
 	body.relist()
+	return body.sizesCmd()
+}
 
+// chatFileSizesMsg asks for the sizes of the files a files list shows:
+// only those in view, so a long list never asks for thousands at once.
+type chatFileSizesMsg struct {
+	jid     string
+	targets []string
+}
+
+// fetchChatFileSizes finds msg's sizes not known yet: from a local copy, or
+// else asked of the host as message info does (see fetchAttachmentSizeCmd).
+func (m *Model) fetchChatFileSizes(msg chatFileSizesMsg) tea.Cmd {
 	var cmds []tea.Cmd
-	for _, f := range files {
-		cmds = append(cmds, m.fetchAttachmentSize(f.Attachments[0], msg.From))
+	for _, target := range msg.targets {
+		cmds = append(cmds, m.fetchAttachmentSize(target, msg.jid))
 	}
+	m.relabelChatFiles()
 	return tea.Batch(cmds...)
 }
 
-// relistChatFiles redraws the open files list's rows, for a size that just
-// arrived.
-func (m *Model) relistChatFiles() {
+// relabelChatFiles redraws the open files list's rows in view, for a size
+// that just arrived.
+func (m *Model) relabelChatFiles() {
 	if md := m.modals.Find(chatFilesModalID); md != nil {
 		body := md.Body.(*searchResultsBody)
 		body.m = m
-		body.relist()
+		body.label()
 	}
 }
 
-// fetchAttachmentSize asks for target's size unless it's known, cached
-// locally, already being asked for, or failed before.
+// fetchAttachmentSize asks for target's size unless it's known, already
+// being asked for, or failed before. A local copy's size is taken as known.
 func (m *Model) fetchAttachmentSize(target, jid string) tea.Cmd {
-	if _, ok := attachmentLocalSize(target, jid); ok {
+	if _, ok := m.attachmentSizes[target]; ok || m.attachmentSizeFetching[target] || m.attachmentSizeFailed[target] {
 		return nil
 	}
-	if _, ok := m.attachmentSizes[target]; ok || m.attachmentSizeFetching[target] || m.attachmentSizeFailed[target] {
+	if size, ok := attachmentLocalSize(target, jid); ok {
+		if m.attachmentSizes == nil {
+			m.attachmentSizes = make(map[string]int64)
+		}
+		m.attachmentSizes[target] = size
 		return nil
 	}
 	if m.attachmentSizeFetching == nil {
@@ -125,23 +151,19 @@ func (m *Model) fetchAttachmentSize(target, jid string) tea.Cmd {
 // fileResultLabel formats a files-list row's two parts, like
 // searchResultLabel: the direction glyph, icon and file name, and its size
 // and date.
-func (m Model) fileResultLabel(jid string, msg Message) (text, right string) {
+func (m Model) fileResultLabel(name string, msg Message) (text, right string) {
 	glyph := "«"
 	if msg.IsMe {
 		glyph = "»"
 	}
-	target := msg.Attachments[0]
-	name := attachmentDisplayName(target)
-	_, date := m.searchResultLabel(msg)
-	return glyph + " " + attachmentIcon(name, m.icons) + " " + name, fmt.Sprintf("%*s  %s", sizeColumn, m.fileSizeLabel(target, jid), date)
+	date := searchResultDate(msg.SentAt, time.Now(), m.formatMessageTime(msg.SentAt))
+	return glyph + " " + attachmentIcon(name, m.icons) + " " + name, fmt.Sprintf("%*s  %s", sizeColumn, m.fileSizeLabel(msg.Attachments[0]), date)
 }
 
 // fileSizeLabel is a files-list row's size: known, "…" while being asked
-// for, blank when there's no telling.
-func (m Model) fileSizeLabel(target, jid string) string {
-	if size, ok := attachmentLocalSize(target, jid); ok {
-		return humanFileSize(size)
-	}
+// for, blank when there's no telling. Never touches the disk: it's drawn
+// on every frame.
+func (m Model) fileSizeLabel(target string) string {
 	if size, ok := m.attachmentSizes[target]; ok {
 		return humanFileSize(size)
 	}

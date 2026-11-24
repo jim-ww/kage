@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -34,16 +35,16 @@ func TestChatFilesTabListsAttachmentsAndJumps(t *testing.T) {
 	AttachmentsDir = t.TempDir()
 	t.Cleanup(func() { AttachmentsDir = "" })
 	day := time.Date(2025, time.March, 4, 10, 0, 0, 0, time.Local)
-	files := []Message{
-		{ID: "a", StoreID: 1, SentAt: day, Attachments: []string{"https://up.example.test/1/report.pdf"}},
+	files := []Message{ // newest first, as ChatFiles lists them
 		{ID: "b", StoreID: 2, SentAt: day.Add(time.Hour), IsMe: true, Attachments: []string{"https://up.example.test/2/cat.png", "https://up.example.test/3/dog%20pic.jpg"}},
+		{ID: "a", StoreID: 1, SentAt: day, Attachments: []string{"https://up.example.test/1/report.pdf"}},
 	}
 	loader := &fakeHistoryLoader{fakeSuccessSender: &fakeSuccessSender{}, response: HistoryWindowMsg{Messages: files}}
-	m := newTestModelWithMessages(files[:1], filesAndLoad{loader, files})
+	m := newTestModelWithMessages(files[1:], filesAndLoad{loader, files})
 	m.width, m.termHeight = 120, 30
 	m.updateSizes()
-	m.attachmentSizes = map[string]int64{files[0].Attachments[0]: 2048}
-	m.attachmentSizeFailed = map[string]bool{files[1].Attachments[0]: true, files[1].Attachments[1]: true}
+	m.attachmentSizes = map[string]int64{files[1].Attachments[0]: 2048}
+	m.attachmentSizeFailed = map[string]bool{files[0].Attachments[0]: true, files[0].Attachments[1]: true}
 
 	m = run(t, m, tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl})
 	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
@@ -89,5 +90,48 @@ func TestChatFilesTabListsAttachmentsAndJumps(t *testing.T) {
 	}
 	if nonIdleCmd(pick) == nil || loader.lastAnchor == nil || loader.lastAnchor.StoreID != 1 {
 		t.Fatalf("picking report.pdf anchored on %+v, want its message (StoreID 1)", loader.lastAnchor)
+	}
+}
+
+// TestChatFilesLongListWorksInView guards a files list over a huge history:
+// only the rows in view are labelled and have their sizes asked for, and
+// scrolling asks for the next ones.
+func TestChatFilesLongListWorksInView(t *testing.T) {
+	AttachmentsDir = t.TempDir()
+	t.Cleanup(func() { AttachmentsDir = "" })
+	files := make([]Message, 5000)
+	for i := range files {
+		files[i] = Message{StoreID: int64(i + 1), SentAt: time.Unix(int64(1e9-i), 0), Attachments: []string{fmt.Sprintf("https://up.example.test/%d/f.bin", i)}}
+	}
+	m := newTestModelWithMessages(nil, filesAndLoad{&fakeHistoryLoader{fakeSuccessSender: &fakeSuccessSender{}}, files})
+	m.width, m.termHeight = 120, 30
+	m.updateSizes()
+	m.openChatFiles("")
+	m, cmd, _ := m.handleEventMsg(ChatFilesMsg{AccountIdx: 0, From: "bob@example.test", Messages: files})
+
+	body := filesOf(m)
+	start, end := body.Window()
+	if end-start >= 100 || end-start == 0 {
+		t.Fatalf("window = %d..%d, want a screenful", start, end)
+	}
+	if body.Items[end].Label != "" {
+		t.Fatal("a row out of view got labelled")
+	}
+	want, ok := cmd().(chatFileSizesMsg)
+	if !ok || len(want.targets) != end-start {
+		t.Fatalf("asked for sizes of %d files, want the %d in view", len(want.targets), end-start)
+	}
+
+	for range end - start {
+		m = run(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	body = filesOf(m)
+	if _, newEnd := body.Window(); newEnd == end || body.Items[newEnd-1].Label == "" {
+		t.Fatal("scrolling down didn't label the rows coming into view")
+	}
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = next.(Model)
+	if _, ok := nonIdleCmd(cmd).(chatFileSizesMsg); !ok {
+		t.Fatal("scrolling to new rows didn't ask for their sizes")
 	}
 }

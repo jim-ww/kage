@@ -218,6 +218,16 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid);
 
 
+-- A chat's messages carrying attachments, newest first: only what a files
+-- list shows, so nothing needs decrypting.
+-- name: ListAttachmentsByRoster :many
+SELECT id, idAttr, delay, sent, oobURLs
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND oobURLs IS NOT NULL AND oobURLs != ''
+ORDER BY delay DESC, id DESC;
+
 -- name: ListMessagesByRoster :many
 SELECT *
 FROM messages

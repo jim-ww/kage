@@ -95,9 +95,11 @@ type searchResultsBody struct {
 	peerName    string // the chat's display name, for authorFilter's label
 	query       string
 	// files lists attachments rather than text matches: messages holds one
-	// entry per attachment (see openChatFiles), rows show its name, size and
-	// date, and the filter matches names.
+	// entry per attachment (see openChatFiles), names their file names (see
+	// name),
+	// rows show name, size and date, and the filter matches names.
 	files    bool
+	names    []string
 	messages []Message
 	matches  []int
 	shown    []int // matches narrowed by author and filter: the list's rows
@@ -108,6 +110,11 @@ type searchResultsBody struct {
 	m        *Model // for searchResultLabel's formatting only
 	width    int
 	height   int
+	// listed counts relists, and sized is the window (with the relist it
+	// was in) whose sizes were last asked for: a files list asks for the
+	// sizes of the rows it shows only, once per new window (see sizesCmd).
+	listed int
+	sized  [3]int
 }
 
 // What the results act with: ask for a filter (/).
@@ -122,12 +129,14 @@ func (b *searchResultsBody) Update(msg tea.Msg) (tea.Cmd, modal.Outcome) {
 		case matchesLetter(k, 'a'):
 			b.author = b.author.next()
 			b.relist()
-			return nil, modal.Continue
+			return b.sizesCmd(), modal.Continue
 		case matchesLetter(k, '/'):
 			return nil, modal.Act(searchResultsFilter{})
 		}
 	}
-	return b.Menu.Update(msg)
+	cmd, outcome := b.Menu.Update(msg)
+	b.label()
+	return tea.Batch(cmd, b.sizesCmd()), outcome
 }
 
 // header says how the results are narrowed.
@@ -166,7 +175,7 @@ func (b *searchResultsBody) View() string {
 func (b *searchResultsBody) SetSize(width, height int) {
 	b.width, b.height = width, height
 	b.Menu.SetSize(width, b.rows())
-	b.relist()
+	b.label()
 }
 
 // PreferredWidth leaves the files list room for a size column too (see
@@ -189,8 +198,9 @@ func (b *searchResultsBody) Hints() []modal.Hint {
 	}
 }
 
-// relist narrows matches by author and filter into the list's rows: the
-// direction glyph and message, the date at the right.
+// relist narrows matches by author and filter into the list's rows. Only
+// the rows in view get labels (see label): a chat's whole history can be a
+// lot of rows.
 func (b *searchResultsBody) relist() {
 	b.shown = b.shown[:0]
 	for _, idx := range b.matches {
@@ -198,16 +208,29 @@ func (b *searchResultsBody) relist() {
 		if b.author != authorFilterAll && msg.IsMe != (b.author == authorFilterMe) {
 			continue
 		}
-		if strings.TrimSpace(b.filter) != "" && !fuzzyContains(b.filterText(msg), b.filter) {
+		if strings.TrimSpace(b.filter) != "" && !fuzzyContains(b.filterText(idx), b.filter) {
 			continue
 		}
 		b.shown = append(b.shown, idx)
 	}
-	items := make([]modal.MenuItem, len(b.shown))
-	for i, idx := range b.shown {
+	b.Empty = "no matches"
+	if b.files {
+		b.Empty = "no files"
+	}
+	b.SetItems(make([]modal.MenuItem, len(b.shown))...)
+	b.listed++
+	b.label()
+}
+
+// label labels the rows in view: the direction glyph and message (or file
+// name and size), the date at the right.
+func (b *searchResultsBody) label() {
+	start, end := b.Window()
+	for i := start; i < end; i++ {
+		idx := b.shown[i]
 		text, date := b.m.searchResultLabel(b.messages[idx])
 		if b.files {
-			text, date = b.m.fileResultLabel(b.chatAddress, b.messages[idx])
+			text, date = b.m.fileResultLabel(b.name(idx), b.messages[idx])
 		}
 		// The menu keeps a row's last column for an item key.
 		if width := b.width - 1; width > 0 {
@@ -217,22 +240,43 @@ func (b *searchResultsBody) relist() {
 		} else {
 			text += "  "
 		}
-		items[i] = modal.MenuItem{Label: text + date}
+		b.Items[i].Label = text + date
 	}
-	b.Empty = "no matches"
-	if b.files {
-		b.Empty = "no files"
-	}
-	b.SetItems(items...)
 }
 
-// filterText is what the filter matches msg against: its content, or for a
-// file its name.
-func (b *searchResultsBody) filterText(msg Message) string {
-	if b.files && len(msg.Attachments) > 0 {
-		return attachmentDisplayName(msg.Attachments[0])
+// sizesCmd asks for the sizes of a files list's rows in view, when those
+// are rows it hasn't asked for yet (see chatFileSizesMsg).
+func (b *searchResultsBody) sizesCmd() tea.Cmd {
+	start, end := b.Window()
+	win := [3]int{start, end, b.listed}
+	if !b.files || win == b.sized || start >= end {
+		return nil
 	}
-	return msg.Content
+	b.sized = win
+	targets := make([]string, 0, end-start)
+	for _, idx := range b.shown[start:end] {
+		targets = append(targets, b.messages[idx].Attachments[0])
+	}
+	jid := b.chatAddress
+	return func() tea.Msg { return chatFileSizesMsg{jid: jid, targets: targets} }
+}
+
+// filterText is what the filter matches message idx against: its content,
+// or for a file its name.
+func (b *searchResultsBody) filterText(idx int) string {
+	if b.files {
+		return b.name(idx)
+	}
+	return b.messages[idx].Content
+}
+
+// name is file idx's name, worked out the first time it's needed: only a
+// filter needs them all.
+func (b *searchResultsBody) name(idx int) string {
+	if b.names[idx] == "" {
+		b.names[idx] = attachmentDisplayName(b.messages[idx].Attachments[0])
+	}
+	return b.names[idx]
 }
 
 // authorFilter narrows the search-results popup to messages from one

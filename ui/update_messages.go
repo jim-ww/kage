@@ -168,7 +168,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			}
 			m.attachmentSizeFailed[msg.target] = true
 		}
-		m.relistChatFiles()
+		m.relabelChatFiles()
 		if info := m.modals.Find(infoModalID); info != nil {
 			info.Body.(*modal.Text).SetLines(m.infoLines()...)
 		}
@@ -466,6 +466,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 
 	case ChatFilesMsg:
 		return m, m.fillChatFiles(msg), true
+
+	case chatFileSizesMsg:
+		return m, m.fetchChatFileSizes(msg), true
 
 	case MessageCorrectedMsg:
 		chatIdx := m.chatIndexByAddress(msg.AccountIdx, msg.From)

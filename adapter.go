@@ -269,16 +269,27 @@ func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySea
 }
 
 // ChatFiles lists the messages of to's whole history carrying attachments,
-// oldest first.
+// newest first: only their IDs, times, directions and URLs, read straight
+// from storage with nothing decrypted.
 func (a *adapter) ChatFiles(accountIdx int, to string) (ui.ChatFilesMsg, error) {
 	sess, err := a.session(accountIdx)
 	if err != nil {
 		return ui.ChatFilesMsg{}, err
 	}
-	var files []ui.Message
-	for _, msg := range loadHistory(context.Background(), sess, to, sess.rosterName(to)) {
-		if len(msg.Attachments) > 0 {
-			files = append(files, msg)
+	rows, err := sess.db.ListAttachmentsByRoster(context.Background(), storage.ListAttachmentsByRosterParams{
+		AccountJid: sess.account.JID, RosterJid: nullString(to),
+	})
+	if err != nil {
+		return ui.ChatFilesMsg{}, err
+	}
+	files := make([]ui.Message, len(rows))
+	for i, row := range rows {
+		files[i] = ui.Message{
+			ID:          row.Idattr.String,
+			StoreID:     row.ID,
+			SentAt:      time.Unix(row.Delay, 0),
+			IsMe:        row.Sent,
+			Attachments: splitOOBURLs(row.Ooburls),
 		}
 	}
 	return ui.ChatFilesMsg{AccountIdx: accountIdx, From: to, Messages: files}, nil
