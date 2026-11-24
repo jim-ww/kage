@@ -20,7 +20,6 @@
 - handle extremely large text AND images pasted in message prompt / sent in chat (lags/slow), maybe connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - if tui relaunched, then calling statusbar not shown?
-- check how local/remote messages timestampt are handled?
 - avatars: check caching logic. sometimes, old avatars never get updated
 - adding account, or changing config file values imperatively from app, when config is managed by nix
 
