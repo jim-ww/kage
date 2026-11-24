@@ -86,11 +86,9 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 	}
 
 	msg := r.Forwarded.Message
-	// Chat states are archived too; dropped. Retractions, reactions and
-	// corrections are kept.
-	if _, isChatState := msg.chatState(); isChatState {
-		return
-	}
+	// A chat state alone falls to the default case below and is dropped; one
+	// riding along a body (Conversations sends <active/> with every message)
+	// must not drop the message.
 
 	am := ArchivedMessage{
 		ArchiveID: r.ID,

@@ -49,6 +49,50 @@ func TestMAMResultDecode(t *testing.T) {
 	}
 }
 
+// TestDispatchArchiveResultChatState pins that a message carrying a chat
+// state next to its content is kept, and a bare chat state is dropped.
+func TestDispatchArchiveResultChatState(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		inner string
+		want  bool
+	}{
+		{"body with active", `<body>hi</body><active xmlns="http://jabber.org/protocol/chatstates"/>`, true},
+		{"omemo v1 with active", `<encrypted xmlns="eu.siacs.conversations.axolotl"><header sid="1"><iv>AA==</iv></header><payload>AA==</payload></encrypted><active xmlns="http://jabber.org/protocol/chatstates"/>`, true},
+		{"bare composing", `<composing xmlns="http://jabber.org/protocol/chatstates"/>`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := `<message xmlns="jabber:client" to="me@example.com/res"><result xmlns="urn:xmpp:mam:2" queryid="q1" id="a1"><forwarded xmlns="urn:xmpp:forward:0"><delay xmlns="urn:xmpp:delay" stamp="2010-07-10T23:08:25Z"/><message xmlns="jabber:client" from="juliet@capulet.lit/balcony" to="me@example.com" id="m1" type="chat">` + tc.inner + `</message></forwarded></result></message>`
+			d := xml.NewDecoder(strings.NewReader(raw))
+			tok, err := d.Token()
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := tok.(xml.StartElement)
+			var msg messageBody
+			if err := d.DecodeElement(&msg, &start); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+
+			c := &Client{}
+			ch := make(chan ArchivedMessage, 1)
+			c.mamWaiters = map[string]chan ArchivedMessage{"q1": ch}
+			c.dispatchArchiveResult(msg.MAMResult)
+
+			select {
+			case <-ch:
+				if !tc.want {
+					t.Fatal("bare chat state delivered")
+				}
+			default:
+				if tc.want {
+					t.Fatal("message with chat state dropped")
+				}
+			}
+		})
+	}
+}
+
 // TestDispatchArchiveResultReply pins that a XEP-0461 <reply/> on a
 // backfilled message survives into ArchivedMessage.ReplyToID (and that the
 // in-band fallback quote some peers send alongside it gets stripped from
