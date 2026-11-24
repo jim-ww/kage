@@ -828,7 +828,7 @@ func (a *adapter) ResyncChat(accountIdx int, address string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return syncArchiveForContact(context.Background(), a.srv, accountIdx, s, client, address, mamCursor{}, true), nil
+	return syncArchiveForContact(context.Background(), a.srv, accountIdx, s, client, address, mamCursor{}, true, false), nil
 }
 
 // ResubscribeContact re-sends a subscription

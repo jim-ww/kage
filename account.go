@@ -1208,10 +1208,14 @@ func syncArchive(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 	if entries == nil {
 		return
 	}
+	// With no cursor stored for any contact, this account has never synced
+	// (just added): its whole archive is history, not unread. A resumed sync
+	// brings what arrived while offline.
+	countsUnread := len(lastCursor) > 0
 	slog.Debug("syncArchive: contacts to check", "jid", s.account.JID, "contacts", len(*entries))
 	for peerJID := range *entries {
 		start := time.Now()
-		syncArchiveForContact(ctx, srv, accountIdx, s, client, peerJID, lastCursor[peerJID], false)
+		syncArchiveForContact(ctx, srv, accountIdx, s, client, peerJID, lastCursor[peerJID], false, countsUnread)
 		slog.Debug("syncArchiveForContact done", "jid", s.account.JID, "peer", peerJID, "elapsed", time.Since(start))
 	}
 }
@@ -1242,7 +1246,10 @@ func unixOrZero(t time.Time) int64 {
 // they're in isn't replaced, so it doesn't heal (see mamWalk) and leaves
 // the stored cursor alone (moved back, the next plain sync would heal on
 // the old items).
-func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client, peerJID string, cursor mamCursor, resync bool) int {
+//
+// countsUnread counts what it stores as unread: messages that arrived while
+// offline, not a first backfill of a whole archive.
+func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client, peerJID string, cursor mamCursor, resync, countsUnread bool) int {
 	const pageSize = 50
 	maxPages := 200 // guards against a misbehaving server never reporting complete
 	if resync {
@@ -1296,8 +1303,10 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		stored += len(newMsgs)
 		if len(newMsgs) > 0 {
 			broadcast(srv, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
-			// Messages that arrived while offline count as unread.
-			countUnread(ctx, srv, s, peerJID, newMsgs)
+			if countsUnread {
+				// Messages that arrived while offline count as unread.
+				countUnread(ctx, srv, s, peerJID, newMsgs)
+			}
 		}
 		// Resume from where the server says the page ended, not from the last
 		// item kept: chat states and receipts are archived too and filtered

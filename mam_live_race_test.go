@@ -135,7 +135,7 @@ func TestMAMBackfillVsLiveMessageRaceDoesNotCorruptDecrypt(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-start
-		syncArchiveForContact(ctx, nil, 0, bobSess, bobClient2, "alice@localhost", mamCursor{}, false)
+		syncArchiveForContact(ctx, nil, 0, bobSess, bobClient2, "alice@localhost", mamCursor{}, false, false)
 	}()
 	close(start)
 	wg.Wait()

@@ -85,7 +85,7 @@ func TestResyncRecoversSkippedMessage(t *testing.T) {
 	missed := send(alice, "bob@localhost", "missed message")
 	deliver(bobSess, bobClient, "alice@localhost", send(alice, "bob@localhost", "later message"))
 
-	if n := syncArchiveForContact(ctx, nil, 0, bobSess, bobClient, "alice@localhost", mamCursor{}, true); n < 1 {
+	if n := syncArchiveForContact(ctx, nil, 0, bobSess, bobClient, "alice@localhost", mamCursor{}, true, false); n < 1 {
 		t.Errorf("resync recovered %d messages, want at least 1", n)
 	}
 
