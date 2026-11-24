@@ -87,6 +87,7 @@ func (m *Model) openContactManager() tea.Cmd {
 		return m.showNotification("account is still connecting, try again shortly")
 	}
 	menu := modal.NewMenu()
+	menu.MatchKey = matchesLetter
 	menu.ActOnPick = true
 	menu.Empty = "no contacts"
 	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)

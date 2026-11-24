@@ -193,3 +193,14 @@ func TestSearchResultDate(t *testing.T) {
 		})
 	}
 }
+
+// TestSearchResultsMoveByPhysicalKey guards j/k in the results under a
+// non-Latin layout: the physical key moves, whatever letter it types.
+func TestSearchResultsMoveByPhysicalKey(t *testing.T) {
+	history := []Message{{Content: "a q"}, {Content: "b q"}, {Content: "c q"}}
+	m := searchResultsWith(t, history, []int{0, 1, 2})
+	m = run(t, m, tea.KeyPressMsg{Code: 'о', Text: "о", BaseCode: 'j'})
+	if got := resultsOf(m).Cursor(); got != 1 {
+		t.Fatalf("cursor after the j key on a Cyrillic layout = %d, want 1", got)
+	}
+}

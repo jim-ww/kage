@@ -17,7 +17,9 @@ type MenuItem struct {
 	Key   rune
 }
 
-// Menu is a list to pick one entry from: ↑↓ (or k/j) and enter, an item's
+// Menu is a list to pick one entry from: ↑↓ (or k/j, ctrl+k/ctrl+j), a
+// half page at a time with ctrl+u/ctrl+d (or pgup/pgdown), first and last
+// with g/G (or home/end), and enter; an item's
 // own key, or a click. It submits the picked item's index. Longer than the
 // space it has, it scrolls, keeping the cursor in view.
 type Menu struct {
@@ -145,16 +147,26 @@ func (m *Menu) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 				return nil, m.pick(i)
 			}
 		}
-		switch msg.String() {
-		case "up", "k":
+		half := max(1, m.visible()/2)
+		switch s := msg.String(); {
+		case s == "up" || s == "ctrl+k" || m.matches(msg, 'k'):
 			m.cursor = (m.cursor - 1 + len(m.Items)) % len(m.Items)
-			m.show(m.cursor)
-		case "down", "j":
+		case s == "down" || s == "ctrl+j" || m.matches(msg, 'j'):
 			m.cursor = (m.cursor + 1) % len(m.Items)
-			m.show(m.cursor)
-		case "enter":
+		case s == "pgup" || s == "ctrl+u":
+			m.cursor = max(0, m.cursor-half)
+		case s == "pgdown" || s == "ctrl+d":
+			m.cursor = min(len(m.Items)-1, m.cursor+half)
+		case s == "home" || m.matches(msg, 'g'):
+			m.cursor = 0
+		case s == "end" || m.matches(msg, 'G'):
+			m.cursor = len(m.Items) - 1
+		case s == "enter":
 			return nil, m.pick(m.cursor)
+		default:
+			return nil, Continue
 		}
+		m.show(m.cursor)
 	case tea.MouseMotionMsg:
 		m.hover = m.itemAt(msg)
 	case tea.MouseClickMsg:

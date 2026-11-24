@@ -42,6 +42,7 @@ func (m *Model) openChatFiles(filter string) tea.Cmd {
 	}
 	menu := modal.NewMenu()
 	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
+	menu.MatchKey = matchesLetter
 	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
 	body := &searchResultsBody{Menu: menu, accountIdx: accountIdx, chatAddress: chat.Address, peerName: chat.Name, files: true, filter: strings.TrimSpace(filter), status: "loading…", m: m}
 	open := m.openModal(&modal.Modal[*Model]{

@@ -311,3 +311,33 @@ func TestFillTakesTheSpace(t *testing.T) {
 		t.Fatalf("a Fill modal is %d rows, first %q - want all 20 rows, 80 wide", len(lines), lines[0])
 	}
 }
+
+// TestMenuVimKeys guards the menu's movement keys beyond the arrows: j/k
+// and ctrl+j/ctrl+k by one, ctrl+d/ctrl+u by half a page, g/G to the ends.
+func TestMenuVimKeys(t *testing.T) {
+	items := make([]MenuItem, 20)
+	for i := range items {
+		items[i] = MenuItem{Label: "item"}
+	}
+	m := NewMenu(items...)
+	m.SetSize(20, 10)
+	steps := []struct {
+		key  tea.KeyPressMsg
+		want int
+	}{
+		{tea.KeyPressMsg{Code: 'j', Text: "j"}, 1},
+		{tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl}, 2},
+		{tea.KeyPressMsg{Code: 'k', Text: "k"}, 1},
+		{tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}, 6},
+		{tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}, 1},
+		{tea.KeyPressMsg{Code: 'g', Text: "G", Mod: tea.ModShift}, 19},
+		{tea.KeyPressMsg{Code: 'g', Text: "g"}, 0},
+		{tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}, 19},
+	}
+	for i, s := range steps {
+		m.Update(s.key)
+		if m.Cursor() != s.want {
+			t.Fatalf("step %d (%s): cursor %d, want %d", i, s.key, m.Cursor(), s.want)
+		}
+	}
+}

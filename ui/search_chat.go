@@ -346,6 +346,7 @@ func searchResultDate(t, now time.Time, timePart string) string {
 func (m *Model) openSearchResults(accountIdx int, chat Chat, query string) tea.Cmd {
 	menu := modal.NewMenu()
 	menu.Styles.Cursor = onAccent(m.styles.colors.accentCyan)
+	menu.MatchKey = matchesLetter
 	menu.Styles.Hover = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan)
 	body := &searchResultsBody{Menu: menu, accountIdx: accountIdx, chatAddress: chat.Address, peerName: chat.Name, query: query, status: "searching…", m: m}
 	return m.openModal(&modal.Modal[*Model]{
