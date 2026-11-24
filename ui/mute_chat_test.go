@@ -27,6 +27,7 @@ func TestMuteChatKey(t *testing.T) {
 	m.selectedView = viewChats
 
 	m = press(t, m, letter('m'))
+	m = press(t, m, letter('m'))
 	got := m.accounts[0].Chats[0].(Chat)
 	if !got.Muted || !strings.Contains(got.Title(), mutedChatGlyph) {
 		t.Fatalf("after m: muted=%v title=%q", got.Muted, got.Title())
@@ -34,6 +35,7 @@ func TestMuteChatKey(t *testing.T) {
 	if items := m.chatItemContextMenuItems(0); items[2].label != "Unmute notifications" {
 		t.Fatalf("chat menu: %v", items[2].label)
 	}
+	m = press(t, m, letter('m'))
 	m = press(t, m, letter('m'))
 	if m.accounts[0].Chats[0].(Chat).Muted {
 		t.Fatal("second m didn't unmute")

@@ -116,9 +116,10 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, m.actionRenameChat(), true
 		}
 
-	case matchesKey(msg, m.keys.MuteChat):
-		if m.selectedView == viewChats {
-			return m, m.actionToggleMuteChat(), true
+	case matchesKey(msg, m.keys.ChatMenu):
+		if i := m.chats.Index(); m.selectedView == viewChats && i >= 0 && i < len(m.chats.Items()) {
+			m.openContextMenu(chatMenuTitle(m.chats.Items(), i), m.chatItemContextMenuItems(i))
+			return m, nil, true
 		}
 
 	case matchesKey(msg, m.keys.PinChat):

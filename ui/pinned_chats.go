@@ -79,8 +79,7 @@ func (m *Model) toggleMuteChat(accountIdx, chatIdx int) tea.Cmd {
 }
 
 // actionToggleMuteChat mutes or unmutes the selected chat's notifications
-// (viewChats' MuteChat keybind / a chat-item context menu's "Mute
-// notifications").
+// (the chat menu's "Mute notifications").
 func (m *Model) actionToggleMuteChat() tea.Cmd {
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 {
