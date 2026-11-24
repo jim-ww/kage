@@ -58,7 +58,7 @@ func newLimitTestModel(t *testing.T, n, limit int) *Model {
 	vp := viewport.New()
 
 	msgs := make([]Message, n)
-	base := time.Now()
+	base := time.Now().Add(-time.Hour)
 	for i := range msgs {
 		msgs[i] = Message{ID: string(rune('a' + i)), StoreID: int64(i + 1), Author: "bob", Content: "hi", SentAt: base.Add(time.Duration(i) * time.Second)}
 	}

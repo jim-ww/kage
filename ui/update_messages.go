@@ -3,6 +3,7 @@ package ui
 import (
 	"maps"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -41,6 +42,69 @@ func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) {
 	if isOpenChat {
 		m.selectedMsg = max(0, m.selectedMsg-drop)
 	}
+}
+
+// placeAndTrim puts newMsgs, just stored, into a chat's loaded messages
+// where storage orders them - by second, then by row, so after every
+// message of their second - then trims as appendAndTrim does. One belonging
+// outside the loaded window is left out, to show when that part loads:
+// before it with older history unloaded, or at or after its end with newer
+// unloaded. newest reports whether the last of newMsgs ended up last.
+func (m *Model) placeAndTrim(accountIdx, chatIdx int, newMsgs ...Message) (newest bool) {
+	acct := &m.accounts[accountIdx]
+	isOpenChat := accountIdx == m.currentAccount && chatIdx == m.currentChatIndex()
+	msgs := acct.Messages[chatIdx]
+	placed := false
+	for _, msg := range newMsgs {
+		newest = false
+		at := msg.SentAt.Unix()
+		if len(msgs) > 0 {
+			if acct.HistoryMore[chatIdx] && at < msgs[0].SentAt.Unix() {
+				continue
+			}
+			if acct.HistoryNewer[chatIdx] && at >= msgs[len(msgs)-1].SentAt.Unix() {
+				continue
+			}
+		}
+		i := len(msgs)
+		for i > 0 && msgs[i-1].SentAt.Unix() > at {
+			i--
+		}
+		selected := m.selectedMsg < len(msgs) // on a message, not past the end
+		msgs = slices.Insert(msgs, i, msg)
+		placed = true
+		newest = i == len(msgs)-1
+		if isOpenChat {
+			// The selection stays on its message.
+			if selected && i <= m.selectedMsg {
+				m.selectedMsg++
+			}
+			if m.flashMsgIdx >= i {
+				m.flashMsgIdx++
+			}
+		}
+	}
+	if !placed {
+		return false
+	}
+	acct.Messages[chatIdx] = msgs
+	m.appendAndTrim(accountIdx, chatIdx)
+	return newest
+}
+
+// noteNewest makes msg, now the newest loaded in a chat, its preview and
+// activity: its own time, never moving the activity back.
+func (m *Model) noteNewest(accountIdx, chatIdx int, msg Message) tea.Cmd {
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok {
+		return nil
+	}
+	chat.LastMessage = MessagePreviewContent(msg)
+	if msg.SentAt.After(chat.LastActivity) {
+		chat.LastActivity = msg.SentAt
+	}
+	m.accounts[accountIdx].Chats[chatIdx] = chat
+	return m.sortChatsByActivity(accountIdx)
 }
 
 // followTail repaints the open chat after appendAndTrim: at the bottom if it
@@ -373,11 +437,6 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			// A replayed queued send, whose placeholder has no ID yet.
 			return m, nil, true
 		}
-		if m.accounts[msg.AccountIdx].HistoryNewer[chatIdx] {
-			// A mid-history window isn't the tail to append to; the message
-			// shows once the latest window loads.
-			return m, nil, true
-		}
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
@@ -388,8 +447,18 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		newMsg := msg.Message
 		newMsg.ReplyToID = msg.ReplyToID
-		m.appendAndTrim(msg.AccountIdx, chatIdx, newMsg)
-		cmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(newMsg))
+		if newMsg.SentAt.IsZero() {
+			newMsg.SentAt = time.Now()
+		}
+		// Placed by when it was sent: one delayed on its way (offline
+		// storage, a re-sent stanza) can be older than what's shown.
+		if !m.placeAndTrim(msg.AccountIdx, chatIdx, newMsg) {
+			if m.isChatOnScreen(msg.AccountIdx, chatIdx) {
+				m.followTail()
+			}
+			return m, typingCmd, true
+		}
+		cmd := m.noteNewest(msg.AccountIdx, chatIdx, newMsg)
 		// Looked up again: the new activity re-sorted the chats.
 		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.From); chatIdx < 0 {
 			return m, tea.Batch(typingCmd, cmd), true
@@ -992,8 +1061,10 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if m.accounts[msg.AccountIdx].Messages == nil {
 			m.accounts[msg.AccountIdx].Messages = make(map[int][]Message)
 		}
-		m.appendAndTrim(msg.AccountIdx, chatIdx, msg.Messages...)
-		lastMsgCmd := m.setChatLastMessage(msg.AccountIdx, chatIdx, MessagePreviewContent(msg.Messages[len(msg.Messages)-1]))
+		var lastMsgCmd tea.Cmd
+		if m.placeAndTrim(msg.AccountIdx, chatIdx, msg.Messages...) {
+			lastMsgCmd = m.noteNewest(msg.AccountIdx, chatIdx, msg.Messages[len(msg.Messages)-1])
+		}
 		// Re-resolved after the sort, same as IncomingMessageMsg above.
 		if chatIdx = m.chatIndexByAddress(msg.AccountIdx, msg.From); chatIdx < 0 {
 			return m, lastMsgCmd, true
