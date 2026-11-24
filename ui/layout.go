@@ -18,6 +18,20 @@ func (m *Model) setSelectedView(v selectedView) {
 	m.updateSizes()
 }
 
+// enterChatPane focuses the chat pane on the chat the list has selected,
+// with that chat's draft in the compose box - not the one last opened with
+// enter, whose draft would otherwise be typed on and sent to this chat.
+func (m *Model) enterChatPane() tea.Cmd {
+	m.setSelectedView(viewChat)
+	chatIdx := m.currentChatIndex()
+	if chatIdx < 0 {
+		return nil
+	}
+	cmd := m.swapComposeDraft(m.currentAccount, chatIdx)
+	m.updateSizes()
+	return cmd
+}
+
 func (m *Model) updateSizes() {
 	fl := footerLineCount(m.keys.helpHint(m.selectedView, len(m.pendingAttachments) > 0), max(1, m.width-2), footerMaxLines)
 	callBar := 0

@@ -266,10 +266,11 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 			for _, path := range paths {
 				m.stageAttachment(path)
 			}
+			var cmd tea.Cmd
 			if m.selectedView != viewChat {
-				m.setSelectedView(viewChat)
+				cmd = m.enterChatPane()
 			}
-			return m, nil
+			return m, cmd
 		}
 	}
 

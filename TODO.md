@@ -2,7 +2,6 @@
 - sending message while far in history (e.g. jumped via ctrl+/), should first load last message window
 - cannot jump to msg in history (was able after ctrl+/ jump, but not after)
 - messages seen as 'unead' when chat open, even your own
-- draft must be per-chat, not global
 - drag & drop in chat stopped working
 - video stream worsens call quality (adds lag)
 - problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ

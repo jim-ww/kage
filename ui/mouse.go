@@ -260,7 +260,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			}
 		} else if m.zone.Get(zonePaneViewport).InBounds(msg) || m.zone.Get(zonePaneInput).InBounds(msg) {
 			if m.currentChatIndex() >= 0 && m.selectedView != viewChat {
-				m.setSelectedView(viewChat)
+				hoverCmd = tea.Batch(hoverCmd, m.enterChatPane())
 			}
 		}
 	}
