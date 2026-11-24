@@ -253,9 +253,15 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		return
 	}
 
+	// Ours from another device (a sent carbon) is "me", as on the MAM and
+	// history paths.
+	author := chatName
+	if msgEv.Outgoing {
+		author = "me"
+	}
 	newMsg := ui.Message{
 		ID:            msgEv.ID,
-		Author:        chatName,
+		Author:        author,
 		Content:       body,
 		SentAt:        msgEv.SentAt,
 		IsMe:          msgEv.Outgoing,

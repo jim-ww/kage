@@ -171,3 +171,29 @@ func awaitEvent[T any](t *testing.T, events chan any, out *T, timeout time.Durat
 		}
 	}
 }
+
+// A message we sent from another device (a sent carbon) is authored "me",
+// not the contact, as it is once reloaded from history.
+func TestOwnCarbonAuthoredAsMe(t *testing.T) {
+	ctx := context.Background()
+	srv, events := attachedClient(t)
+
+	_, q, err := storage.Open(filepath.Join(t.TempDir(), "kage.db"))
+	if err != nil {
+		t.Fatalf("open storage: %v", err)
+	}
+	s := &accountSession{account: config.Account{JID: "me@example.com"}, db: q}
+
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{
+		ID: "m1", From: "me@example.com/phone", To: "bob@example.com",
+		Outgoing: true, Body: "from my phone", SentAt: time.Now(),
+	})
+
+	var added ui.ChatAddedMsg
+	awaitEvent(t, events, &added, 5*time.Second)
+	var incoming ui.IncomingMessageMsg
+	awaitEvent(t, events, &incoming, 5*time.Second)
+	if incoming.Message.Author != "me" || !incoming.Message.IsMe {
+		t.Errorf("Author = %q IsMe = %v, want \"me\" true", incoming.Message.Author, incoming.Message.IsMe)
+	}
+}
