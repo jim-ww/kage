@@ -1239,7 +1239,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 
 	sentAt := s.now()
 	sealedBody, encrypted := encryptForStorage(s, body)
-	if _, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+	storeID, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:        s.account.JID,
 		Sent:              true,
 		Delay:             sentAt.Unix(),
@@ -1255,7 +1255,8 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		ReplyQuoteAuthor:  nullString(quotedAuthor),
 		ReplyQuotePreview: nullString(quotedPreview),
 		OobUrls:           joinOOBURLs(opts.OOBURLs),
-	}); err != nil {
+	})
+	if err != nil {
 		slog.Warn("persisting sent message", "err", err)
 	}
 	s.trackForServerAck(a, s.accountIdx, to, id)
@@ -1268,6 +1269,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		ReplyToID:  opts.ReplyToID,
 		Message: ui.Message{
 			ID:            id,
+			StoreID:       storeID,
 			LocalID:       opts.LocalID,
 			Author:        "me",
 			Content:       body,

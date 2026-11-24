@@ -72,7 +72,7 @@ func (m Model) chatIndexByAddress(accountIdx int, address string) int {
 
 // maybeLoadHistoryWindow loads a window around edgeMsg, the loaded edge
 // reached, if storage has more that way and none is loading. Not for an
-// unstored message, only ever the newest.
+// unstored message, which has no row to page from.
 func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 	chatIdx := m.currentChatIndex()
 	if chatIdx < 0 || m.currentAccount < 0 || m.currentAccount >= len(m.accounts) {
@@ -105,22 +105,28 @@ func (m *Model) maybeLoadHistoryWindow(older bool, edgeMsg Message) tea.Cmd {
 }
 
 // maybeLoadOlderHistory loads older history, at the top of what's loaded.
+// Anchored on the oldest stored message: one not stored (yet) at the edge
+// has no row to page from, and would stop paging there for good.
 func (m *Model) maybeLoadOlderHistory() tea.Cmd {
 	msgs := m.currentMessages()
-	if len(msgs) == 0 {
-		return nil
+	for _, msg := range msgs {
+		if msg.StoreID != 0 {
+			return m.maybeLoadHistoryWindow(true, msg)
+		}
 	}
-	return m.maybeLoadHistoryWindow(true, msgs[0])
+	return nil
 }
 
 // maybeLoadNewerHistory loads newer history, at the bottom of a
-// mid-history window.
+// mid-history window, anchored on the newest stored message.
 func (m *Model) maybeLoadNewerHistory() tea.Cmd {
 	msgs := m.currentMessages()
-	if len(msgs) == 0 {
-		return nil
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].StoreID != 0 {
+			return m.maybeLoadHistoryWindow(false, msgs[i])
+		}
 	}
-	return m.maybeLoadHistoryWindow(false, msgs[len(msgs)-1])
+	return nil
 }
 
 // setChatLastMessage sets a chat's preview and activity, re-sorting the list.
@@ -408,6 +414,17 @@ func removeMessageAt(msgs []Message, idx, selectedMsg int) ([]Message, int) {
 		selectedMsg = len(msgs) - 1
 	}
 	return msgs, selectedMsg
+}
+
+// forgetHistoryLoads drops the in-flight marks, which are only about the
+// account on screen (they're keyed by chat position alone, see
+// remapChatIndices): kept across a switch, one would sit on another
+// account's chat, or be left behind when its answer resolves its chat by
+// address, and stop that chat's paging for good. An answer still on its
+// way is applied all the same.
+func (m *Model) forgetHistoryLoads() {
+	m.loadingHistoryWindow = make(map[int]bool)
+	m.pendingWindowAnchor = make(map[int]string)
 }
 
 // markHistoryWindowLoading marks a history load for chatIdx in flight. Only

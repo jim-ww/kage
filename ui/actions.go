@@ -12,6 +12,7 @@ func (m *Model) switchAccount(index int) tea.Cmd {
 		return nil
 	}
 	m.currentAccount = index
+	m.forgetHistoryLoads()
 	m.cancelPending()
 	m.lastClickedMsgIdx = -1
 	m.lastClickTime = time.Time{}

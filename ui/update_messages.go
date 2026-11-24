@@ -92,6 +92,16 @@ func (m *Model) placeAndTrim(accountIdx, chatIdx int, newMsgs ...Message) (newes
 	return newest
 }
 
+// adoptStored gives the shown copy of a message we sent, at i, what the
+// daemon stored it as: its row (without which paging can't anchor on it,
+// see maybeLoadHistoryWindow) and its time.
+func (m *Model) adoptStored(accountIdx, chatIdx, i int, stored Message) {
+	if stored.StoreID != 0 {
+		m.accounts[accountIdx].Messages[chatIdx][i].StoreID = stored.StoreID
+	}
+	m.retime(accountIdx, chatIdx, i, stored.SentAt)
+}
+
 // retime dates the loaded message at i by sentAt, if known: what the
 // daemon stored our own message under, by the server's clock, where it was
 // shown by ours when sent. It moves if the new time places it elsewhere.
@@ -479,12 +489,12 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		if i := messageIndexByID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.ID); i >= 0 {
 			// Our own message, shown already when we sent it.
-			m.retime(msg.AccountIdx, chatIdx, i, msg.Message.SentAt)
+			m.adoptStored(msg.AccountIdx, chatIdx, i, msg.Message)
 			return m, nil, true
 		}
 		if i := messageIndexByLocalID(m.accounts[msg.AccountIdx].Messages[chatIdx], msg.Message.LocalID); i >= 0 {
 			// A replayed queued send, whose placeholder has no ID yet.
-			m.retime(msg.AccountIdx, chatIdx, i, msg.Message.SentAt)
+			m.adoptStored(msg.AccountIdx, chatIdx, i, msg.Message)
 			return m, nil, true
 		}
 		if m.accounts[msg.AccountIdx].Messages == nil {
@@ -523,9 +533,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if chatIdx < 0 {
 			return m, nil, true
 		}
-		delete(m.loadingHistoryWindow, chatIdx)
-		anchorID := m.pendingWindowAnchor[chatIdx]
-		delete(m.pendingWindowAnchor, chatIdx)
+		// The marks are the account on screen's (see forgetHistoryLoads).
+		var anchorID string
+		if msg.AccountIdx == m.currentAccount {
+			delete(m.loadingHistoryWindow, chatIdx)
+			anchorID = m.pendingWindowAnchor[chatIdx]
+			delete(m.pendingWindowAnchor, chatIdx)
+		}
 		if msg.Err != nil {
 			// Only the in-flight mark is cleared, so paging can retry.
 			return m, m.showNotification("loading history: " + msg.Err.Error()), true

@@ -370,6 +370,7 @@ func (m *Model) installAccounts(accounts []Account, startAccount int) tea.Cmd {
 		startAccount = 0
 	}
 	m.currentAccount = startAccount
+	m.forgetHistoryLoads()
 
 	// Hidden chats are taken out (see ui/hidden_chats.go), and every
 	// account's chats sorted: the daemon doesn't sort them.
