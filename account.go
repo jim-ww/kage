@@ -361,6 +361,25 @@ func (s *accountSession) setRosterPresence(bareJID, resource string, presence ui
 	})
 }
 
+// forgetPresence marks every contact offline, in the cache and every TUI,
+// for a connection that's gone: their going offline meanwhile never reaches
+// us, and the next connection's server only tells who's online.
+func (s *accountSession) forgetPresence(srv *ipc.Server, accountIdx int) {
+	for contact, e := range derefRoster(s.roster.Load()) {
+		resources := make([]string, 0, len(e.Resources)+1)
+		for _, r := range e.Resources {
+			resources = append(resources, r.Resource)
+		}
+		if len(resources) == 0 && e.Presence != ui.PresenceOffline {
+			resources = append(resources, "") // known from a presence without a resource
+		}
+		for _, resource := range resources {
+			s.setRosterPresence(contact, resource, ui.PresenceOffline)
+			broadcast(srv, ui.PresenceMsg{AccountIdx: accountIdx, From: contact, Presence: ui.PresenceOffline, Resource: resource})
+		}
+	}
+}
+
 // resolveDeviceName looks up a contact resource's client name (XEP-0030
 // disco#info), caches and broadcasts it. Runs on its own goroutine: many
 // clients answer slowly or never, and the UI shows the resource until then.
@@ -894,6 +913,7 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountI
 			return
 		}
 		slog.Warn("account disconnected; reconnecting", "jid", s.account.JID, "err", client.Err())
+		s.forgetPresence(srv, accountIdx)
 		reconnectWithBackoff(ctx, a, s)
 		if ctx.Err() != nil {
 			return
