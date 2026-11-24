@@ -1,4 +1,8 @@
 ## Bugs
+- sending message while far in history (e.g. jumped via ctrl+/), should first load last message window
+- cannot jump to msg in history (was able after ctrl+/ jump, but not after)
+- messages seen as 'unead' when chat open, even your own
+- draft must be per-chat, not global
 - drag & drop in chat stopped working
 - video stream worsens call quality (adds lag)
 - problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ
@@ -26,6 +30,8 @@
 - lags on big window scale
 
 ## UX
+- in search by message text, on results, show full/truncated preview of selected msg
+- search by message results do not have VIM bindings
 - bad UX: when replying to some message, new message from other participant can hide behind reply-to notice.
 - delete message modal has no mouse support. other modals must be checked too.
 - hard to grab left/bottom panel border for resize
