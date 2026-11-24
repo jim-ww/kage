@@ -27,7 +27,7 @@
 - in search by message text, on results, show full/truncated preview of selected msg
 - search by message results do not have VIM bindings
 - delete message modal has no mouse support. other modals must be checked too.
-- hard to grab left/bottom panel border for resize
+- hard to grab bottom panel border for resize
 - add scrollbar for messages list, and perhaps, for chat list too
 - search window doesnt have vim bindings.
 

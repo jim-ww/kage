@@ -425,7 +425,9 @@ func (m Model) zoneUnderMouse(mouse tea.MouseMsg) string {
 // opens a context menu of actions for whatever was clicked.
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Mouse().Button == tea.MouseLeft {
-		if z := m.zone.Get(zonePaneSidebar); !z.IsZero() && msg.Mouse().X == z.EndX {
+		// The border is one column; the blank one right of it grabs it too.
+		if z := m.zone.Get(zonePaneSidebar); !z.IsZero() && (msg.Mouse().X == z.EndX || msg.Mouse().X == z.EndX+1) &&
+			msg.Mouse().Y >= z.StartY && msg.Mouse().Y <= z.EndY {
 			m.resizingSidebar = true
 			return m, nil
 		}
