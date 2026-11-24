@@ -140,8 +140,8 @@ func (m *Model) messageContextMenuItems(idx int) []contextMenuItem {
 	return items
 }
 
-// chatItemContextMenuItems builds the right-click menu for the chat at idx
-// (already selected by the caller). No "Open": opening is what a plain
+// chatItemContextMenuItems builds the menu for the chat at idx (already
+// selected by the caller), opened by right-click or the ChatMenu key. No "Open": opening is what a plain
 // click or enter on the row already does, so the entry only ever restated
 // the gesture that got you here.
 func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
@@ -158,11 +158,12 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 		}
 	}
 	return []contextMenuItem{
-		{label: "Rename", run: (*Model).actionRenameChat},
-		{label: pin, run: (*Model).actionTogglePinChat},
-		{label: mute, run: (*Model).actionToggleMuteChat},
-		{label: "Encryption", run: (*Model).actionOpenEncryptionMenu},
-		{label: "Hide chat", run: (*Model).actionHideChat},
+		{label: "Rename", key: 'r', run: (*Model).actionRenameChat},
+		{label: pin, key: 'p', run: (*Model).actionTogglePinChat},
+		{label: mute, key: 'm', run: (*Model).actionToggleMuteChat},
+		{label: "Encryption", key: 'e', run: (*Model).actionOpenEncryptionMenu},
+		{label: "Re-sync history", key: 's', run: (*Model).actionResyncChat},
+		{label: "Hide chat", key: 'h', run: (*Model).actionHideChat},
 	}
 }
 

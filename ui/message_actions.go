@@ -371,6 +371,21 @@ func (m *Model) actionHideChat() tea.Cmd {
 		(*Model).hideSelectedChat)
 }
 
+// actionResyncChat re-walks the selected chat's server archive for messages
+// that never arrived, as a tea.Cmd since it's network I/O (see
+// Daemon.ResyncChat).
+func (m *Model) actionResyncChat() tea.Cmd {
+	chat, ok := m.currentChat()
+	if !ok {
+		return m.showNotification("no chat selected")
+	}
+	daemon, accountIdx, address := m.daemon, m.currentAccount, chat.Address
+	return tea.Batch(
+		m.showNotification("re-syncing "+chat.Name+"…"),
+		func() tea.Msg { return daemon.ResyncChat(accountIdx, address) },
+	)
+}
+
 // actionRenameChat asks for the selected chat's name, prefilled with its
 // custom one if any - not with the JID, which would pin it as the name.
 func (m *Model) actionRenameChat() tea.Cmd {

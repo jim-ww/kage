@@ -1182,7 +1182,7 @@ func syncArchive(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 	slog.Debug("syncArchive: contacts to check", "jid", s.account.JID, "contacts", len(*entries))
 	for peerJID := range *entries {
 		start := time.Now()
-		syncArchiveForContact(ctx, srv, accountIdx, s, client, peerJID, lastCursor[peerJID])
+		syncArchiveForContact(ctx, srv, accountIdx, s, client, peerJID, lastCursor[peerJID], false)
 		slog.Debug("syncArchiveForContact done", "jid", s.account.JID, "peer", peerJID, "elapsed", time.Since(start))
 	}
 }
@@ -1205,17 +1205,26 @@ func unixOrZero(t time.Time) int64 {
 }
 
 // syncArchiveForContact pages through peerJID's archive after cursor,
-// storing and broadcasting each page.
-func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client, peerJID string, cursor mamCursor) {
+// storing and broadcasting each page, and returns how many new messages it
+// stored.
+//
+// resync walks it all to pick up items an earlier sync skipped: they still
+// decrypt from the ratchet's skipped-message keys as long as the session
+// they're in isn't replaced, so it doesn't heal (see mamWalk) and leaves
+// the stored cursor alone (moved back, the next plain sync would heal on
+// the old items).
+func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client, peerJID string, cursor mamCursor, resync bool) int {
 	const pageSize = 50
-	const maxPages = 200 // guards against a misbehaving server never reporting complete
+	maxPages := 200 // guards against a misbehaving server never reporting complete
+	if resync {
+		maxPages = 2000 // the whole archive, not what's new since the cursor
+	}
 
 	ownBare := bareJID(s.account.JID)
 	name := s.rosterName(peerJID)
 
-	// healed is the sender devices this sync already healed a broken session
-	// with: one broken session fails every message after it.
-	healed := make(map[omemolib.Device]bool)
+	walk := &mamWalk{healed: make(map[omemolib.Device]bool), resync: resync}
+	stored := 0
 
 	for page := 0; page < maxPages; page++ {
 		var newMsgs []ui.Message
@@ -1246,8 +1255,8 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		for _, am := range res.Items {
 			cursor = mamCursor{archiveID: am.ArchiveID, sentAt: unixOrZero(am.SentAt)}
 
-			outcome := s.processMAMItem(ctx, srv, accountIdx, peerJID, ownBare, name, am, healed)
-			if outcome.stopSync {
+			outcome := s.processMAMItem(ctx, srv, accountIdx, peerJID, ownBare, name, am, walk)
+			if outcome.stopSync && !resync {
 				stop = true
 				break
 			}
@@ -1255,6 +1264,7 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 				newMsgs = append(newMsgs, *outcome.msg)
 			}
 		}
+		stored += len(newMsgs)
 		if len(newMsgs) > 0 {
 			broadcast(srv, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
 			// Messages that arrived while offline count as unread.
@@ -1271,7 +1281,7 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		// Advanced even when no item got a messages row, or an undecryptable
 		// one would be retried on every sync. Also written when only the
 		// time changed, so a recovery walk isn't repeated.
-		if cursor != prev {
+		if cursor != prev && !resync {
 			if err := s.db.UpsertMamSyncCursor(ctx, storage.UpsertMamSyncCursorParams{
 				AccountJid: s.account.JID,
 				RosterJid:  peerJID,
@@ -1285,6 +1295,7 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 			break
 		}
 	}
+	return stored
 }
 
 // recoverMAMCursor re-fetches from cursor's time with an XEP-0313 <start>
@@ -1314,6 +1325,18 @@ func (s *accountSession) recoverMAMCursor(ctx context.Context, client *xmpp.Clie
 	return page, true
 }
 
+// mamWalk is the state of one syncArchiveForContact walk processMAMItem
+// needs.
+type mamWalk struct {
+	// healed is the sender devices this walk already healed a broken
+	// session with: one broken session fails every message after it.
+	healed map[omemolib.Device]bool
+	// resync is a re-walk of the whole archive (see syncArchiveForContact):
+	// it neither heals nor stores what it can't decrypt, most of which is
+	// old - or purged here, its key long used.
+	resync bool
+}
+
 // mamItemOutcome is one archive item's result: a new message to report,
 // and/or stopSync once an item turned out already stored.
 type mamItemOutcome struct {
@@ -1322,7 +1345,7 @@ type mamItemOutcome struct {
 }
 
 // processMAMItem decrypts and stores one archive item, under s.omemoMu.
-func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, accountIdx int, peerJID, ownBare, name string, am xmpp.ArchivedMessage, healed map[omemolib.Device]bool) mamItemOutcome {
+func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, accountIdx int, peerJID, ownBare, name string, am xmpp.ArchivedMessage, walk *mamWalk) mamItemOutcome {
 	s.omemoMu.Lock()
 	defer s.omemoMu.Unlock()
 
@@ -1440,9 +1463,9 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 			slog.Warn("mam: decrypting omemo message failed", "jid", s.account.JID, "peer", peerJID, "archive_id", am.ArchiveID, "from", am.From, "sent_at", am.SentAt, "err", err)
 			body = "[message could not be decrypted: " + err.Error() + "]"
 			decryptFailed = true
-			if (errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound)) && !healed[enc.Sender] {
+			if (errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound)) && !walk.resync && !walk.healed[enc.Sender] {
 				// As handleIncomingMessage does, once per device per sync.
-				healed[enc.Sender] = true
+				walk.healed[enc.Sender] = true
 				healBrokenSession(ctx, s, mgr, protocol, enc.Sender, bareJID(am.From))
 			}
 		} else if pt == nil {
@@ -1454,6 +1477,9 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 		if pt, err := s.gpg.Decrypt(body, ""); err == nil {
 			body = pt
 		}
+	}
+	if decryptFailed && walk.resync {
+		return mamItemOutcome{}
 	}
 	// The in-band fallback quote some clients add to replies.
 	body = stripReplyQuote(body)

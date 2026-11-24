@@ -73,6 +73,9 @@ type Daemon interface {
 	AddContact(accountIdx int, address string) tea.Msg
 	RemoveContact(accountIdx int, address string) tea.Msg
 	ResubscribeContact(accountIdx int, address string) tea.Msg
+	// ResyncChat re-walks a chat's server archive for messages an earlier
+	// sync missed; slow, run as a tea.Cmd. Returns ChatResyncedMsg.
+	ResyncChat(accountIdx int, address string) tea.Msg
 	// SetChatFlag turns a chat's ChatHidden, ChatPinned or ChatMuted on or
 	// off - all local and reversible.
 	SetChatFlag(accountJID, chatAddress string, flag ChatSetting, on bool) error

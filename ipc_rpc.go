@@ -117,6 +117,7 @@ func init() {
 	handle(addContactReq{})
 	handle(removeContactReq{})
 	handle(resubscribeContactReq{})
+	handle(resyncChatReq{})
 	handle(setChatFlagReq{})
 	handle(setChatEncryptionReq{})
 	handle(resetChatUnreadReq{})
@@ -369,6 +370,15 @@ type resubscribeContactReq struct {
 
 func (c resubscribeContactReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.ResubscribeContact(c.AccountIdx, c.Address)
+}
+
+type resyncChatReq struct {
+	AccountIdx int
+	Address    string
+}
+
+func (c resyncChatReq) run(d *daemonServer, _ ipc.ClientID) (int, error) {
+	return d.a.ResyncChat(c.AccountIdx, c.Address)
 }
 
 type setChatFlagReq struct {

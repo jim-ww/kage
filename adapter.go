@@ -813,6 +813,16 @@ func (a *adapter) AddContact(accountIdx int, address string) error {
 	return nil
 }
 
+// ResyncChat walks address's whole archive again for messages an earlier
+// sync missed, returning how many it recovered (see syncArchiveForContact).
+func (a *adapter) ResyncChat(accountIdx int, address string) (int, error) {
+	s, client, err := a.online(accountIdx)
+	if err != nil {
+		return 0, err
+	}
+	return syncArchiveForContact(context.Background(), a.srv, accountIdx, s, client, address, mamCursor{}, true), nil
+}
+
 // ResubscribeContact re-sends a subscription
 // request for an existing contact, without touching its roster item.
 func (a *adapter) ResubscribeContact(accountIdx int, address string) error {

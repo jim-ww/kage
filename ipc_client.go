@@ -210,6 +210,11 @@ func (c *ipcClient) ResubscribeContact(accountIdx int, address string) tea.Msg {
 	return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}
 }
 
+func (c *ipcClient) ResyncChat(accountIdx int, address string) tea.Msg {
+	n, err := do(c.conn, resyncChatReq{AccountIdx: accountIdx, Address: address})
+	return ui.ChatResyncedMsg{AccountIdx: accountIdx, Address: address, Recovered: n, Err: err}
+}
+
 func (c *ipcClient) SetChatFlag(accountJID, chatAddress string, flag ui.ChatSetting, on bool) error {
 	_, err := do(c.conn, setChatFlagReq{AccountJID: accountJID, ChatAddress: chatAddress, Flag: flag, On: on})
 	return err

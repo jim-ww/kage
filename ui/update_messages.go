@@ -3,6 +3,7 @@ package ui
 import (
 	"maps"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -842,6 +843,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		m.refreshContacts()
 		return m, tea.Batch(cmd, m.showNotification("contact removed: "+msg.Address)), true
+
+	case ChatResyncedMsg:
+		switch {
+		case msg.Err != nil:
+			return m, m.showNotification("re-sync failed: " + msg.Err.Error()), true
+		case msg.Recovered == 0:
+			return m, m.showNotification("re-sync: nothing missing"), true
+		}
+		return m, m.showNotification("re-sync: " + strconv.Itoa(msg.Recovered) + " messages recovered"), true
 
 	case ContactResubscribedMsg:
 		if !m.contactResult(msg.AccountIdx, msg.Err) {

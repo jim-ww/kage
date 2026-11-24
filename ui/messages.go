@@ -92,6 +92,16 @@ type ChatRemovedMsg struct {
 	Address    string
 }
 
+// ChatResyncedMsg reports the result of Daemon.ResyncChat: Recovered is how
+// many messages it found that weren't stored, already broadcast as
+// HistorySyncedMsg.
+type ChatResyncedMsg struct {
+	AccountIdx int
+	Address    string
+	Recovered  int
+	Err        error
+}
+
 // ContactResubscribedMsg reports the result of Daemon.ResubscribeContact.
 type ContactResubscribedMsg struct {
 	AccountIdx int
