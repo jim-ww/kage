@@ -35,6 +35,9 @@ type messageBody struct {
 	// OOB marks URLs as files rather than links (XEP-0066).
 	OOB []oobElem `xml:"jabber:x:oob x"`
 
+	// Delay is XEP-0203: when a message held on to on its way was sent.
+	Delay []delayElem `xml:"urn:xmpp:delay delay"`
+
 	// Store asks servers to archive a message they might not otherwise,
 	// having no <body/> or only a fallback one (XEP-0334).
 	Store *struct{} `xml:"urn:xmpp:hints store"`
@@ -141,6 +144,7 @@ func (m *messageBody) setChatState(state ChatState) {
 // sent or received.
 type carbonElem struct {
 	Forwarded struct {
+		Delay   []delayElem `xml:"urn:xmpp:delay delay"`
 		Message messageBody `xml:"jabber:client message"`
 	} `xml:"urn:xmpp:forward:0 forwarded"`
 }

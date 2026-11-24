@@ -69,9 +69,7 @@ type mamResultElem struct {
 // mamForwarded is XEP-0297: the original delay-stamped message, forwarded
 // verbatim inside a MAM result.
 type mamForwarded struct {
-	Delay struct {
-		Stamp string `xml:"stamp,attr"`
-	} `xml:"urn:xmpp:delay delay"`
+	Delay   delayElem   `xml:"urn:xmpp:delay delay"`
 	Message messageBody `xml:"message"`
 }
 
@@ -96,8 +94,10 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		To:        msg.To.String(),
 		ID:        msg.selfID(),
 	}
-	if stamp, err := time.Parse(time.RFC3339, r.Forwarded.Delay.Stamp); err == nil {
-		am.SentAt = stamp.Local()
+	// Left zero without a stamp: the caller decides what an unknown time
+	// means (see syncArchiveForContact's cursor).
+	if stamp, ok := parseStamp(r.Forwarded.Delay.Stamp); ok {
+		am.SentAt = notAfter(stamp, time.Now())
 	}
 
 	switch {

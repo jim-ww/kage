@@ -200,6 +200,9 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			return
 		}
 
+		// Every delay on the way counts, the carbon's own included.
+		delays := msg.Delay
+
 		// Carbons (XEP-0280) are unwrapped. A "sent" one is from our own JID,
 		// its chat being To. Only our own account forwards them: from anyone
 		// else, a carbon is a forgery passing someone's message off as
@@ -214,10 +217,15 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 		switch {
 		case msg.CarbonReceived != nil:
+			delays = append(delays, msg.CarbonReceived.Forwarded.Delay...)
 			msg = msg.CarbonReceived.Forwarded.Message
 		case msg.CarbonSent != nil:
+			delays = append(delays, msg.CarbonSent.Forwarded.Delay...)
 			msg = msg.CarbonSent.Forwarded.Message
 			outgoing = true
+		}
+		if carbon {
+			delays = append(delays, msg.Delay...)
 		}
 
 		if msg.MAMResult != nil {
@@ -374,7 +382,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			ID:         msg.selfID(),
 			From:       msg.From.String(),
 			Body:       body,
-			SentAt:     time.Now(),
+			SentAt:     sentAt(time.Now(), delays),
 			ReplaceID:  replaceID,
 			ReplyToID:  replyToID,
 			OOBURLs:    oobURLs,
