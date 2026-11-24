@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/jim-ww/kage/ui"
@@ -211,5 +212,21 @@ func TestHumanBytes(t *testing.T) {
 func TestAvatarMaxBytesMatchesTheWireLimit(t *testing.T) {
 	if ui.AvatarMaxBytes != xmpp.AvatarMaxBytes {
 		t.Errorf("ui.AvatarMaxBytes = %d, want xmpp.AvatarMaxBytes (%d)", ui.AvatarMaxBytes, xmpp.AvatarMaxBytes)
+	}
+}
+
+// staleAvatarFiles picks the avatars of JIDs no account has any more, and
+// leaves the kept ones, other extensions of them, and temp files alone.
+func TestStaleAvatarFiles(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"bob@x.png", "me@x.jpg", "gone@x.png", "gone@x.jpg", ".avatar-123", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := staleAvatarFiles(dir, map[string]bool{"bob@x": true, "me@x": true})
+	slices.Sort(got)
+	if want := []string{"gone@x.jpg", "gone@x.png"}; !slices.Equal(got, want) {
+		t.Fatalf("stale = %v, want %v", got, want)
 	}
 }

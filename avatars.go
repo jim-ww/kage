@@ -15,7 +15,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
+	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
 )
@@ -358,6 +360,64 @@ func removeCachedAvatar(bare string) {
 			os.Remove(filepath.Join(dir, name))
 		}
 	}
+}
+
+// pruneAvatarCache deletes cached avatars nobody is shown any more: of
+// contacts removed from every roster, or of removed accounts. The cache is
+// keyed by bare JID alone, shared by every account, so a file is kept while
+// any configured account still has its owner as a contact or is that JID.
+// Run once at daemon start; a failure to read a roster keeps everything.
+func pruneAvatarCache(ctx context.Context, db *storage.Queries, accounts []config.Account) {
+	dir, err := avatarCacheDir()
+	if err != nil {
+		return
+	}
+	keep := make(map[string]bool)
+	for _, acct := range accounts {
+		keep[bareJID(acct.JID)] = true
+		rows, err := db.ListRoster(ctx, acct.JID)
+		if err != nil {
+			slog.Warn("pruning avatar cache: loading roster", "jid", acct.JID, "err", err)
+			return
+		}
+		for _, r := range rows {
+			keep[r.Jid] = true
+		}
+	}
+	for _, name := range staleAvatarFiles(dir, keep) {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			slog.Debug("pruning avatar cache", "file", name, "err", err)
+		}
+	}
+}
+
+// staleAvatarFiles lists the avatar files in dir whose JID isn't in keep.
+// Anything not named like an avatar (a temp file mid-write) is left alone.
+func staleAvatarFiles(dir string, keep map[string]bool) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	kept := make(map[string]bool, 2*len(keep))
+	for bare := range keep {
+		for _, ext := range []string{".png", ".jpg"} {
+			if name := avatarFileName(bare, ext); name != "" {
+				kept[name] = true
+			}
+		}
+	}
+	var stale []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || strings.HasPrefix(name, ".") || kept[name] {
+			continue
+		}
+		if ext := filepath.Ext(name); ext != ".png" && ext != ".jpg" {
+			continue
+		}
+		stale = append(stale, name)
+	}
+	return stale
 }
 
 // humanBytes renders a byte count for an error a person reads.

@@ -357,6 +357,7 @@ func (b *backend) Start(ctx context.Context, cfg config.Config) {
 
 	slog.Debug("background: ready to accept connections", "elapsed", time.Since(startupStart))
 
+	go pruneAvatarCache(ctx, queries, cfg.Accounts)
 	for i, acct := range cfg.Accounts {
 		go connectAndSuperviseAccount(ctx, srv, a, i, acct, queries, localKey)
 	}

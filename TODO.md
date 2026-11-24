@@ -9,7 +9,6 @@
 - on nixos rebuild, call hangs or something. or one of clients dies
 - after switching to new account, tray icon started showing 'new message' alert all the time
 - message save as dialog doesnt ask path
-- cached avatars do not get deleted
 - focused state is broken, unread tray icon doesnt show (after switching focus from window), same thing other way, even when viewing chat, unread count in chats list AND unread tray icon appear (even though app open & chat focused)
 - call widget is ugly and unhelpful. some keybindings do not work
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
