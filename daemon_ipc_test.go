@@ -102,6 +102,12 @@ func TestDaemonIPCRoundTrip(t *testing.T) {
 	if len(drafts) != 1 || drafts[0].Rosterjid != "you@example.com" || drafts[0].Body != "hello there" || drafts[0].Encrypted {
 		t.Errorf("ListChatDrafts = %+v, want one plaintext row for you@example.com = %q", drafts, "hello there")
 	}
+	// Every attached TUI hears of it, not just the one that saved it.
+	var draftEv ui.ChatDraftMsg
+	awaitEvent(t, events, &draftEv, 2*time.Second)
+	if draftEv != (ui.ChatDraftMsg{AccountJID: "me@example.com", ChatAddress: "you@example.com", Text: "hello there"}) {
+		t.Errorf("ChatDraftMsg = %+v", draftEv)
+	}
 
 	// Saving an empty draft deletes the row rather than storing "".
 	if err := client.SaveDraft("me@example.com", "you@example.com", ""); err != nil {

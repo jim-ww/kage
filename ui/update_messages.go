@@ -1152,6 +1152,14 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, m.setChatUnread(accountIdx, chatIdx, msg.Count), true
 
+	case ChatDraftMsg:
+		accountIdx := m.accountIndexByJID(msg.AccountJID)
+		chatIdx := m.chatIndexByAddress(accountIdx, msg.ChatAddress)
+		if chatIdx < 0 {
+			return m, nil, true
+		}
+		return m, m.applyChatDraft(accountIdx, chatIdx, msg.Text), true
+
 	case chatSwitchSettledMsg:
 		if msg.gen != m.chatSwitchGen {
 			return m, nil, true

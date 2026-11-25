@@ -70,7 +70,7 @@ var events = []any{
 	ui.MessageSendResolvedMsg{}, ui.OutboxDeletedMsg{}, ui.MessagePurgedMsg{},
 	ui.MessageReactionsMsg{}, ui.PresenceMsg{}, ui.DeviceNameMsg{}, ui.TypingMsg{},
 	ui.FileTransferProgressMsg{}, ui.FileTransferDoneMsg{}, ui.ChatAddedMsg{},
-	ui.ChatRemovedMsg{}, ui.ChatSettingMsg{}, ui.ChatUnreadMsg{}, ui.AvatarUpdatedMsg{},
+	ui.ChatRemovedMsg{}, ui.ChatSettingMsg{}, ui.ChatUnreadMsg{}, ui.ChatDraftMsg{}, ui.AvatarUpdatedMsg{},
 	ui.AccountAppearedMsg{}, ui.AccountRemovedMsg{}, ui.AccountConnectedMsg{},
 	ui.AccountLiveMsg{}, ui.AccountConnectErrorMsg{}, ui.AccountStatusChangedMsg{},
 	ui.HistorySyncedMsg{}, ui.HistorySyncStartedMsg{}, ui.HistorySyncFinishedMsg{},

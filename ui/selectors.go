@@ -285,6 +285,44 @@ func (m *Model) setChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
 	return nil
 }
 
+// applyChatDraft takes a draft another TUI stored for chatIdx. The compose
+// box follows if it holds that chat's previous draft unchanged; text typed
+// here since is kept, to be saved over it.
+func (m *Model) applyChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) {
+		return nil
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok || chat.Draft == text {
+		return nil
+	}
+	old := chat.Draft
+	cmd := m.setChatDraft(accountIdx, chatIdx, text)
+	if accountIdx != m.openChatAccountIdx || chat.Address != m.openChatAddress {
+		return cmd
+	}
+	if m.editingMsg.empty() {
+		if m.input.Value() == old {
+			m.input.SetValue(text)
+			m.pushDraftSnapshot(text)
+			m.updateSizes()
+		}
+		return cmd
+	}
+	// Mid edit/react the draft waits in the stash, nil for "".
+	stashed := ""
+	if m.stashedDraft != nil {
+		stashed = *m.stashedDraft
+	}
+	if stashed == old {
+		m.stashedDraft = nil
+		if text != "" {
+			m.stashedDraft = &text
+		}
+	}
+	return cmd
+}
+
 // saveChatDraft updates chatIdx's draft in memory and persists it so it
 // survives a restart. Best-effort: a persistence
 // failure doesn't roll back the in-memory draft.

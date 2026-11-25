@@ -292,3 +292,65 @@ func TestFlushDraftNoopWhenUnchanged(t *testing.T) {
 		t.Fatalf("FlushDraft should be a no-op when unchanged, got %d SaveDraft call(s)", saver.calls)
 	}
 }
+
+// newDraftSyncModel has bob's chat open with draft in the compose box, as a
+// second TUI attached to the same daemon would.
+func newDraftSyncModel(t *testing.T, draft string) Model {
+	t.Helper()
+	m := newTestModelWithSender(newFakeDraftSaver(), &fakeAccountAdder{})
+	chat := Chat{Address: "bob@localhost", Draft: draft}
+	m.accounts = []Account{{Name: "me", Chats: []list.Item{chat}, Messages: map[int][]Message{}}}
+	if cmd := m.chats.SetItems([]list.Item{chat}); cmd != nil {
+		runCmd(cmd)
+	}
+	m.chats.Select(0)
+	model, cmd := m.openCurrentChat()
+	m = model.(Model)
+	runCmd(cmd)
+	return m
+}
+
+// TestChatDraftFromAnotherTUI checks a draft saved by another TUI replaces
+// the one this TUI loaded, so it neither shows nor flushes back a stale one.
+func TestChatDraftFromAnotherTUI(t *testing.T) {
+	m := newDraftSyncModel(t, "old draft")
+	next, cmd := m.Update(ChatDraftMsg{AccountJID: "me", ChatAddress: "bob@localhost", Text: ""})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input after the draft was cleared elsewhere = %q, want empty", got)
+	}
+	if got := m.chats.Items()[0].(Chat).Draft; got != "" {
+		t.Fatalf("stored draft = %q, want empty", got)
+	}
+
+	next, cmd = m.Update(ChatDraftMsg{AccountJID: "me", ChatAddress: "bob@localhost", Text: "asdsad"})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := m.input.Value(); got != "asdsad" {
+		t.Fatalf("input after a draft was saved elsewhere = %q, want %q", got, "asdsad")
+	}
+	saver := m.daemon.(*fakeDraftSaver)
+	m.FlushDraft()
+	if saver.calls != 0 {
+		t.Fatalf("FlushDraft saved %q back, want no save", saver.saved["bob@localhost"])
+	}
+}
+
+// TestChatDraftFromAnotherTUIKeepsLocalEdits checks text typed here since the
+// last save isn't overwritten by another TUI's draft.
+func TestChatDraftFromAnotherTUIKeepsLocalEdits(t *testing.T) {
+	m := newDraftSyncModel(t, "")
+	next, _ := m.Update(keyText("mine"))
+	m = next.(Model)
+	next, cmd := m.Update(ChatDraftMsg{AccountJID: "me", ChatAddress: "bob@localhost", Text: "theirs"})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := m.input.Value(); got != "mine" {
+		t.Fatalf("input = %q, want the unsaved %q kept", got, "mine")
+	}
+	m.FlushDraft()
+	if got := m.daemon.(*fakeDraftSaver).saved["bob@localhost"]; got != "mine" {
+		t.Fatalf("flushed draft = %q, want %q", got, "mine")
+	}
+}

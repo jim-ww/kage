@@ -575,6 +575,15 @@ type ChatUnreadMsg struct {
 	Count       int
 }
 
+// ChatDraftMsg reports a chat's stored draft changed, by any attached TUI -
+// this one included, for which it's a no-op - so another TUI with the chat
+// open doesn't keep showing, and later save back, what it loaded.
+type ChatDraftMsg struct {
+	AccountJID  string
+	ChatAddress string
+	Text        string
+}
+
 // HistorySyncStartedMsg marks an account's archive backfill starting (see
 // syncArchive), for a "syncing" indicator.
 type HistorySyncStartedMsg struct {

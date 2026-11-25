@@ -388,22 +388,29 @@ func (a *adapter) ChatUnreadCounts(accountJID string) (map[string]int, error) {
 	return counts, nil
 }
 
-// SaveDraft stores a chat's unsent text, sealed like a message body; ""
-// deletes it.
+// SaveDraft stores a chat's unsent text, sealed like a message body, in
+// every TUI; "" deletes it.
 func (a *adapter) SaveDraft(accountJID, chatAddress, text string) error {
+	var err error
 	if text == "" {
-		return a.queries.DeleteChatDraft(context.Background(), storage.DeleteChatDraftParams{
+		err = a.queries.DeleteChatDraft(context.Background(), storage.DeleteChatDraftParams{
 			AccountJid: accountJID,
 			RosterJid:  chatAddress,
 		})
+	} else {
+		body, encrypted := sealBody(a.localKey, text)
+		err = a.queries.SetChatDraft(context.Background(), storage.SetChatDraftParams{
+			AccountJid: accountJID,
+			RosterJid:  chatAddress,
+			Body:       body,
+			Encrypted:  encrypted,
+		})
 	}
-	body, encrypted := sealBody(a.localKey, text)
-	return a.queries.SetChatDraft(context.Background(), storage.SetChatDraftParams{
-		AccountJid: accountJID,
-		RosterJid:  chatAddress,
-		Body:       body,
-		Encrypted:  encrypted,
-	})
+	if err != nil {
+		return err
+	}
+	broadcast(a.srv, ui.ChatDraftMsg{AccountJID: accountJID, ChatAddress: chatAddress, Text: text})
+	return nil
 }
 
 // omemoProtocolLabel matches ui.OmemoDevice.Protocol's "v1"/"v2" convention.
