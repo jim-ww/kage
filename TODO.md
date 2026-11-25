@@ -1,20 +1,12 @@
 ## Bugs
-- sending message while far in history (e.g. jumped via ctrl+/), should first load last message window
-- cannot jump to msg in history (was able after ctrl+/ jump, but not after)
-- messages seen as 'unead' when chat open, even your own
-- drag & drop in chat: probably fixed, needs testing
 - video stream worsens call quality (adds lag)
 - problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ
-- add new 'attachments' screen (for every chat).
 - on nixos rebuild, call hangs or something. or one of clients dies
-- after switching to new account, tray icon started showing 'new message' alert all the time
-- focused state is broken, unread tray icon doesnt show (after switching focus from window), same thing other way, even when viewing chat, unread count in chats list AND unread tray icon appear (even though app open & chat focused)
 - call widget is ugly and unhelpful. some keybindings do not work
 - fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
 - handle extremely large text AND images pasted in message prompt / sent in chat (lags/slow), maybe connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
 - improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
 - if tui relaunched, then calling statusbar not shown?
-- avatars: check caching logic. sometimes, old avatars never get updated
 - adding account, or changing config file values imperatively from app, when config is managed by nix
 
 ## Optimization
@@ -24,11 +16,9 @@
 
 ## UX
 - in search by message text, on results, show full/truncated preview of selected msg
-- search by message results do not have VIM bindings
 - delete message modal has no mouse support. other modals must be checked too.
 - hard to grab bottom panel border for resize
 - add scrollbar for messages list, and perhaps, for chat list too
-- search window doesnt have vim bindings.
 
 ## Refactor
 - ui/zone replaced bubblezone (linear Scan, synchronous zones): maybe publish it as a bubblezone fork / upstream PR
