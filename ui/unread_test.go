@@ -374,3 +374,38 @@ func TestKeystrokeAfterLostFocusInCountsAsFocused(t *testing.T) {
 		t.Fatalf("Unread while typing in the chat = %d, want 0", got)
 	}
 }
+
+// Pointing into the chat pane from the chat list focuses it without opening
+// the chat: the count that piled up while the list had focus must go as the
+// chat is now being read, not linger until the chat is reopened.
+func TestUnreadClearedOnPointerEnteringChatPane(t *testing.T) {
+	sender := &fakeReadTrackerSender{}
+	m := newUnreadTestModel(sender, viewChats)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = next.(Model)
+
+	next, cmd := m.Update(ChatUnreadMsg{AccountJID: "me@example.test", ChatAddress: "bob@example.test", Count: 1})
+	m = next.(Model)
+	runCmd(cmd)
+	if got := unreadOf(m); got != 1 {
+		t.Fatalf("Unread with the chat list focused = %d, want 1", got)
+	}
+
+	_ = m.View()
+	z := m.zone.Get(zonePaneViewport)
+	if z.IsZero() {
+		t.Fatal("zonePaneViewport has no bounds after View()")
+	}
+	next, cmd = m.Update(tea.MouseMotionMsg{X: z.StartX, Y: z.StartY})
+	m = next.(Model)
+	runCmd(cmd)
+	if m.selectedView != viewChat {
+		t.Fatalf("selectedView after pointing into the chat pane = %v, want viewChat", m.selectedView)
+	}
+	if got := unreadOf(m); got != 0 {
+		t.Fatalf("Unread after pointing into the chat pane = %d, want 0", got)
+	}
+	if sender.resets == 0 {
+		t.Fatal("no ResetChatUnread after pointing into the chat pane")
+	}
+}

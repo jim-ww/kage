@@ -188,18 +188,11 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	oldFocused := m.focused && !m.idle
 	oldAccountJID, oldChatAddress := m.activeChatKey()
 
-	// Returning to the app marks the chat on screen read - see readOpenChat.
-	markRead := false
-	if _, ok := msg.(tea.FocusMsg); ok {
-		markRead = true
-	}
-
 	if im, ok := msg.(idleMsg); ok {
 		if im.gen == m.idleGen {
 			m.idle = true
 		}
 	} else if isActivityMsg(msg) {
-		markRead = markRead || m.idle
 		m.idle = false
 		// Typing or clicking here means the terminal has focus, whatever
 		// the last focus event said: a focus-in can go missing (tmux
@@ -207,20 +200,12 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		// blur), which left messages counted unread mid-conversation.
 		switch msg.(type) {
 		case tea.KeyMsg, tea.MouseClickMsg:
-			markRead = markRead || !m.focused
 			m.focused = true
 		}
 		m.idleGen++
 		gen := m.idleGen
 		defer func() {
 			retCmd = tea.Batch(retCmd, idleTimer(gen))
-		}()
-	}
-
-	if markRead {
-		readCmd := m.readOpenChat()
-		defer func() {
-			retCmd = tea.Batch(retCmd, readCmd)
 		}()
 	}
 
@@ -233,6 +218,15 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		newAccountJID, newChatAddress := rm.activeChatKey()
 		if newFocused == oldFocused && newAccountJID == oldAccountJID && newChatAddress == oldChatAddress {
 			return
+		}
+		// The chat on screen is being read from now on, however that came
+		// about (focus or input returning, the pointer moving into the chat
+		// pane, ...): messages that arrived meanwhile counted as unread.
+		// Only once counted here: the daemon pushes every count (and
+		// opening a chat resets on its own).
+		if chat, ok := rm.currentChat(); ok && newFocused && newChatAddress != "" && chat.Unread > 0 {
+			retCmd = tea.Batch(retCmd, rm.readOpenChat())
+			retModel = rm
 		}
 		slog.Debug("ui: focus state changed, reporting to daemon", "oldFocused", oldFocused, "newFocused", newFocused, "accountJID", newAccountJID, "chatAddress", newChatAddress)
 		retCmd = tea.Batch(retCmd, rm.focusReport.report(rm.daemon, newAccountJID, newChatAddress, newFocused))
