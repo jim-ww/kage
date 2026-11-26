@@ -105,6 +105,9 @@ type Daemon interface {
 	// RemoveOwnAvatar removes it.
 	SetOwnAvatar(accountIdx int, path string) error
 	RemoveOwnAvatar(accountIdx int) error
+	// SyncOwnAvatar fetches the account's published avatar into the cache,
+	// as AvatarUpdatedMsg reports, should it differ from the cached one.
+	SyncOwnAvatar(accountIdx int) tea.Msg
 	// FetchOwnDeviceList and PurgeOwnDeviceList read and republish the
 	// account's own OMEMO device lists (v1 and v2).
 	FetchOwnDeviceList(accountIdx int) tea.Msg

@@ -38,6 +38,7 @@ func (stubDaemon) AddAccount(string, string, string, bool) tea.Msg             {
 func (stubDaemon) RemoveAccount(int) tea.Msg                                   { return nil }
 func (stubDaemon) SetAccountStatus(int, Presence) tea.Msg                      { return nil }
 func (stubDaemon) SetOwnAvatar(int, string) error                              { return nil }
+func (stubDaemon) SyncOwnAvatar(int) tea.Msg                                   { return nil }
 func (stubDaemon) RemoveOwnAvatar(int) error                                   { return nil }
 func (stubDaemon) FetchOwnDeviceList(int) tea.Msg                              { return nil }
 func (stubDaemon) PurgeOwnDeviceList(int, []OmemoDevice) tea.Msg               { return nil }

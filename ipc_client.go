@@ -277,6 +277,11 @@ func (c *ipcClient) RemoveOwnAvatar(accountIdx int) error {
 	return err
 }
 
+func (c *ipcClient) SyncOwnAvatar(accountIdx int) tea.Msg {
+	_, err := do(c.conn, syncOwnAvatarReq{AccountIdx: accountIdx})
+	return ui.OwnAvatarSyncedMsg{AccountIdx: accountIdx, Err: err}
+}
+
 func (c *ipcClient) FetchOwnDeviceList(accountIdx int) tea.Msg {
 	msg, err := do(c.conn, fetchOwnDeviceListReq{AccountIdx: accountIdx})
 	if err != nil {

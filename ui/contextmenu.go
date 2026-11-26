@@ -40,19 +40,19 @@ type contextMenuBody struct {
 	refresh func(m *Model) (string, []contextMenuItem)
 	// header, when set, is drawn above the items - something the menu's
 	// actions are about (the avatar menu: the current avatar).
-	header func() string
+	header interface{ View() string }
 }
 
 func (b *contextMenuBody) View() string {
 	if b.header == nil {
 		return b.Menu.View()
 	}
-	return b.header() + "\n" + b.Menu.View()
+	return b.header.View() + "\n" + b.Menu.View()
 }
 
 func (b *contextMenuBody) SetSize(width, height int) {
 	if b.header != nil {
-		height -= strings.Count(b.header(), "\n") + 1
+		height -= strings.Count(b.header.View(), "\n") + 1
 	}
 	b.Menu.SetSize(width, max(1, height))
 }
@@ -60,7 +60,7 @@ func (b *contextMenuBody) SetSize(width, height int) {
 func (b *contextMenuBody) PreferredWidth() int {
 	w := b.Menu.PreferredWidth()
 	if b.header != nil {
-		w = max(w, cells.BlockWidth(b.header()))
+		w = max(w, cells.BlockWidth(b.header.View()))
 	}
 	return w
 }

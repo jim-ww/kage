@@ -30,29 +30,54 @@ func (m *Model) openAvatarMenu() tea.Cmd {
 			return m.removeOwnAvatarCmd(accountIdx)
 		}},
 	})
-	body.header = m.ownAvatarHeader(m.accounts[accountIdx].Name)
-	return nil
+	body.header = &ownAvatarHeader{jid: m.accounts[accountIdx].Name, accountIdx: accountIdx, checking: true, styles: m.styles, gen: ^uint64(0)}
+	// What's cached may be stale or missing - set from another client.
+	daemon := m.daemon
+	return func() tea.Msg { return daemon.SyncOwnAvatar(accountIdx) }
 }
 
 // avatarMenuPictureRows is the current avatar's height in the avatar menu;
 // it's twice as many columns wide.
 const avatarMenuPictureRows = 6
 
-// ownAvatarHeader draws jid's current avatar, or says there's none, for
-// the avatar menu's header. Rendered again only once an avatar changes -
-// one being published or removed while the menu is open shows up in it.
-func (m *Model) ownAvatarHeader(jid string) func() string {
-	none := m.styles.messageMuted.Render("no avatar set")
-	var rendered string
-	gen := ^uint64(0)
-	return func() string {
-		if g := avatarGeneration(); g != gen {
-			gen, rendered = g, none
-			if img, ok := avatarPicture(jid); ok && img != nil && avatarsEnabled() {
-				rendered = renderImageBlocks(img, 2*avatarMenuPictureRows, avatarMenuPictureRows)
-			}
-		}
-		return rendered
+// ownAvatarHeader is the avatar menu's header: the account's current
+// avatar, or that it has none - once checking, the fetch from the server
+// asked for on opening the menu, is done (see OwnAvatarSyncedMsg).
+// Rendered again only once an avatar changes.
+type ownAvatarHeader struct {
+	jid        string
+	accountIdx int
+	checking   bool
+	styles     *uiStyles
+
+	rendered string
+	gen      uint64 // avatar generation rendered is for
+}
+
+func (h *ownAvatarHeader) View() string {
+	g := avatarGeneration()
+	if g == h.gen && h.rendered != "" {
+		return h.rendered
+	}
+	if img, ok := avatarPicture(h.jid); ok && img != nil && avatarsEnabled() {
+		h.gen, h.rendered = g, renderImageBlocks(img, 2*avatarMenuPictureRows, avatarMenuPictureRows)
+		return h.rendered
+	}
+	if h.checking {
+		return h.styles.messageMuted.Render("checking…")
+	}
+	h.gen, h.rendered = g, h.styles.messageMuted.Render("no avatar set")
+	return h.rendered
+}
+
+// ownAvatarSynced ends the open avatar menu's check for accountIdx.
+func (m *Model) ownAvatarSynced(accountIdx int) {
+	md := m.modals.Find(menuModalID)
+	if md == nil {
+		return
+	}
+	if h, ok := md.Body.(*contextMenuBody).header.(*ownAvatarHeader); ok && h.accountIdx == accountIdx {
+		h.checking = false
 	}
 }
 

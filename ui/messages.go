@@ -331,6 +331,13 @@ type AvatarPublishedMsg struct {
 	Err        error
 }
 
+// OwnAvatarSyncedMsg reports SyncOwnAvatar done: any change it made has
+// been sent as an AvatarUpdatedMsg.
+type OwnAvatarSyncedMsg struct {
+	AccountIdx int
+	Err        error
+}
+
 // AvatarUpdatedMsg reports a contact's avatar cached at Path ("" removed).
 // The TUI reads the file, decoding it before this reaches Update.
 type AvatarUpdatedMsg struct {

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/ipc"
@@ -282,6 +283,23 @@ func (a *adapter) SetOwnAvatar(accountIdx int, path string) error {
 	if path, ok := cachedAvatarPath(bare); ok {
 		broadcast(a.srv, ui.AvatarUpdatedMsg{AccountIdx: accountIdx, JID: bare, Path: path})
 	}
+	return nil
+}
+
+// ownAvatarSyncTimeout bounds SyncOwnAvatar's two PEP round trips.
+const ownAvatarSyncTimeout = 15 * time.Second
+
+// SyncOwnAvatar fetches this account's published avatar into the cache -
+// one set from another client is otherwise never fetched, as no presence
+// of ours comes online the way a contact's does.
+func (a *adapter) SyncOwnAvatar(accountIdx int) error {
+	s, _, err := a.online(accountIdx)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ownAvatarSyncTimeout)
+	defer cancel()
+	s.syncAvatar(ctx, a.srv, accountIdx, bareJID(s.account.JID))
 	return nil
 }
 

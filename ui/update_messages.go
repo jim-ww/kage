@@ -1294,6 +1294,9 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, m.showNotification(what + ": " + msg.Err.Error()), true
 		}
 		return m, m.showNotification(what), true
+	case OwnAvatarSyncedMsg:
+		m.ownAvatarSynced(msg.AccountIdx)
+		return m, nil, true
 	case AvatarUpdatedMsg:
 		// Decoded already; this only redraws.
 		return m, nil, true

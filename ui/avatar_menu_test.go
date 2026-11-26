@@ -18,7 +18,13 @@ type fakeAvatarPublisher struct {
 	setPath    string
 	setCalls   int
 	removeCall int
+	syncCalls  int
 	err        error
+}
+
+func (f *fakeAvatarPublisher) SyncOwnAvatar(accountIdx int) tea.Msg {
+	f.syncCalls++
+	return OwnAvatarSyncedMsg{AccountIdx: accountIdx}
 }
 
 func (f *fakeAvatarPublisher) SetOwnAvatar(_ int, path string) error {
@@ -59,12 +65,15 @@ func avatarMenuItem(t *testing.T, m Model, label string) int {
 // keyboard-navigable like every other menu rather than carrying its own
 // input handling.
 func TestAvatarMenuIsAContextMenu(t *testing.T) {
-	m := avatarMenuModel(t, &fakeAvatarPublisher{})
+	pub := &fakeAvatarPublisher{}
+	m := avatarMenuModel(t, pub)
 	m.width, m.height, m.termHeight = 120, 40, 40
 	m.updateSizes()
 
-	if cmd := m.openAvatarMenu(); cmd != nil {
-		t.Fatalf("openAvatarMenu returned a notification: %v", cmd())
+	if cmd := m.openAvatarMenu(); cmd == nil {
+		t.Fatal("openAvatarMenu doesn't fetch the current avatar")
+	} else if msg := cmd(); pub.syncCalls != 1 {
+		t.Fatalf("opening the menu returned %v, want an own-avatar sync", msg)
 	}
 	if menuOf(m) == nil {
 		t.Fatal("no context menu opened")
@@ -213,8 +222,8 @@ func containsAvatarPublished(cmd tea.Cmd) bool {
 	return false
 }
 
-// The avatar menu shows the account's current avatar above its items, or
-// says there's none.
+// The avatar menu fetches the account's current avatar on opening and
+// shows it above its items, or says there's none once the fetch is done.
 func TestAvatarMenuShowsCurrentAvatar(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
@@ -222,7 +231,11 @@ func TestAvatarMenuShowsCurrentAvatar(t *testing.T) {
 	m.width, m.termHeight = 100, 30
 	m.updateSizes()
 
-	m.openAvatarMenu()
+	sync := m.openAvatarMenu()
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "checking…") {
+		t.Fatalf("menu doesn't say it's checking while fetching:\n%s", view)
+	}
+	m, _, _ = m.handleEventMsg(sync())
 	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "no avatar set") {
 		t.Fatalf("menu without an avatar doesn't say so:\n%s", view)
 	}
@@ -230,6 +243,6 @@ func TestAvatarMenuShowsCurrentAvatar(t *testing.T) {
 	SetAvatarImage("me", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
 	view := ansi.Strip(m.View().Content)
 	if strings.Contains(view, "no avatar set") || !strings.Contains(view, strings.Repeat("▀", 2*avatarMenuPictureRows)) {
-		t.Fatalf("avatar set while the menu is open isn't shown:\n%s", view)
+		t.Fatalf("avatar fetched while the menu is open isn't shown:\n%s", view)
 	}
 }

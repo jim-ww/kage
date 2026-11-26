@@ -129,6 +129,7 @@ func init() {
 	handle(setAccountStatusReq{})
 	handle(setOwnAvatarReq{})
 	handle(removeOwnAvatarReq{})
+	handle(syncOwnAvatarReq{})
 	handle(fetchOwnDeviceListReq{})
 	handle(purgeOwnDeviceListReq{})
 	handle(changeStoragePasswordReq{})
@@ -465,6 +466,12 @@ type removeOwnAvatarReq struct{ AccountIdx int }
 
 func (c removeOwnAvatarReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.RemoveOwnAvatar(c.AccountIdx)
+}
+
+type syncOwnAvatarReq struct{ AccountIdx int }
+
+func (c syncOwnAvatarReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SyncOwnAvatar(c.AccountIdx)
 }
 
 type fetchOwnDeviceListReq struct{ AccountIdx int }
