@@ -21,6 +21,9 @@ var fileMu sync.Mutex
 func updateConfigFile(path string, mutate func(*Config) error) error {
 	fileMu.Lock()
 	defer fileMu.Unlock()
+	if err := CheckWritable(path); err != nil {
+		return err
+	}
 	cfg, err := loadOrEmpty(path)
 	if err != nil {
 		return err

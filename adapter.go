@@ -98,6 +98,9 @@ func (a *adapter) AddAccount(jid, password, gpgKeyID string, register bool) (ui.
 	} else if exists {
 		return ui.Account{}, config.ErrAccountExists
 	}
+	if err := config.CheckWritable(a.cfgPath); err != nil {
+		return ui.Account{}, err
+	}
 	if register {
 		if err := xmpp.Register(context.Background(), jid, password, nil); err != nil {
 			return ui.Account{}, fmt.Errorf("registering account: %w", err)
@@ -603,6 +606,11 @@ func (a *adapter) RemoveAccount(accountIdx int) error {
 	s, err := a.session(accountIdx)
 	if err != nil {
 		return errors.New("account is still connecting")
+	}
+	// Before anything is torn down: the account would be gone from the
+	// server's device lists but come back on the next start.
+	if err := config.CheckWritable(a.cfgPath); err != nil {
+		return err
 	}
 
 	ctx := context.Background()

@@ -84,7 +84,8 @@ let
     ${lib.concatImapStrings (i: a: ''
       content=''${content//${jidPlaceholder (i - 1)}/$(cat ${lib.escapeShellArg a.jidFile})}
     '') cfg.accounts}
-    printf '%s' "$content" > "$dest"
+    # The header tells kage not to write here (config.ManagedHeader).
+    printf '%s\n%s' '# Managed by home-manager (programs.kage): edits here are overwritten on activation.' "$content" > "$dest"
   '';
 in
 {
