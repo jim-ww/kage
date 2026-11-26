@@ -367,6 +367,15 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		bodyLines = bodyLines[:maxCollapsedBodyLines]
 	}
 	needsExpandButton := fullBodyLineCount > maxCollapsedBodyLines
+	var previewLines []string
+	for _, p := range previews {
+		previewLines = append(previewLines, strings.Split(p, "\n")...)
+	}
+	// Nothing but pictures (their names hidden): the first starts where
+	// the body would, not under an empty line.
+	if strings.TrimSpace(bodyContent) == "" && len(previewLines) > 0 {
+		bodyLines = nil
+	}
 
 	var lines []string
 	for i, line := range bodyLines {
@@ -387,13 +396,16 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 	}
 	if len(bodyLines) == 0 {
-		lines = append(lines, headerLine)
+		if bodyOnHeaderLine && len(previewLines) > 0 {
+			lines = append(lines, headerLine+previewLines[0])
+			previewLines = previewLines[1:]
+		} else {
+			lines = append(lines, headerLine)
+		}
 	}
 
-	for _, p := range previews {
-		for _, line := range strings.Split(p, "\n") {
-			lines = append(lines, pad+line)
-		}
+	for _, line := range previewLines {
+		lines = append(lines, pad+line)
 	}
 
 	if needsExpandButton {

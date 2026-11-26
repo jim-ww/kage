@@ -77,9 +77,9 @@ func TestMediaPreviewDrawsCachedImageOnceDecoded(t *testing.T) {
 	if !strings.Contains(strings.Join(m.viewportLines, "\n"), upperHalfBlock) {
 		t.Fatal("decoded preview not drawn")
 	}
-	// Square picture: 20 columns, 10 rows.
-	if got := len(m.viewportLines) - before; got != DefaultMediaPreviewHeight {
-		t.Fatalf("row grew by %d lines, want %d", got, DefaultMediaPreviewHeight)
+	// Square picture: 20 columns, 10 rows, the first in place of the name.
+	if got := len(m.viewportLines) - before; got != DefaultMediaPreviewHeight-1 {
+		t.Fatalf("row grew by %d lines, want %d", got, DefaultMediaPreviewHeight-1)
 	}
 	if takeMediaThumbRequests() != nil {
 		t.Fatal("decoded image queued again")
@@ -193,8 +193,9 @@ func TestMediaPreviewHeightSetting(t *testing.T) {
 	withoutPicture := len(m.viewportLines)
 	next, _ := m.Update(takeMediaThumbRequests()().(mediaThumbMsg))
 	m = next.(Model)
-	if got := len(m.viewportLines) - withoutPicture; got != 4 {
-		t.Fatalf("preview is %d rows, want 4 (before=%d)", got, before)
+	// 4 rows, the first in place of the name.
+	if got := len(m.viewportLines) - withoutPicture; got != 3 {
+		t.Fatalf("row grew by %d lines, want 3 (before=%d)", got, before)
 	}
 }
 
@@ -221,6 +222,10 @@ func TestMediaPreviewNames(t *testing.T) {
 	}
 	if !strings.Contains(view, "dog.png") {
 		t.Fatalf("attachment without a preview lost its name:\n%s", view)
+	}
+	// The picture starts on the sender's line, not under an empty one.
+	if lines := next.(Model).viewportLines; len(lines) < 2 || !strings.Contains(lines[1], upperHalfBlock) {
+		t.Fatalf("picture doesn't start on the header line:\n%s", view)
 	}
 
 	m = next.(Model)
