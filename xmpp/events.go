@@ -118,6 +118,16 @@ type RosterPushEvent struct {
 
 func (RosterPushEvent) isEvent() {}
 
+// BlocklistPushEvent is a change to our server's blocklist (XEP-0191),
+// made by any of our devices.
+type BlocklistPushEvent struct {
+	// JIDs were blocked, or unblocked; none unblocked means all were.
+	JIDs    []string
+	Blocked bool
+}
+
+func (BlocklistPushEvent) isEvent() {}
+
 // MessageBouncedEvent is our message ID come back undelivered from From
 // (RFC 6120 §8.3), with the error as Reason.
 type MessageBouncedEvent struct {

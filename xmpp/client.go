@@ -113,7 +113,7 @@ func Dial(ctx context.Context, address, password string, tlsConfig *tls.Config) 
 	c := &Client{JID: j, session: session, events: make(chan Event, 32)}
 	c.life, c.endLife = context.WithCancel(context.Background())
 	c.evCond = sync.NewCond(&c.evMu)
-	c.discoMux = newDiscoMux(c.handleJingleIQ, c.handleRosterPush)
+	c.discoMux = newDiscoMux(c.handleJingleIQ, c.handleRosterPush, c.handleBlockPush)
 	go c.serve()
 	go c.forwardEvents()
 

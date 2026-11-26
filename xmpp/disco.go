@@ -93,17 +93,20 @@ func (il identityList) ForIdentities(node string, f func(info.Identity) error) e
 // our presence's <c/> - see discoCaps) resolve to the same base feature/
 // identity list, per XEP-0115.
 //
-// jingle and rosterPush are the client's own handlers for incoming
-// XEP-0166 <jingle/> and RFC 6121 roster-push IQs (passed in rather than
+// jingle, rosterPush and blockPush are the client's own handlers for
+// incoming XEP-0166 <jingle/>, RFC 6121 roster-push and XEP-0191 blocklist
+// push IQs (passed in rather than
 // looked up, since the mux is built as part of constructing the Client that
 // owns it).
-func newDiscoMux(jingle, rosterPush mux.IQHandlerFunc) *mux.ServeMux {
+func newDiscoMux(jingle, rosterPush, blockPush mux.IQHandlerFunc) *mux.ServeMux {
 	return mux.New("jabber:client",
 		disco.HandleWithURI(discoCapsNode, crypto.SHA1.HashFunc().New()),
 		mux.Feature(discoFeatures),
 		mux.Ident(discoIdentity),
 		mux.IQFunc(stanza.SetIQ, jingleIQName, jingle),
 		mux.IQFunc(stanza.SetIQ, rosterQueryName, rosterPush),
+		mux.IQFunc(stanza.SetIQ, blockName, blockPush),
+		mux.IQFunc(stanza.SetIQ, unblockName, blockPush),
 	)
 }
 
