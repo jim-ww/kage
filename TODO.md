@@ -1,13 +1,8 @@
 ## Bugs
 - video stream worsens call quality (adds lag)
-- problems with Japanese input in inputbox, e.g. (ﾟДﾟ)ｳ
 - on nixos rebuild, call hangs or something. or one of clients dies
-- call widget is ugly and unhelpful. some keybindings do not work
-- fix: handle pinentry-tty: when accessing gpg, it can ask pinentry-tty password, let it fully take view and let user to type his password
-- handle extremely large text AND images pasted in message prompt / sent in chat (lags/slow), maybe connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
-- improve signaling to other clients on call hang / app quit / etc. so other clients would not hang forever
-- if tui relaunched, then calling statusbar not shown?
-- adding account, or changing config file values imperatively from app, when config is managed by nix
+- call widget is ugly and unhelpful
+- handle extremely large images pasted in message prompt, maybe connect to wayland clipboard paste socket and override bubbletea's ctrl+v for handling images
 
 ## Optimization
 - optimization speed up cursor message selection in chat and for scrolling
