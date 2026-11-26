@@ -431,7 +431,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			m.resizingSidebar = true
 			return m, nil
 		}
-		if z := m.zone.Get(zonePaneInput); !z.IsZero() && msg.Mouse().Y == z.StartY {
+		if m.onInputBorder(msg) {
 			m.resizingInput = true
 			return m, nil
 		}
@@ -444,6 +444,24 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.handleRightClick(msg)
 	}
 	return m, nil
+}
+
+// onInputBorder reports whether mouse grabs the input box's one-row top
+// border: on it, or on the row above it when nothing clickable is there.
+func (m Model) onInputBorder(mouse tea.MouseMsg) bool {
+	z := m.zone.Get(zonePaneInput)
+	p := mouse.Mouse()
+	if z.IsZero() || p.X < z.StartX || p.X > z.EndX {
+		return false
+	}
+	switch p.Y {
+	case z.StartY:
+		return true
+	case z.StartY - 1:
+		_, onMessage := m.messageIndexAtMouse(mouse)
+		return !onMessage && m.zoneUnderMouse(mouse) == ""
+	}
+	return false
 }
 
 // handleMouseRelease ends a border drag, saving the size.
