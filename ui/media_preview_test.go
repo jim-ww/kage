@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"os"
@@ -234,5 +235,29 @@ func TestMediaPreviewNames(t *testing.T) {
 	m.refreshViewport()
 	if view := ansi.Strip(strings.Join(m.viewportLines, "\n")); !strings.Contains(view, "cat.png") || !strings.Contains(view, upperHalfBlock) {
 		t.Fatalf("media_preview_names_shown lost the name or the picture:\n%s", view)
+	}
+}
+
+// TestMediaPreviewKeepsChatAtBottom: a chat opened at its newest message
+// stays there when a picture decoded after the open grows it.
+func TestMediaPreviewKeepsChatAtBottom(t *testing.T) {
+	withMediaCache(t)
+	const url = "https://upload.example.test/cat.png"
+	writeMediaPNG(t, attachmentLocalPath(url, "bob@example.test"), 64, 64)
+	msgs := make([]Message, 0, 40)
+	for i := range 39 {
+		msgs = append(msgs, Message{ID: fmt.Sprint(i), Content: fmt.Sprint("line ", i)})
+	}
+	msgs = append(msgs, Message{ID: "pic", Content: url, Attachments: []string{url}})
+	m := newTestModelWithMessages(msgs, &stubDaemon{})
+	m.viewport.SetHeight(10)
+	m.viewport.GotoBottom()
+	next, _ := m.Update(takeMediaThumbRequests()().(mediaThumbMsg))
+	m = next.(Model)
+	if !strings.Contains(strings.Join(m.viewportLines, "\n"), upperHalfBlock) {
+		t.Fatal("preview not drawn")
+	}
+	if !m.viewport.AtBottom() {
+		t.Fatalf("left at offset %d of %d lines, not at the bottom", m.viewport.YOffset(), m.viewport.TotalLineCount())
 	}
 }

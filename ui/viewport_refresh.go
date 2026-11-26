@@ -30,6 +30,17 @@ func (m *Model) refreshViewport() {
 	m.viewport.SetContentLines(m.viewportLines)
 }
 
+// refreshViewportKeepBottom is refreshViewport for content that grew on its
+// own (a decoded picture, a link preview, a finished download): a viewport
+// at the bottom stays there, else the newest message slides out of view.
+func (m *Model) refreshViewportKeepBottom() {
+	atBottom := m.viewport.AtBottom()
+	m.refreshViewport()
+	if atBottom {
+		m.viewport.GotoBottom()
+	}
+}
+
 // refreshViewportSelection re-renders only the messages at oldIdx and newIdx
 // (the previous and new selected/hovered message) and patches their lines
 // back into the cached viewport content, instead of re-wrapping every

@@ -309,19 +309,19 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, m.showNotification("save failed: " + msg.err.Error()), true
 		}
 		retryFailedMediaThumbs()
-		m.refreshViewport()
+		m.refreshViewportKeepBottom()
 		return m, m.showNotification("saved " + msg.path), true
 
 	case linkPreviewMsg:
 		if applyLinkPreview(msg) {
-			m.refreshViewport()
+			m.refreshViewportKeepBottom()
 		}
 		return m, nil, true
 
 	case AttachmentCachedMsg:
 		if msg.AccountIdx == m.currentAccount {
 			if chat, ok := m.currentChat(); ok && chat.Address == msg.From {
-				m.refreshViewport()
+				m.refreshViewportKeepBottom()
 			}
 		}
 		return m, nil, true
@@ -330,12 +330,12 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if msg.err != nil {
 			return m, m.showNotification("preview of " + attachmentDisplayName(msg.target) + " failed: " + msg.err.Error()), true
 		}
-		m.refreshViewport()
+		m.refreshViewportKeepBottom()
 		return m, nil, true
 
 	case mediaThumbMsg:
 		if applyMediaThumb(msg) {
-			m.refreshViewport()
+			m.refreshViewportKeepBottom()
 		}
 		return m, nil, true
 
@@ -618,6 +618,12 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			if j := m.pendingDateJump; j != nil && j.accountIdx == msg.AccountIdx && j.chatAddress == msg.From {
 				m.pendingDateJump = nil
 				m.landOnDate(newMessages, j.day)
+				return m, nil, true
+			}
+			if anchorID == "" && !msg.HasNewer {
+				// The latest window, as jump-to-latest asks for: its end.
+				m.refreshViewport()
+				m.viewport.GotoBottom()
 				return m, nil, true
 			}
 			m.refreshViewportFullScrollToCentered(m.selectedMsg)
