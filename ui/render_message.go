@@ -322,8 +322,13 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		}
 		chat, _ := m.currentChat()
 		for _, a := range msg.Attachments {
-			parts = append(parts, renderAttachmentLine(a, m.icons, chat.Address))
-			if p := renderMediaPreview(a, chat.Address, totalWidth-prefixWidth); p != "" {
+			p := renderMediaPreview(a, chat.Address, totalWidth-prefixWidth)
+			// Named unless the picture is drawn and names are hidden: one
+			// without a preview (yet) would otherwise show nothing at all.
+			if p == "" || !mediaPreviewNamesHidden.Load() {
+				parts = append(parts, renderAttachmentLine(a, m.icons, chat.Address))
+			}
+			if p != "" {
 				previews = append(previews, p)
 			}
 		}

@@ -80,6 +80,10 @@ type Config struct {
 	// resolution (two pixels per row); ui.DefaultMediaPreviewHeight when
 	// unset.
 	MediaPreviewHeight int `toml:"media_preview_height,omitempty"`
+	// MediaPreviewNamesHidden shows a previewed attachment as its picture
+	// alone, without the name line above it; one with no preview yet still
+	// shows its name. Off (names shown) by default.
+	MediaPreviewNamesHidden bool `toml:"media_preview_names_hidden,omitempty"`
 	// AutoDownloadDisabled stops the daemon fetching image and video
 	// attachments of messages as they arrive (live, or caught up after
 	// being offline - never older history) for their previews; on by

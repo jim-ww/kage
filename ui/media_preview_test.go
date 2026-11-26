@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // withMediaCache points the attachment cache at a fresh dir and forgets
@@ -193,5 +195,33 @@ func TestMediaPreviewHeightSetting(t *testing.T) {
 	m = next.(Model)
 	if got := len(m.viewportLines) - withoutPicture; got != 4 {
 		t.Fatalf("preview is %d rows, want 4 (before=%d)", got, before)
+	}
+}
+
+// TestMediaPreviewNamesHidden: with media_preview_names_hidden a previewed
+// attachment is its picture alone, and one without a preview keeps its
+// name.
+func TestMediaPreviewNamesHidden(t *testing.T) {
+	withMediaCache(t)
+	const shown, missing = "https://upload.example.test/cat.png", "https://upload.example.test/dog.png"
+	writeMediaPNG(t, attachmentLocalPath(shown, "bob@example.test"), 32, 32)
+	m := newTestModelWithMessages(nil, &stubDaemon{})
+	mediaPreviewNamesHidden.Store(true) // what New does for MediaPreviewNamesHidden
+	t.Cleanup(func() { mediaPreviewNamesHidden.Store(false) })
+	m.accounts[0].Messages[0] = []Message{
+		{ID: "a", Content: shown, Attachments: []string{shown}},
+		{ID: "b", Content: missing, Attachments: []string{missing}},
+	}
+	m.refreshViewport()
+	if view := ansi.Strip(strings.Join(m.viewportLines, "\n")); !strings.Contains(view, "cat.png") {
+		t.Fatalf("name hidden before its preview is drawn:\n%s", view)
+	}
+	next, _ := m.Update(takeMediaThumbRequests()().(mediaThumbMsg))
+	view := ansi.Strip(strings.Join(next.(Model).viewportLines, "\n"))
+	if strings.Contains(view, "cat.png") || !strings.Contains(view, upperHalfBlock) {
+		t.Fatalf("previewed attachment still named, or not drawn:\n%s", view)
+	}
+	if !strings.Contains(view, "dog.png") {
+		t.Fatalf("attachment without a preview lost its name:\n%s", view)
 	}
 }

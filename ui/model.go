@@ -258,6 +258,9 @@ type DisplayOptions struct {
 	// MediaPreviewHeight caps a preview's height in rows; <= 0 for
 	// DefaultMediaPreviewHeight.
 	MediaPreviewHeight int
+	// MediaPreviewNamesHidden shows a previewed attachment as its picture
+	// alone, without its name; one with no preview (yet) keeps it.
+	MediaPreviewNamesHidden bool
 	// LinkPreviews fetches links in messages for a card of the page; off
 	// by default.
 	LinkPreviews bool
@@ -279,6 +282,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon 
 	setAvatarsEnabled(!display.AvatarsDisabled)
 	setMediaPreviewsEnabled(!display.MediaPreviewsDisabled)
 	setMediaPreviewHeight(display.MediaPreviewHeight)
+	mediaPreviewNamesHidden.Store(display.MediaPreviewNamesHidden)
 	setLinkPreviewsEnabled(display.LinkPreviews)
 	styles := newUIStyles(theme)
 	zm := zone.New()
