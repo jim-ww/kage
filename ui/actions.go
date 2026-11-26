@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -214,9 +215,13 @@ func (m *Model) actionChatInfo() tea.Cmd {
 	}
 	text := modal.NewText(m.chatInfoLines(chat)...)
 	text.ActLabel = "copy address"
+	title := chat.Name
+	if title == "" {
+		title = chat.Address
+	}
 	return m.openModal(&modal.Modal[*Model]{
-		Title: chat.Name,
-		Body:  text,
+		Title: title,
+		Body:  &chatInfoBody{Text: text, address: chat.Address},
 		OnAct: func(m *Model, v any) tea.Cmd {
 			if err := clipboard.WriteAll(v.(string)); err != nil {
 				return m.showNotification("copy failed")
@@ -263,4 +268,71 @@ func (m Model) chatInfoLines(chat Chat) []modal.Line {
 		lines = append(lines, modal.Line{Text: "Last message: " + chat.LastActivity.Local().Format("2006-01-02 15:04")})
 	}
 	return lines
+}
+
+// chatInfoBody is the contact info screen: the contact's avatar, when there
+// is one, left of the info lines.
+type chatInfoBody struct {
+	*modal.Text
+	address string
+	height  int // rows the screen has for it, 0 until sized
+
+	// picture is the avatar rendered at rows, for avatar generation gen.
+	picture string
+	rows    int
+	gen     uint64
+}
+
+// chatInfoAvatarGap separates the avatar from the info lines.
+const chatInfoAvatarGap = 2
+
+// avatarRows is the avatar's height: as tall as the info lines, within
+// bounds. 0 without an avatar.
+func (b *chatInfoBody) avatarRows() int {
+	if !avatarsEnabled() || !hasAvatarPicture(b.address) {
+		return 0
+	}
+	rows := min(8, max(4, len(b.Lines)))
+	if b.height > 0 {
+		rows = min(rows, b.height)
+	}
+	return rows
+}
+
+// avatar renders the picture once per size and avatar change: the shared
+// render cache holds one picture, the sidebar panel's.
+func (b *chatInfoBody) avatar() string {
+	rows := b.avatarRows()
+	if rows == 0 {
+		return ""
+	}
+	if gen := avatarGeneration(); b.picture == "" || b.rows != rows || b.gen != gen {
+		img, _ := avatarPicture(b.address)
+		b.picture, b.rows, b.gen = renderImageBlocks(img, 2*rows, rows), rows, gen
+	}
+	return b.picture
+}
+
+func (b *chatInfoBody) View() string {
+	pic := b.avatar()
+	if pic == "" {
+		return b.Text.View()
+	}
+	return joinHorizontal(pic, strings.Repeat(" ", chatInfoAvatarGap), b.Text.View())
+}
+
+func (b *chatInfoBody) SetSize(width, height int) {
+	b.height = height
+	if rows := b.avatarRows(); rows > 0 {
+		width = max(1, width-2*rows-chatInfoAvatarGap)
+	}
+	b.Text.SetSize(width, height)
+}
+
+func (b *chatInfoBody) PreferredWidth() int {
+	w := b.Text.PreferredWidth()
+	if rows := b.avatarRows(); rows > 0 {
+		w += 2*rows + chatInfoAvatarGap
+	}
+	return w
 }

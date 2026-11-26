@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 
@@ -42,5 +43,34 @@ func TestChatInfoFromStatusBarAndMenu(t *testing.T) {
 	last.run(&m)
 	if modalTitle(m) != "Bob" {
 		t.Fatalf("chat menu Info opened %q, want Bob's info", modalTitle(m))
+	}
+}
+
+// TestChatInfoShowsAvatar: a contact with an avatar has it drawn left of
+// the info lines, one without has the lines alone.
+func TestChatInfoShowsAvatar(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	m := newTestModelWithManyMessages(1)
+	m.width, m.termHeight = 100, 30
+	m.updateSizes()
+
+	m.actionChatInfo()
+	if strings.Contains(m.View().Content, "▀") {
+		t.Fatal("info without an avatar draws a picture")
+	}
+	m.modals.Close()
+
+	SetAvatarImage("bob@example.test", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	m.actionChatInfo()
+	view := ansi.Strip(m.View().Content)
+	var row string
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, "Address: bob@example.test") {
+			row = l
+		}
+	}
+	if !strings.Contains(row, "▀") || strings.Index(row, "▀") > strings.Index(row, "Address:") {
+		t.Fatalf("avatar not drawn left of the info lines; address row %q", row)
 	}
 }
