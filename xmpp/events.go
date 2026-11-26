@@ -177,6 +177,16 @@ func (c *Client) fromOwnAccount(from jid.JID) bool {
 	return from.Equal(jid.JID{}) || from.Equal(c.JID.Bare())
 }
 
+// pubsubFrom is who a PEP push is about: from, or with no from at all our
+// own account, its server speaking for it - how our own nodes' pushes
+// arrive (RFC 6120 §8.1.2.1).
+func (c *Client) pubsubFrom(from jid.JID) string {
+	if from.Equal(jid.JID{}) {
+		return c.JID.Bare().String()
+	}
+	return from.String()
+}
+
 func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElement) {
 	switch start.Name.Local {
 	case "iq":
@@ -258,13 +268,13 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		if msg.PubsubEvent != nil && msg.PubsubEvent.Items != nil {
 			switch msg.PubsubEvent.Items.Node {
 			case omemoDevicesNode:
-				c.enqueue(DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV2})
+				c.enqueue(DeviceListChangedEvent{From: c.pubsubFrom(msg.From), Protocol: omemolib.ProtocolV2})
 				return
 			case omemoV1DevicesNode:
-				c.enqueue(DeviceListChangedEvent{From: msg.From.String(), Protocol: omemolib.ProtocolV1})
+				c.enqueue(DeviceListChangedEvent{From: c.pubsubFrom(msg.From), Protocol: omemolib.ProtocolV1})
 				return
 			case avatarMetadataNode:
-				c.enqueue(AvatarChangedEvent{From: msg.From.String()})
+				c.enqueue(AvatarChangedEvent{From: c.pubsubFrom(msg.From)})
 				return
 			}
 		}

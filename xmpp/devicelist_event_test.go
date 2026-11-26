@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"strings"
 	"testing"
+
+	"mellium.im/xmpp/jid"
 )
 
 // TestPubsubDeviceListEventDecode guards the wire-level parsing
@@ -67,5 +69,18 @@ func TestPubsubDeviceListEventDecode(t *testing.T) {
 				t.Errorf("Items.Node = %q, want %q", got, tt.wantNode)
 			}
 		})
+	}
+}
+
+// A PEP push about our own nodes arrives with no from - the server
+// speaking for our account - and must be attributed to us, not dropped as
+// being from nobody.
+func TestPubsubFromOwnAccount(t *testing.T) {
+	c := &Client{JID: jid.MustParse("Alice@example.com/kage")}
+	if got := c.pubsubFrom(jid.JID{}); got != "alice@example.com" {
+		t.Errorf("no from = %q, want our bare JID", got)
+	}
+	if got := c.pubsubFrom(jid.MustParse("bob@example.com")); got != "bob@example.com" {
+		t.Errorf("bob's push = %q, want bob", got)
 	}
 }
