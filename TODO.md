@@ -11,7 +11,6 @@
 
 ## Optimization
 - optimization speed up cursor message selection in chat and for scrolling
-- speed up moving cursor on textinput, based on how long is held, OR add ctrl+d/ctrl+u binds there?
 - lags on big window scale
 
 ## UX

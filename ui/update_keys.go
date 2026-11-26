@@ -332,7 +332,12 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// HalfPageUp/HalfPageDown jump by half the currently visible message
 	// count (not raw viewport lines — see visibleMessageCount) so the leap
 	// feels consistent regardless of how many lines each message wraps to.
+	// In a multi-line draft they move its cursor by half the box first,
+	// paging messages once it's at the draft's top or bottom.
 	case matchesKey(msg, m.keys.HalfPageUp):
+		if m.composeMultiline() && m.moveComposeRows(-max(1, m.input.Height()/2)) {
+			return m, nil, true
+		}
 		if m.selectedView == viewChat && m.currentChatIndex() >= 0 {
 			step := max(1, m.visibleMessageCount()/2)
 			if m.selectedMsg > 0 {
@@ -347,6 +352,9 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	case matchesKey(msg, m.keys.HalfPageDown):
+		if m.composeMultiline() && m.moveComposeRows(max(1, m.input.Height()/2)) {
+			return m, nil, true
+		}
 		if m.selectedView == viewChat && m.currentChatIndex() >= 0 {
 			step := max(1, m.visibleMessageCount()/2)
 			if last := len(m.currentMessages()) - 1; m.selectedMsg < last {

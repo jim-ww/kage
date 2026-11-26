@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -36,5 +37,34 @@ func TestHalfPageJumpsByHalfVisibleMessages(t *testing.T) {
 	wantUp := max(0, wantDown-visible/2)
 	if nm2.selectedMsg != wantUp {
 		t.Fatalf("ctrl+u: selectedMsg = %d, want %d", nm2.selectedMsg, wantUp)
+	}
+}
+
+// TestHalfPageMovesInMultilineDraft: in a draft of several lines,
+// ctrl+u/ctrl+d move its cursor by half the box, and page messages only
+// once the cursor is at the draft's top.
+func TestHalfPageMovesInMultilineDraft(t *testing.T) {
+	m := newTestModelWithManyMessages(50)
+	m.input.SetValue(strings.Repeat("line\n", 19) + "line")
+	m.updateSizes()
+	half := max(1, m.input.Height()/2)
+	selected := m.selectedMsg
+
+	m = updated(t, m, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	if got := m.input.Line(); got != 19-half {
+		t.Errorf("ctrl+u: draft line %d, want %d", got, 19-half)
+	}
+	m = updated(t, m, tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if got := m.input.Line(); got != 19 {
+		t.Errorf("ctrl+d: draft line %d, want 19", got)
+	}
+	if m.selectedMsg != selected {
+		t.Fatalf("moving in the draft selected message %d, was %d", m.selectedMsg, selected)
+	}
+
+	m.input.MoveToBegin()
+	m = updated(t, m, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	if m.selectedMsg >= selected {
+		t.Errorf("ctrl+u at the draft's top: selected message %d, want above %d", m.selectedMsg, selected)
 	}
 }

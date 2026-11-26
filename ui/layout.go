@@ -234,7 +234,7 @@ func (m Model) toggleComposeExpand() Model {
 // composeMultiline reports whether the text spans several rows, wrapped or
 // not, for up/down to move in it. Not Height(): a dragged box is taller.
 func (m Model) composeMultiline() bool {
-	return m.selectedView == viewChat &&
+	return m.selectedView == viewChat && m.input != nil &&
 		(m.input.LineCount() > 1 || m.input.LineInfo().Height > 1)
 }
 
@@ -249,6 +249,28 @@ func (m *Model) fixStuckComposeCursorDown() {
 		return
 	}
 	m.input.SetCursorColumn(len([]rune(lines[row])))
+}
+
+// moveComposeRows moves the compose cursor n rows down (up when
+// negative), wrapped rows counted, reporting whether it moved at all.
+func (m *Model) moveComposeRows(n int) bool {
+	moved := false
+	for range max(n, -n) {
+		line, col := m.input.Line(), m.input.Column()
+		if n < 0 {
+			m.input.CursorUp()
+		} else {
+			m.input.CursorDown()
+			if m.input.Line() == line && m.input.Column() == col {
+				m.fixStuckComposeCursorDown()
+			}
+		}
+		if m.input.Line() == line && m.input.Column() == col {
+			break
+		}
+		moved = true
+	}
+	return moved
 }
 
 // inputAreaHeight is the reply hint line, if any, and the compose box's rows.
