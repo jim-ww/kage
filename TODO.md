@@ -15,7 +15,6 @@
 - lags on big window scale
 
 ## UX
-- delete message modal has no mouse support. other modals must be checked too.
 - add scrollbar for messages list, and perhaps, for chat list too
 
 ## Refactor
@@ -28,19 +27,15 @@
 - auto adjust video/audio call quality on bad internet connection
 - add more clear mic/video
 - media previews: for images, videos, links
-- contacts: show subscription state (pending/none/both) - the UI has no way to tell a request is outstanding
 - should also encrypt saved attachments?
-- disable/mute notifications per-contact
 - block/unblock contacts
 - archive contact chats? integrate that together with existing 'hide' feature? e.g. hidden == archived
 - account logount option (that also cleans up OMEMO devices)
 - calls: option to choose mic + mid call
 - add image preview for file manager? same way we have avatars
 - ux: open chat composer (textbox) of message size (with limits)
-- ui: show own full account address somewhere (in case alias is set)
 - search: go-to specific date in chat history (implement as part of search feature?)
 - group chat support + list group chat participants, ability to see their info, start chat with any participant
-- in devices show proper OMEMO fingerprint
 - select & yank text in draft with mouse
 - chat view: vim motions for textinput (visual/insert mode emulation)
 - preview files text contents (in separate viewport?)
