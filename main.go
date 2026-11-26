@@ -244,6 +244,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		AvatarsDisabled:         cfg.AvatarsDisabled,
 		AutoUnhideDisabled:      cfg.AutoUnhideDisabled,
 		HoverSelectDisabled:     cfg.HoverSelectDisabled,
+		ScrollbarDisabled:       cfg.ScrollbarDisabled,
 		Autofocus:               cfg.Autofocus,
 	}
 	// Deliberately constructed with no accounts: fetching them is a round

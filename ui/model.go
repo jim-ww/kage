@@ -172,6 +172,8 @@ type Model struct {
 	autoUnhideDisabled bool
 	// hoverSelectDisabled: see DisplayOptions.HoverSelectDisabled.
 	hoverSelectDisabled bool
+	// scrollbarDisabled: see DisplayOptions.ScrollbarDisabled.
+	scrollbarDisabled bool
 	// autofocus: see DisplayOptions.Autofocus.
 	autofocus Autofocus
 	// landedOnce marks the startup landing on the newest message done (see
@@ -247,6 +249,8 @@ type DisplayOptions struct {
 	// HoverSelectDisabled stops hovering a message from selecting it; a
 	// click still does. Named the same way: hover selects by default.
 	HoverSelectDisabled bool
+	// ScrollbarDisabled hides the scrollbar beside the messages.
+	ScrollbarDisabled bool
 	// Autofocus is whose new messages get selected and scrolled to.
 	Autofocus Autofocus
 }
@@ -335,6 +339,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon 
 		accounts:               accounts,
 		autoUnhideDisabled:     display.AutoUnhideDisabled,
 		hoverSelectDisabled:    display.HoverSelectDisabled,
+		scrollbarDisabled:      display.ScrollbarDisabled,
 		autofocus:              display.Autofocus,
 		currentAccount:         startAccount,
 		chats:                  &l,

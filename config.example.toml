@@ -8,6 +8,7 @@
 # input_height = 0 # compose box height in rows; persisted from dragging its top border; 0 means the DynamicHeight-based default
 # sidebar_hidden = false # persisted from toggling the chat list (Ctrl+\ / status-bar button)
 # icons_disabled = false # hides icons for attachments/encryption in favor of plain-text tags
+# scrollbar_disabled = false # hides the scrollbar beside the messages, giving its column back to them
 # file_picker_files_first = false # shows files before directories in the attach-file picker regardless of sort order
 # file_picker_sort_field = "updated" # "created" or "updated"; persisted from cycling sort in the attach-file picker
 # file_picker_sort_ascending = false # persisted from cycling sort in the attach-file picker

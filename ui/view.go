@@ -306,11 +306,15 @@ func (m Model) renderChatArea(colors uiColors) string {
 		viewportArea = m.modals.View()
 	default:
 		viewportHeight := m.popupAreaHeight()
-		viewportArea = m.zone.Mark(zonePaneViewport, joinHorizontal(m.renderViewportFrame(viewportFrameCacheEntry{
+		viewportArea = m.renderViewportFrame(viewportFrameCacheEntry{
 			width:   m.messageAreaWidth(),
 			height:  viewportHeight,
 			content: m.viewport.View(),
-		}), m.renderScrollbar(viewportHeight)))
+		})
+		if !m.scrollbarDisabled {
+			viewportArea = joinHorizontal(viewportArea, m.renderScrollbar(viewportHeight))
+		}
+		viewportArea = m.zone.Mark(zonePaneViewport, viewportArea)
 		if m.currentChatIndex() >= 0 && m.scrolledPastFirstPage() {
 			btn := m.zone.Mark(zoneJumpToBottom, m.styles.renderJumpToBottomButton(m.isHovered(zoneJumpToBottom), caretKey(shortestKey(m.keys.JumpLatest))))
 			viewportArea = overlayBottomCenter(viewportArea, btn, 1)

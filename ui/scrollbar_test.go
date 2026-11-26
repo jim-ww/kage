@@ -167,3 +167,24 @@ func TestScrollbarClickNotAMessage(t *testing.T) {
 		t.Error("the scrollbar column hit a message")
 	}
 }
+
+func TestScrollbarDisabled(t *testing.T) {
+	m := newTestModelWithManyMessages(50)
+	full := m.messageAreaWidth()
+	m.scrollbarDisabled = true
+	m.updateSizes()
+	m.refreshViewport()
+	_ = m.View()
+	if m.messageAreaWidth() != full+1 {
+		t.Errorf("message width %d with the scrollbar off, want its column back (%d)", m.messageAreaWidth(), full+1)
+	}
+	if _, _, ok := m.scrollbarThumb(m.viewport.Height()); ok {
+		t.Error("thumb shown with the scrollbar off")
+	}
+	if _, _, _, ok := m.scrollbarTrack(); ok {
+		t.Error("scrollbar grabbable with it off")
+	}
+	if got := ansi.StringWidth(strings.Split(m.renderChatArea(m.styles.colors), "\n")[1]); got != m.chatAreaWidth() {
+		t.Errorf("chat area row %d wide, want %d", got, m.chatAreaWidth())
+	}
+}

@@ -7,13 +7,19 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// scrollbarWidth is the column right of the messages the scrollbar takes.
-const scrollbarWidth = 1
+// scrollbarWidth is the column right of the messages the scrollbar takes,
+// none with it turned off.
+func (m Model) scrollbarWidth() int {
+	if m.scrollbarDisabled {
+		return 0
+	}
+	return 1
+}
 
 // messageAreaWidth is the width messages are laid out in: the chat column
 // less the scrollbar's.
 func (m Model) messageAreaWidth() int {
-	return max(0, m.chatAreaWidth()-scrollbarWidth)
+	return max(0, m.chatAreaWidth()-m.scrollbarWidth())
 }
 
 // scrollbarThumb is the rows [start, end) of a height-row track the thumb
@@ -22,7 +28,7 @@ func (m Model) messageAreaWidth() int {
 // fits on screen.
 func (m Model) scrollbarThumb(height int) (start, end int, ok bool) {
 	chatIdx := m.currentChatIndex()
-	if height <= 0 || chatIdx < 0 || len(m.msgOffsets) == 0 || len(m.viewportLines) == 0 {
+	if m.scrollbarDisabled || height <= 0 || chatIdx < 0 || len(m.msgOffsets) == 0 || len(m.viewportLines) == 0 {
 		return 0, 0, false
 	}
 	var before, after int

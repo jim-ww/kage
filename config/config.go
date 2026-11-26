@@ -75,6 +75,9 @@ type Config struct {
 	// HoverSelectDisabled stops hovering a message from selecting it, so
 	// only a click (or the keyboard) does; off (hover selects) by default.
 	HoverSelectDisabled bool `toml:"hover_select_disabled,omitempty"`
+	// ScrollbarDisabled hides the scrollbar beside the messages, giving its
+	// column back to them; off (shown) by default.
+	ScrollbarDisabled bool `toml:"scrollbar_disabled,omitempty"`
 	// Autofocus selects and scrolls to new messages in the open chat as
 	// they arrive: "own" (yours), "others" (everyone else's) or "all".
 	// Unset by default: the chat only follows along if it's already
