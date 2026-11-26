@@ -232,6 +232,10 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		retCmd = tea.Batch(retCmd, rm.focusReport.report(rm.daemon, newAccountJID, newChatAddress, newFocused))
 	}()
 
+	// Renders during this Update queue the media previews they found
+	// missing; see lookupMediaThumb.
+	defer func() { retCmd = tea.Batch(retCmd, takeMediaThumbRequests()) }()
+
 	msg = normalizeKey(msg)
 	if cmd, ok := m.callBarInput(msg); ok {
 		return m, cmd

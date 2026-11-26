@@ -300,6 +300,9 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	var bodyContent string
+	// previews are image attachments' pictures, drawn after the body: they
+	// neither wrap nor count toward collapsing it.
+	var previews []string
 	switch {
 	case msg.Retracted:
 		// The chat view never shows retracted content — only that a delete
@@ -320,6 +323,9 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		chat, _ := m.currentChat()
 		for _, a := range msg.Attachments {
 			parts = append(parts, renderAttachmentLine(a, m.icons, chat.Address))
+			if p := renderMediaPreview(a, chat.Address, totalWidth-prefixWidth); p != "" {
+				previews = append(previews, p)
+			}
 		}
 		bodyContent = strings.Join(parts, "\n")
 	default:
@@ -372,6 +378,12 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 	if len(bodyLines) == 0 {
 		lines = append(lines, headerLine)
+	}
+
+	for _, p := range previews {
+		for _, line := range strings.Split(p, "\n") {
+			lines = append(lines, pad+line)
+		}
 	}
 
 	if needsExpandButton {

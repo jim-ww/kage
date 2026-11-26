@@ -279,6 +279,8 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if msg.err != nil {
 			return m, m.showNotification("failed to open " + label), true
 		}
+		retryFailedMediaThumbs()
+		m.refreshViewport()
 		return m, m.showNotification("opened " + label), true
 
 	case attachmentSizeMsg:
@@ -306,7 +308,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if msg.err != nil {
 			return m, m.showNotification("save failed: " + msg.err.Error()), true
 		}
+		retryFailedMediaThumbs()
+		m.refreshViewport()
 		return m, m.showNotification("saved " + msg.path), true
+
+	case mediaThumbMsg:
+		if applyMediaThumb(msg) {
+			m.refreshViewport()
+		}
+		return m, nil, true
 
 	case FileTransferProgressMsg:
 		m.setTransferProgress(msg)

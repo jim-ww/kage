@@ -72,6 +72,10 @@ type Config struct {
 	AutoUnhideDisabled bool `toml:"auto_unhide_disabled,omitempty"`
 	// AvatarsDisabled hides the avatar panel and stops fetching avatars.
 	AvatarsDisabled bool `toml:"avatars_disabled,omitempty"`
+	// MediaPreviewsDisabled stops drawing pictures of image attachments in
+	// the chat; on by default. Only already-downloaded attachments are
+	// ever previewed.
+	MediaPreviewsDisabled bool `toml:"media_previews_disabled,omitempty"`
 	// HoverSelectDisabled stops hovering a message from selecting it, so
 	// only a click (or the keyboard) does; off (hover selects) by default.
 	HoverSelectDisabled bool `toml:"hover_select_disabled,omitempty"`

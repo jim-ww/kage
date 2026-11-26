@@ -147,18 +147,18 @@ type Model struct {
 	reactionEmojiUsage map[string]int  // emoji -> times sent as a reaction (in-memory mirror of config.State.ReactionEmojiUsage); ranked and passed to emojipicker.New as its "recent" seed
 	// modals are the open modals, the top one taking all input (see
 	// ui/modal and ui/modals.go).
-	modals                 modal.Stack[*Model]
-	filePicker             *filepicker.Model
-	pendingAttachments     []pendingAttachment // files staged (via the file picker) to go out with the next sent message; nothing is uploaded until send
-	selectedAttachment     int                 // index into pendingAttachments highlighted for Tab/Backspace/ctrl+o; -1 when empty
-	msgOffsets             []int               // line offset of each message inside viewport content
-	viewportLines          []string            // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
-	noticeText             string
-	noticeID               int
+	modals             modal.Stack[*Model]
+	filePicker         *filepicker.Model
+	pendingAttachments []pendingAttachment // files staged (via the file picker) to go out with the next sent message; nothing is uploaded until send
+	selectedAttachment int                 // index into pendingAttachments highlighted for Tab/Backspace/ctrl+o; -1 when empty
+	msgOffsets         []int               // line offset of each message inside viewport content
+	viewportLines      []string            // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
+	noticeText         string
+	noticeID           int
 	// gpgUnlock builds the command unlocking a gpg key on this terminal
 	// (see SetGPGUnlock); gpgUnlocking is set while it's asked or running.
-	gpgUnlock    func(keyID string) *exec.Cmd
-	gpgUnlocking bool
+	gpgUnlock              func(keyID string) *exec.Cmd
+	gpgUnlocking           bool
 	noticeDuration         time.Duration                      // how long a notification toast stays visible before auto-dismissing
 	transferOrder          []string                           // insertion order of transfers keys, for stable multi-line rendering
 	transfers              map[string]FileTransferProgressMsg // active uploads/downloads, keyed by ID (local path for an upload, URL for a download); removed once the transfer's terminal result msg arrives
@@ -252,6 +252,9 @@ type DisplayOptions struct {
 	// AvatarsDisabled hides the sidebar's avatar panel; negative so the zero
 	// value is the default.
 	AvatarsDisabled bool
+	// MediaPreviewsDisabled stops drawing image attachments' pictures in
+	// the chat.
+	MediaPreviewsDisabled bool
 	// AutoUnhideDisabled keeps a hidden chat hidden when a message arrives.
 	AutoUnhideDisabled bool
 	// HoverSelectDisabled stops hovering a message from selecting it; a
@@ -268,6 +271,7 @@ type DisplayOptions struct {
 // progress when the TUI attaches.
 func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon Daemon, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, initialReactionEmojiUsage map[string]int, display DisplayOptions, initialCallState *CallStateMsg) Model {
 	setAvatarsEnabled(!display.AvatarsDisabled)
+	setMediaPreviewsEnabled(!display.MediaPreviewsDisabled)
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
