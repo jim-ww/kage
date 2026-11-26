@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"image/color"
 	"strings"
 	"testing"
 
@@ -210,4 +211,25 @@ func containsAvatarPublished(cmd tea.Cmd) bool {
 		}
 	}
 	return false
+}
+
+// The avatar menu shows the account's current avatar above its items, or
+// says there's none.
+func TestAvatarMenuShowsCurrentAvatar(t *testing.T) {
+	ClearAvatarImages()
+	t.Cleanup(ClearAvatarImages)
+	m := avatarMenuModel(t, &fakeAvatarPublisher{})
+	m.width, m.termHeight = 100, 30
+	m.updateSizes()
+
+	m.openAvatarMenu()
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "no avatar set") {
+		t.Fatalf("menu without an avatar doesn't say so:\n%s", view)
+	}
+
+	SetAvatarImage("me", solidImage(64, 64, color.RGBA{40, 120, 200, 255}, 0))
+	view := ansi.Strip(m.View().Content)
+	if strings.Contains(view, "no avatar set") || !strings.Contains(view, strings.Repeat("▀", 2*avatarMenuPictureRows)) {
+		t.Fatalf("avatar set while the menu is open isn't shown:\n%s", view)
+	}
 }

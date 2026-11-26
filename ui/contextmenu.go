@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/jim-ww/kage/ui/cells"
 	"github.com/jim-ww/kage/ui/modal"
 )
 
@@ -35,6 +38,31 @@ type contextMenuBody struct {
 	// while it's open (the call menu: a call ringing, connecting, ending).
 	// See refreshContextMenu.
 	refresh func(m *Model) (string, []contextMenuItem)
+	// header, when set, is drawn above the items - something the menu's
+	// actions are about (the avatar menu: the current avatar).
+	header func() string
+}
+
+func (b *contextMenuBody) View() string {
+	if b.header == nil {
+		return b.Menu.View()
+	}
+	return b.header() + "\n" + b.Menu.View()
+}
+
+func (b *contextMenuBody) SetSize(width, height int) {
+	if b.header != nil {
+		height -= strings.Count(b.header(), "\n") + 1
+	}
+	b.Menu.SetSize(width, max(1, height))
+}
+
+func (b *contextMenuBody) PreferredWidth() int {
+	w := b.Menu.PreferredWidth()
+	if b.header != nil {
+		w = max(w, cells.BlockWidth(b.header()))
+	}
+	return w
 }
 
 func menuItems(items []contextMenuItem) []modal.MenuItem {
