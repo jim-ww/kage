@@ -125,6 +125,7 @@ func (s *accountSession) syncAvatar(ctx context.Context, srv *ipc.Server, accoun
 		return
 	}
 	if !ok || info.ID == "" {
+		slog.Debug("no avatar published", "jid", s.account.JID, "from", bare)
 		// They publish no avatar (anymore): drop the one we still hold,
 		// or it would stay on screen forever.
 		if cachedAvatarHash(dir, bare) != "" {
@@ -139,6 +140,7 @@ func (s *accountSession) syncAvatar(ctx context.Context, srv *ipc.Server, accoun
 		return
 	}
 	if cachedAvatarHash(dir, bare) == info.ID {
+		slog.Debug("avatar already cached", "jid", s.account.JID, "from", bare, "id", info.ID)
 		return // already have exactly this one
 	}
 	ext, supported := avatarExt(info.Type)
@@ -295,6 +297,7 @@ const ownAvatarSyncTimeout = 15 * time.Second
 func (a *adapter) SyncOwnAvatar(accountIdx int) error {
 	s, _, err := a.online(accountIdx)
 	if err != nil {
+		slog.Debug("syncing own avatar", "account", accountIdx, "err", err)
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ownAvatarSyncTimeout)
