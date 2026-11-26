@@ -363,6 +363,7 @@ func (s *accountSession) doStartCall(ctx context.Context, srv *ipc.Server, accou
 		return nil, err
 	}
 	c.broadcastState(callProposing, "")
+	c.watchSetup()
 	return c, nil
 }
 
@@ -687,6 +688,7 @@ func (s *accountSession) handlePropose(ctx context.Context, srv *ipc.Server, acc
 	})
 	c.startRing(ringtoneFreqsHz, ringtonePattern)
 	c.broadcastState(callRingingLocal, "")
+	c.watchSetup()
 }
 
 // handleJingle drives the XEP-0166 IQ half of the flow.
@@ -763,6 +765,8 @@ func terminateReason(r *xmpp.JingleReason) string {
 		return "cancelled"
 	case r.ConnectivityError != nil:
 		return "connectivity error"
+	case r.Timeout != nil:
+		return "timed out"
 	case r.Text != "":
 		return r.Text
 	default:
@@ -2283,6 +2287,81 @@ func (c *callSession) playRemoteVideo(pc *call.PeerConnection, track *webrtc.Tra
 		}
 		packets++
 		sb.Push(packet)
+	}
+}
+
+// --- setup timeouts -----------------------------------------------------
+
+// ringTimeout bounds how long a call rings unanswered, setupTimeout how long
+// an answered one takes to connect. A peer whose client died without its
+// server noticing (no unavailable presence yet, a stream-management session
+// held open) never sends what would end the call.
+var (
+	ringTimeout  = 60 * time.Second
+	setupTimeout = 30 * time.Second
+)
+
+// setupPhase groups the states a call waits in before connecting: a call
+// moving from proposing to ringing-remote is still waiting on the same answer.
+func setupPhase(s callState) (phase int, limit time.Duration) {
+	switch s {
+	case callProposing, callRingingRemote, callRingingLocal:
+		return 1, ringTimeout
+	case callNegotiating:
+		return 2, setupTimeout
+	}
+	return 0, 0
+}
+
+// watchSetup ends c, telling the peer, if it stays in a setup phase past its
+// limit.
+func (c *callSession) watchSetup() {
+	go recoverAndLog(c.sid, "watchSetup", func() {
+		for {
+			state := c.currentState()
+			phase, limit := setupPhase(state)
+			if phase == 0 {
+				return
+			}
+			t := time.NewTimer(limit)
+			select {
+			case <-c.done:
+				t.Stop()
+				return
+			case <-t.C:
+			}
+			state = c.currentState()
+			if p, _ := setupPhase(state); p == phase {
+				c.setupTimedOut(state)
+				return
+			}
+		}
+	})
+}
+
+// setupTimedOut gives up on a call stuck in state.
+func (c *callSession) setupTimedOut(state callState) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	slog.Info("call setup timed out", "sid", c.sid, "peer", c.peer, "state", state.String())
+	switch state {
+	case callProposing, callRingingRemote:
+		c.retractFromAllRinging(ctx)
+		c.end(ctx, "ended", "no answer")
+	case callRingingLocal:
+		// Left to ring out at the caller, as a missed call rather than a
+		// decline.
+		c.end(ctx, "ended", "no answer")
+	default:
+		c.mu.Lock()
+		remote := c.remoteJID
+		c.mu.Unlock()
+		if remote != "" {
+			if err := c.client.SendSessionTerminate(ctx, remote, c.sid, &xmpp.JingleReason{Timeout: &struct{}{}}); err != nil {
+				slog.Warn("terminating timed-out call", "sid", c.sid, "err", err)
+			}
+		}
+		c.end(ctx, "failed", "connection timed out")
 	}
 }
 

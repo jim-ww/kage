@@ -233,6 +233,7 @@ type JingleReason struct {
 	Decline           *struct{} `xml:"decline"`
 	Cancel            *struct{} `xml:"cancel"`
 	ConnectivityError *struct{} `xml:"connectivity-error"`
+	Timeout           *struct{} `xml:"timeout"`
 	Text              string    `xml:"text,omitempty"`
 }
 
