@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -674,11 +675,25 @@ func messagePreviewBody(msg Message) string {
 
 // previewText is s on one line, in at most n cells, ellipsis included.
 func previewText(s string, n int) string {
-	flat := strings.ReplaceAll(termText(s), "\n", " ")
 	if n <= 0 {
 		return ""
 	}
+	flat := strings.ReplaceAll(termText(previewHead(s, n)), "\n", " ")
 	return ansi.Truncate(flat, n, "…")
+}
+
+// previewHead is the start of s, enough for a preview n cells wide: what
+// follows can't show, and a huge message made processing it all slow. Cut
+// generously, for escape sequences and multi-byte runes.
+func previewHead(s string, n int) string {
+	limit := 16*n + 256
+	if len(s) <= limit {
+		return s
+	}
+	for limit > 0 && !utf8.RuneStart(s[limit]) {
+		limit--
+	}
+	return s[:limit]
 }
 
 func sameDay(a, b time.Time) bool {

@@ -298,10 +298,12 @@ func (c Chat) Title() string {
 
 // Description implements list.Item.
 func (c Chat) Description() string {
-	text := termText(c.LastMessage)
+	text := c.LastMessage
 	if nl := strings.IndexByte(text, '\n'); nl >= 0 {
 		text = text[:nl]
 	}
+	// No chat list is this wide.
+	text = termText(previewHead(text, 512))
 	if text == "" && c.Address != "" && c.Address != c.Name {
 		text = c.Address
 	}
