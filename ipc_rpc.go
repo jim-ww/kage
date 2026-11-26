@@ -75,6 +75,7 @@ var events = []any{
 	ui.AccountLiveMsg{}, ui.AccountConnectErrorMsg{}, ui.AccountStatusChangedMsg{},
 	ui.HistorySyncedMsg{}, ui.HistorySyncStartedMsg{}, ui.HistorySyncFinishedMsg{},
 	ui.IncomingCallMsg{}, ui.CallStateMsg{}, ui.MissedCallMsg{},
+	ui.MessageDecryptedMsg{}, ui.GPGLockedMsg{},
 }
 
 // isEvent reports whether ev's type is registered as an event.
@@ -124,6 +125,7 @@ func init() {
 	handle(resetChatUnreadReq{})
 	handle(chatUnreadCountsReq{})
 	handle(saveDraftReq{})
+	handle(retryGPGDecryptReq{})
 	handle(listAccountsReq{})
 	handle(addAccountReq{})
 	handle(removeAccountReq{})
@@ -422,6 +424,12 @@ type chatUnreadCountsReq struct{ AccountJID string }
 
 func (c chatUnreadCountsReq) run(d *daemonServer, _ ipc.ClientID) (map[string]int, error) {
 	return d.a.ChatUnreadCounts(c.AccountJID)
+}
+
+type retryGPGDecryptReq struct{ AccountIdx int }
+
+func (c retryGPGDecryptReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.RetryGPGDecrypt(c.AccountIdx)
 }
 
 type saveDraftReq struct{ AccountJID, ChatAddress, Text string }

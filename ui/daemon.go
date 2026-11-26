@@ -90,6 +90,9 @@ type Daemon interface {
 	// shows the chat.
 	ResetChatUnread(accountJID, chatAddress string) error
 	ChatUnreadCounts(accountJID string) (map[string]int, error)
+	// RetryGPGDecrypt decrypts the account's messages that arrived while its
+	// gpg key was locked (see GPGLockedMsg).
+	RetryGPGDecrypt(accountIdx int) error
 	// SaveDraft stores a chat's unsent text; "" clears it.
 	SaveDraft(accountJID, chatAddress, text string) error
 

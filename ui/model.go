@@ -2,6 +2,7 @@ package ui
 
 import (
 	"os"
+	"os/exec"
 	"time"
 
 	"charm.land/bubbles/v2/list"
@@ -154,6 +155,10 @@ type Model struct {
 	viewportLines          []string            // viewport content split into lines, kept in sync with msgOffsets for refreshViewportSelection's line-range patching
 	noticeText             string
 	noticeID               int
+	// gpgUnlock builds the command unlocking a gpg key on this terminal
+	// (see SetGPGUnlock); gpgUnlocking is set while it's asked or running.
+	gpgUnlock    func(keyID string) *exec.Cmd
+	gpgUnlocking bool
 	noticeDuration         time.Duration                      // how long a notification toast stays visible before auto-dismissing
 	transferOrder          []string                           // insertion order of transfers keys, for stable multi-line rendering
 	transfers              map[string]FileTransferProgressMsg // active uploads/downloads, keyed by ID (local path for an upload, URL for a download); removed once the transfer's terminal result msg arrives

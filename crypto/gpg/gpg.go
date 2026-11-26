@@ -222,3 +222,24 @@ func (e Encrypter) run(stdin []byte, args ...string) ([]byte, error) {
 	}
 	return stdout.Bytes(), nil
 }
+
+// IsLocked reports whether err, from Decrypt, is gpg-agent failing to unlock
+// a secret key we have, rather than the message not being for us: gpg
+// reports both as "No secret key", only the first after a "public key
+// decryption failed" (no pinentry it could show, a cancelled one, ...).
+func IsLocked(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "public key decryption failed")
+}
+
+// UnlockCommand signs a probe with keyID, for gpg-agent to ask for its
+// passphrase and cache it: run on a terminal, a tty pinentry prompts there
+// (GPG_TTY tells gpg-agent which one).
+func UnlockCommand(keyID string) *exec.Cmd {
+	cmd := exec.Command("gpg", "--yes", "--armor", "--local-user", keyID, "--output", os.DevNull, "--sign")
+	cmd.Stdin = strings.NewReader("kage unlock probe")
+	cmd.Env = os.Environ()
+	if tty, err := os.Readlink("/proc/self/fd/0"); err == nil && strings.HasPrefix(tty, "/dev/") {
+		cmd.Env = append(cmd.Env, "GPG_TTY="+tty)
+	}
+	return cmd
+}

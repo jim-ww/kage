@@ -158,10 +158,14 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 			body = string(pt)
 		}
 	}
+	gpgLocked := false
 	if s.useGPG && gpg.Looks(body) {
 		pt, err := s.gpg.Decrypt(body, s.account.GPGPeers[msgEv.From])
 		if err != nil {
 			slog.Warn("decrypting message", "from", msgEv.From, "err", err)
+			// Kept as the ciphertext, read once the key is unlocked.
+			gpgLocked = gpg.IsLocked(err) && msgEv.ReplaceID == ""
+			decryptFailed = decryptFailed || gpgLocked
 		} else {
 			body = pt
 		}
@@ -258,6 +262,9 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		// Not broadcast without a stored row.
 		slog.Warn("persisting received message", "err", err)
 		return
+	}
+	if gpgLocked {
+		defer gpgDecryptLocked(srv, accountIdx, s, gpgPendingMsg{storeID: storeID, from: from, armored: body})
 	}
 
 	// Ours from another device (a sent carbon) is "me", as on the MAM and

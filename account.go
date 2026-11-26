@@ -88,6 +88,9 @@ type accountSession struct {
 	// prekey or cached message key in the first, failing the second.
 	omemoMu sync.Mutex
 
+	// gpgPending is what arrived while the gpg key was locked (gpg_unlock.go).
+	gpgPending gpgPending
+
 	// callMu guards call, the account's one call in progress (callsession.go).
 	callMu sync.Mutex
 	call   *callSession

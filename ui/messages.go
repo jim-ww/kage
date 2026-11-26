@@ -217,6 +217,23 @@ type MessageCorrectedMsg struct {
 	EncMethod  string // "omemo-v1", "omemo-v2", "omemo", or "gpg", matching Message.EncMethod; empty when Encrypted is false
 }
 
+// MessageDecryptedMsg reports a stored message that couldn't be decrypted
+// on arrival, now read (see Daemon.RetryGPGDecrypt).
+type MessageDecryptedMsg struct {
+	AccountIdx int
+	From       string // bare JID (chat)
+	StoreID    int64
+	Content    string
+}
+
+// GPGLockedMsg reports a gpg message the daemon couldn't decrypt because
+// the account's key is locked: no pinentry reaches a user from the daemon.
+// The TUI unlocks it on its terminal, then calls Daemon.RetryGPGDecrypt.
+type GPGLockedMsg struct {
+	AccountIdx int
+	KeyID      string
+}
+
 // MessageRetractedMsg reports a XEP-0424 retraction; the message is only
 // flagged (see Message.Retracted).
 type MessageRetractedMsg struct {

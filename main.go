@@ -264,6 +264,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		}
 	}
 	model := ui.New(nil, startAccountIdx, keyMap, theme, client, !cfg.MouseDisabled, cfg.State.SidebarWidth, cfg.State.SidebarHidden, openLastChatAddress, cfg.State.InputHeight, cfg.State.ReactionEmojiUsage, display, nil)
+	model.SetGPGUnlock(gpg.UnlockCommand)
 	if len(cfg.Accounts) == 0 {
 		// First run, or every account was removed: open straight into the
 		// add-account modal (defaults to login mode; ctrl+r switches to

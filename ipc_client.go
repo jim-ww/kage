@@ -239,6 +239,11 @@ func (c *ipcClient) ChatUnreadCounts(accountJID string) (map[string]int, error) 
 	return do(c.conn, chatUnreadCountsReq{AccountJID: accountJID})
 }
 
+func (c *ipcClient) RetryGPGDecrypt(accountIdx int) error {
+	_, err := do(c.conn, retryGPGDecryptReq{AccountIdx: accountIdx})
+	return err
+}
+
 func (c *ipcClient) SaveDraft(accountJID, chatAddress, text string) error {
 	_, err := do(c.conn, saveDraftReq{AccountJID: accountJID, ChatAddress: chatAddress, Text: text})
 	return err

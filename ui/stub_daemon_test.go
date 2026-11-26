@@ -35,6 +35,7 @@ func (stubDaemon) SetChatEncryption(int, string, string) error                 {
 func (stubDaemon) ResetChatUnread(string, string) error                        { return nil }
 func (stubDaemon) ChatUnreadCounts(string) (map[string]int, error)             { return nil, nil }
 func (stubDaemon) SaveDraft(string, string, string) error                      { return nil }
+func (stubDaemon) RetryGPGDecrypt(int) error                                   { return nil }
 func (stubDaemon) AddAccount(string, string, string, bool) tea.Msg             { return nil }
 func (stubDaemon) RemoveAccount(int) tea.Msg                                   { return nil }
 func (stubDaemon) SetAccountStatus(int, Presence) tea.Msg                      { return nil }

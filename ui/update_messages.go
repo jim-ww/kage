@@ -1033,6 +1033,21 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case NoticeMsg:
 		return m, m.showNotification(msg.Text), true
 
+	case GPGLockedMsg:
+		return m, m.askGPGUnlock(msg), true
+
+	case gpgUnlockedMsg:
+		return m, m.gpgUnlocked(msg), true
+
+	case gpgRetriedMsg:
+		if msg.err != nil {
+			return m, m.showNotification(msg.err.Error()), true
+		}
+		return m, nil, true
+
+	case MessageDecryptedMsg:
+		return m, m.applyMessageDecrypted(msg), true
+
 	case AccountsSnapshotMsg:
 		if msg.Err != "" {
 			return m, m.showNotification("loading accounts: " + msg.Err), true
