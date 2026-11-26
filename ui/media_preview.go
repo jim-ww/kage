@@ -142,7 +142,7 @@ func takeMediaThumbRequests() tea.Cmd {
 	queue := mediaThumbQueue
 	mediaThumbQueue = nil
 	mediaThumbMu.Unlock()
-	cmds := takeMediaDownloadRequests()
+	cmds := append(takeMediaDownloadRequests(), takeLinkPreviewRequests()...)
 	for _, path := range queue {
 		cmds = append(cmds, decodeMediaThumbCmd(path))
 	}
@@ -295,14 +295,20 @@ func renderMediaPreview(target, jid string, maxCols int) string {
 	if !ok || thumb.failed || thumb.img == nil {
 		return ""
 	}
+	return renderThumbBlock(path, thumb, maxCols)
+}
+
+// renderThumbBlock draws thumb at most maxCols wide and the configured
+// height, cached under key. "" when there's no room for it.
+func renderThumbBlock(key string, thumb mediaThumb, maxCols int) string {
 	boxCols, boxRows := mediaPreviewMaxSize()
 	cols, rows := avatarPreviewSize(thumb.width, thumb.height, min(maxCols, boxCols), boxRows)
 	if cols <= 0 {
 		return ""
 	}
-	key := mediaBlockKey{path: path, cols: cols, rows: rows}
+	cacheKey := mediaBlockKey{path: key, cols: cols, rows: rows}
 	mediaThumbMu.Lock()
-	block, ok := mediaBlockCache[key]
+	block, ok := mediaBlockCache[cacheKey]
 	mediaThumbMu.Unlock()
 	if ok {
 		return block
@@ -312,7 +318,7 @@ func renderMediaPreview(target, jid string, maxCols int) string {
 	if len(mediaBlockCache) >= mediaBlockCacheLimit {
 		clear(mediaBlockCache)
 	}
-	mediaBlockCache[key] = block
+	mediaBlockCache[cacheKey] = block
 	mediaThumbMu.Unlock()
 	return block
 }

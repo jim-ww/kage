@@ -87,6 +87,10 @@ type Config struct {
 	// AutoDownloadMaxMB is the largest attachment auto-download fetches, in
 	// MiB; ui.DefaultAutoDownloadMaxMB when unset.
 	AutoDownloadMaxMB int `toml:"auto_download_max_mb,omitempty"`
+	// LinkPreviews fetches the links in messages to show a card of the
+	// page (site, title, description, picture) under them. Off by default:
+	// fetching a link tells its host the message was read, and from where.
+	LinkPreviews bool `toml:"link_previews,omitempty"`
 	// HoverSelectDisabled stops hovering a message from selecting it, so
 	// only a click (or the keyboard) does; off (hover selects) by default.
 	HoverSelectDisabled bool `toml:"hover_select_disabled,omitempty"`

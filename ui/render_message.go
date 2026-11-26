@@ -300,8 +300,8 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	var bodyContent string
-	// previews are image attachments' pictures, drawn after the body: they
-	// neither wrap nor count toward collapsing it.
+	// previews are attachments' pictures and link cards, drawn after the
+	// body: they neither wrap nor count toward collapsing it.
 	var previews []string
 	switch {
 	case msg.Retracted:
@@ -340,6 +340,11 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 			}
 		}
 		bodyContent = FormatMessageBody(content)
+		if !msg.Retracted {
+			if card := m.renderLinkPreview(content, totalWidth-prefixWidth); len(card) > 0 {
+				previews = append(previews, strings.Join(card, "\n"))
+			}
+		}
 	}
 
 	// The body follows the name, unless a quote takes that place.

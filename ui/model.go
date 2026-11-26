@@ -263,6 +263,9 @@ type DisplayOptions struct {
 	// DefaultAutoDownloadMaxMB).
 	AutoDownloadDisabled bool
 	AutoDownloadMaxMB    int
+	// LinkPreviews fetches links in messages for a card of the page; off
+	// by default.
+	LinkPreviews bool
 	// AutoUnhideDisabled keeps a hidden chat hidden when a message arrives.
 	AutoUnhideDisabled bool
 	// HoverSelectDisabled stops hovering a message from selecting it; a
@@ -282,6 +285,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon 
 	setMediaPreviewsEnabled(!display.MediaPreviewsDisabled)
 	setMediaPreviewHeight(display.MediaPreviewHeight)
 	setAutoDownload(!display.AutoDownloadDisabled, display.AutoDownloadMaxMB)
+	setLinkPreviewsEnabled(display.LinkPreviews)
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
