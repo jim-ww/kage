@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/pion/webrtc/v4"
 
 	"github.com/jim-ww/kage/config"
 	"github.com/jim-ww/kage/storage"
@@ -82,5 +85,32 @@ func TestConnectedCallNotTimedOut(t *testing.T) {
 	time.Sleep(120 * time.Millisecond)
 	if sess.currentCall() == nil {
 		t.Fatal("connected call ended by the setup watchdog")
+	}
+}
+
+// TestLostConnectionEnds checks a connected call whose connection never
+// comes back ends rather than waiting on an ICE restart forever.
+func TestLostConnectionEnds(t *testing.T) {
+	old := recoveryTimeout
+	recoveryTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { recoveryTimeout = old })
+	sess, c := newSetupTimeoutCall(t, callConnected)
+	c.armRecoveryDeadline()
+	waitCallEnded(t, sess, c)
+}
+
+// TestRecoveredConnectionKeepsCall checks connecting again in time stops
+// the recovery deadline.
+func TestRecoveredConnectionKeepsCall(t *testing.T) {
+	old := recoveryTimeout
+	recoveryTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { recoveryTimeout = old })
+	sess, c := newSetupTimeoutCall(t, callConnected)
+	c.mediaStarted = true
+	c.armRecoveryDeadline()
+	c.onConnectionState(context.Background(), webrtc.PeerConnectionStateConnected)
+	time.Sleep(120 * time.Millisecond)
+	if sess.currentCall() == nil {
+		t.Fatal("call that reconnected in time was ended")
 	}
 }

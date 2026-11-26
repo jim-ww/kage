@@ -136,6 +136,9 @@ type callSession struct {
 	restarting      bool
 	restartAttempts int
 	disconnectTimer *time.Timer
+	// recoveryTimer ends a call whose lost connection hasn't come back
+	// within recoveryTimeout, see armRecoveryDeadline.
+	recoveryTimer *time.Timer
 
 	// muted drops captured mic frames. quality is the last sampled quality
 	// bucket (see sampleQuality), "" until the first sample.
@@ -1095,6 +1098,10 @@ func (c *callSession) onConnectionState(ctx context.Context, state webrtc.PeerCo
 			c.disconnectTimer.Stop()
 			c.disconnectTimer = nil
 		}
+		if c.recoveryTimer != nil {
+			c.recoveryTimer.Stop()
+			c.recoveryTimer = nil
+		}
 		c.mu.Unlock()
 		if already {
 			return // an ICE recovery after a blip, not a new call
@@ -1118,8 +1125,10 @@ func (c *callSession) onConnectionState(ctx context.Context, state webrtc.PeerCo
 			}
 		}
 	case webrtc.PeerConnectionStateFailed:
+		c.armRecoveryDeadline()
 		c.handleICEFailure(ctx)
 	case webrtc.PeerConnectionStateDisconnected:
+		c.armRecoveryDeadline()
 		c.scheduleDisconnectCheck(ctx)
 	case webrtc.PeerConnectionStateClosed:
 		// Also how a normal hangup by the peer looks: their connection closes
@@ -1145,6 +1154,39 @@ func (c *callSession) handleICEFailure(ctx context.Context) {
 	}
 	c.mu.Unlock()
 	c.attemptICERestart(ctx)
+}
+
+// recoveryTimeout bounds how long a connected call's lost connection may
+// take to come back. Neither side's ICE restart ends on its own when the
+// peer is gone for good: the initiator waits on a transport-accept, the
+// responder on a transport-replace, that never arrive.
+var recoveryTimeout = 30 * time.Second
+
+// armRecoveryDeadline starts recoveryTimeout for a connected call losing its
+// connection, unless already running. Connecting again stops it.
+func (c *callSession) armRecoveryDeadline() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.state != callConnected || c.recoveryTimer != nil {
+		return
+	}
+	c.recoveryTimer = time.AfterFunc(recoveryTimeout, func() {
+		c.mu.Lock()
+		c.recoveryTimer = nil
+		state, remote := c.state, c.remoteJID
+		c.mu.Unlock()
+		if state != callConnected {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if remote != "" {
+			if err := c.client.SendSessionTerminate(ctx, remote, c.sid, &xmpp.JingleReason{ConnectivityError: &struct{}{}}); err != nil {
+				slog.Warn("terminating call with lost connection", "sid", c.sid, "err", err)
+			}
+		}
+		c.end(ctx, "ended", "connection lost")
+	})
 }
 
 // scheduleDisconnectCheck re-checks the connection after iceDisconnectGrace.
@@ -2387,6 +2429,10 @@ func (c *callSession) end(ctx context.Context, state, reason string) {
 		if c.disconnectTimer != nil {
 			c.disconnectTimer.Stop()
 			c.disconnectTimer = nil
+		}
+		if c.recoveryTimer != nil {
+			c.recoveryTimer.Stop()
+			c.recoveryTimer = nil
 		}
 		c.mu.Unlock()
 
