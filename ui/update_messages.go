@@ -1239,7 +1239,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		if chat, ok := m.currentChat(); ok && chat.Address == msg.addr {
 			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-				return m, m.saveChatDraft(msg.accountIdx, chatIdx, m.input.Value()), true
+				return m, m.saveChatDraft(msg.accountIdx, chatIdx, m.composeValue()), true
 			}
 		}
 		return m, nil, true

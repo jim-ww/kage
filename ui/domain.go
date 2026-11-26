@@ -283,7 +283,7 @@ type Chat struct {
 // are both pre-styled strings ending in their own ANSI reset, so nothing
 // the delegate layers on top survives into them — see renderTintedName.
 func (c Chat) Title() string {
-	title := presenceGlyph(c.Presence) + " " + renderTintedName(c.Name, c.Address)
+	title := presenceGlyph(c.Presence) + " " + renderTintedName(termText(c.Name), c.Address)
 	if c.Muted {
 		title += " " + mutedChatGlyph
 	}
@@ -298,7 +298,7 @@ func (c Chat) Title() string {
 
 // Description implements list.Item.
 func (c Chat) Description() string {
-	text := c.LastMessage
+	text := termText(c.LastMessage)
 	if nl := strings.IndexByte(text, '\n'); nl >= 0 {
 		text = text[:nl]
 	}

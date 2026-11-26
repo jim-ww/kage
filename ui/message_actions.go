@@ -58,7 +58,7 @@ func isBlank(s string) bool {
 func (m *Model) sendCurrentInput() tea.Cmd {
 	var cmds []tea.Cmd
 
-	text := trimComposed(m.input.Value())
+	text := trimComposed(m.composeValue())
 	hasAttachments := len(m.pendingAttachments) > 0 && m.editingMsg.empty()
 	if text == "" && !hasAttachments {
 		return nil
@@ -91,7 +91,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 		m.selectedAttachment = -1
 		m.notifyTypingStopped()
 		m.restoreStashedDraft()
-		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
+		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.composeValue()))
 		m.updateSizes()
 		cmds = append(cmds, m.loadTailAfterSend())
 		return tea.Batch(cmds...)
@@ -141,7 +141,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 			// Nothing sent: keep the typed text rather than clearing it.
 			cmds = append(cmds, m.showNotification("not connected; message not sent"))
 			if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-				cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
+				cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.composeValue()))
 			}
 			m.updateSizes()
 			return tea.Batch(cmds...)
@@ -153,7 +153,7 @@ func (m *Model) sendCurrentInput() tea.Cmd {
 	m.restoreStashedDraft()
 	// Re-read: the send re-sorted the chat list.
 	if chatIdx := m.currentChatIndex(); chatIdx >= 0 {
-		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.input.Value()))
+		cmds = append(cmds, m.saveChatDraft(m.currentAccount, chatIdx, m.composeValue()))
 	}
 	m.updateSizes()
 	if len(m.currentMessages()) > shown && m.autofocus.covers(true) {
@@ -529,10 +529,10 @@ func (m *Model) actionYankMessage() tea.Cmd {
 }
 
 func (m *Model) actionYankDraft() tea.Cmd {
-	if m.input.Value() == "" {
+	if m.composeValue() == "" {
 		return nil
 	}
-	if err := clipboard.WriteAll(m.input.Value()); err != nil {
+	if err := clipboard.WriteAll(m.composeValue()); err != nil {
 		return m.showNotification("copy failed")
 	}
 	return m.showNotification("draft copied")
@@ -558,7 +558,7 @@ func (m *Model) actionEditMessage() tea.Cmd {
 	m.refreshViewportScrollTo(old, idx)
 	m.stashDraftForCompose()
 	m.editingMsg = refMessage(msgs[idx])
-	m.input.SetValue(msgs[idx].Content)
+	m.setComposeValue(msgs[idx].Content)
 	m.resetDraftHistory(msgs[idx].Content)
 	m.input.Placeholder = "edit message..."
 	return m.input.Focus()

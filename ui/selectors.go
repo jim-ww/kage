@@ -317,8 +317,8 @@ func (m *Model) applyChatDraft(accountIdx, chatIdx int, text string) tea.Cmd {
 		return cmd
 	}
 	if m.editingMsg.empty() {
-		if m.input.Value() == old {
-			m.input.SetValue(text)
+		if m.composeValue() == old {
+			m.setComposeValue(text)
 			m.pushDraftSnapshot(text)
 			m.updateSizes()
 		}
@@ -371,10 +371,10 @@ func (m Model) FlushDraft() {
 		return
 	}
 	chat, ok := m.accounts[m.openChatAccountIdx].Chats[chatIdx].(Chat)
-	if !ok || chat.Draft == m.input.Value() {
+	if !ok || chat.Draft == m.composeValue() {
 		return
 	}
-	_ = m.daemon.SaveDraft(m.accounts[m.openChatAccountIdx].Name, chat.Address, m.input.Value())
+	_ = m.daemon.SaveDraft(m.accounts[m.openChatAccountIdx].Name, chat.Address, m.composeValue())
 }
 
 // swapComposeDraft saves the input's draft and loads the new chat's; a no-op
@@ -393,10 +393,10 @@ func (m *Model) swapComposeDraft(newAccountIdx, newChatIdx int) tea.Cmd {
 
 	var cmd tea.Cmd
 	if oldIdx := m.chatIndexByAddress(m.openChatAccountIdx, m.openChatAddress); oldIdx >= 0 {
-		cmd = m.saveChatDraft(m.openChatAccountIdx, oldIdx, m.input.Value())
+		cmd = m.saveChatDraft(m.openChatAccountIdx, oldIdx, m.composeValue())
 	}
 
-	m.input.SetValue(newChat.Draft)
+	m.setComposeValue(newChat.Draft)
 	m.resetDraftHistory(newChat.Draft)
 	m.openChatAccountIdx = newAccountIdx
 	m.openChatAddress = newChat.Address

@@ -645,7 +645,7 @@ func messagePreviewBody(msg Message) string {
 
 // previewText is s on one line, in at most n cells, ellipsis included.
 func previewText(s string, n int) string {
-	flat := strings.ReplaceAll(s, "\n", " ")
+	flat := strings.ReplaceAll(termText(s), "\n", " ")
 	if n <= 0 {
 		return ""
 	}

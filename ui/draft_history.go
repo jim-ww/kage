@@ -24,7 +24,7 @@ func (m *Model) undoDraft() bool {
 		return false
 	}
 	m.draftHistIdx--
-	m.input.SetValue(m.draftHistory[m.draftHistIdx])
+	m.setComposeValue(m.draftHistory[m.draftHistIdx])
 	return true
 }
 
@@ -35,7 +35,7 @@ func (m *Model) redoDraft() bool {
 		return false
 	}
 	m.draftHistIdx++
-	m.input.SetValue(m.draftHistory[m.draftHistIdx])
+	m.setComposeValue(m.draftHistory[m.draftHistIdx])
 	return true
 }
 
@@ -49,7 +49,7 @@ func (m *Model) stashDraftForCompose() {
 	if !m.editingMsg.empty() {
 		return
 	}
-	if v := m.input.Value(); v != "" {
+	if v := m.composeValue(); v != "" {
 		m.stashedDraft = &v
 	}
 }
@@ -62,7 +62,7 @@ func (m *Model) restoreStashedDraft() {
 	if m.stashedDraft != nil {
 		v = *m.stashedDraft
 	}
-	m.input.SetValue(v)
+	m.setComposeValue(v)
 	m.resetDraftHistory(v)
 	m.stashedDraft = nil
 }

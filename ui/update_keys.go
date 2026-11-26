@@ -162,7 +162,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// mirrors the chat apps this pattern is borrowed from, and gives
 	// keyboard-only users a way to remove one without the mouse.
 	case matchesKey(msg, m.keys.RemoveAttachment):
-		if m.selectedView == viewChat && m.input.Value() == "" && len(m.pendingAttachments) > 0 {
+		if m.selectedView == viewChat && m.composeValue() == "" && len(m.pendingAttachments) > 0 {
 			m.removeAttachment(m.selectedAttachment)
 			m.updateSizes()
 			return m, nil, true
@@ -172,7 +172,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		// nothing left for the branch above to remove — but the upload is
 		// still cancelable while it's in flight. Backspace on the still-empty
 		// compose box cancels the most recently started upload transfer.
-		if m.selectedView == viewChat && m.input.Value() == "" {
+		if m.selectedView == viewChat && m.composeValue() == "" {
 			if id, ok := m.mostRecentUploadTransfer(); ok {
 				m.daemon.CancelUpload(id)
 				return m, nil, true
@@ -185,8 +185,8 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	case matchesKey(msg, m.keys.ClearDraft):
-		if m.selectedView == viewChat && m.input.Value() != "" {
-			m.input.SetValue("")
+		if m.selectedView == viewChat && m.composeValue() != "" {
+			m.setComposeValue("")
 			m.pushDraftSnapshot("")
 			m.notifyTypingStopped()
 			var cmd tea.Cmd
@@ -259,7 +259,7 @@ func (m Model) updateKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// it into the buggy Update().
 	case matchesKey(msg, m.keys.InputAreaKeys.WordBackward):
 		if m.selectedView == viewChat && m.input.Line() == 0 {
-			lines := strings.SplitN(m.input.Value(), "\n", 2)
+			lines := strings.SplitN(m.composeValue(), "\n", 2)
 			line := []rune(lines[0])
 			col := m.input.Column()
 			if col > len(line) {

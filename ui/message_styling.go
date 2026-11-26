@@ -68,6 +68,7 @@ var formatted = struct {
 const formattedMax = 2048
 
 func formatMessageBody(content string) string {
+	content = termText(content)
 	content = urlPattern.ReplaceAllStringFunc(content, func(url string) string {
 		return urlStyle.Render(url)
 	})

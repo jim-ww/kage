@@ -304,20 +304,20 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 			}
 		}
 
-		oldValue := m.input.Value()
+		oldValue := m.composeValue()
 		wasMultiline := m.composeMultiline()
 		beforeLine, beforeCol := m.input.Line(), m.input.Column()
 		isDownKey := false
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			isDownKey = keyMsg.String() == "down"
 		}
-		*m.input, cmd = m.input.Update(msg)
+		*m.input, cmd = m.input.Update(termTextInput(msg))
 		cmds = append(cmds, cmd)
-		if wasMultiline && isDownKey && m.input.Value() == oldValue &&
+		if wasMultiline && isDownKey && m.composeValue() == oldValue &&
 			m.input.Line() == beforeLine && m.input.Column() == beforeCol {
 			m.fixStuckComposeCursorDown()
 		}
-		if m.input.Value() != oldValue {
+		if m.composeValue() != oldValue {
 			// The textarea grows/shrinks with content (DynamicHeight), which
 			// shifts inputAreaHeight() — the viewport must be resized in
 			// lockstep or it'll under/overlap the compose box by however
@@ -335,8 +335,8 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 				m.viewport.GotoBottom()
 			}
 		}
-		if m.input.Value() != oldValue {
-			m.pushDraftSnapshot(m.input.Value())
+		if m.composeValue() != oldValue {
+			m.pushDraftSnapshot(m.composeValue())
 			// Editing/reacting content isn't a new-message draft — don't let
 			// the debounce timer overwrite the chat's real stored Draft with
 			// it (see stashDraftForCompose/restoreStashedDraft instead).
@@ -369,7 +369,7 @@ func (m *Model) notifyTypingChanged(oldValue string) tea.Cmd {
 	if !ok || chat.Address == "" {
 		return nil
 	}
-	newValue := m.input.Value()
+	newValue := m.composeValue()
 	if newValue == oldValue {
 		return nil
 	}
