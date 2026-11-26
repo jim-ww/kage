@@ -1319,8 +1319,10 @@ func syncArchiveForContact(ctx context.Context, srv *ipc.Server, accountIdx int,
 		if len(newMsgs) > 0 {
 			broadcast(srv, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: peerJID, Messages: newMsgs})
 			if countsUnread {
-				// Messages that arrived while offline count as unread.
+				// Messages that arrived while offline count as unread, and
+				// are fetched as live ones are.
 				countUnread(ctx, srv, s, peerJID, newMsgs)
+				autoDownloadAttachments(srv, accountIdx, peerJID, newMsgs)
 			}
 		}
 		// Resume from where the server says the page ended, not from the last

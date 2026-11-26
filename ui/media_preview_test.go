@@ -21,9 +21,6 @@ func withMediaCache(t *testing.T) {
 		mediaThumbs, mediaThumbPending, mediaThumbQueue = map[string]mediaThumb{}, map[string]bool{}, nil
 		clear(mediaBlockCache)
 		mediaThumbMu.Unlock()
-		mediaDownloadMu.Lock()
-		mediaDownloadTried, mediaDownloadQueue = map[string]bool{}, nil
-		mediaDownloadMu.Unlock()
 	}
 	reset()
 	t.Cleanup(func() { AttachmentsDir = old; reset() })

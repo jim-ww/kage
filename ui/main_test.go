@@ -10,8 +10,8 @@ import (
 )
 
 // TestMain keeps every test's attachment cache in a temporary dir, and
-// auto-download - on in every Model New builds - off the network: only a
-// loopback httptest server is reachable. Link previews are off unless a
+// attachment fetches off the network: only a loopback httptest server is
+// reachable. Link previews are off unless a
 // test turns them on, and limited to public addresses anyway.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "kage-ui-test-")
@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 		}
 		return dial(ctx, network, addr)
 	}
-	autoDownloadClient = &http.Client{Transport: transport}
+	mediaFetchClient = &http.Client{Transport: transport}
 	// Link previews refuse loopback outside tests; publicOnlyDial's own
 	// test turns this back off.
 	allowLoopbackLinks = true

@@ -318,10 +318,19 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
-	case mediaDownloadedMsg:
-		if msg.ok {
-			m.refreshViewport()
+	case AttachmentCachedMsg:
+		if msg.AccountIdx == m.currentAccount {
+			if chat, ok := m.currentChat(); ok && chat.Address == msg.From {
+				m.refreshViewport()
+			}
 		}
+		return m, nil, true
+
+	case mediaPreviewFetchedMsg:
+		if msg.err != nil {
+			return m, m.showNotification("preview of " + attachmentDisplayName(msg.target) + " failed: " + msg.err.Error()), true
+		}
+		m.refreshViewport()
 		return m, nil, true
 
 	case mediaThumbMsg:

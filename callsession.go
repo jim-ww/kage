@@ -25,12 +25,12 @@ import (
 )
 
 // recoverAndLog runs f, logging a panic instead of crashing the daemon: it's
-// the only panic boundary of the detached call goroutines. what names the
-// goroutine in the log.
+// the only panic boundary of the detached call and auto-download
+// goroutines. what names the goroutine in the log.
 func recoverAndLog(sid, what string, f func()) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("panic in call goroutine", "sid", sid, "what", what, "panic", r, "stack", string(debug.Stack()))
+			slog.Error("panic in background goroutine", "sid", sid, "what", what, "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 	f()

@@ -294,6 +294,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 		Message:    newMsg,
 	})
 	countUnread(ctx, srv, s, from, []ui.Message{newMsg})
+	autoDownloadAttachments(srv, accountIdx, from, []ui.Message{newMsg})
 
 	if shouldNotify(s.account.JID, from, decryptFailed, msgEv.Outgoing) {
 		daemon.Notify(s.rosterName(from), notifyPreview(body, oobURLs))

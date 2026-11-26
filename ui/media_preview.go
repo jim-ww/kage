@@ -24,10 +24,10 @@ import (
 // PATH for calls), and without it those just get no preview.
 //
 // Only an attachment in the local cache (attachmentLocalPath) is previewed:
-// an own upload, one opened or saved, or one auto-download fetched (see
-// media_autodownload.go). With auto-download off nothing is fetched for a
-// preview: downloading a peer's upload tells its host that it was looked
-// at.
+// an own upload, one opened or saved, one the daemon auto-downloaded on
+// arrival, or one fetched from the message menu (see media_download.go).
+// Rendering never fetches: it covers every loaded message, and downloading
+// a peer's upload tells its host that it was looked at.
 
 // mediaPreviewsOn gates the previews; see DisplayOptions.MediaPreviewsDisabled.
 var mediaPreviewsOn atomic.Bool
@@ -136,13 +136,13 @@ func lookupMediaThumb(path string) (mediaThumb, bool) {
 }
 
 // takeMediaThumbRequests drains what renders found missing, as one decode
-// or auto-download command each.
+// or link fetch command each.
 func takeMediaThumbRequests() tea.Cmd {
 	mediaThumbMu.Lock()
 	queue := mediaThumbQueue
 	mediaThumbQueue = nil
 	mediaThumbMu.Unlock()
-	cmds := append(takeMediaDownloadRequests(), takeLinkPreviewRequests()...)
+	cmds := takeLinkPreviewRequests()
 	for _, path := range queue {
 		cmds = append(cmds, decodeMediaThumbCmd(path))
 	}
@@ -288,7 +288,6 @@ func renderMediaPreview(target, jid string, maxCols int) string {
 		return ""
 	}
 	if _, err := os.Stat(path); err != nil {
-		queueMediaDownload(target, jid)
 		return ""
 	}
 	thumb, ok := lookupMediaThumb(path)

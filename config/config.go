@@ -80,12 +80,13 @@ type Config struct {
 	// resolution (two pixels per row); ui.DefaultMediaPreviewHeight when
 	// unset.
 	MediaPreviewHeight int `toml:"media_preview_height,omitempty"`
-	// AutoDownloadDisabled stops fetching received image and video
-	// attachments for their previews, leaving them for opening by hand
-	// (fetching one tells its host it was looked at); on by default.
+	// AutoDownloadDisabled stops the daemon fetching image and video
+	// attachments of messages as they arrive (live, or caught up after
+	// being offline - never older history) for their previews; on by
+	// default. An older one is fetched from the message menu.
 	AutoDownloadDisabled bool `toml:"auto_download_disabled,omitempty"`
 	// AutoDownloadMaxMB is the largest attachment auto-download fetches, in
-	// MiB; ui.DefaultAutoDownloadMaxMB when unset.
+	// MiB; DefaultAutoDownloadMaxMB when unset.
 	AutoDownloadMaxMB int `toml:"auto_download_max_mb,omitempty"`
 	// LinkPreviews fetches the links in messages to show a card of the
 	// page (site, title, description, picture) under them. Off by default:
@@ -168,6 +169,10 @@ const DefaultVideoQuality = "medium"
 // screen_recorder isn't set in config.toml.
 const DefaultScreenRecorder = "gpu-screen-recorder"
 
+// DefaultAutoDownloadMaxMB is the largest attachment auto-downloaded when
+// auto_download_max_mb isn't set in config.toml.
+const DefaultAutoDownloadMaxMB = 20
+
 // DefaultEncryptionMode is the outgoing encryption mode a chat starts with
 // when default_encryption_mode isn't set in config.toml.
 const DefaultEncryptionMode = "omemo-v1"
@@ -184,7 +189,7 @@ func defaultConfig() Config {
 		ScreenRecorder:        DefaultScreenRecorder,
 		DefaultEncryptionMode: DefaultEncryptionMode,
 		MediaPreviewHeight:    ui.DefaultMediaPreviewHeight,
-		AutoDownloadMaxMB:     ui.DefaultAutoDownloadMaxMB,
+		AutoDownloadMaxMB:     DefaultAutoDownloadMaxMB,
 	}
 }
 

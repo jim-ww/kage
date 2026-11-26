@@ -377,6 +377,12 @@ func applyConfig(cfg config.Config) {
 	notifyEnabled.Store(!cfg.NotificationsDisabled)
 	chatStatesEnabled.Store(!cfg.ChatStatesDisabled)
 	avatarsEnabled.Store(!cfg.AvatarsDisabled)
+	autoDownloadEnabled.Store(!cfg.AutoDownloadDisabled)
+	autoDownloadMB := cfg.AutoDownloadMaxMB
+	if autoDownloadMB <= 0 {
+		autoDownloadMB = config.DefaultAutoDownloadMaxMB
+	}
+	autoDownloadMaxBytes.Store(int64(autoDownloadMB) << 20)
 	hiddenChats.replace(cfg.State.HiddenChats)
 	pinnedChats.replace(cfg.State.PinnedChats)
 	mutedChats.replace(cfg.State.MutedChats)

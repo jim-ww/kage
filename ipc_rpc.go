@@ -75,7 +75,7 @@ var events = []any{
 	ui.AccountLiveMsg{}, ui.AccountConnectErrorMsg{}, ui.AccountStatusChangedMsg{},
 	ui.HistorySyncedMsg{}, ui.HistorySyncStartedMsg{}, ui.HistorySyncFinishedMsg{},
 	ui.IncomingCallMsg{}, ui.CallStateMsg{}, ui.MissedCallMsg{},
-	ui.MessageDecryptedMsg{}, ui.GPGLockedMsg{},
+	ui.MessageDecryptedMsg{}, ui.GPGLockedMsg{}, ui.AttachmentCachedMsg{},
 }
 
 // isEvent reports whether ev's type is registered as an event.

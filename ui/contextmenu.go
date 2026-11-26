@@ -150,6 +150,9 @@ func (m *Model) messageContextMenuItems(idx int) []contextMenuItem {
 			contextMenuItem{label: "Save as", run: (*Model).actionSaveMessageAs},
 		)
 	}
+	if chat, ok := m.currentChat(); ok && len(previewableUncached(msgs[idx], chat.Address)) > 0 {
+		items = append(items, contextMenuItem{label: "Show preview", run: (*Model).actionPreviewMessage})
+	}
 	items = append(items, contextMenuItem{label: "Reply", run: (*Model).actionReplyMessage})
 	if m.canEdit(msgs) {
 		items = append(items, contextMenuItem{label: "Edit", run: (*Model).actionEditMessage})
