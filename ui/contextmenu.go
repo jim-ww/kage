@@ -41,16 +41,24 @@ type contextMenuBody struct {
 	// header, when set, is drawn above the items - something the menu's
 	// actions are about (the avatar menu: the current avatar).
 	header interface{ View() string }
+	width  int
 }
 
 func (b *contextMenuBody) View() string {
 	if b.header == nil {
 		return b.Menu.View()
 	}
-	return b.header.View() + "\n" + b.Menu.View()
+	// Centered: a picture hugging the left edge looks misplaced.
+	header := b.header.View()
+	if pad := (b.width - cells.BlockWidth(header)) / 2; pad > 0 {
+		indent := strings.Repeat(" ", pad)
+		header = indent + strings.ReplaceAll(header, "\n", "\n"+indent)
+	}
+	return header + "\n" + b.Menu.View()
 }
 
 func (b *contextMenuBody) SetSize(width, height int) {
+	b.width = width
 	if b.header != nil {
 		height -= strings.Count(b.header.View(), "\n") + 1
 	}
