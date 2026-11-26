@@ -249,6 +249,10 @@ type Chat struct {
 	// count as unread.
 	Muted bool
 
+	// Blocked marks a contact on the server's blocklist (XEP-0191):
+	// nothing from them arrives, and they see us offline.
+	Blocked bool
+
 	// Resources are the contact's online devices, sorted by resource.
 	Resources []ResourcePresence
 
@@ -282,6 +286,9 @@ func (c Chat) Title() string {
 	title := presenceGlyph(c.Presence) + " " + renderTintedName(c.Name, c.Address)
 	if c.Muted {
 		title += " " + mutedChatGlyph
+	}
+	if c.Blocked {
+		title += " " + blockedChatGlyph
 	}
 	if c.Pinned {
 		title = pinnedChatGlyph + " " + title

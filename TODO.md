@@ -26,7 +26,6 @@
 - add more clear mic/video
 - media previews: for images, videos, links
 - should also encrypt saved attachments?
-- block/unblock contacts
 - archive contact chats? integrate that together with existing 'hide' feature? e.g. hidden == archived
 - account logount option (that also cleans up OMEMO devices)
 - add image preview for file manager? same way we have avatars

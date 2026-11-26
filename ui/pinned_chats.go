@@ -97,3 +97,21 @@ func (m *Model) actionTogglePinChat() tea.Cmd {
 	}
 	return m.togglePinChat(m.currentAccount, chatIdx)
 }
+
+// actionToggleBlockChat blocks the selected chat's contact on the server,
+// once confirmed, or unblocks them.
+func (m *Model) actionToggleBlockChat() tea.Cmd {
+	chat, ok := m.currentChat()
+	if !ok || chat.Address == "" {
+		return m.showNotification("no chat selected")
+	}
+	d, accountIdx, address := m.daemon, m.currentAccount, chat.Address
+	set := func(blocked bool) tea.Cmd {
+		return func() tea.Msg { return d.SetBlocked(accountIdx, address, blocked) }
+	}
+	if chat.Blocked {
+		return set(false)
+	}
+	return m.confirm("Block "+address+"?", "Nothing from them reaches any of your devices, and they see you offline.",
+		func(*Model) tea.Cmd { return set(true) })
+}

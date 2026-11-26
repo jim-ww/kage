@@ -78,6 +78,13 @@ func (d *daemonServer) listAccounts() []ui.Account {
 					}
 				}
 			}
+			// Live-only too: fetched from the server on connect.
+			for ci, item := range uiAcct.Chats {
+				if chat, ok := item.(ui.Chat); ok && sessions[i].blocked.has(chat.Address) {
+					chat.Blocked = true
+					uiAcct.Chats[ci] = chat
+				}
+			}
 		}
 		out[i] = uiAcct
 		slog.Debug("listAccounts: account snapshot built", "jid", acct.JID, "chats", len(uiAcct.Chats), "elapsed", time.Since(acctStart))

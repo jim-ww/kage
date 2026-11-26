@@ -75,7 +75,7 @@ func (m *Model) applyChatSetting(msg ChatSettingMsg) tea.Cmd {
 		return nil
 	}
 	updated := withChatSetting(chat, msg)
-	if updated.EncryptionMode == chat.EncryptionMode && updated.Pinned == chat.Pinned && updated.Muted == chat.Muted {
+	if updated.EncryptionMode == chat.EncryptionMode && updated.Pinned == chat.Pinned && updated.Muted == chat.Muted && updated.Blocked == chat.Blocked {
 		return nil
 	}
 	m.accounts[accountIdx].Chats[idx] = updated
@@ -97,6 +97,8 @@ func withChatSetting(chat Chat, msg ChatSettingMsg) Chat {
 		chat.Pinned = msg.On
 	case ChatMuted:
 		chat.Muted = msg.On
+	case ChatBlocked:
+		chat.Blocked = msg.On
 	}
 	return chat
 }

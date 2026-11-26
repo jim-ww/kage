@@ -44,6 +44,9 @@ const pinnedChatGlyph = "📌"
 // Chat.Title).
 const mutedChatGlyph = "🔕"
 
+// blockedChatGlyph follows a blocked contact's name in the chat list.
+const blockedChatGlyph = "⊘"
+
 // presenceGlyph renders a presence as a single colored symbol.
 func presenceGlyph(p Presence) string {
 	g, ok := presenceGlyphs[p]

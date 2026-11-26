@@ -69,6 +69,9 @@ type accountSession struct {
 
 	roster atomic.Pointer[map[string]rosterEntry] // bare JID -> cached roster entry, for display and RenameContact
 
+	// blocked is the server's blocklist (XEP-0191), for showing it.
+	blocked blockedSet
+
 	// chatStates is what each contact (bare JID) has shown of chat states
 	// (XEP-0085): true once they've sent one, false once they've sent a
 	// message without; absent until either. See chatStatesTo.
@@ -574,6 +577,9 @@ func connectAndSuperviseAccount(ctx context.Context, srv *ipc.Server, a *adapter
 	a.flushOutbox(ctx, sess)
 
 	broadcast(srv, ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
+	if client := sess.client.Load(); client != nil {
+		go sess.refreshBlocklist(ctx, srv, client)
+	}
 
 	// Alongside syncArchive, not after it: events arriving during a long
 	// backfill would wait unprocessed.
@@ -612,6 +618,9 @@ func retryInitialConnect(ctx context.Context, srv *ipc.Server, a *adapter, idx i
 
 		slog.Debug("initial connect succeeded on retry", "jid", sess.account.JID)
 		broadcast(srv, ui.AccountLiveMsg{Index: idx, NewChats: newChats, NewMessages: newMessages, NewHistoryMore: newHistoryMore, SupportsInvisible: invisibleSupported(sess)})
+		if client := sess.client.Load(); client != nil {
+			go sess.refreshBlocklist(ctx, srv, client)
+		}
 		go superviseAccount(ctx, srv, a, idx, sess)
 		a.flushOutbox(ctx, sess)
 
@@ -1027,6 +1036,7 @@ func reconnectWithBackoff(ctx context.Context, a *adapter, s *accountSession) {
 				// First: a new stream gets no roster pushes until it asked
 				// for the roster (see refreshRoster).
 				refreshRoster(ctx, a.srv, s.accountIdx, s, client)
+				go s.refreshBlocklist(ctx, a.srv, client)
 				resyncPeerDeviceLists(ctx, s, derefRoster(s.roster.Load()))
 				probeRosterPresence(ctx, client, derefRoster(s.roster.Load()))
 				slog.Debug("account reconnected", "jid", s.account.JID)
@@ -1090,6 +1100,8 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		s.approveAndReciprocate(ctx, bareJID(ev.From))
 	case xmpp.RosterPushEvent:
 		s.handleRosterPush(ctx, srv, accountIdx, ev)
+	case xmpp.BlocklistPushEvent:
+		s.applyBlocklistPush(srv, ev)
 	case xmpp.MessageEvent:
 		handleIncomingMessage(ctx, srv, accountIdx, s, ev)
 	case xmpp.JingleMessageEvent:
@@ -1803,6 +1815,7 @@ func (s *accountSession) newChat(ctx context.Context, peer, name string, pending
 		Hidden:         hiddenChats.has(s.account.JID, peer),
 		Pinned:         pinnedChats.has(s.account.JID, peer),
 		Muted:          mutedChats.has(s.account.JID, peer),
+		Blocked:        s.blocked.has(peer),
 	}
 	if len(hist) > 0 {
 		_, chat.HistoryBefore = countHistory(ctx, s, peer, &hist[0])

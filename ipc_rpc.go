@@ -116,6 +116,7 @@ func init() {
 	handle(renameContactReq{})
 	handle(addContactReq{})
 	handle(removeContactReq{})
+	handle(setBlockedReq{})
 	handle(resubscribeContactReq{})
 	handle(resyncChatReq{})
 	handle(setChatFlagReq{})
@@ -362,6 +363,16 @@ type removeContactReq struct {
 
 func (c removeContactReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.RemoveContact(c.AccountIdx, c.Address)
+}
+
+type setBlockedReq struct {
+	AccountIdx int
+	Address    string
+	Blocked    bool
+}
+
+func (c setBlockedReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetBlocked(c.AccountIdx, c.Address, c.Blocked)
 }
 
 type resubscribeContactReq struct {

@@ -205,6 +205,11 @@ func (c *ipcClient) RemoveContact(accountIdx int, address string) tea.Msg {
 	return ui.ContactRemovedMsg{AccountIdx: accountIdx, Address: address, Err: err}
 }
 
+func (c *ipcClient) SetBlocked(accountIdx int, address string, blocked bool) tea.Msg {
+	_, err := do(c.conn, setBlockedReq{AccountIdx: accountIdx, Address: address, Blocked: blocked})
+	return ui.BlockedSetMsg{AccountIdx: accountIdx, Address: address, Blocked: blocked, Err: err}
+}
+
 func (c *ipcClient) ResubscribeContact(accountIdx int, address string) tea.Msg {
 	_, err := do(c.conn, resubscribeContactReq{AccountIdx: accountIdx, Address: address})
 	return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}

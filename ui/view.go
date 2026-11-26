@@ -227,8 +227,8 @@ func (m Model) chatListViewKey() string {
 			fmt.Fprintf(&sb, "?%s\x00", it.FilterValue())
 			continue
 		}
-		fmt.Fprintf(&sb, "%s\x01%s\x01%s\x01%d\x01%d\x01%t\x01%t\x00",
-			chat.Name, chat.Address, chat.LastMessage, chat.Presence, chat.Unread, chat.Pinned, chat.Muted)
+		fmt.Fprintf(&sb, "%s\x01%s\x01%s\x01%d\x01%d\x01%t\x01%t\x01%t\x00",
+			chat.Name, chat.Address, chat.LastMessage, chat.Presence, chat.Unread, chat.Pinned, chat.Muted, chat.Blocked)
 	}
 	return sb.String()
 }
@@ -672,6 +672,9 @@ func (m Model) chatStatusLabel(chat Chat) string {
 		label = chat.Address
 	case strings.HasPrefix(chat.Name, "#"):
 		label = chat.Name
+	}
+	if chat.Blocked {
+		label += " · blocked"
 	}
 	if chat.Typing {
 		label += " · typing..."

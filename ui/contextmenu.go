@@ -184,8 +184,11 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 	if idx < 0 || idx >= len(m.chats.Items()) {
 		return nil
 	}
-	pin, mute := "Pin chat", "Mute notifications"
+	pin, mute, block := "Pin chat", "Mute notifications", "Block contact"
 	if chat, ok := m.chats.Items()[idx].(Chat); ok {
+		if chat.Blocked {
+			block = "Unblock contact"
+		}
 		if chat.Pinned {
 			pin = "Unpin chat"
 		}
@@ -200,6 +203,7 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 		{label: "Encryption", key: 'e', run: (*Model).actionOpenEncryptionMenu},
 		{label: "Re-sync history", key: 's', run: (*Model).actionResyncChat},
 		{label: "Hide chat", key: 'h', run: (*Model).actionHideChat},
+		{label: block, key: 'b', run: (*Model).actionToggleBlockChat},
 		{label: "Info", key: 'i', run: (*Model).actionChatInfo},
 	}
 }

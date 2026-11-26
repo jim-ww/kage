@@ -1001,6 +1001,16 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, m.showNotification("re-sync: " + strconv.Itoa(msg.Recovered) + " messages recovered"), true
 
+	case BlockedSetMsg:
+		done, doing := "blocked ", "blocking "
+		if !msg.Blocked {
+			done, doing = "unblocked ", "unblocking "
+		}
+		if msg.Err != nil {
+			return m, m.showNotification(doing + msg.Address + ": " + msg.Err.Error()), true
+		}
+		return m, m.showNotification(done + msg.Address), true
+
 	case ContactResubscribedMsg:
 		if !m.contactResult(msg.AccountIdx, msg.Err) {
 			return m, nil, true

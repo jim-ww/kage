@@ -78,6 +78,14 @@ type ContactAddedMsg struct {
 	Err        error
 }
 
+// BlockedSetMsg reports the result of Daemon.SetBlocked.
+type BlockedSetMsg struct {
+	AccountIdx int
+	Address    string
+	Blocked    bool
+	Err        error
+}
+
 // ContactRemovedMsg reports the result of Daemon.RemoveContact.
 type ContactRemovedMsg struct {
 	AccountIdx int
@@ -320,6 +328,8 @@ const (
 	ChatPinned ChatSetting = "pinned"
 	// ChatMuted stops the chat's messages raising notifications.
 	ChatMuted ChatSetting = "muted"
+	// ChatBlocked is the contact on the server's blocklist (XEP-0191).
+	ChatBlocked ChatSetting = "blocked"
 )
 
 // AccountStatusChangedMsg reports an account's own status changed, by any

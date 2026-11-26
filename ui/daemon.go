@@ -73,6 +73,9 @@ type Daemon interface {
 	AddContact(accountIdx int, address string) tea.Msg
 	RemoveContact(accountIdx int, address string) tea.Msg
 	ResubscribeContact(accountIdx int, address string) tea.Msg
+	// SetBlocked blocks or unblocks a contact on the server (XEP-0191);
+	// network I/O, run as a tea.Cmd. Returns BlockedSetMsg.
+	SetBlocked(accountIdx int, address string, blocked bool) tea.Msg
 	// ResyncChat re-walks a chat's server archive for messages an earlier
 	// sync missed; slow, run as a tea.Cmd. Returns ChatResyncedMsg.
 	ResyncChat(accountIdx int, address string) tea.Msg
