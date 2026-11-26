@@ -223,10 +223,13 @@ func containsAvatarPublished(cmd tea.Cmd) bool {
 }
 
 // The avatar menu fetches the account's current avatar on opening and
-// shows it above its items, or says there's none once the fetch is done.
+// shows it above its items, or says there's none once the fetch is done -
+// with avatars turned off too, as it's what the menu changes.
 func TestAvatarMenuShowsCurrentAvatar(t *testing.T) {
 	ClearAvatarImages()
 	t.Cleanup(ClearAvatarImages)
+	setAvatarsEnabled(false)
+	t.Cleanup(func() { setAvatarsEnabled(true) })
 	m := avatarMenuModel(t, &fakeAvatarPublisher{})
 	m.width, m.termHeight = 100, 30
 	m.updateSizes()

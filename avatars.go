@@ -104,7 +104,16 @@ func cachedAvatarHash(dir, bare string) string {
 // unsupported image type — all of it just leaves the monogram in place, so
 // nothing here is worth failing an account's event loop over.
 func (s *accountSession) syncAvatar(ctx context.Context, srv *ipc.Server, accountIdx int, bare string) {
-	if bare == "" || !avatarsEnabled.Load() {
+	if !avatarsEnabled.Load() {
+		return
+	}
+	s.fetchAvatar(ctx, srv, accountIdx, bare)
+}
+
+// fetchAvatar is syncAvatar even with avatars turned off - for the avatar
+// menu, which shows our own whatever the setting.
+func (s *accountSession) fetchAvatar(ctx context.Context, srv *ipc.Server, accountIdx int, bare string) {
+	if bare == "" {
 		return
 	}
 	client := s.client.Load()
@@ -291,9 +300,8 @@ func (a *adapter) SetOwnAvatar(accountIdx int, path string) error {
 // ownAvatarSyncTimeout bounds SyncOwnAvatar's two PEP round trips.
 const ownAvatarSyncTimeout = 15 * time.Second
 
-// SyncOwnAvatar fetches this account's published avatar into the cache -
-// one set from another client is otherwise never fetched, as no presence
-// of ours comes online the way a contact's does.
+// SyncOwnAvatar fetches this account's published avatar into the cache,
+// with avatars turned off too: the avatar menu shows it either way.
 func (a *adapter) SyncOwnAvatar(accountIdx int) error {
 	s, _, err := a.online(accountIdx)
 	if err != nil {
@@ -302,7 +310,7 @@ func (a *adapter) SyncOwnAvatar(accountIdx int) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ownAvatarSyncTimeout)
 	defer cancel()
-	s.syncAvatar(ctx, a.srv, accountIdx, bareJID(s.account.JID))
+	s.fetchAvatar(ctx, a.srv, accountIdx, bareJID(s.account.JID))
 	return nil
 }
 

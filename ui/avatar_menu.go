@@ -59,7 +59,8 @@ func (h *ownAvatarHeader) View() string {
 	if g == h.gen && h.rendered != "" {
 		return h.rendered
 	}
-	if img, ok := avatarPicture(h.jid); ok && img != nil && avatarsEnabled() {
+	// Shown with avatars turned off too: it's what's being changed.
+	if img, ok := avatarPicture(h.jid); ok && img != nil {
 		h.gen, h.rendered = g, renderImageBlocks(img, 2*avatarMenuPictureRows, avatarMenuPictureRows)
 		return h.rendered
 	}
