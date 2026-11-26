@@ -16,7 +16,7 @@ import (
 // each one's line offset. All of them, not a window: scrolling takes the
 // viewport's top and bottom for the loaded messages' ends.
 func (m Model) renderMessagesWithOffsets() (string, []int) {
-	cw := m.chatAreaWidth()
+	cw := m.messageAreaWidth()
 	if cw <= 10 {
 		return "", nil
 	}

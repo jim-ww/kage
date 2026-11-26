@@ -57,7 +57,7 @@ func (m *Model) refreshViewportSelectionMulti(indices ...int) {
 		return
 	}
 
-	cw := m.chatAreaWidth()
+	cw := m.messageAreaWidth()
 	if cw <= 10 {
 		m.refreshViewport()
 		return

@@ -14,7 +14,7 @@ func TestViewportFramePresizedMatchesSizedRender(t *testing.T) {
 	m := newMouseSweepBenchModel(30, 150)
 	_ = m.View() // lay out the viewport so its width/height are real
 
-	width := m.chatAreaWidth()
+	width := m.messageAreaWidth()
 	height := m.height - m.inputAreaHeight() - chatStatusHeight
 	if m.viewport.Width() != width || m.viewport.Height() != height {
 		t.Fatalf("viewport %dx%d does not match frame %dx%d — the fast path's precondition no longer holds",
@@ -50,7 +50,7 @@ func TestViewportFrameFallsBackWhenSizeMismatch(t *testing.T) {
 	_ = m.View()
 
 	content := m.viewport.View()
-	narrower := m.chatAreaWidth() - 5
+	narrower := m.messageAreaWidth() - 5
 	got := m.renderViewportFrame(viewportFrameCacheEntry{
 		width:   narrower,
 		height:  m.viewport.Height(),

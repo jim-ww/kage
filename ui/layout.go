@@ -52,7 +52,6 @@ func (m *Model) updateSizes() {
 		m.input.MaxHeight = inputMaxHeight
 	}
 
-	cw := m.chatAreaWidth()
 	m.input.SetWidth(m.inputFieldWidth())
 	ih := m.inputAreaHeight()
 
@@ -63,7 +62,7 @@ func (m *Model) updateSizes() {
 	// growing compose box would otherwise hide the newest line, and the
 	// viewport no longer at the bottom stops following new messages.
 	atBottom := m.viewport.TotalLineCount() > 0 && m.viewport.AtBottom()
-	m.viewport.SetWidth(cw)
+	m.viewport.SetWidth(m.messageAreaWidth())
 	m.viewport.SetHeight(max(0, m.height-ih-chatStatusHeight))
 	if atBottom {
 		m.viewport.GotoBottom()

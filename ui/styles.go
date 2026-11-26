@@ -48,6 +48,7 @@ type uiStyles struct {
 	plainText             lipgloss.Style
 	notice                lipgloss.Style
 	viewportArea          lipgloss.Style
+	scrollbarThumb        lipgloss.Style
 	root                  lipgloss.Style
 	popup                 lipgloss.Style
 	popupDanger           lipgloss.Style
@@ -125,6 +126,8 @@ func newUIStyles(theme Theme) *uiStyles {
 			Bold(true),
 		viewportArea: lipgloss.NewStyle().
 			Foreground(colors.themFg),
+		scrollbarThumb: lipgloss.NewStyle().
+			Foreground(colors.textMuted),
 		root: lipgloss.NewStyle().
 			Foreground(colors.themFg),
 		popup: lipgloss.NewStyle().

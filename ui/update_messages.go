@@ -37,6 +37,7 @@ func (m *Model) appendAndTrim(accountIdx, chatIdx int, newMsgs ...Message) {
 			m.accounts[accountIdx].HistoryMore = make(map[int]bool)
 		}
 		m.accounts[accountIdx].HistoryMore[chatIdx] = true
+		m.countUnloaded(accountIdx, chatIdx, drop, 0)
 	}
 	m.accounts[accountIdx].Messages[chatIdx] = trimmed
 	if isOpenChat {
@@ -60,9 +61,11 @@ func (m *Model) placeAndTrim(accountIdx, chatIdx int, newMsgs ...Message) (newes
 		at := msg.SentAt.Unix()
 		if len(msgs) > 0 {
 			if acct.HistoryMore[chatIdx] && at < msgs[0].SentAt.Unix() {
+				m.countUnloaded(accountIdx, chatIdx, 1, 0)
 				continue
 			}
 			if acct.HistoryNewer[chatIdx] && at >= msgs[len(msgs)-1].SentAt.Unix() {
+				m.countUnloaded(accountIdx, chatIdx, 0, 1)
 				continue
 			}
 		}
@@ -562,6 +565,13 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			newMessages = mergeLiveTail(newMessages, m.accounts[msg.AccountIdx].Messages[chatIdx])
 		}
 		m.accounts[msg.AccountIdx].Messages[chatIdx] = newMessages
+		if chat, ok := m.accounts[msg.AccountIdx].Chats[chatIdx].(Chat); ok {
+			chat.HistoryBefore, chat.HistoryAfter = msg.Older, 0
+			if msg.HasNewer {
+				chat.HistoryAfter = max(0, msg.Total-msg.Older-len(msg.Messages))
+			}
+			m.accounts[msg.AccountIdx].Chats[chatIdx] = chat
+		}
 		if msg.AccountIdx == m.currentAccount && chatIdx == m.currentChatIndex() {
 			// The selection stays on its message, by ID; else the last one.
 			if idx := messageIndexByID(newMessages, anchorID); idx >= 0 {

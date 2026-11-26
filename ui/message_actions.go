@@ -622,9 +622,9 @@ func (m Model) messageCollapsible(idx int) (expanded, ok bool) {
 	nameWidth := maxSenderNameWidth(msgs)
 	probe := m
 	probe.expandedMsgs = map[string]bool{key: true}
-	full := strings.Count(probe.renderMessage(msgs[idx], idx, m.chatAreaWidth(), msgs, nameWidth), "\n")
+	full := strings.Count(probe.renderMessage(msgs[idx], idx, m.messageAreaWidth(), msgs, nameWidth), "\n")
 	probe.expandedMsgs = map[string]bool{}
-	short := strings.Count(probe.renderMessage(msgs[idx], idx, m.chatAreaWidth(), msgs, nameWidth), "\n")
+	short := strings.Count(probe.renderMessage(msgs[idx], idx, m.messageAreaWidth(), msgs, nameWidth), "\n")
 	return m.expandedMsgs[key], full != short
 }
 

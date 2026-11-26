@@ -144,6 +144,21 @@ func (m *Model) setChatLastMessage(accountIdx, chatIdx int, content string) tea.
 	return m.sortChatsByActivity(accountIdx)
 }
 
+// countUnloaded adds to a chat's counts of stored messages before and after
+// the loaded ones (Chat.HistoryBefore/HistoryAfter).
+func (m *Model) countUnloaded(accountIdx, chatIdx, before, after int) {
+	if accountIdx < 0 || accountIdx >= len(m.accounts) || chatIdx < 0 || chatIdx >= len(m.accounts[accountIdx].Chats) {
+		return
+	}
+	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
+	if !ok {
+		return
+	}
+	chat.HistoryBefore = max(0, chat.HistoryBefore+before)
+	chat.HistoryAfter = max(0, chat.HistoryAfter+after)
+	m.accounts[accountIdx].Chats[chatIdx] = chat
+}
+
 // setChatUnread updates the chat list's unread count for the chat at
 // chatIdx and, if that chat's account is currently displayed, refreshes the
 // visible list item.
