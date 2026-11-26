@@ -5,8 +5,11 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jim-ww/kage/ui/zone"
 )
 
 // withUnloaded sets the open chat's counts of unloaded history.
@@ -186,5 +189,61 @@ func TestScrollbarDisabled(t *testing.T) {
 	}
 	if got := ansi.StringWidth(strings.Split(m.renderChatArea(m.styles.colors), "\n")[1]); got != m.chatAreaWidth() {
 		t.Errorf("chat area row %d wide, want %d", got, m.chatAreaWidth())
+	}
+}
+
+// chatListScrollbarModel has n chats, rendered so the chat list's
+// scrollbar zone is known.
+func chatListScrollbarModel(t *testing.T, n int) (Model, zone.ZoneInfo) {
+	t.Helper()
+	m := newTestModelWithSender(nil, nil)
+	chats := make([]list.Item, n)
+	msgs := map[int][]Message{}
+	for i := range chats {
+		chats[i] = Chat{Name: fmt.Sprint("chat", i), Address: fmt.Sprint("c", i, "@example.test")}
+	}
+	m.accounts = []Account{{Chats: chats, Messages: msgs}}
+	if cmd := m.chats.SetItems(chats); cmd != nil {
+		_ = cmd()
+	}
+	m.width, m.termHeight = 80, 20
+	m.updateSizes()
+	m.selectedView = viewChats
+	_ = m.View()
+	return m, *m.zone.Get(zoneChatListScrollbar)
+}
+
+func TestChatListScrollbarShowsPage(t *testing.T) {
+	m, z := chatListScrollbarModel(t, 3)
+	if _, _, ok := m.chatListThumb(z.EndY - z.StartY + 1); ok {
+		t.Error("thumb shown for chats that fit on one page")
+	}
+	m, z = chatListScrollbarModel(t, 40)
+	h := z.EndY - z.StartY + 1
+	if start, _, ok := m.chatListThumb(h); !ok || start != 0 {
+		t.Fatalf("first page: thumb at %d (shown %t), want at the top", start, ok)
+	}
+	if strings.Contains(ansi.Strip(m.chats.View()), "•") {
+		t.Error("pagination dots shown beside the scrollbar")
+	}
+}
+
+func TestChatListScrollbarDragPages(t *testing.T) {
+	m, z := chatListScrollbarModel(t, 40)
+	m = updated(t, m, tea.MouseClickMsg{X: z.StartX, Y: z.EndY, Button: tea.MouseLeft})
+	if !m.chatListDrag {
+		t.Fatal("click on the scrollbar didn't grab it")
+	}
+	last := m.chats.Paginator.TotalPages - 1
+	if m.chats.Paginator.Page != last {
+		t.Errorf("clicked the bottom: page %d, want %d", m.chats.Paginator.Page, last)
+	}
+	m = updated(t, m, tea.MouseMotionMsg{X: z.StartX, Y: z.StartY, Button: tea.MouseLeft})
+	if m.chats.Paginator.Page != 0 {
+		t.Errorf("dragged to the top: page %d, want 0", m.chats.Paginator.Page)
+	}
+	m = updated(t, m, tea.MouseReleaseMsg{X: z.StartX, Y: z.StartY, Button: tea.MouseLeft})
+	if m.chatListDrag {
+		t.Error("drag still on after release")
 	}
 }

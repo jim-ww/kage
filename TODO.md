@@ -15,7 +15,6 @@
 - lags on big window scale
 
 ## UX
-- add scrollbar for chat list too?
 
 ## Refactor
 - ui/zone replaced bubblezone (linear Scan, synchronous zones): maybe publish it as a bubblezone fork / upstream PR

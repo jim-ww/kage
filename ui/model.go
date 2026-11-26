@@ -78,6 +78,9 @@ type Model struct {
 	// scrollDrag is set while the messages' scrollbar is dragged.
 	scrollDrag *scrollDrag
 
+	// chatListDrag is set while the chat list's scrollbar is dragged.
+	chatListDrag bool
+
 	// pendingScrollJump is the chat a scrollbar drag is loading history of.
 	pendingScrollJump *scrollJump
 
@@ -249,7 +252,8 @@ type DisplayOptions struct {
 	// HoverSelectDisabled stops hovering a message from selecting it; a
 	// click still does. Named the same way: hover selects by default.
 	HoverSelectDisabled bool
-	// ScrollbarDisabled hides the scrollbar beside the messages.
+	// ScrollbarDisabled hides the scrollbars beside the messages and the
+	// chat list.
 	ScrollbarDisabled bool
 	// Autofocus is whose new messages get selected and scrolled to.
 	Autofocus Autofocus
@@ -279,6 +283,8 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon 
 	// The list would quit the program on esc/q; KeyMap handles those.
 	l.DisableQuitKeybindings()
 	l.InfiniteScrolling = true
+	// The scrollbar shows the page instead.
+	l.SetShowPagination(display.ScrollbarDisabled)
 	applyChatListStyles(&l, styles.colors)
 
 	ti := textarea.New()

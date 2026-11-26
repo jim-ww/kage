@@ -239,3 +239,74 @@ func (m *Model) landScrollJump(msgs []Message, anchorStoreID int64) {
 		}
 	}
 }
+
+// chatListThumb is the rows [start, end) of a height-row track the chat
+// list's thumb covers: the page shown among its pages. ok is false with a
+// single page.
+func (m Model) chatListThumb(height int) (start, end int, ok bool) {
+	pages := m.chats.Paginator.TotalPages
+	if m.scrollbarDisabled || height <= 0 || pages <= 1 {
+		return 0, 0, false
+	}
+	page := m.chats.Paginator.Page
+	start = clamp(page*height/pages, 0, height-1)
+	end = clamp(((page+1)*height+pages-1)/pages, start+1, height)
+	return start, end, true
+}
+
+// withChatListScrollbar lays the chat list's scrollbar right of its
+// rendered rows, padded to the list's size.
+func (m Model) withChatListScrollbar(body string) string {
+	width, height := m.chats.Width(), m.chats.Height()
+	lines := strings.Split(body, "\n")
+	start, end, ok := m.chatListThumb(height)
+	thumb := m.styles.scrollbarThumb.Render("┃")
+	bar := make([]string, height)
+	var b strings.Builder
+	for i := range height {
+		bar[i] = " "
+		if ok && i >= start && i < end {
+			bar[i] = thumb
+		}
+		line := ""
+		if i < len(lines) {
+			line = lines[i]
+		}
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line)
+		b.WriteString(strings.Repeat(" ", max(0, width-lineWidth(line))))
+	}
+	return joinHorizontal(b.String(), m.zone.Mark(zoneChatListScrollbar, strings.Join(bar, "\n")))
+}
+
+// onChatListScrollbar reports whether mouse is on the chat list's
+// scrollbar.
+func (m Model) onChatListScrollbar(mouse tea.MouseMsg) bool {
+	z := m.zone.Get(zoneChatListScrollbar)
+	if z.IsZero() || m.modals.Open() {
+		return false
+	}
+	if _, _, ok := m.chatListThumb(z.EndY - z.StartY + 1); !ok {
+		return false
+	}
+	return z.InBounds(mouse)
+}
+
+// dragChatListScrollbar shows the chat list's page under screen row y,
+// the cursor kept on the same row of the page.
+func (m *Model) dragChatListScrollbar(y int) {
+	z := m.zone.Get(zoneChatListScrollbar)
+	pages := m.chats.Paginator.TotalPages
+	if z.IsZero() || pages <= 1 {
+		return
+	}
+	height := z.EndY - z.StartY + 1
+	page := clamp((y-z.StartY)*pages/height, 0, pages-1)
+	if page == m.chats.Paginator.Page {
+		return
+	}
+	n := len(m.chats.VisibleItems())
+	m.selectChatItem(clamp(page*m.chats.Paginator.PerPage+m.chats.Cursor(), 0, n-1))
+}

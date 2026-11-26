@@ -90,12 +90,16 @@ func (m Model) render() tea.View {
 	case len(m.chats.Items()) == 0 && m.currentAccountConnecting():
 		sidebarBody = m.styles.accountNormal.Render("connecting...")
 	}
+	sidebarList := sidebarBody
+	if m.selectedView != viewAccounts && !m.scrollbarDisabled {
+		sidebarList = m.withChatListScrollbar(sidebarBody)
+	}
 	sidebar := ""
 	if sw > 0 {
 		innerHeight := max(0, m.height-sidebarStatusHeight)
 		sidebar = m.zone.Mark(zonePaneSidebar, m.renderSidebar(sidebarCacheEntry{
 			statusLine: statusLine,
-			body:       sidebarBody,
+			body:       sidebarList,
 			width:      scw,
 			height:     innerHeight,
 			boxWidth:   sw,

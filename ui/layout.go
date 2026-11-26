@@ -56,7 +56,7 @@ func (m *Model) updateSizes() {
 	ih := m.inputAreaHeight()
 
 	m.chats.SetHeight(max(0, m.height-sidebarStatusHeight))
-	m.chats.SetWidth(m.sidebarContentWidth())
+	m.chats.SetWidth(max(0, m.sidebarContentWidth()-m.scrollbarWidth()))
 
 	// Kept at the bottom if it was: a row taken by the reply hint or a
 	// growing compose box would otherwise hide the newest line, and the

@@ -17,6 +17,7 @@ import (
 const (
 	zonePaneSidebar           = "pane-sidebar"
 	zonePaneViewport          = "pane-viewport"
+	zoneChatListScrollbar     = "chat-list-scrollbar"
 	zonePaneInput             = "pane-input"
 	zoneInputTextarea         = "input-textarea"
 	zoneAccountBarName        = "account-bar-name"
@@ -220,6 +221,10 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.scrollDrag != nil {
 		return m, m.dragScrollbar(msg.Mouse().Y)
+	}
+	if m.chatListDrag {
+		m.dragChatListScrollbar(msg.Mouse().Y)
+		return m, nil
 	}
 	if m.resizingInput {
 		if z := m.zone.Get(zonePaneInput); !z.IsZero() {
@@ -437,6 +442,11 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if m.onScrollbar(msg) {
 			return m, m.dragScrollbar(msg.Mouse().Y)
 		}
+		if m.onChatListScrollbar(msg) {
+			m.chatListDrag = true
+			m.dragChatListScrollbar(msg.Mouse().Y)
+			return m, nil
+		}
 		if m.onInputBorder(msg) {
 			m.resizingInput = true
 			return m, nil
@@ -509,6 +519,8 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 	switch {
 	case m.scrollDrag != nil:
 		return m, m.endScrollDrag()
+	case m.chatListDrag:
+		m.chatListDrag = false
 	case m.resizingSidebar:
 		m.resizingSidebar = false
 		if err := m.daemon.SaveState(SidebarWidth(m.sidebarWidth())); err != nil {
