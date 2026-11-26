@@ -252,7 +252,7 @@ type DisplayOptions struct {
 	// AvatarsDisabled hides the sidebar's avatar panel; negative so the zero
 	// value is the default.
 	AvatarsDisabled bool
-	// MediaPreviewsDisabled stops drawing image attachments' pictures in
+	// MediaPreviewsDisabled stops drawing image and video attachments in
 	// the chat.
 	MediaPreviewsDisabled bool
 	// AutoUnhideDisabled keeps a hidden chat hidden when a message arrives.

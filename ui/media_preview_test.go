@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,5 +137,42 @@ func TestMediaPreviewUndecodable(t *testing.T) {
 	m.refreshViewport()
 	if takeMediaThumbRequests() != nil {
 		t.Fatal("failed decode retried on render")
+	}
+}
+
+// TestMediaPreviewVideoFrame: a cached video's preview is a frame ffmpeg
+// pulls from it, at the video's aspect ratio - including one too short to
+// seek a second into.
+func TestMediaPreviewVideoFrame(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skipf("no ffmpeg: %v", err)
+	}
+	for _, duration := range []string{"2", "0.2"} {
+		t.Run(duration+"s", func(t *testing.T) {
+			withMediaCache(t)
+			const url = "https://upload.example.test/clip.mp4"
+			path := attachmentLocalPath(url, "bob@example.test")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+				"-f", "lavfi", "-i", "testsrc=size=320x180:rate=10:duration="+duration,
+				"-pix_fmt", "yuv420p", path).CombinedOutput()
+			if err != nil {
+				t.Skipf("ffmpeg can't make a test clip: %v: %s", err, out)
+			}
+			m := newTestModelWithMessages([]Message{{ID: "a", Content: url, Attachments: []string{url}}}, &stubDaemon{})
+			msg := takeMediaThumbRequests()().(mediaThumbMsg)
+			if msg.thumb.failed {
+				t.Fatal("no frame from the video")
+			}
+			if msg.thumb.width*9 != msg.thumb.height*16 {
+				t.Fatalf("frame is %d×%d, not the video's 16:9", msg.thumb.width, msg.thumb.height)
+			}
+			next, _ := m.Update(msg)
+			if !strings.Contains(strings.Join(next.(Model).viewportLines, "\n"), upperHalfBlock) {
+				t.Fatal("video preview not drawn")
+			}
+		})
 	}
 }

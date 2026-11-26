@@ -1,20 +1,27 @@
 package ui
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"image"
 	_ "image/gif"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
 
-// Media previews: a message's image attachment drawn under its name in the
-// same half-block cells as avatars (renderImageBlocks).
+// Media previews: a message's image or video attachment drawn under its
+// name in the same half-block cells as avatars (renderImageBlocks). PNG,
+// JPEG and GIF are decoded in process; a video's frame, and the image
+// formats the standard library can't read, come from ffmpeg (already on
+// PATH for calls), and without it those just get no preview.
 //
 // Only an attachment already in the local cache (attachmentLocalPath) is
 // previewed - an own upload, or one opened or saved - never fetched for it:
@@ -70,13 +77,26 @@ type mediaBlockKey struct {
 // mediaBlockCacheLimit caps mediaBlockCache; past it it's cleared.
 const mediaBlockCacheLimit = 256
 
-// isPreviewableImage reports whether name is an image a preview can decode.
-func isPreviewableImage(name string) bool {
+// mediaKind is how a file's preview is made.
+type mediaKind int
+
+const (
+	mediaNone   mediaKind = iota
+	mediaImage            // decoded in process
+	mediaFFmpeg           // an image format the standard library lacks
+	mediaVideo            // one frame, through ffmpeg
+)
+
+func previewKind(name string) mediaKind {
 	switch strings.ToLower(filepath.Ext(name)) {
 	case ".png", ".jpg", ".jpeg", ".gif":
-		return true
+		return mediaImage
+	case ".webp", ".bmp":
+		return mediaFFmpeg
+	case ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v":
+		return mediaVideo
 	}
-	return false
+	return mediaNone
 }
 
 // lookupMediaThumb returns path's preview, queueing it for decoding when it
@@ -125,7 +145,18 @@ func decodeMediaThumbCmd(path string) tea.Cmd {
 	return func() tea.Msg {
 		mediaDecodeSlots <- struct{}{}
 		defer func() { <-mediaDecodeSlots }()
-		thumb, err := decodeMediaThumb(path)
+		var thumb mediaThumb
+		var err error
+		switch previewKind(path) {
+		case mediaImage:
+			thumb, err = decodeMediaThumb(path)
+		case mediaFFmpeg:
+			thumb, err = ffmpegThumb(path, false)
+		case mediaVideo:
+			thumb, err = ffmpegThumb(path, true)
+		default:
+			err = fmt.Errorf("no preview for %s", filepath.Ext(path))
+		}
 		if err != nil {
 			return mediaThumbMsg{path: path, thumb: mediaThumb{failed: true}}
 		}
@@ -158,6 +189,50 @@ func decodeMediaThumb(path string) (mediaThumb, error) {
 	return mediaThumb{img: downscale(img, mediaThumbEdge), width: cfg.Width, height: cfg.Height}, nil
 }
 
+// ffmpegTimeout bounds one ffmpeg run: a file that takes longer isn't
+// worth the wait for a thumbnail.
+const ffmpegTimeout = 10 * time.Second
+
+// ffmpegThumb has ffmpeg decode path to one PNG frame, already downscaled.
+// A video's is taken a second in, past a fade from black, or its first
+// frame when it's shorter than that.
+func ffmpegThumb(path string, video bool) (mediaThumb, error) {
+	frame := func(seek bool) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), ffmpegTimeout)
+		defer cancel()
+		args := []string{"-hide_banner", "-loglevel", "error", "-nostdin"}
+		if seek {
+			args = append(args, "-ss", "1")
+		}
+		args = append(args, "-i", path, "-frames:v", "1",
+			"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", mediaThumbEdge*2),
+			"-f", "image2pipe", "-c:v", "png", "-")
+		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Run(); err != nil {
+			return nil, err
+		}
+		return out.Bytes(), nil
+	}
+	data, err := frame(video)
+	if video && (err != nil || len(data) == 0) {
+		data, err = frame(false)
+	}
+	if err != nil {
+		return mediaThumb{}, err
+	}
+	if len(data) == 0 {
+		return mediaThumb{}, fmt.Errorf("ffmpeg gave no frame for %s", filepath.Base(path))
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return mediaThumb{}, err
+	}
+	b := img.Bounds()
+	return mediaThumb{img: downscale(img, mediaThumbEdge), width: b.Dx(), height: b.Dy()}, nil
+}
+
 // applyMediaThumb stores a finished decode; true when it's a picture the
 // chat should be redrawn for.
 func applyMediaThumb(msg mediaThumbMsg) bool {
@@ -181,10 +256,10 @@ func retryFailedMediaThumbs() {
 }
 
 // renderMediaPreview is target's preview at most maxCols wide, "" when
-// there's none (yet): previews off, not an image, not cached, still
-// decoding, or not decodable.
+// there's none (yet): previews off, not an image or video, not cached,
+// still decoding, or not decodable.
 func renderMediaPreview(target, jid string, maxCols int) string {
-	if !mediaPreviewsOn.Load() || !isPreviewableImage(attachmentDisplayName(target)) {
+	if !mediaPreviewsOn.Load() || previewKind(attachmentDisplayName(target)) == mediaNone {
 		return ""
 	}
 	path := attachmentLocalPath(target, jid)
