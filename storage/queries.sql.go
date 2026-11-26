@@ -100,6 +100,71 @@ func (q *Queries) CorrectionAppliedByIDAttr(ctx context.Context, arg CorrectionA
 	return exists, err
 }
 
+const countMessagesByRosterAfter = `-- name: CountMessagesByRosterAfter :one
+SELECT COUNT(*)
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND (
+		delay > ?3
+		OR (delay = ?3 AND id > ?4)
+	)
+`
+
+type CountMessagesByRosterAfterParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+	AfterDelay int64          `db:"after_delay"`
+	AfterID    int64          `db:"after_id"`
+}
+
+// CountMessagesByRosterAfter is its mirror: messages strictly newer than
+// the (after_delay, after_id) cursor.
+func (q *Queries) CountMessagesByRosterAfter(ctx context.Context, arg CountMessagesByRosterAfterParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countMessagesByRosterAfter,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.AfterDelay,
+		arg.AfterID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countMessagesByRosterBefore = `-- name: CountMessagesByRosterBefore :one
+SELECT COUNT(*)
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND (
+		delay < ?3
+		OR (delay = ?3 AND id < ?4)
+	)
+`
+
+type CountMessagesByRosterBeforeParams struct {
+	AccountJid  string         `db:"account_jid"`
+	RosterJid   sql.NullString `db:"roster_jid"`
+	BeforeDelay int64          `db:"before_delay"`
+	BeforeID    int64          `db:"before_id"`
+}
+
+// CountMessagesByRosterBefore counts a chat's messages strictly older than
+// the (before_delay, before_id) cursor, ordered as ListMessagesByRosterBefore
+// pages them: how much history lies before a loaded window.
+func (q *Queries) CountMessagesByRosterBefore(ctx context.Context, arg CountMessagesByRosterBeforeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countMessagesByRosterBefore,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.BeforeDelay,
+		arg.BeforeID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countOmemoPreKeys = `-- name: CountOmemoPreKeys :one
 SELECT count(*)
 FROM omemoPreKey

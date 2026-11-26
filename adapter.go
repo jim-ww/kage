@@ -258,8 +258,14 @@ func (a *adapter) LoadHistoryWindow(accountIdx int, to string, anchor *ui.Histor
 	if err != nil {
 		return ui.HistoryWindowMsg{}, err
 	}
-	msgs, hasOlder, hasNewer := loadHistoryWindow(context.Background(), sess, to, sess.rosterName(to), anchor, historyPageSize)
-	return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasOlder: hasOlder, HasNewer: hasNewer}, nil
+	ctx := context.Background()
+	msgs, hasOlder, hasNewer := loadHistoryWindow(ctx, sess, to, sess.rosterName(to), anchor, historyPageSize)
+	var first *ui.Message
+	if len(msgs) > 0 {
+		first = &msgs[0]
+	}
+	total, older := countHistory(ctx, sess, to, first)
+	return ui.HistoryWindowMsg{AccountIdx: accountIdx, From: to, Messages: msgs, HasOlder: hasOlder, HasNewer: hasNewer, Older: older, Total: total}, nil
 }
 
 // SearchHistory finds the messages of to's whole history containing query,

@@ -1805,6 +1805,7 @@ func (s *accountSession) newChat(ctx context.Context, peer, name string, pending
 		Muted:          mutedChats.has(s.account.JID, peer),
 	}
 	if len(hist) > 0 {
+		_, chat.HistoryBefore = countHistory(ctx, s, peer, &hist[0])
 		chat.LastMessage = ui.MessagePreviewContent(hist[len(hist)-1])
 		chat.LastActivity = hist[len(hist)-1].SentAt
 	}

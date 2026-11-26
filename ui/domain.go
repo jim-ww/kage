@@ -259,6 +259,11 @@ type Chat struct {
 	// Unread counts messages that arrived while nobody looked at the chat.
 	Unread int
 
+	// HistoryBefore and HistoryAfter count the stored messages older and
+	// newer than the loaded ones, for placing them in the whole history
+	// (the scrollbar).
+	HistoryBefore, HistoryAfter int
+
 	// Hidden marks a chat hidden from the list, locally: nothing else
 	// changes. The TUI keeps hidden chats aside (see Model.hiddenChats).
 	Hidden bool

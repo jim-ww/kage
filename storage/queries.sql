@@ -293,6 +293,32 @@ ORDER BY delay ASC, id ASC
 LIMIT sqlc.arg(page_limit);
 
 
+-- CountMessagesByRosterBefore counts a chat's messages strictly older than
+-- the (before_delay, before_id) cursor, ordered as ListMessagesByRosterBefore
+-- pages them: how much history lies before a loaded window.
+-- name: CountMessagesByRosterBefore :one
+SELECT COUNT(*)
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND (
+		delay < sqlc.arg(before_delay)
+		OR (delay = sqlc.arg(before_delay) AND id < sqlc.arg(before_id))
+	);
+
+-- CountMessagesByRosterAfter is its mirror: messages strictly newer than
+-- the (after_delay, after_id) cursor.
+-- name: CountMessagesByRosterAfter :one
+SELECT COUNT(*)
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND (
+		delay > sqlc.arg(after_delay)
+		OR (delay = sqlc.arg(after_delay) AND id > sqlc.arg(after_id))
+	);
+
+
 -- ListMessageQuarterHours returns the distinct 15-minute slots (delay/900)
 -- a chat has messages in: coarse enough to stay small, fine enough that
 -- the TUI can bucket them into local days under any UTC offset.

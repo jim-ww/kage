@@ -180,6 +180,31 @@ var historyPageSize = 200
 // that half come back full) rather than an extra existence check — normal
 // keyset-pagination practice, worst case a later fetch just comes back
 // empty.
+// countHistory is how many messages storage holds for chatAddr, and how
+// many of them are older than first (none without one).
+func countHistory(ctx context.Context, s *accountSession, chatAddr string, first *ui.Message) (total, older int) {
+	n, err := s.db.CountMessagesByRosterBefore(ctx, storage.CountMessagesByRosterBeforeParams{
+		AccountJid: s.account.JID, RosterJid: nullString(chatAddr),
+		BeforeDelay: math.MaxInt64, BeforeID: math.MaxInt64,
+	})
+	if err != nil {
+		slog.Warn("counting history", "chat", chatAddr, "err", err)
+		return 0, 0
+	}
+	if first == nil || first.StoreID == 0 {
+		return int(n), 0
+	}
+	o, err := s.db.CountMessagesByRosterBefore(ctx, storage.CountMessagesByRosterBeforeParams{
+		AccountJid: s.account.JID, RosterJid: nullString(chatAddr),
+		BeforeDelay: first.SentAt.Unix(), BeforeID: first.StoreID,
+	})
+	if err != nil {
+		slog.Warn("counting older history", "chat", chatAddr, "err", err)
+		return int(n), 0
+	}
+	return int(n), int(o)
+}
+
 func loadHistoryWindow(ctx context.Context, s *accountSession, chatAddr, chatName string, anchor *ui.HistoryAnchor, limit int) (msgs []ui.Message, hasOlder, hasNewer bool) {
 	if anchor == nil {
 		rows, err := s.db.ListMessagesByRosterBefore(ctx, storage.ListMessagesByRosterBeforeParams{

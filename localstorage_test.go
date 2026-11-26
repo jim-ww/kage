@@ -326,6 +326,16 @@ func TestLoadHistoryWindow(t *testing.T) {
 			t.Fatal("hasNewer = false, want true — m3/m4 exist beyond this window")
 		}
 	})
+
+	t.Run("counts the whole history and what is before the window", func(t *testing.T) {
+		got, _, _ := loadHistoryWindow(ctx, s, chatAddr, chatAddr, nil, 2)
+		if total, older := countHistory(ctx, s, chatAddr, &got[0]); total != 5 || older != 3 {
+			t.Fatalf("countHistory = %d, %d, want 5, 3", total, older)
+		}
+		if total, older := countHistory(ctx, s, chatAddr, nil); total != 5 || older != 0 {
+			t.Fatalf("countHistory without a window = %d, %d, want 5, 0", total, older)
+		}
+	})
 }
 
 // TestReadStoredBodyErrorsWithoutKey verifies that an encrypted row can't be

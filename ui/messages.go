@@ -34,6 +34,10 @@ type HistoryWindowMsg struct {
 	HasOlder   bool
 	HasNewer   bool
 
+	// Older counts the stored messages before the window, Total all of the
+	// chat's.
+	Older, Total int
+
 	// Err is set when the fetch failed, as opposed to an empty window, which
 	// would replace the loaded history with nothing.
 	Err error `json:"-"`
