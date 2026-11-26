@@ -243,6 +243,7 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		FilePickerSortAscending: cfg.State.FilePickerSortAscending,
 		AvatarsDisabled:         cfg.AvatarsDisabled,
 		MediaPreviewsDisabled:   cfg.MediaPreviewsDisabled,
+		MediaPreviewHeight:      cfg.MediaPreviewHeight,
 		AutoUnhideDisabled:      cfg.AutoUnhideDisabled,
 		HoverSelectDisabled:     cfg.HoverSelectDisabled,
 		ScrollbarDisabled:       cfg.ScrollbarDisabled,

@@ -35,18 +35,38 @@ func init() { mediaPreviewsOn.Store(true) }
 
 func setMediaPreviewsEnabled(on bool) { mediaPreviewsOn.Store(on) }
 
-// mediaPreviewMaxCols and mediaPreviewMaxRows bound a preview in the chat:
-// big enough to tell what the picture is, small enough that a chat of
-// photos stays a chat.
-const (
-	mediaPreviewMaxCols = 40
-	mediaPreviewMaxRows = 10
-)
+// DefaultMediaPreviewHeight is a preview's height cap in rows: big enough
+// to tell what the picture is, small enough that a chat of photos stays a
+// chat. Also its resolution, a cell being two pixels tall.
+const DefaultMediaPreviewHeight = 10
+
+var mediaPreviewRows atomic.Int32
+
+func init() { mediaPreviewRows.Store(DefaultMediaPreviewHeight) }
+
+// setMediaPreviewHeight applies DisplayOptions.MediaPreviewHeight; <= 0 is
+// the default.
+func setMediaPreviewHeight(rows int) {
+	if rows <= 0 {
+		rows = DefaultMediaPreviewHeight
+	}
+	mediaPreviewRows.Store(int32(rows))
+}
+
+// mediaPreviewMaxSize is the box a preview fits in: the configured height,
+// and four times that wide, a 2:1 picture's width at that height.
+func mediaPreviewMaxSize() (cols, rows int) {
+	rows = int(mediaPreviewRows.Load())
+	return 4 * rows, rows
+}
 
 // mediaThumbEdge is what a decoded image is downscaled to before it's
-// kept: mediaPreviewMaxCols wide and two pixels per row is all a preview
-// ever samples, with room to spare.
-const mediaThumbEdge = 96
+// kept: the widest preview, and twice its rows in pixels, is all one ever
+// samples.
+func mediaThumbEdge() int {
+	cols, rows := mediaPreviewMaxSize()
+	return max(cols, 2*rows)
+}
 
 // mediaThumb is one cached file's decoded preview, or that it has none.
 type mediaThumb struct {
@@ -186,7 +206,7 @@ func decodeMediaThumb(path string) (mediaThumb, error) {
 	if err != nil {
 		return mediaThumb{}, err
 	}
-	return mediaThumb{img: downscale(img, mediaThumbEdge), width: cfg.Width, height: cfg.Height}, nil
+	return mediaThumb{img: downscale(img, mediaThumbEdge()), width: cfg.Width, height: cfg.Height}, nil
 }
 
 // ffmpegTimeout bounds one ffmpeg run: a file that takes longer isn't
@@ -205,7 +225,7 @@ func ffmpegThumb(path string, video bool) (mediaThumb, error) {
 			args = append(args, "-ss", "1")
 		}
 		args = append(args, "-i", path, "-frames:v", "1",
-			"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", mediaThumbEdge*2),
+			"-vf", fmt.Sprintf("scale='min(%d,iw)':-1", mediaThumbEdge()*2),
 			"-f", "image2pipe", "-c:v", "png", "-")
 		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		var out bytes.Buffer
@@ -230,7 +250,7 @@ func ffmpegThumb(path string, video bool) (mediaThumb, error) {
 		return mediaThumb{}, err
 	}
 	b := img.Bounds()
-	return mediaThumb{img: downscale(img, mediaThumbEdge), width: b.Dx(), height: b.Dy()}, nil
+	return mediaThumb{img: downscale(img, mediaThumbEdge()), width: b.Dx(), height: b.Dy()}, nil
 }
 
 // applyMediaThumb stores a finished decode; true when it's a picture the
@@ -273,7 +293,8 @@ func renderMediaPreview(target, jid string, maxCols int) string {
 	if !ok || thumb.failed || thumb.img == nil {
 		return ""
 	}
-	cols, rows := avatarPreviewSize(thumb.width, thumb.height, min(maxCols, mediaPreviewMaxCols), mediaPreviewMaxRows)
+	boxCols, boxRows := mediaPreviewMaxSize()
+	cols, rows := avatarPreviewSize(thumb.width, thumb.height, min(maxCols, boxCols), boxRows)
 	if cols <= 0 {
 		return ""
 	}

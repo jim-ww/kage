@@ -76,6 +76,10 @@ type Config struct {
 	// the chat; on by default. Only already-downloaded attachments are
 	// ever previewed.
 	MediaPreviewsDisabled bool `toml:"media_previews_disabled,omitempty"`
+	// MediaPreviewHeight caps a preview's height in rows, which is also its
+	// resolution (two pixels per row); ui.DefaultMediaPreviewHeight when
+	// unset.
+	MediaPreviewHeight int `toml:"media_preview_height,omitempty"`
 	// HoverSelectDisabled stops hovering a message from selecting it, so
 	// only a click (or the keyboard) does; off (hover selects) by default.
 	HoverSelectDisabled bool `toml:"hover_select_disabled,omitempty"`
@@ -168,6 +172,7 @@ func defaultConfig() Config {
 		VideoQuality:          DefaultVideoQuality,
 		ScreenRecorder:        DefaultScreenRecorder,
 		DefaultEncryptionMode: DefaultEncryptionMode,
+		MediaPreviewHeight:    ui.DefaultMediaPreviewHeight,
 	}
 }
 

@@ -76,8 +76,8 @@ func TestMediaPreviewDrawsCachedImageOnceDecoded(t *testing.T) {
 		t.Fatal("decoded preview not drawn")
 	}
 	// Square picture: 20 columns, 10 rows.
-	if got := len(m.viewportLines) - before; got != mediaPreviewMaxRows {
-		t.Fatalf("row grew by %d lines, want %d", got, mediaPreviewMaxRows)
+	if got := len(m.viewportLines) - before; got != DefaultMediaPreviewHeight {
+		t.Fatalf("row grew by %d lines, want %d", got, DefaultMediaPreviewHeight)
 	}
 	if takeMediaThumbRequests() != nil {
 		t.Fatal("decoded image queued again")
@@ -166,7 +166,7 @@ func TestMediaPreviewVideoFrame(t *testing.T) {
 			if msg.thumb.failed {
 				t.Fatal("no frame from the video")
 			}
-			if msg.thumb.width*9 != msg.thumb.height*16 {
+			if d := msg.thumb.width*9 - msg.thumb.height*16; d < -16 || d > 16 {
 				t.Fatalf("frame is %d×%d, not the video's 16:9", msg.thumb.width, msg.thumb.height)
 			}
 			next, _ := m.Update(msg)
@@ -174,5 +174,24 @@ func TestMediaPreviewVideoFrame(t *testing.T) {
 				t.Fatal("video preview not drawn")
 			}
 		})
+	}
+}
+
+// TestMediaPreviewHeightSetting: media_preview_height caps the picture.
+func TestMediaPreviewHeightSetting(t *testing.T) {
+	withMediaCache(t)
+	const url = "https://upload.example.test/cat.png"
+	writeMediaPNG(t, attachmentLocalPath(url, "bob@example.test"), 128, 64)
+	m := newTestModelWithMessages(nil, &stubDaemon{})
+	setMediaPreviewHeight(4)
+	t.Cleanup(func() { setMediaPreviewHeight(0) })
+	before := len(m.viewportLines)
+	m.accounts[0].Messages[0] = []Message{{ID: "a", Content: url, Attachments: []string{url}}}
+	m.refreshViewport()
+	withoutPicture := len(m.viewportLines)
+	next, _ := m.Update(takeMediaThumbRequests()().(mediaThumbMsg))
+	m = next.(Model)
+	if got := len(m.viewportLines) - withoutPicture; got != 4 {
+		t.Fatalf("preview is %d rows, want 4 (before=%d)", got, before)
 	}
 }

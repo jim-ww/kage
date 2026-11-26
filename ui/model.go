@@ -255,6 +255,9 @@ type DisplayOptions struct {
 	// MediaPreviewsDisabled stops drawing image and video attachments in
 	// the chat.
 	MediaPreviewsDisabled bool
+	// MediaPreviewHeight caps a preview's height in rows; <= 0 for
+	// DefaultMediaPreviewHeight.
+	MediaPreviewHeight int
 	// AutoUnhideDisabled keeps a hidden chat hidden when a message arrives.
 	AutoUnhideDisabled bool
 	// HoverSelectDisabled stops hovering a message from selecting it; a
@@ -272,6 +275,7 @@ type DisplayOptions struct {
 func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon Daemon, mouseEnabled bool, initialSidebarWidth int, initialSidebarHidden bool, openLastChatAddress string, initialInputHeight int, initialReactionEmojiUsage map[string]int, display DisplayOptions, initialCallState *CallStateMsg) Model {
 	setAvatarsEnabled(!display.AvatarsDisabled)
 	setMediaPreviewsEnabled(!display.MediaPreviewsDisabled)
+	setMediaPreviewHeight(display.MediaPreviewHeight)
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)
