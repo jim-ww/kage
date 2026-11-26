@@ -5,7 +5,7 @@ import (
 	"image"
 	"net/http"
 	"net/http/httptest"
-		"strings"
+	"strings"
 	"sync/atomic"
 	"testing"
 

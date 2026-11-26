@@ -36,9 +36,9 @@ func init() { mediaPreviewsOn.Store(true) }
 
 func setMediaPreviewsEnabled(on bool) { mediaPreviewsOn.Store(on) }
 
-// mediaPreviewNamesHidden drops an attachment's name line while its
-// preview is drawn; see DisplayOptions.MediaPreviewNamesHidden.
-var mediaPreviewNamesHidden atomic.Bool
+// mediaPreviewNamesShown keeps an attachment's name line while its preview
+// is drawn; see DisplayOptions.MediaPreviewNamesShown.
+var mediaPreviewNamesShown atomic.Bool
 
 // DefaultMediaPreviewHeight is a preview's height cap in rows: big enough
 // to tell what the picture is, small enough that a chat of photos stays a

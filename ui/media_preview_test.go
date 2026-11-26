@@ -198,16 +198,14 @@ func TestMediaPreviewHeightSetting(t *testing.T) {
 	}
 }
 
-// TestMediaPreviewNamesHidden: with media_preview_names_hidden a previewed
-// attachment is its picture alone, and one without a preview keeps its
-// name.
-func TestMediaPreviewNamesHidden(t *testing.T) {
+// TestMediaPreviewNames: by default a previewed attachment is its picture
+// alone, and one without a preview keeps its name;
+// media_preview_names_shown keeps both.
+func TestMediaPreviewNames(t *testing.T) {
 	withMediaCache(t)
 	const shown, missing = "https://upload.example.test/cat.png", "https://upload.example.test/dog.png"
 	writeMediaPNG(t, attachmentLocalPath(shown, "bob@example.test"), 32, 32)
 	m := newTestModelWithMessages(nil, &stubDaemon{})
-	mediaPreviewNamesHidden.Store(true) // what New does for MediaPreviewNamesHidden
-	t.Cleanup(func() { mediaPreviewNamesHidden.Store(false) })
 	m.accounts[0].Messages[0] = []Message{
 		{ID: "a", Content: shown, Attachments: []string{shown}},
 		{ID: "b", Content: missing, Attachments: []string{missing}},
@@ -223,5 +221,13 @@ func TestMediaPreviewNamesHidden(t *testing.T) {
 	}
 	if !strings.Contains(view, "dog.png") {
 		t.Fatalf("attachment without a preview lost its name:\n%s", view)
+	}
+
+	m = next.(Model)
+	mediaPreviewNamesShown.Store(true) // what New does for MediaPreviewNamesShown
+	t.Cleanup(func() { mediaPreviewNamesShown.Store(false) })
+	m.refreshViewport()
+	if view := ansi.Strip(strings.Join(m.viewportLines, "\n")); !strings.Contains(view, "cat.png") || !strings.Contains(view, upperHalfBlock) {
+		t.Fatalf("media_preview_names_shown lost the name or the picture:\n%s", view)
 	}
 }
