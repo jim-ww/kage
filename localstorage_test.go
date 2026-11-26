@@ -336,6 +336,16 @@ func TestLoadHistoryWindow(t *testing.T) {
 			t.Fatalf("countHistory without a window = %d, %d, want 5, 0", total, older)
 		}
 	})
+
+	t.Run("anchor by index resolves to that message", func(t *testing.T) {
+		got := resolveIndexAnchor(ctx, s, chatAddr, &ui.HistoryAnchor{Index: 2})
+		if got == nil || got.StoreID != msgs[2].StoreID {
+			t.Fatalf("anchor %+v, want m2's row %d", got, msgs[2].StoreID)
+		}
+		if got := resolveIndexAnchor(ctx, s, chatAddr, &ui.HistoryAnchor{Index: 99}); got != nil {
+			t.Fatalf("anchor past the end %+v, want nil", got)
+		}
+	})
 }
 
 // TestReadStoredBodyErrorsWithoutKey verifies that an encrypted row can't be

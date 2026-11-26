@@ -18,10 +18,12 @@ var ErrQueued = errors.New("account offline; message queued for delivery")
 const uploadCanceledMsg = "upload canceled"
 
 // HistoryAnchor is the message a Daemon.LoadHistoryWindow window is loaded
-// around: its SentAt.Unix() and StoreID.
+// around: its SentAt.Unix() and StoreID, or with no StoreID the Index-th of
+// the chat's stored messages, oldest first.
 type HistoryAnchor struct {
 	Delay   int64
 	StoreID int64
+	Index   int
 }
 
 // HistoryWindowMsg reports Daemon.LoadHistoryWindow's result: Messages,
@@ -37,6 +39,10 @@ type HistoryWindowMsg struct {
 	// Older counts the stored messages before the window, Total all of the
 	// chat's.
 	Older, Total int
+
+	// AnchorStoreID is the StoreID of the message the window was loaded
+	// around, 0 for the newest window.
+	AnchorStoreID int64
 
 	// Err is set when the fetch failed, as opposed to an empty window, which
 	// would replace the loaded history with nothing.

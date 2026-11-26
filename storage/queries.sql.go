@@ -593,6 +593,35 @@ func (q *Queries) GetLocalKeySalt(ctx context.Context) ([]byte, error) {
 	return salt, err
 }
 
+const getMessageCursorByRosterIndex = `-- name: GetMessageCursorByRosterIndex :one
+SELECT delay, id
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+ORDER BY delay ASC, id ASC
+LIMIT 1 OFFSET ?3
+`
+
+type GetMessageCursorByRosterIndexParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+	Idx        int64          `db:"idx"`
+}
+
+type GetMessageCursorByRosterIndexRow struct {
+	Delay int64 `db:"delay"`
+	ID    int64 `db:"id"`
+}
+
+// GetMessageCursorByRosterIndex is the (delay, id) of a chat's message at
+// position idx, oldest first, ordered as the window queries page them.
+func (q *Queries) GetMessageCursorByRosterIndex(ctx context.Context, arg GetMessageCursorByRosterIndexParams) (GetMessageCursorByRosterIndexRow, error) {
+	row := q.db.QueryRowContext(ctx, getMessageCursorByRosterIndex, arg.AccountJid, arg.RosterJid, arg.Idx)
+	var i GetMessageCursorByRosterIndexRow
+	err := row.Scan(&i.Delay, &i.ID)
+	return i, err
+}
+
 const getMessageDelayByArchiveID = `-- name: GetMessageDelayByArchiveID :one
 SELECT delay
 FROM messages

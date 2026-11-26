@@ -180,6 +180,29 @@ var historyPageSize = 200
 // that half come back full) rather than an extra existence check — normal
 // keyset-pagination practice, worst case a later fetch just comes back
 // empty.
+// resolveIndexAnchor turns an anchor by Index (one without a StoreID) into
+// that message's cursor; nil, the newest window, past the end.
+func resolveIndexAnchor(ctx context.Context, s *accountSession, chatAddr string, anchor *ui.HistoryAnchor) *ui.HistoryAnchor {
+	if anchor == nil || anchor.StoreID != 0 {
+		return anchor
+	}
+	cur, err := s.db.GetMessageCursorByRosterIndex(ctx, storage.GetMessageCursorByRosterIndexParams{
+		AccountJid: s.account.JID, RosterJid: nullString(chatAddr), Idx: int64(max(0, anchor.Index)),
+	})
+	if err != nil {
+		return nil
+	}
+	return &ui.HistoryAnchor{Delay: cur.Delay, StoreID: cur.ID}
+}
+
+// anchorStoreID is anchor's StoreID, 0 for none.
+func anchorStoreID(anchor *ui.HistoryAnchor) int64 {
+	if anchor == nil {
+		return 0
+	}
+	return anchor.StoreID
+}
+
 // countHistory is how many messages storage holds for chatAddr, and how
 // many of them are older than first (none without one).
 func countHistory(ctx context.Context, s *accountSession, chatAddr string, first *ui.Message) (total, older int) {

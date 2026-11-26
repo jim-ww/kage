@@ -319,6 +319,17 @@ WHERE accountJID = sqlc.arg(account_jid)
 	);
 
 
+-- GetMessageCursorByRosterIndex is the (delay, id) of a chat's message at
+-- position idx, oldest first, ordered as the window queries page them.
+-- name: GetMessageCursorByRosterIndex :one
+SELECT delay, id
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+ORDER BY delay ASC, id ASC
+LIMIT 1 OFFSET sqlc.arg(idx);
+
+
 -- ListMessageQuarterHours returns the distinct 15-minute slots (delay/900)
 -- a chat has messages in: coarse enough to stay small, fine enough that
 -- the TUI can bucket them into local days under any UTC offset.
