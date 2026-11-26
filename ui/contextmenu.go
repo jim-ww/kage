@@ -38,6 +38,8 @@ type contextMenuBody struct {
 	// while it's open (the call menu: a call ringing, connecting, ending).
 	// See refreshContextMenu.
 	refresh func(m *Model) (string, []contextMenuItem)
+	// call marks the call menu, see openCallMenu.
+	call bool
 	// header, when set, is drawn above the items - something the menu's
 	// actions are about (the avatar menu: the current avatar).
 	header interface{ View() string }

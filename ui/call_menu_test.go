@@ -320,3 +320,27 @@ func TestCallBarShowsWhatWeSend(t *testing.T) {
 		t.Fatalf("muted, camera bar:\n%s", bar)
 	}
 }
+
+// TestCallMenuOverOpenScreen checks the call bar's ^G keys work with a
+// screen open, as the bar showing them over it promises, and ^G again
+// closes the call menu instead of stacking another.
+func TestCallMenuOverOpenScreen(t *testing.T) {
+	ctrl := &fakeCallController{}
+	m := callTestModel(ctrl)
+	m, _ = m.handleCallStateMsg(CallStateMsg{Peer: "bob@example.test", SID: "s1", State: "connected"})
+	m.openHelp()
+	if !m.modals.Open() {
+		t.Fatal("help didn't open")
+	}
+	m = press(t, m, ctrlG)
+	if menuTitle(m) != "Call with Bob" {
+		t.Fatalf("ctrl+g over help opened %q", menuTitle(m))
+	}
+	if again := press(t, m, ctrlG); menuOf(again) != nil {
+		t.Fatal("ctrl+g again didn't close the call menu")
+	}
+	press(t, m, letter('h'))
+	if len(ctrl.calls) != 1 || ctrl.calls[0] != "hangup" {
+		t.Fatalf("calls %v, want [hangup]", ctrl.calls)
+	}
+}

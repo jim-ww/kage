@@ -233,6 +233,9 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 	}()
 
 	msg = normalizeKey(msg)
+	if cmd, ok := m.callBarInput(msg); ok {
+		return m, cmd
+	}
 	var modalCmd tea.Cmd
 	if m.modals.Open() {
 		// The top modal takes all input; everything else still reaches the

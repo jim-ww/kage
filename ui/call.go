@@ -333,12 +333,44 @@ func formatCallDuration(d time.Duration) string {
 // openCallMenu opens the call menu, which has every call action and follows
 // the call's state while open (see contextMenuBody.refresh).
 func (m *Model) openCallMenu() tea.Cmd {
+	if top := m.modals.Top(); top != nil {
+		if body, ok := top.Body.(*contextMenuBody); ok && body.call {
+			// Its key again closes it, as esc does.
+			return m.modals.Close()
+		}
+	}
 	title, items := m.callMenuItems()
 	if len(items) == 0 {
 		return m.showNotification("no chat selected")
 	}
-	m.openContextMenu(title, items).refresh = (*Model).callMenuItems
+	body := m.openContextMenu(title, items)
+	body.refresh, body.call = (*Model).callMenuItems, true
 	return nil
+}
+
+// callBarInput handles the call bar's key and clicks while a screen, menu or
+// prompt is open: the bar stays on screen with its keys showing, and every
+// other input goes to what's open.
+func (m *Model) callBarInput(msg tea.Msg) (tea.Cmd, bool) {
+	if !m.callBarActive() || !m.modals.Open() {
+		return nil, false
+	}
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		if matchesKey(msg, m.keys.CallMenu) {
+			return m.openCallMenu(), true
+		}
+	case tea.MouseClickMsg:
+		if msg.Button != tea.MouseLeft {
+			return nil, false
+		}
+		for _, b := range m.callBarButtons() {
+			if m.zone.Get(b.zone).InBounds(msg) {
+				return b.run(m), true
+			}
+		}
+	}
+	return nil, false
 }
 
 // callMenuItems is the call menu for the call's state, or for calling the
