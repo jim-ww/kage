@@ -57,6 +57,7 @@ func (m *Model) jumpToDate(day time.Time) tea.Cmd {
 	}
 	m.markHistoryWindowLoading(chatIdx, "")
 	m.pendingDateJump = &dateJump{accountIdx: m.currentAccount, chatAddress: chat.Address, day: day}
+	m.pendingScrollJump = nil
 	return cmd
 }
 

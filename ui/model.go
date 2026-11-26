@@ -75,6 +75,12 @@ type Model struct {
 	// resizingInput is set while the compose box border is dragged.
 	resizingInput bool
 
+	// scrollDrag is set while the messages' scrollbar is dragged.
+	scrollDrag *scrollDrag
+
+	// pendingScrollJump is the chat a scrollbar drag is loading history of.
+	pendingScrollJump *scrollJump
+
 	// composeExpanded is set while ToggleComposeExpand grew the compose box;
 	// composeHeightBeforeExpand is the height to go back to. Not saved.
 	composeExpanded           bool

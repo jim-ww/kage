@@ -79,8 +79,8 @@ func (m Model) messageIndexAtMouse(mouse tea.MouseMsg) (int, bool) {
 		return 0, false
 	}
 	vp := m.zone.Get(zonePaneViewport)
-	if vp.IsZero() || !vp.InBounds(mouse) {
-		return 0, false
+	if vp.IsZero() || !vp.InBounds(mouse) || mouse.Mouse().X >= vp.StartX+m.messageAreaWidth() {
+		return 0, false // off the messages, or on the scrollbar
 	}
 	line := m.viewport.YOffset() + (mouse.Mouse().Y - vp.StartY)
 	if line < 0 || line >= len(m.viewportLines) {
@@ -217,6 +217,9 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 			m.updateSizes()
 		}
 		return m, nil
+	}
+	if m.scrollDrag != nil {
+		return m, m.dragScrollbar(msg.Mouse().Y)
 	}
 	if m.resizingInput {
 		if z := m.zone.Get(zonePaneInput); !z.IsZero() {
@@ -431,6 +434,9 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			m.resizingSidebar = true
 			return m, nil
 		}
+		if m.onScrollbar(msg) {
+			return m, m.dragScrollbar(msg.Mouse().Y)
+		}
 		if m.onInputBorder(msg) {
 			m.resizingInput = true
 			return m, nil
@@ -464,9 +470,45 @@ func (m Model) onInputBorder(mouse tea.MouseMsg) bool {
 	return false
 }
 
-// handleMouseRelease ends a border drag, saving the size.
+// keepSelectionOnScreen moves the selected message onto the screen after
+// the viewport scrolled it off.
+func (m *Model) keepSelectionOnScreen() {
+	if len(m.msgOffsets) == 0 {
+		return
+	}
+	yOffset := m.viewport.YOffset()
+	top := m.msgIndexAtOffset(yOffset)
+	bottom := m.msgIndexAtOffset(yOffset + max(0, m.viewport.Height()-1))
+	old := m.selectedMsg
+	switch {
+	case m.selectedMsg < top:
+		m.selectedMsg = top
+	case m.selectedMsg > bottom:
+		m.selectedMsg = bottom
+	}
+	if m.selectedMsg != old {
+		m.refreshViewportSelection(old, m.selectedMsg)
+	}
+}
+
+// loadPastScrolledEdge pages in more history once the viewport is scrolled
+// to an end of what's loaded.
+func (m *Model) loadPastScrolledEdge() tea.Cmd {
+	var cmds []tea.Cmd
+	if m.viewport.YOffset() == 0 {
+		cmds = append(cmds, m.maybeLoadOlderHistory())
+	}
+	if m.viewport.AtBottom() {
+		cmds = append(cmds, m.maybeLoadNewerHistory())
+	}
+	return tea.Batch(cmds...)
+}
+
+// handleMouseRelease ends a border or scrollbar drag, saving the size.
 func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
 	switch {
+	case m.scrollDrag != nil:
+		return m, m.endScrollDrag()
 	case m.resizingSidebar:
 		m.resizingSidebar = false
 		if err := m.daemon.SaveState(SidebarWidth(m.sidebarWidth())); err != nil {
@@ -778,30 +820,9 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.zone.Get(zonePaneViewport).InBounds(msg) {
-		var cmd tea.Cmd
-		cmd = m.viewport.Update(msg)
-		if len(m.msgOffsets) > 0 {
-			yOffset := m.viewport.YOffset()
-			top := m.msgIndexAtOffset(yOffset)
-			bottom := m.msgIndexAtOffset(yOffset + max(0, m.viewport.Height()-1))
-			old := m.selectedMsg
-			switch {
-			case m.selectedMsg < top:
-				m.selectedMsg = top
-			case m.selectedMsg > bottom:
-				m.selectedMsg = bottom
-			}
-			if m.selectedMsg != old {
-				m.refreshViewportSelection(old, m.selectedMsg)
-			}
-		}
-		if m.viewport.YOffset() == 0 {
-			cmd = tea.Batch(cmd, m.maybeLoadOlderHistory())
-		}
-		if m.viewport.AtBottom() {
-			cmd = tea.Batch(cmd, m.maybeLoadNewerHistory())
-		}
-		return m, cmd
+		cmd := m.viewport.Update(msg)
+		m.keepSelectionOnScreen()
+		return m, tea.Batch(cmd, m.loadPastScrolledEdge())
 	}
 
 	if m.zone.Get(zonePaneInput).InBounds(msg) {

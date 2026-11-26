@@ -579,6 +579,11 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			} else {
 				m.selectedMsg = len(newMessages) - 1
 			}
+			if j := m.pendingScrollJump; j != nil && j.accountIdx == msg.AccountIdx && j.chatAddress == msg.From {
+				m.pendingScrollJump = nil
+				m.landScrollJump(newMessages, msg.AnchorStoreID)
+				return m, nil, true
+			}
 			if j := m.pendingDateJump; j != nil && j.accountIdx == msg.AccountIdx && j.chatAddress == msg.From {
 				m.pendingDateJump = nil
 				m.landOnDate(newMessages, j.day)
