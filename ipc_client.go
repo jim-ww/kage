@@ -278,7 +278,11 @@ func (c *ipcClient) RemoveOwnAvatar(accountIdx int) error {
 }
 
 func (c *ipcClient) SyncOwnAvatar(accountIdx int) tea.Msg {
-	_, err := do(c.conn, syncOwnAvatarReq{AccountIdx: accountIdx})
+	own, err := do(c.conn, syncOwnAvatarReq{AccountIdx: accountIdx})
+	if err == nil && own.Path != "" {
+		// Loaded here, off the UI's goroutine, as dispatch does.
+		err = ui.LoadAvatarFile(own.JID, own.Path)
+	}
 	return ui.OwnAvatarSyncedMsg{AccountIdx: accountIdx, Err: err}
 }
 

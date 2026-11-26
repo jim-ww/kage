@@ -301,18 +301,29 @@ func (a *adapter) SetOwnAvatar(accountIdx int, path string) error {
 const ownAvatarSyncTimeout = 15 * time.Second
 
 // SyncOwnAvatar fetches this account's published avatar into the cache,
-// with avatars turned off too: the avatar menu shows it either way.
-func (a *adapter) SyncOwnAvatar(accountIdx int) error {
-	s, _, err := a.online(accountIdx)
+// with avatars turned off too: the avatar menu shows it either way. It
+// returns the cached file ("" for none) - with avatars off the TUI loaded
+// none at startup, and an unchanged one isn't announced.
+func (a *adapter) SyncOwnAvatar(accountIdx int) (ownAvatar, error) {
+	s, err := a.session(accountIdx)
 	if err != nil {
-		slog.Debug("syncing own avatar", "account", accountIdx, "err", err)
-		return err
+		return ownAvatar{}, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), ownAvatarSyncTimeout)
-	defer cancel()
-	s.fetchAvatar(ctx, a.srv, accountIdx, bareJID(s.account.JID))
-	return nil
+	bare := bareJID(s.account.JID)
+	if _, _, err := a.online(accountIdx); err != nil {
+		slog.Debug("syncing own avatar", "account", accountIdx, "err", err)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), ownAvatarSyncTimeout)
+		defer cancel()
+		s.fetchAvatar(ctx, a.srv, accountIdx, bare)
+	}
+	path, _ := cachedAvatarPath(bare)
+	return ownAvatar{JID: bare, Path: path}, nil
 }
+
+// ownAvatar is SyncOwnAvatar's result: the account's bare JID and its
+// cached avatar file, "" for none.
+type ownAvatar struct{ JID, Path string }
 
 // RemoveOwnAvatar stops publishing this account's avatar and drops the
 // local copy.

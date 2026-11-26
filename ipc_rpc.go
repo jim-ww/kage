@@ -470,8 +470,8 @@ func (c removeOwnAvatarReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 
 type syncOwnAvatarReq struct{ AccountIdx int }
 
-func (c syncOwnAvatarReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
-	return none{}, d.a.SyncOwnAvatar(c.AccountIdx)
+func (c syncOwnAvatarReq) run(d *daemonServer, _ ipc.ClientID) (ownAvatar, error) {
+	return d.a.SyncOwnAvatar(c.AccountIdx)
 }
 
 type fetchOwnDeviceListReq struct{ AccountIdx int }
