@@ -261,3 +261,34 @@ func TestMediaPreviewKeepsChatAtBottom(t *testing.T) {
 		t.Fatalf("left at offset %d of %d lines, not at the bottom", m.viewport.YOffset(), m.viewport.TotalLineCount())
 	}
 }
+
+// TestMediaPreviewLargePhoto: a photo past the in-process pixel cap is
+// still previewed, through ffmpeg.
+func TestMediaPreviewLargePhoto(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skipf("no ffmpeg: %v", err)
+	}
+	withMediaCache(t)
+	const url = "https://upload.example.test/photo.jpg"
+	path := attachmentLocalPath(url, "bob@example.test")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+		"-f", "lavfi", "-i", "testsrc=size=6000x4000", "-frames:v", "1", path).CombinedOutput()
+	if err != nil {
+		t.Skipf("ffmpeg can't make a test photo: %v: %s", err, out)
+	}
+	if _, err := decodeMediaThumb(path); err == nil {
+		t.Fatal("photo is under the pixel cap, test proves nothing")
+	}
+	m := newTestModelWithMessages([]Message{{ID: "a", Content: url, Attachments: []string{url}}}, &stubDaemon{})
+	msg := takeMediaThumbRequests()().(mediaThumbMsg)
+	if msg.thumb.failed {
+		t.Fatal("large photo not previewed")
+	}
+	next, _ := m.Update(msg)
+	if !strings.Contains(strings.Join(next.(Model).viewportLines, "\n"), upperHalfBlock) {
+		t.Fatal("large photo preview not drawn")
+	}
+}

@@ -1,5 +1,4 @@
 ## Bugs
-- .jpg previews sometimes arent rendered
 - after opening image/attachment returns to chat in wrong position?
 - video stream worsens call quality (adds lag)
 - on nixos rebuild, call hangs or something. or one of clients dies

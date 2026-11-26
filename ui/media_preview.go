@@ -174,7 +174,11 @@ func decodeMediaThumbCmd(path string) tea.Cmd {
 		var err error
 		switch previewKind(path) {
 		case mediaImage:
-			thumb, err = decodeMediaThumb(path)
+			// ffmpeg takes what the standard library refuses: a photo
+			// past the pixel cap, or a JPEG it can't parse.
+			if thumb, err = decodeMediaThumb(path); err != nil {
+				thumb, err = ffmpegThumb(path, false)
+			}
 		case mediaFFmpeg:
 			thumb, err = ffmpegThumb(path, false)
 		case mediaVideo:
