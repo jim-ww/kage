@@ -312,6 +312,12 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.refreshViewport()
 		return m, m.showNotification("saved " + msg.path), true
 
+	case mediaDownloadedMsg:
+		if msg.ok {
+			m.refreshViewport()
+		}
+		return m, nil, true
+
 	case mediaThumbMsg:
 		if applyMediaThumb(msg) {
 			m.refreshViewport()

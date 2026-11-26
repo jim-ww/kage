@@ -21,6 +21,9 @@ func withMediaCache(t *testing.T) {
 		mediaThumbs, mediaThumbPending, mediaThumbQueue = map[string]mediaThumb{}, map[string]bool{}, nil
 		clear(mediaBlockCache)
 		mediaThumbMu.Unlock()
+		mediaDownloadMu.Lock()
+		mediaDownloadTried, mediaDownloadQueue = map[string]bool{}, nil
+		mediaDownloadMu.Unlock()
 	}
 	reset()
 	t.Cleanup(func() { AttachmentsDir = old; reset() })
@@ -84,19 +87,19 @@ func TestMediaPreviewDrawsCachedImageOnceDecoded(t *testing.T) {
 	}
 }
 
-// TestMediaPreviewSkipsUncachedAndNonImages: nothing is fetched for a
-// preview, and only images are tried.
-func TestMediaPreviewSkipsUncachedAndNonImages(t *testing.T) {
+// TestMediaPreviewSkipsNonMedia: only images and videos are previewed, or
+// auto-downloaded for it.
+func TestMediaPreviewSkipsNonMedia(t *testing.T) {
 	withMediaCache(t)
 	const doc = "https://upload.example.test/report.pdf"
 	writeMediaPNG(t, attachmentLocalPath(doc, "bob@example.test"), 8, 8)
 	msgs := []Message{
-		{ID: "a", Content: "https://upload.example.test/remote.png", Attachments: []string{"https://upload.example.test/remote.png"}},
-		{ID: "b", Content: doc, Attachments: []string{doc}},
+		{ID: "a", Content: doc, Attachments: []string{doc}},
+		{ID: "b", Content: "https://upload.example.test/notes.txt", Attachments: []string{"https://upload.example.test/notes.txt"}},
 	}
 	_ = newTestModelWithMessages(msgs, &stubDaemon{})
 	if takeMediaThumbRequests() != nil {
-		t.Fatal("queued a decode for an uncached or non-image attachment")
+		t.Fatal("queued work for a non-media attachment")
 	}
 }
 

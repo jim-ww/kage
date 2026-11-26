@@ -23,10 +23,11 @@ import (
 // formats the standard library can't read, come from ffmpeg (already on
 // PATH for calls), and without it those just get no preview.
 //
-// Only an attachment already in the local cache (attachmentLocalPath) is
-// previewed - an own upload, or one opened or saved - never fetched for it:
-// downloading a peer's upload tells its host that it was looked at, the
-// reason renderAttachmentLine doesn't show sizes either.
+// Only an attachment in the local cache (attachmentLocalPath) is previewed:
+// an own upload, one opened or saved, or one auto-download fetched (see
+// media_autodownload.go). With auto-download off nothing is fetched for a
+// preview: downloading a peer's upload tells its host that it was looked
+// at.
 
 // mediaPreviewsOn gates the previews; see DisplayOptions.MediaPreviewsDisabled.
 var mediaPreviewsOn atomic.Bool
@@ -134,19 +135,19 @@ func lookupMediaThumb(path string) (mediaThumb, bool) {
 	return mediaThumb{}, false
 }
 
-// takeMediaThumbRequests drains the paths renders found missing, as one
-// decode command each.
+// takeMediaThumbRequests drains what renders found missing, as one decode
+// or auto-download command each.
 func takeMediaThumbRequests() tea.Cmd {
 	mediaThumbMu.Lock()
 	queue := mediaThumbQueue
 	mediaThumbQueue = nil
 	mediaThumbMu.Unlock()
-	if len(queue) == 0 {
-		return nil
+	cmds := takeMediaDownloadRequests()
+	for _, path := range queue {
+		cmds = append(cmds, decodeMediaThumbCmd(path))
 	}
-	cmds := make([]tea.Cmd, len(queue))
-	for i, path := range queue {
-		cmds[i] = decodeMediaThumbCmd(path)
+	if len(cmds) == 0 {
+		return nil
 	}
 	return tea.Batch(cmds...)
 }
@@ -287,6 +288,7 @@ func renderMediaPreview(target, jid string, maxCols int) string {
 		return ""
 	}
 	if _, err := os.Stat(path); err != nil {
+		queueMediaDownload(target, jid)
 		return ""
 	}
 	thumb, ok := lookupMediaThumb(path)

@@ -244,6 +244,8 @@ func runTUI(cfgPath string, debug bool, debugXML bool) error {
 		AvatarsDisabled:         cfg.AvatarsDisabled,
 		MediaPreviewsDisabled:   cfg.MediaPreviewsDisabled,
 		MediaPreviewHeight:      cfg.MediaPreviewHeight,
+		AutoDownloadDisabled:    cfg.AutoDownloadDisabled,
+		AutoDownloadMaxMB:       cfg.AutoDownloadMaxMB,
 		AutoUnhideDisabled:      cfg.AutoUnhideDisabled,
 		HoverSelectDisabled:     cfg.HoverSelectDisabled,
 		ScrollbarDisabled:       cfg.ScrollbarDisabled,

@@ -258,6 +258,11 @@ type DisplayOptions struct {
 	// MediaPreviewHeight caps a preview's height in rows; <= 0 for
 	// DefaultMediaPreviewHeight.
 	MediaPreviewHeight int
+	// AutoDownloadDisabled stops fetching received images and videos for
+	// their previews; AutoDownloadMaxMB caps the size fetched (<= 0 for
+	// DefaultAutoDownloadMaxMB).
+	AutoDownloadDisabled bool
+	AutoDownloadMaxMB    int
 	// AutoUnhideDisabled keeps a hidden chat hidden when a message arrives.
 	AutoUnhideDisabled bool
 	// HoverSelectDisabled stops hovering a message from selecting it; a
@@ -276,6 +281,7 @@ func New(accounts []Account, startAccount int, keys KeyMap, theme Theme, daemon 
 	setAvatarsEnabled(!display.AvatarsDisabled)
 	setMediaPreviewsEnabled(!display.MediaPreviewsDisabled)
 	setMediaPreviewHeight(display.MediaPreviewHeight)
+	setAutoDownload(!display.AutoDownloadDisabled, display.AutoDownloadMaxMB)
 	styles := newUIStyles(theme)
 	zm := zone.New()
 	zm.SetEnabled(mouseEnabled)

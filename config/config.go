@@ -80,6 +80,13 @@ type Config struct {
 	// resolution (two pixels per row); ui.DefaultMediaPreviewHeight when
 	// unset.
 	MediaPreviewHeight int `toml:"media_preview_height,omitempty"`
+	// AutoDownloadDisabled stops fetching received image and video
+	// attachments for their previews, leaving them for opening by hand
+	// (fetching one tells its host it was looked at); on by default.
+	AutoDownloadDisabled bool `toml:"auto_download_disabled,omitempty"`
+	// AutoDownloadMaxMB is the largest attachment auto-download fetches, in
+	// MiB; ui.DefaultAutoDownloadMaxMB when unset.
+	AutoDownloadMaxMB int `toml:"auto_download_max_mb,omitempty"`
 	// HoverSelectDisabled stops hovering a message from selecting it, so
 	// only a click (or the keyboard) does; off (hover selects) by default.
 	HoverSelectDisabled bool `toml:"hover_select_disabled,omitempty"`
@@ -173,6 +180,7 @@ func defaultConfig() Config {
 		ScreenRecorder:        DefaultScreenRecorder,
 		DefaultEncryptionMode: DefaultEncryptionMode,
 		MediaPreviewHeight:    ui.DefaultMediaPreviewHeight,
+		AutoDownloadMaxMB:     ui.DefaultAutoDownloadMaxMB,
 	}
 }
 
