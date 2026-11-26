@@ -19,7 +19,6 @@
 ## Features
 - auto adjust video/audio call quality on bad internet connection
 - add more clear mic/video
-- media previews: for images, videos, links
 - should also encrypt saved attachments?
 - archive contact chats? integrate that together with existing 'hide' feature? e.g. hidden == archived
 - account logount option (that also cleans up OMEMO devices)
