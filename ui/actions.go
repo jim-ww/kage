@@ -5,6 +5,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/atotto/clipboard"
+
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 func (m *Model) switchAccount(index int) tea.Cmd {
@@ -200,4 +203,64 @@ func (m *Model) cancelPending() {
 	}
 	m.input.Placeholder = "message..."
 	m.updateSizes()
+}
+
+// actionChatInfo shows what's known about the current chat's contact; its
+// address line copies the address.
+func (m *Model) actionChatInfo() tea.Cmd {
+	chat, ok := m.currentChat()
+	if !ok {
+		return m.showNotification("no chat selected")
+	}
+	text := modal.NewText(m.chatInfoLines(chat)...)
+	text.ActLabel = "copy address"
+	return m.openModal(&modal.Modal[*Model]{
+		Title: chat.Name,
+		Body:  text,
+		OnAct: func(m *Model, v any) tea.Cmd {
+			if err := clipboard.WriteAll(v.(string)); err != nil {
+				return m.showNotification("copy failed")
+			}
+			return m.showNotification("address copied")
+		},
+	})
+}
+
+// chatInfoLines is the contact info screen's content for chat.
+func (m Model) chatInfoLines(chat Chat) []modal.Line {
+	// The screen's title is the chat's name.
+	lines := []modal.Line{{Text: "Address: " + chat.Address, Value: chat.Address}}
+	lines = append(lines, modal.Line{Text: "Presence: " + presenceGlyph(chat.Presence) + " " + presenceLabel(chat.Presence)})
+	for _, r := range chat.Resources {
+		name := r.Name
+		if name == "" {
+			name = resourceDisplayName(r.Resource)
+		}
+		lines = append(lines, modal.Line{Text: fmt.Sprintf("  %s %s (%s)", deviceGlyph(r.Presence), name, r.Resource)})
+	}
+	subscription := subscriptionLabel(chat)
+	if chat.Subscription == "both" && !chat.SubscriptionPending {
+		subscription = "both ways"
+	}
+	if subscription == "" {
+		subscription = "unknown (not in roster)"
+	}
+	lines = append(lines, modal.Line{Text: "Subscription: " + subscription})
+	mode := m.encryptionModeOrDefault(chat.EncryptionMode)
+	if chat.EncryptionMode == "" {
+		mode += " (default)"
+	}
+	lines = append(lines, modal.Line{Text: "Encryption: " + mode})
+	notifications := "on"
+	if chat.Muted {
+		notifications = "muted"
+	}
+	lines = append(lines, modal.Line{Text: "Notifications: " + notifications})
+	if chat.Pinned {
+		lines = append(lines, modal.Line{Text: "Pinned: yes"})
+	}
+	if !chat.LastActivity.IsZero() {
+		lines = append(lines, modal.Line{Text: "Last message: " + chat.LastActivity.Local().Format("2006-01-02 15:04")})
+	}
+	return lines
 }

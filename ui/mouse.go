@@ -479,6 +479,10 @@ func (m Model) handleLeftClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, m.jumpToLatestMessage()
 	}
 
+	if m.zone.Get(zoneChatStatusBar).InBounds(msg) {
+		return m, m.actionChatInfo()
+	}
+
 	for i := range m.pendingAttachments {
 		if m.zone.Get(zoneAttachmentRemove(i)).InBounds(msg) {
 			m.removeAttachment(i)

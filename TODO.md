@@ -40,7 +40,6 @@
 - ux: open chat composer (textbox) of message size (with limits)
 - ui: show own full account address somewhere (in case alias is set)
 - search: go-to specific date in chat history (implement as part of search feature?)
-- show more contact info on status line Name press
 - group chat support + list group chat participants, ability to see their info, start chat with any participant
 - in devices show proper OMEMO fingerprint
 - select & yank text in draft with mouse

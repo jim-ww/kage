@@ -164,6 +164,7 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 		{label: "Encryption", key: 'e', run: (*Model).actionOpenEncryptionMenu},
 		{label: "Re-sync history", key: 's', run: (*Model).actionResyncChat},
 		{label: "Hide chat", key: 'h', run: (*Model).actionHideChat},
+		{label: "Info", key: 'i', run: (*Model).actionChatInfo},
 	}
 }
 
