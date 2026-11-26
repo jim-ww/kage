@@ -338,11 +338,14 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	// The body follows the name, unless a quote takes that place.
 	bodyOnHeaderLine := !hasReply && !hasTextQuoteReply
 	wrapWidth := max(totalWidth-prefixWidth, 8)
-	bodyLines := strings.Split(ansi.Wrap(bodyContent, wrapWidth, " "), "\n")
-	fullBodyLineCount := len(bodyLines)
-
 	key := msgKey(msg, msgIdx)
 	expanded := m.expandedMsgs[key]
+	wrapSrc := bodyContent
+	if !expanded {
+		wrapSrc = collapsedPrefix(bodyContent, maxCollapsedBodyLines+1, wrapWidth)
+	}
+	bodyLines := strings.Split(ansi.Wrap(wrapSrc, wrapWidth, " "), "\n")
+	fullBodyLineCount := len(bodyLines)
 	if !expanded && len(bodyLines) > maxCollapsedBodyLines {
 		bodyLines = bodyLines[:maxCollapsedBodyLines]
 	}
@@ -405,6 +408,32 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	return divider + strings.Join(lines, "\n")
+}
+
+// collapsedPrefix is as much of body as can show in its first rows wrapped
+// at width: the rest of a huge message is never on screen while collapsed,
+// and wrapping all of it made every render of its chat slow. It still wraps
+// to more than rows-1 rows when body does, which is what decides the expand
+// button.
+func collapsedPrefix(body string, rows, width int) string {
+	end := 0
+	for range rows {
+		nl := strings.IndexByte(body[end:], '\n')
+		if nl < 0 {
+			end = len(body)
+			break
+		}
+		end += nl + 1
+	}
+	lines := strings.Split(strings.TrimSuffix(body[:end], "\n"), "\n")
+	// A row holds at most width cells, and a cell takes at least one byte.
+	limit := rows * width
+	for i, line := range lines {
+		if len(line) > limit {
+			lines[i] = ansi.Truncate(line, limit, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderMessageStatusLine renders the line under a message: time, edited
