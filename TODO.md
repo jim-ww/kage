@@ -15,7 +15,6 @@
 - lags on big window scale
 
 ## UX
-- in search by message text, on results, show full/truncated preview of selected msg
 - delete message modal has no mouse support. other modals must be checked too.
 - hard to grab bottom panel border for resize
 - add scrollbar for messages list, and perhaps, for chat list too

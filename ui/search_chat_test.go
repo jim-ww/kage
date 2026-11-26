@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // fakeHistoryLoader stands in for a real Daemon: records the anchor
@@ -135,6 +136,26 @@ func TestSearchResultsFixedFootprint(t *testing.T) {
 	empty := lines()
 	if busy != results || failed != results || empty != results {
 		t.Fatalf("rows differ across states: results=%d busy=%d error=%d empty=%d", results, busy, failed, empty)
+	}
+}
+
+// TestSearchResultsPreviewSelected guards the preview below the results:
+// it wraps the selected match's whole text, which its row cuts short, and
+// follows the cursor.
+func TestSearchResultsPreviewSelected(t *testing.T) {
+	long := "needle " + strings.Repeat("word ", 30) + "tailend"
+	history := []Message{{Content: long}, {Content: "needle short"}}
+	m := searchResultsWith(t, history, []int{0, 1})
+	body := resultsOf(m)
+	if body.previewRows() == 0 {
+		t.Fatal("test setup: no room for the preview")
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "tailend") {
+		t.Fatalf("preview doesn't show the selected match's whole text:\n%s", view)
+	}
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	if got := ansi.Strip(resultsOf(m).preview()); got != "needle short" {
+		t.Fatalf("preview after moving down = %q, want the second match", got)
 	}
 }
 

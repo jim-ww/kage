@@ -154,7 +154,38 @@ func (b *searchResultsBody) header() string {
 // as results arrive or a filter narrows them.
 const searchResultsRows = 9
 
-func (b *searchResultsBody) rows() int { return max(1, min(searchResultsRows, b.height-1)) }
+func (b *searchResultsBody) rows() int {
+	return max(1, min(searchResultsRows, b.height-1-b.previewRows()))
+}
+
+// searchPreviewLines is how much of the selected match's text a text
+// search shows below its list, wrapped: a row only has room for its start.
+const searchPreviewLines = 3
+
+// previewRows is the preview's footprint, a blank row above it included:
+// none for a files list, or when the screen is too short to spare it.
+func (b *searchResultsBody) previewRows() int {
+	if b.files || b.height < 1+searchResultsRows+1+searchPreviewLines {
+		return 0
+	}
+	return 1 + searchPreviewLines
+}
+
+// preview is the selected match's whole text wrapped to the width, cut
+// to searchPreviewLines.
+func (b *searchResultsBody) preview() string {
+	c := b.Cursor()
+	if c < 0 || c >= len(b.shown) || b.width <= 0 {
+		return ""
+	}
+	msg := b.messages[b.shown[c]]
+	lines := strings.Split(ansi.Wrap(MessagePreviewContent(msg), b.width, " "), "\n")
+	if len(lines) > searchPreviewLines {
+		lines = lines[:searchPreviewLines]
+		lines[len(lines)-1] = ansi.Truncate(lines[len(lines)-1]+" …", b.width, "…")
+	}
+	return strings.Join(lines, "\n")
+}
 
 func (b *searchResultsBody) View() string {
 	var view string
@@ -168,6 +199,13 @@ func (b *searchResultsBody) View() string {
 	}
 	if pad := 1 + b.rows() - (strings.Count(view, "\n") + 1); pad > 0 {
 		view += strings.Repeat("\n", pad)
+	}
+	if n := b.previewRows(); n > 0 {
+		preview := ""
+		if b.status == "" && b.err == "" {
+			preview = b.preview()
+		}
+		view += "\n\n" + preview + strings.Repeat("\n", n-1-strings.Count(preview, "\n")-1)
 	}
 	return view
 }
