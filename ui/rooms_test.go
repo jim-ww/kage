@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -20,6 +21,8 @@ type fakeRoomDaemon struct {
 	subjects []string
 	invites  []string
 	mods     []string
+	saved    []map[string]string
+	settings []RoomSetting
 	joinErr  error
 }
 
@@ -46,6 +49,15 @@ func (f *fakeRoomDaemon) InviteToRoom(accountIdx int, room, who string) tea.Msg 
 func (f *fakeRoomDaemon) ModerateOccupant(accountIdx int, room, nick, action string) tea.Msg {
 	f.mods = append(f.mods, action+" "+nick)
 	return OccupantModeratedMsg{AccountIdx: accountIdx, Room: room, Nick: nick, Action: action}
+}
+
+func (f *fakeRoomDaemon) RoomSettings(accountIdx int, room string) tea.Msg {
+	return RoomSettingsMsg{AccountIdx: accountIdx, Room: room, Settings: f.settings}
+}
+
+func (f *fakeRoomDaemon) SaveRoomSettings(accountIdx int, room string, values map[string]string) tea.Msg {
+	f.saved = append(f.saved, values)
+	return RoomSettingsSavedMsg{AccountIdx: accountIdx, Room: room}
 }
 
 func (f *fakeRoomDaemon) StartChat(accountIdx int, address string) tea.Msg {
@@ -425,5 +437,60 @@ func TestKickConfirmed(t *testing.T) {
 	pressAndDeliver(t, m, letter('y'))
 	if !slices.Equal(d.mods, []string{ModKick + " bob"}) {
 		t.Errorf("moderations = %v", d.mods)
+	}
+}
+
+// TestRoomSettings checks an owner's settings screen shows the settings
+// kage knows, in its order, and saves only what changed.
+func TestRoomSettings(t *testing.T) {
+	d := &fakeRoomDaemon{settings: []RoomSetting{
+		{Var: "muc#roomconfig_membersonly", Kind: "bool", Label: "Make room members-only?", Value: "0"},
+		{Var: "muc#roomconfig_roomname", Kind: "text", Label: "Title", Value: "Tea"},
+		{Var: "muc#roomconfig_whois", Kind: "choice", Value: "moderators", Options: []RoomSettingOption{{"moderators", "Moderators"}, {"anyone", "Anyone"}}},
+		{Var: "muc#roomconfig_roomsecret", Kind: "secret"},
+		{Var: "muc#roomconfig_passwordprotectedroom", Kind: "bool", Value: "0"},
+		{Var: "{http://prosody.im/protocol/muc}roomconfig_allowmemberinvites", Kind: "bool", Value: "0"},
+		{Var: "x-server#unknown", Kind: "bool", Value: "1"},
+	}}
+	m := roomModel(t, d)
+	if labels := strings.Join(callMenuLabels(press(t, m, letter('m'))), "|"); strings.Contains(labels, "Settings") {
+		t.Errorf("a participant's menu offers Settings: %q", labels)
+	}
+	m.updateChatEverywhere(0, testRoomAddr, func(c *Chat) { c.Occupants = []Occupant{{Nick: "me", Affiliation: "owner", Role: "moderator"}} })
+	m = press(t, m, letter('m'))
+	m = pressAndDeliver(t, m, letter('t'))
+	md := m.modals.Find(roomSettingsModalID)
+	if md == nil {
+		t.Fatal("settings screen not open")
+	}
+	form := md.Body.(*modal.Form)
+	if len(form.Fields) != 5 {
+		t.Fatalf("fields = %d, want name, password, members only, addresses, invites", len(form.Fields))
+	}
+	// Name: typed onto; password; members only: on; addresses: anyone.
+	for _, r := range "house" {
+		m = press(t, m, letter(r))
+	}
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	for _, r := range "pw" {
+		m = press(t, m, letter(r))
+	}
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeyRight})
+	m = pressAndDeliver(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	want := map[string]string{
+		"muc#roomconfig_roomname":              "Teahouse",
+		"muc#roomconfig_roomsecret":            "pw",
+		"muc#roomconfig_passwordprotectedroom": "1",
+		"muc#roomconfig_membersonly":           "1",
+		"muc#roomconfig_whois":                 "anyone",
+	}
+	if len(d.saved) != 1 || !maps.Equal(d.saved[0], want) {
+		t.Fatalf("saved %v, want %v", d.saved, want)
+	}
+	if m.modals.Find(roomSettingsModalID) != nil {
+		t.Error("settings screen still open after saving")
 	}
 }

@@ -240,6 +240,16 @@ func (c *ipcClient) ModerateOccupant(accountIdx int, room, nick, action string) 
 	return ui.OccupantModeratedMsg{AccountIdx: accountIdx, Room: room, Nick: nick, Action: action, Err: err}
 }
 
+func (c *ipcClient) RoomSettings(accountIdx int, room string) tea.Msg {
+	settings, err := do(c.conn, roomSettingsReq{AccountIdx: accountIdx, Room: room})
+	return ui.RoomSettingsMsg{AccountIdx: accountIdx, Room: room, Settings: settings, Err: err}
+}
+
+func (c *ipcClient) SaveRoomSettings(accountIdx int, room string, values map[string]string) tea.Msg {
+	_, err := do(c.conn, saveRoomSettingsReq{AccountIdx: accountIdx, Room: room, Values: values})
+	return ui.RoomSettingsSavedMsg{AccountIdx: accountIdx, Room: room, Err: err}
+}
+
 func (c *ipcClient) StartChat(accountIdx int, address string) tea.Msg {
 	_, err := do(c.conn, startChatReq{AccountIdx: accountIdx, Address: address})
 	return ui.ChatStartedMsg{AccountIdx: accountIdx, Address: address, Err: err}

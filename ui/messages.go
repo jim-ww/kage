@@ -123,6 +123,34 @@ type OccupantModeratedMsg struct {
 	Err                error
 }
 
+// RoomSetting is one of a room's settings, as its configuration form
+// (XEP-0045 §10.2) has it. Kind is "text", "secret", "bool" (Value "1" or
+// "0") or "choice" (one of Options).
+type RoomSetting struct {
+	Var, Kind, Label, Value string
+	Options                 []RoomSettingOption
+}
+
+// RoomSettingOption is one of a choice setting's options.
+type RoomSettingOption struct {
+	Value, Label string
+}
+
+// RoomSettingsMsg reports the result of Daemon.RoomSettings.
+type RoomSettingsMsg struct {
+	AccountIdx int
+	Room       string
+	Settings   []RoomSetting
+	Err        error
+}
+
+// RoomSettingsSavedMsg reports the result of Daemon.SaveRoomSettings.
+type RoomSettingsSavedMsg struct {
+	AccountIdx int
+	Room       string
+	Err        error
+}
+
 // RoomInviteSentMsg reports the result of Daemon.InviteToRoom.
 type RoomInviteSentMsg struct {
 	AccountIdx int

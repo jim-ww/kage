@@ -17,6 +17,7 @@ import (
 const (
 	joinRoomModalID     = "join-room"
 	participantsModalID = "participants"
+	roomSettingsModalID = "room-settings"
 )
 
 // roomGlyph stands for a room in the chat list where a contact has its
@@ -141,6 +142,9 @@ func (m *Model) roomChatMenuItems(chat Chat) []contextMenuItem {
 		{label: "Encryption", key: 'e', run: (*Model).actionOpenEncryptionMenu},
 		{label: pin, key: 'p', run: (*Model).actionTogglePinChat},
 		{label: mute, key: 'm', run: (*Model).actionToggleMuteChat},
+	}
+	if chat.Joined && ownOccupant(chat).Affiliation == "owner" {
+		items = append(items, contextMenuItem{label: "Settings", key: 't', run: (*Model).actionRoomSettings})
 	}
 	if !chat.Joined {
 		items = append(items, contextMenuItem{label: "Join again", key: 'j', run: func(m *Model) tea.Cmd {
@@ -393,6 +397,16 @@ func (m *Model) occupantMenuItems(accountIdx int, o Occupant) []contextMenuItem 
 	}, moderation...)
 }
 
+// ownOccupant is us among chat's occupants, zero while not in the room.
+func ownOccupant(chat Chat) Occupant {
+	for _, o := range chat.Occupants {
+		if o.Nick == chat.Nick {
+			return o
+		}
+	}
+	return Occupant{}
+}
+
 // affiliationRank orders affiliations by what they may do to each other.
 var affiliationRank = map[string]int{"owner": 3, "admin": 2, "member": 1}
 
@@ -404,12 +418,7 @@ func (m *Model) moderationItems(accountIdx int, room string, o Occupant) []conte
 	if !ok || !chat.Joined || o.Nick == chat.Nick {
 		return nil
 	}
-	var me Occupant
-	for _, oc := range chat.Occupants {
-		if oc.Nick == chat.Nick {
-			me = oc
-		}
-	}
+	me := ownOccupant(chat)
 	daemon, nick := m.daemon, o.Nick
 	act := func(action string) func(*Model) tea.Cmd {
 		return func(*Model) tea.Cmd {
@@ -632,6 +641,29 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, m.showNotification(strings.ReplaceAll(msg.Action, "-", " ") + " " + msg.Nick + ": " + msg.Err.Error()), true
 		}
 		return m, nil, true
+
+	case RoomSettingsMsg:
+		if msg.Err != nil {
+			return m, m.showNotification("reading the room's settings: " + msg.Err.Error()), true
+		}
+		return m, m.openRoomSettings(msg.AccountIdx, msg.Room, msg.Settings), true
+
+	case RoomSettingsSavedMsg:
+		md := m.modals.Find(roomSettingsModalID)
+		if md == nil {
+			if msg.Err != nil {
+				return m, m.showNotification("saving the room's settings: " + msg.Err.Error()), true
+			}
+			return m, nil, true
+		}
+		form := md.Body.(*modal.Form)
+		form.SetBusy("")
+		if msg.Err != nil {
+			form.SetError(msg.Err.Error())
+			return m, nil, true
+		}
+		m.modals.Remove(roomSettingsModalID)
+		return m, m.showNotification("settings saved"), true
 
 	case RoomInviteSentMsg:
 		if msg.Err != nil {

@@ -1163,7 +1163,10 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		}
 	case xmpp.RoomConfigChangedEvent:
 		if client, err := s.liveClient(); err == nil && s.isRoom(ev.Room) {
-			go s.refreshRoomInfo(ctx, client, ev.Room)
+			go func() {
+				s.refreshRoomInfo(ctx, client, ev.Room)
+				s.broadcastRoomState(srv, accountIdx, ev.Room)
+			}()
 		}
 	case xmpp.RoomSubjectEvent:
 		s.handleRoomSubject(ctx, srv, accountIdx, ev)

@@ -1572,6 +1572,100 @@ func (a *adapter) ModerateOccupant(accountIdx int, room, nick, action string) er
 	return moderationError(err)
 }
 
+// RoomSettings reads room's settings from its configuration form: the
+// ones a person sets, not hidden or fixed text.
+func (a *adapter) RoomSettings(accountIdx int, room string) ([]ui.RoomSetting, error) {
+	s, client, err := a.online(accountIdx)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := s.room(room); !ok {
+		return nil, fmt.Errorf("not in %s", room)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), roomInfoTimeout)
+	defer cancel()
+	fields, err := client.RoomConfig(ctx, room)
+	if err != nil {
+		var se stanza.Error
+		if errors.As(err, &se) && (se.Condition == stanza.Forbidden || se.Condition == stanza.NotAllowed) {
+			return nil, errors.New("only the room's owners can")
+		}
+		return nil, err
+	}
+	return roomSettings(fields), nil
+}
+
+// roomSettings is fields as settings, of the kinds there are.
+func roomSettings(fields []xmpp.FormField) []ui.RoomSetting {
+	kinds := map[string]string{"text-single": "text", "text-private": "secret", "boolean": "bool", "list-single": "choice"}
+	var out []ui.RoomSetting
+	for _, f := range fields {
+		kind, ok := kinds[f.Type]
+		if !ok || f.Var == "" || f.Var == "FORM_TYPE" {
+			continue
+		}
+		setting := ui.RoomSetting{Var: f.Var, Kind: kind, Label: f.Label, Value: f.Value()}
+		if kind == "bool" {
+			setting.Value = "0"
+			if v := f.Value(); v == "1" || v == "true" {
+				setting.Value = "1"
+			}
+		}
+		for _, o := range f.Options {
+			setting.Options = append(setting.Options, ui.RoomSettingOption{Value: o.Value, Label: cmp.Or(o.Label, o.Value)})
+		}
+		out = append(out, setting)
+	}
+	return out
+}
+
+// Room configuration fields kage keeps track of itself (XEP-0045 §16.5.3).
+const (
+	roomNameField   = "muc#roomconfig_roomname"
+	roomSecretField = "muc#roomconfig_roomsecret"
+)
+
+// SaveRoomSettings changes room's settings in values, by field. The room
+// is asked again what it is after: it may have become private, or stopped
+// being, and its encryption with it. A new name and password are ours
+// too, and the bookmark's.
+func (a *adapter) SaveRoomSettings(accountIdx int, room string, values map[string]string) error {
+	s, client, err := a.online(accountIdx)
+	if err != nil {
+		return err
+	}
+	if _, ok := s.room(room); !ok {
+		return fmt.Errorf("not in %s", room)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	ctx := context.Background()
+	if err := client.SetRoomConfig(ctx, room, values); err != nil {
+		return moderationError(err)
+	}
+	st, _ := s.room(room)
+	name, renamed := values[roomNameField]
+	password, rekeyed := values[roomSecretField]
+	if renamed || rekeyed {
+		if !rekeyed {
+			password = st.password
+		}
+		s.putRoom(room, cmp.Or(name, st.name), st.nick, password, st.bookmarked)
+		s.persistRoom(ctx, room)
+		st, _ = s.room(room)
+		if st.bookmarked {
+			if err := client.PublishBookmark(ctx, xmpp.Bookmark{Room: room, Name: st.name, Nick: st.nick, Password: st.password, Autojoin: true}); err != nil {
+				slog.Warn("updating room bookmark", "room", room, "err", err)
+			}
+		}
+		s.broadcastRoomChat(ctx, a.srv, accountIdx, room)
+	}
+	s.refreshRoomInfo(ctx, client, room)
+	s.broadcastRoomState(a.srv, accountIdx, room)
+	return nil
+}
+
 // moderationError says what a room's refusal of a moderation means.
 func moderationError(err error) error {
 	var se stanza.Error

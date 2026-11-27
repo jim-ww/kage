@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"maps"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -515,5 +516,63 @@ func TestModerateOccupantLive(t *testing.T) {
 	})
 	if err := bobA.JoinRoom(0, room, "bob", ""); err == nil {
 		t.Error("bob got back in after the ban")
+	}
+}
+
+// TestRoomSettingsLive reads and changes a room's settings as its owner:
+// renamed, it's renamed for us; made private, it's encrypted. A member
+// isn't let read them.
+func TestRoomSettingsLive(t *testing.T) {
+	tlsConfig := devtestTLSConfig(t)
+	ctx := context.Background()
+	aliceA, alice := newRoomTestAccount(ctx, t, tlsConfig)
+	bobA, _ := newRoomTestAccount(ctx, t, tlsConfig)
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	room := "kagetest-" + hex.EncodeToString(b[:]) + "@conference.localhost"
+	if err := aliceA.JoinRoom(0, room, "alice", ""); err != nil {
+		t.Fatalf("alice creating the room: %v", err)
+	}
+	if err := bobA.JoinRoom(0, room, "bob", ""); err != nil {
+		t.Fatalf("bob joining: %v", err)
+	}
+	if _, err := bobA.RoomSettings(0, room); err == nil {
+		t.Error("bob, not an owner, read the settings")
+	}
+	settings, err := aliceA.RoomSettings(0, room)
+	if err != nil {
+		t.Fatalf("reading the settings: %v", err)
+	}
+	have := map[string]ui.RoomSetting{}
+	for _, s := range settings {
+		have[s.Var] = s
+	}
+	t.Logf("settings: %v", slices.Sorted(maps.Keys(have)))
+	for _, v := range []string{"muc#roomconfig_roomname", "muc#roomconfig_membersonly", "muc#roomconfig_whois"} {
+		if _, ok := have[v]; !ok {
+			t.Fatalf("no %s in %+v", v, settings)
+		}
+	}
+	if resolveEncryptionMode(ctx, alice, room) != "none" {
+		t.Fatal("an open room is encrypted")
+	}
+	if err := aliceA.SaveRoomSettings(0, room, map[string]string{
+		"muc#roomconfig_roomname":    "Tea house",
+		"muc#roomconfig_membersonly": "1",
+		"muc#roomconfig_whois":       "anyone",
+	}); err != nil {
+		t.Fatalf("saving: %v", err)
+	}
+	if st, _ := alice.room(room); st.name != "Tea house" || !st.info.Private() {
+		t.Errorf("after saving: name %q, info %+v", st.name, st.info)
+	}
+	if mode := resolveEncryptionMode(ctx, alice, room); mode != "omemo-v1" {
+		t.Errorf("private room's encryption = %q", mode)
+	}
+	settings, _ = aliceA.RoomSettings(0, room)
+	for _, s := range settings {
+		if s.Var == "muc#roomconfig_membersonly" && s.Value != "1" {
+			t.Errorf("members only read back as %q", s.Value)
+		}
 	}
 }

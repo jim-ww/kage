@@ -94,6 +94,12 @@ type Daemon interface {
 	// ModerateOccupant applies a Mod* action to nick in a room. Returns
 	// OccupantModeratedMsg.
 	ModerateOccupant(accountIdx int, room, nick, action string) tea.Msg
+	// RoomSettings reads a room's settings, for its owners; slow, run as a
+	// tea.Cmd. Returns RoomSettingsMsg.
+	RoomSettings(accountIdx int, room string) tea.Msg
+	// SaveRoomSettings changes the settings in values, by Var. Slow, run
+	// as a tea.Cmd. Returns RoomSettingsSavedMsg.
+	SaveRoomSettings(accountIdx int, room string, values map[string]string) tea.Msg
 	// StartChat makes a chat with address, locally: no roster item or
 	// subscription request. Returns ChatStartedMsg.
 	StartChat(accountIdx int, address string) tea.Msg

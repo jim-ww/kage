@@ -126,6 +126,8 @@ func init() {
 	handle(setRoomSubjectReq{})
 	handle(inviteToRoomReq{})
 	handle(moderateOccupantReq{})
+	handle(roomSettingsReq{})
+	handle(saveRoomSettingsReq{})
 	handle(resubscribeContactReq{})
 	handle(resyncChatReq{})
 	handle(setChatFlagReq{})
@@ -437,6 +439,25 @@ type moderateOccupantReq struct {
 
 func (c moderateOccupantReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.ModerateOccupant(c.AccountIdx, c.Room, c.Nick, c.Action)
+}
+
+type roomSettingsReq struct {
+	AccountIdx int
+	Room       string
+}
+
+func (c roomSettingsReq) run(d *daemonServer, _ ipc.ClientID) ([]ui.RoomSetting, error) {
+	return d.a.RoomSettings(c.AccountIdx, c.Room)
+}
+
+type saveRoomSettingsReq struct {
+	AccountIdx int
+	Room       string
+	Values     map[string]string
+}
+
+func (c saveRoomSettingsReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SaveRoomSettings(c.AccountIdx, c.Room, c.Values)
 }
 
 type startChatReq struct {

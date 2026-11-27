@@ -339,3 +339,25 @@ func TestRoomArchiveResultsOnlyFromTheRoom(t *testing.T) {
 		}
 	}
 }
+
+func TestRoomConfigFormDecodes(t *testing.T) {
+	const raw = `<query xmlns='http://jabber.org/protocol/muc#owner'><x xmlns='jabber:x:data' type='form'>
+<field var='FORM_TYPE' type='hidden'><value>http://jabber.org/protocol/muc#roomconfig</value></field>
+<field var='muc#roomconfig_roomname' type='text-single' label='Title'><value>Tea</value></field>
+<field var='muc#roomconfig_membersonly' type='boolean' label='Members only'><value>0</value></field>
+<field var='muc#roomconfig_whois' type='list-single' label='Addresses'><value>moderators</value>
+<option label='Moderators only'><value>moderators</value></option><option label='Anyone'><value>anyone</value></option></field>
+</x></query>`
+	var resp struct {
+		Form struct {
+			Fields []FormField `xml:"jabber:x:data field"`
+		} `xml:"jabber:x:data x"`
+	}
+	if err := xml.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+	f := resp.Form.Fields
+	if len(f) != 4 || f[1].Value() != "Tea" || f[2].Type != "boolean" || len(f[3].Options) != 2 || f[3].Options[1].Value != "anyone" || f[3].Options[0].Label != "Moderators only" {
+		t.Fatalf("fields = %+v", f)
+	}
+}

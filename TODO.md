@@ -17,7 +17,6 @@
 - account logount option (that also cleans up OMEMO devices)
 - add image preview for file manager? same way we have avatars
 - ux: open chat composer (textbox) of message size (with limits)
-- group chats, admin: room settings (name, password, members-only, ...) via the muc#owner config form
 - group chats, admin: member list (add/remove members, admins, owners - muc#admin affiliations)
 - group chats, admin: moderation - retract others' messages (XEP-0425)
 - group chats: per-room notification setting (all / mentions / none)

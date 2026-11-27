@@ -438,6 +438,51 @@ func (c *Client) RoomMembers(ctx context.Context, room string) ([]string, error)
 	return slices.Compact(members), nil
 }
 
+// FormField is one field of a data form (XEP-0004).
+type FormField struct {
+	Var   string `xml:"var,attr"`
+	Type  string `xml:"type,attr"`
+	Label string `xml:"label,attr"`
+	// Values are its values: one, except for a -multi field.
+	Values  []string     `xml:"jabber:x:data value"`
+	Options []FormOption `xml:"jabber:x:data option"`
+}
+
+// FormOption is one of a list field's options.
+type FormOption struct {
+	Label string `xml:"label,attr"`
+	Value string `xml:"jabber:x:data value"`
+}
+
+// Value is f's first value, "" for none.
+func (f FormField) Value() string {
+	if len(f.Values) > 0 {
+		return f.Values[0]
+	}
+	return ""
+}
+
+// RoomConfig reads room's configuration form (XEP-0045 §10.2), which only
+// its owners may.
+func (c *Client) RoomConfig(ctx context.Context, room string) ([]FormField, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
+	to, err := jid.Parse(room)
+	if err != nil {
+		return nil, fmt.Errorf("parsing room %q: %w", room, err)
+	}
+	var resp struct {
+		Form struct {
+			Fields []FormField `xml:"jabber:x:data field"`
+		} `xml:"jabber:x:data x"`
+	}
+	query := xmlstream.Wrap(nil, xml.StartElement{Name: xml.Name{Space: mucOwnerNS, Local: "query"}})
+	if err := c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.GetIQ, To: to.Bare()}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Form.Fields, nil
+}
+
 // SetRoomConfig submits values for fields of room's configuration form
 // (XEP-0045 §10.2), e.g. "muc#roomconfig_membersonly": "1"; the rest keep
 // what they are.
