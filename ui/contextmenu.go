@@ -190,6 +190,9 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 		return nil
 	}
 	pin, mute, block := "Pin chat", "Mute notifications", "Block contact"
+	if chat, ok := m.chats.Items()[idx].(Chat); ok && chat.Room {
+		return m.roomChatMenuItems(chat)
+	}
 	if chat, ok := m.chats.Items()[idx].(Chat); ok {
 		if chat.Blocked {
 			block = "Unblock contact"
@@ -275,6 +278,10 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 		{label: "Contacts", run: func(m *Model) tea.Cmd {
 			m.switchAccount(idx)
 			return m.openContactManager()
+		}},
+		{label: "Join group chat", run: func(m *Model) tea.Cmd {
+			m.switchAccount(idx)
+			return m.openJoinRoom("", "")
 		}},
 		{label: "OMEMO devices", run: func(m *Model) tea.Cmd {
 			m.switchAccount(idx)

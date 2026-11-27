@@ -801,3 +801,18 @@ func (a *adapter) LeaveRoom(accountIdx int, room string) error {
 	s.forgetRoom(ctx, a.srv, accountIdx, room)
 	return nil
 }
+
+// StartChat gives address a chat without asking them for anything, as a
+// message from them would (see ensureChat).
+func (a *adapter) StartChat(accountIdx int, address string) error {
+	s, err := a.session(accountIdx)
+	if err != nil {
+		return err
+	}
+	j, err := jid.Parse(strings.TrimSpace(address))
+	if err != nil {
+		return fmt.Errorf("%q isn't an address", address)
+	}
+	ensureChat(context.Background(), a.srv, accountIdx, s, j.Bare().String())
+	return nil
+}

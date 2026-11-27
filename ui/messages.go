@@ -92,6 +92,13 @@ type RoomLeftMsg struct {
 	Err        error
 }
 
+// ChatStartedMsg reports the result of Daemon.StartChat.
+type ChatStartedMsg struct {
+	AccountIdx int
+	Address    string
+	Err        error
+}
+
 // RoomStateMsg is a room's state as it changed: who's in it, its subject
 // and whether we are.
 type RoomStateMsg struct {

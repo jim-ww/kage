@@ -413,6 +413,9 @@ func (m *Model) actionRenameChat() tea.Cmd {
 	if !ok {
 		return m.showNotification("no chat selected")
 	}
+	if chat.Room {
+		return m.showNotification("a group chat is named by its owners")
+	}
 
 	value := ""
 	if chat.Name != chat.Address {

@@ -210,6 +210,9 @@ func mergeLiveTail(fresh, old []Message) []Message {
 // handleEventMsg handles every message but keys; handled is false for
 // those.
 func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
+	if m, cmd, handled := m.handleRoomMsg(msg); handled {
+		return m, cmd, true
+	}
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:

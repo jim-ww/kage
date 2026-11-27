@@ -306,7 +306,11 @@ type Occupant struct {
 // are both pre-styled strings ending in their own ANSI reset, so nothing
 // the delegate layers on top survives into them — see renderTintedName.
 func (c Chat) Title() string {
-	title := presenceGlyph(c.Presence) + " " + renderTintedName(termText(c.Name), c.Address)
+	glyph := presenceGlyph(c.Presence)
+	if c.Room {
+		glyph = roomGlyph(c)
+	}
+	title := glyph + " " + renderTintedName(termText(c.Name), c.Address)
 	if c.Muted {
 		title += " " + mutedChatGlyph
 	}

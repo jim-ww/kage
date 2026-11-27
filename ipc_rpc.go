@@ -121,6 +121,7 @@ func init() {
 	handle(setBlockedReq{})
 	handle(joinRoomReq{})
 	handle(leaveRoomReq{})
+	handle(startChatReq{})
 	handle(resubscribeContactReq{})
 	handle(resyncChatReq{})
 	handle(setChatFlagReq{})
@@ -396,6 +397,15 @@ type leaveRoomReq struct {
 
 func (c leaveRoomReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.LeaveRoom(c.AccountIdx, c.Room)
+}
+
+type startChatReq struct {
+	AccountIdx int
+	Address    string
+}
+
+func (c startChatReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.StartChat(c.AccountIdx, c.Address)
 }
 
 type resubscribeContactReq struct {
