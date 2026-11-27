@@ -34,6 +34,8 @@ type messageBody struct {
 	// MUCUser marks a message from a room's occupant sent privately, or
 	// carries a mediated invitation (XEP-0045).
 	MUCUser *mucInviteElem `xml:"http://jabber.org/protocol/muc#user x"`
+	// OccupantID is the room's id for the sender (XEP-0421).
+	OccupantID *occupantIDElem `xml:"urn:xmpp:occupant-id:0 occupant-id"`
 	// DirectInvite is a XEP-0249 invitation.
 	DirectInvite *directInviteElem `xml:"jabber:x:conference x"`
 
@@ -232,10 +234,11 @@ type fallbackBodyElem struct {
 // XEP-0115 entity capabilities.
 type presenceBody struct {
 	stanza.Presence
-	Show    string        `xml:"show"`
-	Caps    *capsElem     `xml:"http://jabber.org/protocol/caps c"`
-	Error   *stanza.Error `xml:"jabber:client error"`
-	MUCUser *mucUserElem  `xml:"http://jabber.org/protocol/muc#user x"`
+	Show       string          `xml:"show"`
+	Caps       *capsElem       `xml:"http://jabber.org/protocol/caps c"`
+	Error      *stanza.Error   `xml:"jabber:client error"`
+	MUCUser    *mucUserElem    `xml:"http://jabber.org/protocol/muc#user x"`
+	OccupantID *occupantIDElem `xml:"urn:xmpp:occupant-id:0 occupant-id"`
 }
 
 // capsElem is XEP-0115's <c/> entity capabilities element.

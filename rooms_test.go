@@ -220,3 +220,47 @@ func TestRoomsLoadedAsChats(t *testing.T) {
 		t.Errorf("chat = %+v", chat)
 	}
 }
+
+// TestRoomOccupantIDOutlivesNick checks that in a room stamping
+// occupant-ids, a message is its sender's across a nick change, and not
+// whoever takes their old nick.
+func TestRoomOccupantIDOutlivesNick(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := attachedClient(t)
+	s := roomSession(t)
+	s.updateRoom(testRoom, func(st *roomState) { st.info.OccupantID = true })
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "a", From: testRoom + "/bob", OccupantID: "occ-bob", Body: "hi", Groupchat: true})
+
+	// Bob is now "robert"; mallory took "bob".
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "c1", From: testRoom + "/bob", OccupantID: "occ-mallory", Body: "forged", ReplaceID: "a", Groupchat: true})
+	if hist := roomHistory(t, s); hist[0].Content != "hi" {
+		t.Fatalf("bob's old nick corrected his message: %+v", hist[0])
+	}
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "c2", From: testRoom + "/robert", OccupantID: "occ-bob", Body: "hello", ReplaceID: "a", Groupchat: true})
+	if hist := roomHistory(t, s); hist[0].Content != "hello" {
+		t.Errorf("bob's correction under his new nick not applied: %+v", hist[0])
+	}
+
+	// One reaction set per person, whatever their nick.
+	for _, from := range []string{"bob", "robert"} {
+		handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{From: testRoom + "/" + from, OccupantID: "occ-bob", ReactionTargetID: "a", Reactions: []string{"👍"}, Groupchat: true})
+	}
+	if r := loadReactionsForMessage(ctx, s, testRoom, "a"); len(r) != 1 || r[0].Count != 1 {
+		t.Errorf("reactions = %+v", r)
+	}
+}
+
+// TestRoomOwnByOccupantID checks our own message is known as ours by
+// occupant-id, whatever nick it came under.
+func TestRoomOwnByOccupantID(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := attachedClient(t)
+	s := roomSession(t)
+	s.updateRoom(testRoom, func(st *roomState) { st.info.OccupantID, st.occupantID = true, "occ-me" })
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "a", From: testRoom + "/me-old", OccupantID: "occ-me", Body: "from my phone", Groupchat: true})
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "b", From: testRoom + "/me", OccupantID: "occ-other", Body: "not me", Groupchat: true})
+	hist := roomHistory(t, s)
+	if !hist[0].IsMe || hist[1].IsMe {
+		t.Errorf("history = %+v", hist)
+	}
+}

@@ -707,7 +707,7 @@ func (q *Queries) GetMessageDelayByArchiveID(ctx context.Context, arg GetMessage
 }
 
 const getMessageSenderByIDAttr = `-- name: GetMessageSenderByIDAttr :one
-SELECT sent, fromAttr
+SELECT sent, fromAttr, occupantID
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -723,8 +723,9 @@ type GetMessageSenderByIDAttrParams struct {
 }
 
 type GetMessageSenderByIDAttrRow struct {
-	Sent     bool           `db:"sent"`
-	Fromattr sql.NullString `db:"fromattr"`
+	Sent       bool           `db:"sent"`
+	Fromattr   sql.NullString `db:"fromattr"`
+	Occupantid sql.NullString `db:"occupantid"`
 }
 
 // Who sent a message: in a room every occupant's message is "received", so
@@ -732,7 +733,7 @@ type GetMessageSenderByIDAttrRow struct {
 func (q *Queries) GetMessageSenderByIDAttr(ctx context.Context, arg GetMessageSenderByIDAttrParams) (GetMessageSenderByIDAttrRow, error) {
 	row := q.db.QueryRowContext(ctx, getMessageSenderByIDAttr, arg.AccountJid, arg.RosterJid, arg.IDAttr)
 	var i GetMessageSenderByIDAttrRow
-	err := row.Scan(&i.Sent, &i.Fromattr)
+	err := row.Scan(&i.Sent, &i.Fromattr, &i.Occupantid)
 	return i, err
 }
 
@@ -1231,7 +1232,8 @@ INSERT INTO messages (
 	replyToIdAttr,
 	replyQuoteAuthor,
 	replyQuotePreview,
-	oobURLs
+	oobURLs,
+	occupantID
 )
 VALUES (
 	?1,
@@ -1254,7 +1256,8 @@ VALUES (
 	?15,
 	?16,
 	?17,
-	?18
+	?18,
+	?19
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -1280,6 +1283,7 @@ type InsertMessageParams struct {
 	ReplyQuoteAuthor  sql.NullString `db:"reply_quote_author"`
 	ReplyQuotePreview sql.NullString `db:"reply_quote_preview"`
 	OobUrls           sql.NullString `db:"oob_urls"`
+	OccupantID        sql.NullString `db:"occupant_id"`
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -1302,6 +1306,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.ReplyQuoteAuthor,
 		arg.ReplyQuotePreview,
 		arg.OobUrls,
+		arg.OccupantID,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -1962,7 +1967,7 @@ func (q *Queries) ListMessageQuarterHours(ctx context.Context, arg ListMessageQu
 }
 
 const listMessagesByRoster = `-- name: ListMessagesByRoster :many
-SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, roomstanzaid
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, occupantid, roomstanzaid
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -2017,6 +2022,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Calldirection,
 			&i.Calloutcome,
 			&i.Calldurationsecs,
+			&i.Occupantid,
 			&i.Roomstanzaid,
 		); err != nil {
 			return nil, err
@@ -2033,7 +2039,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 }
 
 const listMessagesByRosterAtOrAfter = `-- name: ListMessagesByRosterAtOrAfter :many
-SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, roomstanzaid
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, occupantid, roomstanzaid
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -2110,6 +2116,7 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 			&i.Calldirection,
 			&i.Calloutcome,
 			&i.Calldurationsecs,
+			&i.Occupantid,
 			&i.Roomstanzaid,
 		); err != nil {
 			return nil, err
@@ -2126,7 +2133,7 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 }
 
 const listMessagesByRosterBefore = `-- name: ListMessagesByRosterBefore :many
-SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, roomstanzaid
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, occupantid, roomstanzaid
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -2206,6 +2213,7 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Calldirection,
 			&i.Calloutcome,
 			&i.Calldurationsecs,
+			&i.Occupantid,
 			&i.Roomstanzaid,
 		); err != nil {
 			return nil, err

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	callDirection TEXT, -- call log rows only (stanzaType = 'call'): 'incoming' or 'outgoing'
 	callOutcome   TEXT, -- call log rows only: 'answered', 'missed', 'declined', or 'failed'
 	callDurationSecs INTEGER, -- call log rows only: meaningful when callOutcome = 'answered'
+	occupantID    TEXT, -- XEP-0421 id a room gave this message's sender, which outlives their nick
 	roomStanzaID  TEXT, -- XEP-0359 stanza-id a room (XEP-0045) gave this message, which replies, reactions and retractions in the room refer to it by
 
 	UNIQUE (accountJID, originID, fromAttr),

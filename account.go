@@ -1145,6 +1145,10 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		if !s.handlePresenceError(srv, accountIdx, ev) {
 			slog.Debug("presence error", "jid", s.account.JID, "from", ev.From, "reason", ev.Reason)
 		}
+	case xmpp.RoomConfigChangedEvent:
+		if client, err := s.liveClient(); err == nil && s.isRoom(ev.Room) {
+			go s.refreshRoomInfo(ctx, client, ev.Room)
+		}
 	case xmpp.RoomSubjectEvent:
 		s.handleRoomSubject(ctx, srv, accountIdx, ev)
 	case xmpp.RoomInviteEvent:

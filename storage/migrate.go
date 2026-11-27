@@ -57,6 +57,7 @@ var addedColumns = []struct{ table, column, decl string }{
 	{"messages", "replyQuoteAuthor", "TEXT"},
 	{"messages", "replyQuotePreview", "TEXT"},
 	{"messages", "roomStanzaID", "TEXT"},
+	{"messages", "occupantID", "TEXT"},
 }
 
 func addColumns(ctx context.Context, db *sql.DB) error {

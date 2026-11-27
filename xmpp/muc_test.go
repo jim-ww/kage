@@ -215,3 +215,34 @@ func TestMUCFeaturesAdvertised(t *testing.T) {
 		}
 	}
 }
+
+func TestOccupantID(t *testing.T) {
+	events := servePresence(t, `<presence xmlns="jabber:client" from="room@muc.example.test/bob">
+		<x xmlns="http://jabber.org/protocol/muc#user"><item affiliation="member" role="participant"/></x>
+		<occupant-id xmlns="urn:xmpp:occupant-id:0" id="occ-bob"/>
+	</presence>`)
+	if ev, ok := events[0].(RoomPresenceEvent); !ok || ev.OccupantID != "occ-bob" {
+		t.Errorf("presence = %+v", events[0])
+	}
+	_, events = serveMessage(t, `<message xmlns="jabber:client" from="room@muc.example.test/bob" type="groupchat" id="g1">
+		<body>hi</body><occupant-id xmlns="urn:xmpp:occupant-id:0" id="occ-bob"/>
+	</message>`)
+	if msgs := messages(events); len(msgs) != 1 || msgs[0].OccupantID != "occ-bob" {
+		t.Errorf("messages = %+v", msgs)
+	}
+	_, events = serveMessage(t, `<message xmlns="jabber:client" from="bob@example.test/pc" type="chat" id="c1">
+		<body>hi</body><occupant-id xmlns="urn:xmpp:occupant-id:0" id="forged"/>
+	</message>`)
+	if msgs := messages(events); len(msgs) != 1 || msgs[0].OccupantID != "" {
+		t.Errorf("an occupant-id outside a room taken: %+v", msgs)
+	}
+}
+
+func TestRoomConfigChanged(t *testing.T) {
+	_, events := serveMessage(t, `<message xmlns="jabber:client" from="room@muc.example.test" type="groupchat">
+		<x xmlns="http://jabber.org/protocol/muc#user"><status code="104"/></x>
+	</message>`)
+	if len(events) != 1 || events[0] != (RoomConfigChangedEvent{Room: "room@muc.example.test"}) {
+		t.Errorf("events = %+v", events)
+	}
+}

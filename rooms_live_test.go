@@ -89,6 +89,9 @@ func TestGroupChatLive(t *testing.T) {
 		_, in := st.occupants["bob"]
 		return in
 	})
+	if st, _ := alice.room(room); !st.info.OccupantID || st.occupantID == "" {
+		t.Errorf("no occupant-id from the room: %+v", st.info)
+	}
 	if st, _ := alice.room(room); st.occupants["bob"].JID != bob.account.JID {
 		t.Errorf("bob's address as alice, the owner, sees it: %q", st.occupants["bob"].JID)
 	}

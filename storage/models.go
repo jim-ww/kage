@@ -120,6 +120,7 @@ type Message struct {
 	Calldirection     sql.NullString `db:"calldirection"`
 	Calloutcome       sql.NullString `db:"calloutcome"`
 	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
+	Occupantid        sql.NullString `db:"occupantid"`
 	Roomstanzaid      sql.NullString `db:"roomstanzaid"`
 }
 

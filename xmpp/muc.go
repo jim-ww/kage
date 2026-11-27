@@ -31,7 +31,17 @@ const (
 	MUCStatusRemoved     = 321 // removed on an affiliation change
 	MUCStatusMembersOnly = 322 // removed as the room became members-only
 	MUCStatusShutdown    = 332 // removed as the service is shutting down
+	MUCStatusConfig      = 104 // the room's configuration changed
 )
+
+// occupantIDNS is XEP-0421's: a room stamps an id per occupant on what it
+// relays, stable across nick changes.
+const occupantIDNS = "urn:xmpp:occupant-id:0"
+
+// occupantIDElem is a room's <occupant-id/>.
+type occupantIDElem struct {
+	ID string `xml:"id,attr"`
+}
 
 // mucUserElem is a room's <x xmlns='...muc#user'/> on an occupant's
 // presence: who they are and why the presence was sent.
@@ -42,9 +52,17 @@ type mucUserElem struct {
 		Affiliation string `xml:"affiliation,attr"`
 		Role        string `xml:"role,attr"`
 	} `xml:"http://jabber.org/protocol/muc#user item"`
-	Status []struct {
-		Code int `xml:"code,attr"`
-	} `xml:"http://jabber.org/protocol/muc#user status"`
+	Status []mucStatus `xml:"http://jabber.org/protocol/muc#user status"`
+}
+
+// mucStatus is one of a room's status codes (XEP-0045 §15.6).
+type mucStatus struct {
+	Code int `xml:"code,attr"`
+}
+
+// hasStatus reports whether code is among statuses.
+func hasStatus(statuses []mucStatus, code int) bool {
+	return slices.ContainsFunc(statuses, func(s mucStatus) bool { return s.Code == code })
 }
 
 // RoomPresenceEvent is an occupant's presence in a room (XEP-0045 §7.2).
@@ -55,6 +73,10 @@ type RoomPresenceEvent struct {
 	// RealJID is the occupant's bare JID, "" where the room hides it from
 	// us (a semi-anonymous room, we not being a moderator).
 	RealJID string
+
+	// OccupantID is the room's id for the occupant (XEP-0421), meaningful
+	// only if the room says it stamps them (RoomInfo.OccupantID).
+	OccupantID string
 
 	Affiliation string // owner, admin, member, outcast or none
 	Role        string // moderator, participant, visitor or none
@@ -113,8 +135,17 @@ type mucInviteElem struct {
 		From   string `xml:"from,attr"`
 		Reason string `xml:"http://jabber.org/protocol/muc#user reason"`
 	} `xml:"http://jabber.org/protocol/muc#user invite"`
-	Password string `xml:"http://jabber.org/protocol/muc#user password"`
+	Password string      `xml:"http://jabber.org/protocol/muc#user password"`
+	Status   []mucStatus `xml:"http://jabber.org/protocol/muc#user status"`
 }
+
+// RoomConfigChangedEvent is a room saying its configuration changed
+// (XEP-0045 §10.2.1): what it is is to be asked again.
+type RoomConfigChangedEvent struct {
+	Room string
+}
+
+func (RoomConfigChangedEvent) isEvent() {}
 
 // directInviteElem is XEP-0249's direct invitation.
 type directInviteElem struct {
@@ -131,6 +162,9 @@ func roomPresence(p presenceBody) RoomPresenceEvent {
 		Available: p.Type == stanza.AvailablePresence,
 		Show:      p.Show,
 	}
+	if p.OccupantID != nil {
+		ev.OccupantID = p.OccupantID.ID
+	}
 	if item := p.MUCUser.Item; item != nil {
 		ev.Affiliation, ev.Role, ev.NewNick = item.Affiliation, item.Role, item.Nick
 		if j, err := jid.Parse(item.JID); err == nil && item.JID != "" {
@@ -143,25 +177,68 @@ func roomPresence(p presenceBody) RoomPresenceEvent {
 	return ev
 }
 
-// JoinRoom enters room as nick (XEP-0045 §7.2), asking for the history
-// since since, or the room's default amount of it for a zero since. The
-// outcome arrives as our own RoomPresenceEvent, or a PresenceErrorEvent.
-func (c *Client) JoinRoom(ctx context.Context, room, nick string, since time.Time) error {
+// JoinOptions are how JoinRoom enters a room.
+type JoinOptions struct {
+	Password string
+	// Show is our <show/> in the room, "" for plain online.
+	Show string
+	// NoHistory asks for no history at all, for a room whose archive
+	// (XEP-0313) is read instead; else Since asks for the history since
+	// then, a zero Since for the room's default amount of it.
+	NoHistory bool
+	Since     time.Time
+}
+
+// JoinRoom enters room as nick (XEP-0045 §7.2). The outcome arrives as our
+// own RoomPresenceEvent, or a PresenceErrorEvent.
+func (c *Client) JoinRoom(ctx context.Context, room, nick string, opts JoinOptions) error {
 	occupant, err := occupantJID(room, nick)
 	if err != nil {
 		return err
 	}
-	var history xml.TokenReader
-	if !since.IsZero() {
-		history = xmlstream.Wrap(nil, xml.StartElement{
+	var children []xml.TokenReader
+	switch {
+	case opts.NoHistory:
+		children = append(children, xmlstream.Wrap(nil, xml.StartElement{
 			Name: xml.Name{Local: "history"},
-			Attr: []xml.Attr{{Name: xml.Name{Local: "since"}, Value: since.UTC().Format(time.RFC3339)}},
-		})
+			Attr: []xml.Attr{{Name: xml.Name{Local: "maxstanzas"}, Value: "0"}},
+		}))
+	case !opts.Since.IsZero():
+		children = append(children, xmlstream.Wrap(nil, xml.StartElement{
+			Name: xml.Name{Local: "history"},
+			Attr: []xml.Attr{{Name: xml.Name{Local: "since"}, Value: opts.Since.UTC().Format(time.RFC3339)}},
+		}))
 	}
-	x := xmlstream.Wrap(history, xml.StartElement{Name: xml.Name{Space: mucNS, Local: "x"}})
+	if opts.Password != "" {
+		children = append(children, xmlstream.Wrap(xmlstream.Token(xml.CharData(opts.Password)), xml.StartElement{Name: xml.Name{Local: "password"}}))
+	}
 	return c.session.Send(ctx, stanza.Presence{To: occupant, Type: stanza.AvailablePresence}.Wrap(
-		xmlstream.MultiReader(x, discoCaps().TokenReader()),
+		xmlstream.MultiReader(
+			xmlstream.Wrap(xmlstream.MultiReader(children...), xml.StartElement{Name: xml.Name{Space: mucNS, Local: "x"}}),
+			showElem(opts.Show),
+			discoCaps().TokenReader(),
+		),
 	))
+}
+
+// SetRoomPresence sends our <show/> to the room we're in as nick, or with a
+// new nick changes it (XEP-0045 §7.6).
+func (c *Client) SetRoomPresence(ctx context.Context, room, nick, show string) error {
+	occupant, err := occupantJID(room, nick)
+	if err != nil {
+		return err
+	}
+	return c.session.Send(ctx, stanza.Presence{To: occupant, Type: stanza.AvailablePresence}.Wrap(
+		xmlstream.MultiReader(showElem(show), discoCaps().TokenReader()),
+	))
+}
+
+// showElem is <show>show</show>, nothing for "".
+func showElem(show string) xml.TokenReader {
+	if show == "" {
+		return nil
+	}
+	return xmlstream.Wrap(xmlstream.Token(xml.CharData(show)), xml.StartElement{Name: xml.Name{Local: "show"}})
 }
 
 // LeaveRoom exits room, which we're in as nick (XEP-0045 §7.14).
@@ -212,22 +289,52 @@ func ValidRoomNick(room, nick string) error {
 	return err
 }
 
-// RoomName is the name room gives itself (XEP-0045 §6.4), "" if none.
-func (c *Client) RoomName(ctx context.Context, room string) (string, error) {
+// RoomInfo is what a room says of itself (XEP-0045 §6.4).
+type RoomInfo struct {
+	Name string
+	// MembersOnly and NonAnonymous together make a room OMEMO can be used
+	// in: every member's real JID is known to everyone.
+	MembersOnly  bool
+	NonAnonymous bool
+	// OccupantID is set if the room stamps occupant-ids (XEP-0421), which
+	// are then to be trusted.
+	OccupantID bool
+	// MAM is set if the room keeps an archive (XEP-0313).
+	MAM bool
+}
+
+// Private reports whether OMEMO can be used in the room.
+func (i RoomInfo) Private() bool { return i.MembersOnly && i.NonAnonymous }
+
+// RoomInfo asks room what it is.
+func (c *Client) RoomInfo(ctx context.Context, room string) (RoomInfo, error) {
 	ctx, cancel := c.bound(ctx)
 	defer cancel()
 	j, err := jid.Parse(room)
 	if err != nil {
-		return "", fmt.Errorf("parsing room %q: %w", room, err)
+		return RoomInfo{}, fmt.Errorf("parsing room %q: %w", room, err)
 	}
 	info, err := disco.GetInfo(ctx, "", j.Bare(), c.session)
 	if err != nil {
-		return "", err
+		return RoomInfo{}, err
 	}
+	var out RoomInfo
 	for _, id := range info.Identity {
-		if id.Category == "conference" {
-			return id.Name, nil
+		if id.Category == "conference" && out.Name == "" {
+			out.Name = id.Name
 		}
 	}
-	return "", nil
+	for _, f := range info.Features {
+		switch f.Var {
+		case "muc_membersonly":
+			out.MembersOnly = true
+		case "muc_nonanonymous":
+			out.NonAnonymous = true
+		case occupantIDNS:
+			out.OccupantID = true
+		case mamNS:
+			out.MAM = true
+		}
+	}
+	return out, nil
 }

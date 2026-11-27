@@ -27,6 +27,11 @@ type roomState struct {
 	// (XEP-0402): its bookmark gone, the room was left on another client.
 	bookmarked bool
 
+	// info is what the room said of itself, asked before each join.
+	info xmpp.RoomInfo
+	// occupantID is ours in the room (XEP-0421), "" if it stamps none.
+	occupantID string
+
 	joined    bool
 	joinErr   string
 	occupants map[string]ui.Occupant
@@ -49,6 +54,25 @@ const roomBroadcastDelay = 150 * time.Millisecond
 
 // roomJoinTimeout is how long JoinRoom waits for the room to answer.
 const roomJoinTimeout = 20 * time.Second
+
+// roomInfoTimeout bounds asking a room what it is before joining it.
+const roomInfoTimeout = 10 * time.Second
+
+// trustsOccupantID reports whether st's room stamps occupant-ids, so one on
+// a stanza from it is the room's and not something its sender made up.
+func (st roomState) trustsOccupantID(id string) bool {
+	return st.info.OccupantID && id != ""
+}
+
+// ownInRoom reports whether a stanza in st's room from nick with
+// occupantID is from us: by occupant-id where the room stamps them (it
+// outlives nick changes), else by nick.
+func (st roomState) ownInRoom(nick, occupantID string) bool {
+	if st.trustsOccupantID(occupantID) && st.occupantID != "" {
+		return occupantID == st.occupantID
+	}
+	return nick != "" && nick == st.nick
+}
 
 // isRoom reports whether addr is one of the account's rooms.
 func (s *accountSession) isRoom(addr string) bool {
@@ -236,9 +260,20 @@ func enterRooms(ctx context.Context, srv *ipc.Server, accountIdx int, s *account
 	s.syncBookmarks(ctx, srv, accountIdx, client)
 }
 
-// sendJoin asks to enter addr, for the history since its newest stored
-// message.
+// sendJoin asks addr what it is, then to enter it, for the history since
+// its newest stored message.
 func (s *accountSession) sendJoin(ctx context.Context, srv *ipc.Server, accountIdx int, client *xmpp.Client, addr string) {
+	if _, ok := s.room(addr); !ok {
+		return
+	}
+	infoCtx, cancel := context.WithTimeout(ctx, roomInfoTimeout)
+	info, err := client.RoomInfo(infoCtx, addr)
+	cancel()
+	if err != nil {
+		// A room our join is about to create has nothing to say yet.
+		slog.Debug("asking room what it is", "jid", s.account.JID, "room", addr, "err", err)
+	}
+	s.updateRoom(addr, func(st *roomState) { st.info = info })
 	st, ok := s.room(addr)
 	if !ok {
 		return
@@ -254,7 +289,8 @@ func (s *accountSession) sendJoin(ctx context.Context, srv *ipc.Server, accountI
 		clear(st.occupants)
 	})
 	slog.Debug("joining room", "jid", s.account.JID, "room", addr, "nick", st.nick, "since", since)
-	if err := client.JoinRoom(ctx, addr, st.nick, since); err != nil {
+	opts := xmpp.JoinOptions{Password: st.password, Show: presenceShow(accountStatus(s.account.Status)), Since: since}
+	if err := client.JoinRoom(ctx, addr, st.nick, opts); err != nil {
 		slog.Warn("joining room", "jid", s.account.JID, "room", addr, "err", err)
 		s.updateRoom(addr, func(st *roomState) { st.joinErr = err.Error() })
 	}
@@ -341,7 +377,7 @@ func (s *accountSession) forgetRoom(ctx context.Context, srv *ipc.Server, accoun
 func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.RoomPresenceEvent) {
 	var waiters []chan error
 	var failure error
-	var created, renamed bool
+	var created, renamed, unknown bool
 	ok := s.updateRoom(ev.Room, func(st *roomState) {
 		self := ev.Has(xmpp.MUCStatusSelf) || ev.Nick == st.nick
 		if ev.Available {
@@ -353,11 +389,12 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 				return
 			}
 			renamed = st.nick != ev.Nick
-			st.nick = ev.Nick
+			st.nick, st.occupantID = ev.Nick, ev.OccupantID
 			created = ev.Has(xmpp.MUCStatusCreated)
 			if !st.joined {
 				st.joined, st.joinErr = true, ""
 				waiters, st.waiters = st.waiters, nil
+				unknown = st.info == (xmpp.RoomInfo{})
 			}
 			return
 		}
@@ -394,9 +431,29 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 			if err := client.ConfigureInstantRoom(ctx, ev.Room); err != nil {
 				slog.Warn("configuring new room", "room", ev.Room, "err", err)
 			}
+			// Before it existed, it had nothing to say of itself.
+			s.refreshRoomInfo(ctx, client, ev.Room)
+		}()
+	} else if unknown {
+		go func() {
+			if client, err := s.liveClient(); err == nil {
+				s.refreshRoomInfo(ctx, client, ev.Room)
+			}
 		}()
 	}
 	s.broadcastRoomState(srv, accountIdx, ev.Room)
+}
+
+// refreshRoomInfo asks room what it is again.
+func (s *accountSession) refreshRoomInfo(ctx context.Context, client *xmpp.Client, room string) {
+	ctx, cancel := context.WithTimeout(ctx, roomInfoTimeout)
+	defer cancel()
+	info, err := client.RoomInfo(ctx, room)
+	if err != nil {
+		slog.Warn("asking room what it is", "room", room, "err", err)
+		return
+	}
+	s.updateRoom(room, func(st *roomState) { st.info = info })
 }
 
 // presenceFromShow maps a <show/> value to a Presence of someone available.
@@ -507,17 +564,21 @@ func (s *accountSession) roomTargetID(ctx context.Context, room, ref string) str
 // roomSentBy reports whether the stored message id in room was sent by
 // from, or by us when own: in a room anyone could otherwise correct or
 // retract anyone's.
-func (s *accountSession) roomSentBy(ctx context.Context, room, id, from string, own bool) bool {
+func (s *accountSession) roomSentBy(ctx context.Context, room, id string, ev xmpp.MessageEvent, own bool) bool {
 	row, err := s.db.GetMessageSenderByIDAttr(ctx, storage.GetMessageSenderByIDAttrParams{
 		AccountJid: s.account.JID, RosterJid: nullString(room), IDAttr: nullString(id),
 	})
 	if err != nil {
 		return false
 	}
-	if own {
-		return row.Sent
+	if own || row.Sent {
+		return own && row.Sent
 	}
-	return !row.Sent && row.Fromattr.String == from
+	// The occupant-id outlives a nick, which someone else could take after.
+	if st, _ := s.room(room); st.trustsOccupantID(ev.OccupantID) && row.Occupantid.Valid {
+		return row.Occupantid.String == ev.OccupantID
+	}
+	return row.Fromattr.String == ev.From
 }
 
 // roomOccupantOf is the occupant JID of whoever sent the stored message id
@@ -548,10 +609,18 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 		return false
 	}
 	nick := resourcePart(ev.From)
-	own := ev.Groupchat && nick != "" && nick == st.nick
+	own := ev.Groupchat && st.ownInRoom(nick, ev.OccupantID)
+	// A reaction set belongs to a person, not to a nick they may change.
 	reactor := ev.From
+	if st.trustsOccupantID(ev.OccupantID) {
+		reactor = "occupant:" + ev.OccupantID
+	}
 	if own {
 		reactor = meReactorJID
+	}
+	occupantID := ""
+	if st.trustsOccupantID(ev.OccupantID) {
+		occupantID = ev.OccupantID
 	}
 
 	if ev.ReactionTargetID != "" {
@@ -568,7 +637,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 
 	if ev.RetractID != "" {
 		target := s.roomTargetID(ctx, room, ev.RetractID)
-		if !s.roomSentBy(ctx, room, target, ev.From, own) {
+		if !s.roomSentBy(ctx, room, target, ev, own) {
 			slog.Warn("dropping a room retraction not from the message's sender", "room", room, "from", ev.From)
 			return true
 		}
@@ -590,7 +659,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 	body = stripReplyQuote(body)
 
 	if ev.ReplaceID != "" {
-		if !s.roomSentBy(ctx, room, ev.ReplaceID, ev.From, own) {
+		if !s.roomSentBy(ctx, room, ev.ReplaceID, ev, own) {
 			slog.Warn("dropping a room correction not from the message's sender", "room", room, "from", ev.From)
 			return true
 		}
@@ -663,6 +732,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 		ReplyQuoteAuthor:  nullString(quotedAuthor),
 		ReplyQuotePreview: nullString(quotedPreview),
 		OobUrls:           joinOOBURLs(ev.OOBURLs),
+		OccupantID:        nullString(occupantID),
 	})
 	if err != nil {
 		slog.Warn("persisting room message", "room", room, "err", err)
@@ -767,10 +837,11 @@ func (a *adapter) JoinRoom(accountIdx int, room, nick, password string) error {
 		return err
 	}
 
-	if name, err := client.RoomName(ctx, room); err == nil && name != "" {
-		s.putRoom(room, name, nick, password, prior.bookmarked)
-	}
 	st, _ := s.room(room)
+	if st.info.Name != "" {
+		s.putRoom(room, st.info.Name, st.nick, password, prior.bookmarked)
+		st, _ = s.room(room)
+	}
 	if err := client.PublishBookmark(ctx, xmpp.Bookmark{Room: room, Name: st.name, Nick: st.nick, Password: password, Autojoin: true}); err != nil {
 		slog.Warn("bookmarking room", "room", room, "err", err)
 	} else {

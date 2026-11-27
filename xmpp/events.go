@@ -76,6 +76,10 @@ type MessageEvent struct {
 	// RoomStanzaID is the id a room assigned its message (XEP-0359), which
 	// replies and reactions in a room refer to it by.
 	RoomStanzaID string
+
+	// OccupantID is the room's id for the sender (XEP-0421), to be trusted
+	// only if the room says it stamps them (RoomInfo.OccupantID).
+	OccupantID string
 }
 
 func (MessageEvent) isEvent() {}
@@ -314,6 +318,10 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			c.enqueue(RoomSubjectEvent{Room: msg.From.Bare().String(), Nick: msg.From.Resourcepart(), Subject: *msg.Subject})
 			return
 		}
+		if msg.MUCUser != nil && msg.From.Resourcepart() == "" && hasStatus(msg.MUCUser.Status, MUCStatusConfig) {
+			c.enqueue(RoomConfigChangedEvent{Room: msg.From.Bare().String()})
+			return
+		}
 		if inv, ok := c.roomInvite(msg); ok {
 			c.enqueue(inv)
 			return
@@ -324,6 +332,9 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			ev.MUCPrivate = !groupchat && msg.MUCUser != nil && !outgoing
 			if groupchat && msg.StanzaID != nil && msg.StanzaID.By == msg.From.Bare().String() {
 				ev.RoomStanzaID = msg.StanzaID.ID
+			}
+			if (groupchat || ev.MUCPrivate) && msg.OccupantID != nil {
+				ev.OccupantID = msg.OccupantID.ID
 			}
 			if groupchat && ev.ID == "" {
 				ev.ID = ev.RoomStanzaID

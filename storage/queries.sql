@@ -65,7 +65,8 @@ INSERT INTO messages (
 	replyToIdAttr,
 	replyQuoteAuthor,
 	replyQuotePreview,
-	oobURLs
+	oobURLs,
+	occupantID
 )
 VALUES (
 	sqlc.arg(account_jid),
@@ -88,7 +89,8 @@ VALUES (
 	sqlc.arg(reply_to_id_attr),
 	sqlc.arg(reply_quote_author),
 	sqlc.arg(reply_quote_preview),
-	sqlc.arg(oob_urls)
+	sqlc.arg(oob_urls),
+	sqlc.narg(occupant_id)
 )
 ON CONFLICT (accountJID, originID, fromAttr) DO UPDATE
 SET archiveID = excluded.archiveID
@@ -1028,7 +1030,7 @@ LIMIT 1;
 -- name: GetMessageSenderByIDAttr :one
 -- Who sent a message: in a room every occupant's message is "received", so
 -- only fromAttr tells whose it is to correct or retract.
-SELECT sent, fromAttr
+SELECT sent, fromAttr, occupantID
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
