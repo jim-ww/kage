@@ -49,6 +49,9 @@ var discoFeatures = featureList{
 	"urn:xmpp:jingle:apps:rtp:rtp-hdrext:0",
 	"urn:xmpp:jingle:transports:ice-udp:1",
 	"urn:xmpp:jingle-message:0",
+	"http://jabber.org/protocol/muc",
+	"jabber:x:conference",
+	"urn:xmpp:bookmarks:1+notify",
 }
 
 var discoIdentity = identityList{

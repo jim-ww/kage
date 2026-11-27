@@ -7,6 +7,7 @@ import (
 
 	omemolib "github.com/jim-ww/omemo-go"
 	"mellium.im/xmlstream"
+	"mellium.im/xmpp/bookmarks"
 	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/stanza"
 )
@@ -63,6 +64,18 @@ type MessageEvent struct {
 	// when Outgoing is true; a normal inbound message is always addressed
 	// to us, so callers key ordinary messages off From instead.
 	To string
+
+	// Groupchat is set for a message in a room (XEP-0045): From is the
+	// sender's occupant JID, room/nick.
+	Groupchat bool
+
+	// MUCPrivate is set for a message an occupant of a room sent us
+	// privately, From being its occupant JID.
+	MUCPrivate bool
+
+	// RoomStanzaID is the id a room assigned its message (XEP-0359), which
+	// replies and reactions in a room refer to it by.
+	RoomStanzaID string
 }
 
 func (MessageEvent) isEvent() {}
@@ -263,7 +276,8 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 
 		// Not for a carbon: the device it was sent to answers for a received
 		// one, and a sent one is ours (XEP-0280 §10.4).
-		if msg.Request != nil && msg.ID != "" && !carbon && c.receiptAllowed(msg.From) {
+		// Nor in a room, where everyone would answer (XEP-0184 §5.3).
+		if msg.Request != nil && msg.ID != "" && !carbon && msg.Type != stanza.GroupChatMessage && c.receiptAllowed(msg.From) {
 			// The receipt, written onto t as mellium's receipts.Handler does.
 			reply := stanza.Message{To: msg.From, Type: msg.Type}
 			_, err := xmlstream.Copy(t, reply.Wrap(xmlstream.Wrap(nil, xml.StartElement{
@@ -286,7 +300,35 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			case avatarMetadataNode:
 				c.enqueue(AvatarChangedEvent{From: c.pubsubFrom(msg.From)})
 				return
+			case bookmarks.NS:
+				// Only ours are of any use to us.
+				if c.fromOwnAccount(msg.From) {
+					c.enqueue(BookmarksChangedEvent{})
+				}
+				return
 			}
+		}
+
+		groupchat := msg.Type == stanza.GroupChatMessage
+		if groupchat && msg.Subject != nil && msg.Body == "" {
+			c.enqueue(RoomSubjectEvent{Room: msg.From.Bare().String(), Nick: msg.From.Resourcepart(), Subject: *msg.Subject})
+			return
+		}
+		if inv, ok := c.roomInvite(msg); ok {
+			c.enqueue(inv)
+			return
+		}
+		// Stamps what a message in a room carries on every event made of it.
+		room := func(ev MessageEvent) MessageEvent {
+			ev.Groupchat = groupchat
+			ev.MUCPrivate = !groupchat && msg.MUCUser != nil && !outgoing
+			if groupchat && msg.StanzaID != nil && msg.StanzaID.By == msg.From.Bare().String() {
+				ev.RoomStanzaID = msg.StanzaID.ID
+			}
+			if groupchat && ev.ID == "" {
+				ev.ID = ev.RoomStanzaID
+			}
+			return ev
 		}
 
 		if ev, ok := msg.jmiEvent(); ok {
@@ -302,14 +344,14 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		if msg.Retract != nil {
-			c.enqueue(MessageEvent{
+			c.enqueue(room(MessageEvent{
 				ID:        msg.selfID(),
 				From:      msg.From.String(),
 				SentAt:    sentAt(c.Now(), delays),
 				RetractID: msg.Retract.ID,
 				Outgoing:  outgoing,
 				To:        msg.To.String(),
-			})
+			}))
 			return
 		}
 
@@ -318,7 +360,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			if reactions == nil {
 				reactions = []string{} // distinguish "cleared" from "field absent" for callers
 			}
-			c.enqueue(MessageEvent{
+			c.enqueue(room(MessageEvent{
 				ID:               msg.selfID(),
 				From:             msg.From.String(),
 				SentAt:           sentAt(c.Now(), delays),
@@ -326,7 +368,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				Reactions:        reactions,
 				Outgoing:         outgoing,
 				To:               msg.To.String(),
-			})
+			}))
 			return
 		}
 
@@ -340,7 +382,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			if msg.Replace != nil {
 				replaceID = msg.Replace.ID
 			}
-			c.enqueue(MessageEvent{
+			c.enqueue(room(MessageEvent{
 				ID:         msg.selfID(),
 				From:       msg.From.String(),
 				SentAt:     sentAt(c.Now(), delays),
@@ -350,7 +392,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				Outgoing:   outgoing,
 				To:         msg.To.String(),
 				ChatStates: chatStates,
-			})
+			}))
 			return
 		}
 
@@ -362,7 +404,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			if msg.Replace != nil {
 				replaceID = msg.Replace.ID
 			}
-			c.enqueue(MessageEvent{
+			c.enqueue(room(MessageEvent{
 				ID:          msg.selfID(),
 				From:        msg.From.String(),
 				SentAt:      sentAt(c.Now(), delays),
@@ -372,7 +414,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 				Outgoing:    outgoing,
 				To:          msg.To.String(),
 				ChatStates:  chatStates,
-			})
+			}))
 			return
 		}
 
@@ -398,7 +440,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			}
 		}
 
-		c.enqueue(MessageEvent{
+		c.enqueue(room(MessageEvent{
 			ID:         msg.selfID(),
 			From:       msg.From.String(),
 			Body:       body,
@@ -409,15 +451,23 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			Outgoing:   outgoing,
 			To:         msg.To.String(),
 			ChatStates: chatStates,
-		})
+		}))
 	case "presence":
 		var p presenceBody
 		d := xml.NewTokenDecoder(t)
 		_ = d.DecodeElement(&p, start)
+		if p.Type == stanza.ErrorPresence {
+			c.enqueue(PresenceErrorEvent{From: p.From.String(), Condition: errorCondition(p.Error), Reason: bounceReason(p.Error)})
+			return
+		}
+		if p.MUCUser != nil && (p.Type == stanza.AvailablePresence || p.Type == stanza.UnavailablePresence) {
+			c.enqueue(roomPresence(p))
+			return
+		}
 		switch p.Type {
 		case stanza.SubscribePresence:
 			c.enqueue(SubscriptionRequestEvent{From: p.From.String()})
-		case stanza.SubscribedPresence, stanza.UnsubscribePresence, stanza.UnsubscribedPresence, stanza.ErrorPresence, stanza.ProbePresence:
+		case stanza.SubscribedPresence, stanza.UnsubscribePresence, stanza.UnsubscribedPresence, stanza.ProbePresence:
 			// Subscription-management and probe/error presence carry no
 			// availability information - reporting them as PresenceEvent
 			// would misrepresent the contact as offline.
@@ -430,4 +480,37 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 			})
 		}
 	}
+}
+
+// roomInvite is msg as an invitation to a room, mediated by the room or
+// direct (XEP-0249).
+func (c *Client) roomInvite(msg messageBody) (RoomInviteEvent, bool) {
+	if msg.MUCUser != nil && msg.MUCUser.Invite != nil {
+		ev := RoomInviteEvent{Room: msg.From.Bare().String(), Reason: msg.MUCUser.Invite.Reason, Password: msg.MUCUser.Password}
+		if from, err := jid.Parse(msg.MUCUser.Invite.From); err == nil {
+			ev.From = from.Bare().String()
+		}
+		return ev, true
+	}
+	if msg.DirectInvite != nil && msg.DirectInvite.JID != "" {
+		room, err := jid.Parse(msg.DirectInvite.JID)
+		if err != nil {
+			return RoomInviteEvent{}, false
+		}
+		return RoomInviteEvent{
+			Room:     room.Bare().String(),
+			From:     msg.From.Bare().String(),
+			Reason:   msg.DirectInvite.Reason,
+			Password: msg.DirectInvite.Password,
+		}, true
+	}
+	return RoomInviteEvent{}, false
+}
+
+// errorCondition is e's defined condition, "" for none.
+func errorCondition(e *stanza.Error) string {
+	if e == nil {
+		return ""
+	}
+	return string(e.Condition)
 }

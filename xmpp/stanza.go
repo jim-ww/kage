@@ -28,6 +28,15 @@ type messageBody struct {
 	MAMResult   *mamResultElem        `xml:"urn:xmpp:mam:2 result"`
 	PubsubEvent *pubsubEventElem      `xml:"http://jabber.org/protocol/pubsub#event event"`
 
+	// Subject is a room's subject (XEP-0045 §8.1); a pointer, as an empty
+	// one clears it.
+	Subject *string `xml:"subject"`
+	// MUCUser marks a message from a room's occupant sent privately, or
+	// carries a mediated invitation (XEP-0045).
+	MUCUser *mucInviteElem `xml:"http://jabber.org/protocol/muc#user x"`
+	// DirectInvite is a XEP-0249 invitation.
+	DirectInvite *directInviteElem `xml:"jabber:x:conference x"`
+
 	// OriginID/StanzaID are XEP-0359 - see their type docs.
 	OriginID *originIDElem `xml:"urn:xmpp:sid:0 origin-id"`
 	StanzaID *stanzaIDElem `xml:"urn:xmpp:sid:0 stanza-id"`
@@ -223,8 +232,10 @@ type fallbackBodyElem struct {
 // XEP-0115 entity capabilities.
 type presenceBody struct {
 	stanza.Presence
-	Show string    `xml:"show"`
-	Caps *capsElem `xml:"http://jabber.org/protocol/caps c"`
+	Show    string        `xml:"show"`
+	Caps    *capsElem     `xml:"http://jabber.org/protocol/caps c"`
+	Error   *stanza.Error `xml:"jabber:client error"`
+	MUCUser *mucUserElem  `xml:"http://jabber.org/protocol/muc#user x"`
 }
 
 // capsElem is XEP-0115's <c/> entity capabilities element.
@@ -276,6 +287,13 @@ type SendOptions struct {
 	// OOBURLs marks URLs as files (XEP-0066). Never with an encrypted body,
 	// beside which they'd leak.
 	OOBURLs []string
+
+	// Groupchat sends to a room (XEP-0045), "to" being its bare JID.
+	Groupchat bool
+
+	// ReplyToJID is who wrote the message replied to, for XEP-0461's to:
+	// in a room, their occupant JID. "" means "to".
+	ReplyToJID string
 }
 
 const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."

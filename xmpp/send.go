@@ -30,10 +30,18 @@ func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 		return messageBody{}, fmt.Errorf("parsing recipient %q: %w", to, err)
 	}
 	id := randomID()
+	typ := stanza.ChatMessage
+	if opts.Groupchat {
+		typ = stanza.GroupChatMessage
+	}
+	replyTo := to
+	if opts.ReplyToJID != "" {
+		replyTo = opts.ReplyToJID
+	}
 	msg := messageBody{
 		Message: stanza.Message{
 			To:   toJID,
-			Type: stanza.ChatMessage,
+			Type: typ,
 			ID:   id,
 		},
 		Body: body,
@@ -49,7 +57,7 @@ func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 		// For encrypted replies/corrections, also send the <reply/>/<replace/>
 		// element (IDs only, unencrypted) - the ciphertext can't carry them.
 		if opts.ReplyToID != "" {
-			msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
+			msg.Reply = &replyElem{To: replyTo, ID: opts.ReplyToID}
 		}
 		if opts.ReplaceID != "" {
 			msg.Replace = &replaceElem{ID: opts.ReplaceID}
@@ -58,7 +66,7 @@ func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 		msg.EncryptedV1 = opts.EncryptedV1
 		msg.Body = "This message is encrypted with legacy OMEMO" // fallback for non-OMEMO clients
 		if opts.ReplyToID != "" {
-			msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
+			msg.Reply = &replyElem{To: replyTo, ID: opts.ReplyToID}
 		}
 		if opts.ReplaceID != "" {
 			msg.Replace = &replaceElem{ID: opts.ReplaceID}
@@ -83,7 +91,7 @@ func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 		quote := BuildFallbackQuote(opts.QuotedAuthor, opts.QuotedBody)
 		end := utf8.RuneCountInString(quote) // code points, not bytes - see stripReplyFallback
 		msg.Body = quote + body
-		msg.Reply = &replyElem{To: to, ID: opts.ReplyToID}
+		msg.Reply = &replyElem{To: replyTo, ID: opts.ReplyToID}
 		msg.Fallback = &fallbackElem{
 			For:  "urn:xmpp:reply:0",
 			Body: &fallbackBodyElem{End: &end},
@@ -92,13 +100,14 @@ func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 	// Request a XEP-0184 delivery receipt on real content messages - not on
 	// retractions/reactions, which are metadata updates about another message
 	// rather than content whose own delivery is worth tracking.
-	if opts.RetractID == "" && opts.ReactionTargetID == "" {
+	// Nor in a room, where every occupant would answer (XEP-0184 §5.3).
+	if opts.RetractID == "" && opts.ReactionTargetID == "" && !opts.Groupchat {
 		msg.Request = &struct{}{}
 	}
 	for _, u := range opts.OOBURLs {
 		msg.OOB = append(msg.OOB, oobElem{URL: u})
 	}
-	if opts.ChatStateActive && opts.RetractID == "" && opts.ReactionTargetID == "" {
+	if opts.ChatStateActive && opts.RetractID == "" && opts.ReactionTargetID == "" && !opts.Groupchat {
 		msg.setChatState(ChatStateActive)
 	}
 	return msg, nil
