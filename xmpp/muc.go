@@ -3,6 +3,7 @@ package xmpp
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"mellium.im/xmlstream"
 	"mellium.im/xmpp/disco"
 	"mellium.im/xmpp/jid"
+	"mellium.im/xmpp/ping"
 	"mellium.im/xmpp/stanza"
 )
 
@@ -337,4 +339,48 @@ func (c *Client) RoomInfo(ctx context.Context, room string) (RoomInfo, error) {
 		}
 	}
 	return out, nil
+}
+
+// SelfPingResult is what a self-ping (XEP-0410) says of our place in a
+// room.
+type SelfPingResult int
+
+const (
+	// StillJoined: the room still has us as nick.
+	StillJoined SelfPingResult = iota
+	// NotJoined: the room doesn't have us (any more), to rejoin.
+	NotJoined
+	// PingUnknown: no telling, the room's service didn't answer.
+	PingUnknown
+)
+
+// SelfPing asks room whether we're still in it as nick (XEP-0410 §3): a
+// room may drop us without a word, on a restart say.
+func (c *Client) SelfPing(ctx context.Context, room, nick string) SelfPingResult {
+	occupant, err := occupantJID(room, nick)
+	if err != nil {
+		return PingUnknown
+	}
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
+	return selfPingResult(ping.Send(ctx, c.session, occupant))
+}
+
+// selfPingResult reads a self-ping's answer (XEP-0410 §3.2).
+func selfPingResult(err error) SelfPingResult {
+	if err == nil {
+		return StillJoined
+	}
+	var se stanza.Error
+	if !errors.As(err, &se) {
+		return PingUnknown
+	}
+	switch se.Condition {
+	// Our own client answered, through the room: we're in it.
+	case stanza.ServiceUnavailable, stanza.FeatureNotImplemented:
+		return StillJoined
+	case stanza.NotAcceptable, stanza.ItemNotFound:
+		return NotJoined
+	}
+	return PingUnknown
 }

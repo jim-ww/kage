@@ -967,6 +967,7 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountI
 	for {
 		// Every new stream has to enter its rooms again.
 		go enterRooms(ctx, srv, accountIdx, s)
+		go selfPingRooms(ctx, srv, accountIdx, s, s.client.Load())
 		listen(ctx, srv, accountIdx, s)
 		s.roomsOffline(srv, accountIdx)
 

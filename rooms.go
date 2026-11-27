@@ -1095,3 +1095,57 @@ func handlePrivateMessage(ctx context.Context, srv *ipc.Server, accountIdx int, 
 	}
 	return true
 }
+
+// roomSelfPingInterval is how often each room is asked whether it still
+// has us (XEP-0410).
+const roomSelfPingInterval = 5 * time.Minute
+
+// roomSelfPingTimeout bounds one self-ping: a room's service may be gone.
+const roomSelfPingTimeout = 30 * time.Second
+
+// selfPingRooms checks on client's stream, until it ends, that every room
+// we think we're in still has us, rejoining one that dropped us: a room
+// restarting forgets its occupants without a word.
+func selfPingRooms(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, client *xmpp.Client) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic self-pinging rooms", "jid", s.account.JID, "panic", r)
+		}
+	}()
+	ticker := time.NewTicker(roomSelfPingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if s.client.Load() != client || client.Closed() {
+			return
+		}
+		s.checkRooms(ctx, func(ctx context.Context, room, nick string) xmpp.SelfPingResult {
+			ctx, cancel := context.WithTimeout(ctx, roomSelfPingTimeout)
+			defer cancel()
+			return client.SelfPing(ctx, room, nick)
+		}, func(room string) { s.sendJoin(ctx, srv, accountIdx, client, room) })
+		for _, room := range s.roomAddrs() {
+			s.broadcastRoomState(srv, accountIdx, room)
+		}
+	}
+}
+
+// checkRooms self-pings every room we're in, rejoining those that no
+// longer have us.
+func (s *accountSession) checkRooms(ctx context.Context, ping func(ctx context.Context, room, nick string) xmpp.SelfPingResult, rejoin func(room string)) {
+	for _, room := range s.roomAddrs() {
+		st, ok := s.room(room)
+		if !ok || !st.joined {
+			continue
+		}
+		if ping(ctx, room, st.nick) != xmpp.NotJoined {
+			continue
+		}
+		slog.Warn("the room dropped us; rejoining", "jid", s.account.JID, "room", room)
+		rejoin(room)
+	}
+}

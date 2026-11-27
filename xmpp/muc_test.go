@@ -2,6 +2,7 @@ package xmpp
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"slices"
 	"strings"
@@ -278,5 +279,24 @@ func TestMUCPrivateCarbon(t *testing.T) {
 	</message>`)
 	if msgs := messages(events); len(msgs) != 1 || !msgs[0].MUCPrivate || !msgs[0].Outgoing || msgs[0].To != "room@muc.example.test/bob" {
 		t.Errorf("messages = %+v", msgs)
+	}
+}
+
+func TestSelfPingResult(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want SelfPingResult
+	}{
+		{nil, StillJoined},
+		{stanza.Error{Condition: stanza.ServiceUnavailable}, StillJoined},
+		{stanza.Error{Condition: stanza.FeatureNotImplemented}, StillJoined},
+		{stanza.Error{Condition: stanza.NotAcceptable}, NotJoined},
+		{stanza.Error{Condition: stanza.ItemNotFound}, NotJoined},
+		{stanza.Error{Condition: stanza.RemoteServerNotFound}, PingUnknown},
+		{context.DeadlineExceeded, PingUnknown},
+	} {
+		if got := selfPingResult(tc.err); got != tc.want {
+			t.Errorf("selfPingResult(%v) = %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }

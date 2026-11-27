@@ -319,3 +319,26 @@ func TestRoomOwnByOccupantID(t *testing.T) {
 		t.Errorf("history = %+v", hist)
 	}
 }
+
+// TestRoomSelfPingRejoins checks a room that no longer has us is joined
+// again, and one that does, or can't tell, is left alone.
+func TestRoomSelfPingRejoins(t *testing.T) {
+	s := roomSession(t)
+	s.putRoom("quiet@muc.example.com", "", "me", "", true)
+	s.putRoom("gone@muc.example.com", "", "me", "", true)
+	for _, room := range s.roomAddrs() {
+		s.updateRoom(room, func(st *roomState) { st.joined = true })
+	}
+	answers := map[string]xmpp.SelfPingResult{
+		testRoom:                xmpp.StillJoined,
+		"quiet@muc.example.com": xmpp.PingUnknown,
+		"gone@muc.example.com":  xmpp.NotJoined,
+	}
+	var rejoined []string
+	s.checkRooms(context.Background(), func(_ context.Context, room, nick string) xmpp.SelfPingResult {
+		return answers[room]
+	}, func(room string) { rejoined = append(rejoined, room) })
+	if len(rejoined) != 1 || rejoined[0] != "gone@muc.example.com" {
+		t.Errorf("rejoined %v", rejoined)
+	}
+}
