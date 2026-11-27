@@ -56,6 +56,9 @@ type (
 	// Widther says how wide it would like to be; the frame is otherwise as
 	// wide as the body's View.
 	Widther interface{ PreferredWidth() int }
+	// Cursorer says which line of its View has the cursor, kept in view
+	// when the body scrolls.
+	Cursorer interface{ CursorLine() int }
 	// Busier is busy with something it started that can't be walked away
 	// from: while it is, esc and a click outside don't close its modal.
 	Busier interface{ Busy() bool }
@@ -334,6 +337,15 @@ func (s *Stack[H]) key(h H, top *Modal[H], msg tea.KeyPressMsg) tea.Cmd {
 
 func (s *Stack[H]) body(h H, top *Modal[H], msg tea.Msg) tea.Cmd {
 	cmd, outcome := top.Body.Update(msg)
+	if c, ok := top.Body.(Cursorer); ok && s.overflows(top) {
+		line, height := c.CursorLine(), s.bodyHeight()
+		switch {
+		case line < top.scroll:
+			top.scroll = line
+		case line >= top.scroll+height:
+			top.scroll = line - height + 1
+		}
+	}
 	return tea.Batch(cmd, s.finish(h, outcome))
 }
 

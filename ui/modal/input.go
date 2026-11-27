@@ -36,6 +36,16 @@ func (in *Input) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 
 func (in *Input) View() string { return in.Model.View() }
 
+// Value is what's typed, as a Form field.
+func (in *Input) Value() string { return in.Model.Value() }
+
+// UpdateField takes msg as a Form field: enter is the form's.
+func (in *Input) UpdateField(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	in.Model, cmd = in.Model.Update(msg)
+	return cmd
+}
+
 func (in *Input) SetSize(width, _ int) {
 	in.Model.SetWidth(max(1, width-len([]rune(in.Model.Prompt))-1))
 }

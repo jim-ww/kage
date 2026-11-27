@@ -11,15 +11,15 @@ import (
 	"github.com/jim-ww/kage/ui/zone"
 )
 
-// Form is text fields under a note: tab (or ↓) and shift+tab (or ↑) move
-// between them, a click focuses one, and enter acts with every field's
-// value ([]string, hidden ones included) - Act, not Submit, since what it
+// Form is fields under a note: tab (or ↓) and shift+tab (or ↑) move
+// between them, a click focuses one (and flips a toggle), and enter acts
+// with every field's value ([]string, hidden ones included) - Act, not Submit, since what it
 // starts usually takes a while: the embedder shows it with SetBusy, then
 // closes the modal or shows SetError once the answer is in. While busy, the
 // form takes no input and esc doesn't close it (see Busy).
 type Form struct {
 	Note   string
-	Fields []*Input
+	Fields []Field
 	// SubmitLabel names what enter does in the hint row ("ok" if empty).
 	SubmitLabel string
 	Styles      FormStyles
@@ -41,7 +41,7 @@ type FormStyles struct {
 }
 
 // NewForm is a form of fields under note.
-func NewForm(note string, fields ...*Input) *Form {
+func NewForm(note string, fields ...Field) *Form {
 	return &Form{
 		Note:   note,
 		Fields: fields,
@@ -58,7 +58,7 @@ func NewForm(note string, fields ...*Input) *Form {
 func (f *Form) Values() []string {
 	out := make([]string, len(f.Fields))
 	for i, in := range f.Fields {
-		out[i] = in.Model.Value()
+		out[i] = in.Value()
 	}
 	return out
 }
@@ -131,7 +131,11 @@ func (f *Form) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 		if f.zone != nil {
 			for i := range f.Fields {
 				if !f.hidden[i] && f.zone.Get(f.fieldID(i)).InBounds(msg) {
-					return f.focusOn(i), Continue
+					cmd := f.focusOn(i)
+					if c, ok := f.Fields[i].(Clicker); ok {
+						c.Click()
+					}
+					return cmd, Continue
 				}
 			}
 		}
@@ -139,9 +143,26 @@ func (f *Form) Update(msg tea.Msg) (tea.Cmd, Outcome) {
 	case tea.MouseMsg:
 		return nil, Continue
 	}
-	var cmd tea.Cmd
-	f.Fields[f.focus].Model, cmd = f.Fields[f.focus].Model.Update(msg)
-	return cmd, Continue
+	return f.Fields[f.focus].UpdateField(msg), Continue
+}
+
+// CursorLine is the line of View the focused field is on, for the modal
+// to keep it in view.
+func (f *Form) CursorLine() int {
+	line := 0
+	if f.Note != "" {
+		note := f.Note
+		if f.width > 0 {
+			note = lipgloss.NewStyle().Width(f.width).Render(note)
+		}
+		line = strings.Count(note, "\n") + 2
+	}
+	for i := 0; i < f.focus; i++ {
+		if !f.hidden[i] {
+			line += strings.Count(f.Fields[i].View(), "\n") + 1
+		}
+	}
+	return line
 }
 
 func (f *Form) View() string {
@@ -200,7 +221,11 @@ func (f *Form) Hints() []Hint {
 	if label == "" {
 		label = "ok"
 	}
-	return []Hint{KeyHint(enterKey, label), KeyHint(tabKey, "next field")}
+	hints := []Hint{KeyHint(enterKey, label)}
+	if h, ok := f.Fields[f.focus].(FieldHinter); ok {
+		hints = append(hints, h.FieldHints()...)
+	}
+	return append(hints, KeyHint(tabKey, "next field"))
 }
 
 // NewPassword is an Input that doesn't show what's typed.

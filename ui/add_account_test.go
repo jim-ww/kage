@@ -7,6 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jim-ww/kage/ui/modal"
 )
 
 // fakeAccountAdder is a stub Daemon for testing the add-account form
@@ -225,7 +227,8 @@ func TestAddAccountFormRendersFullPlaceholders(t *testing.T) {
 	next, _ := m.Update(keyText("a"))
 	m = next.(Model)
 
-	for i, field := range addAccountOf(m).Fields {
+	for i, f := range addAccountOf(m).Fields {
+		field := f.(*modal.Input)
 		got := ansi.Strip(field.View())
 		want := field.Model.Placeholder
 		if want == "" {

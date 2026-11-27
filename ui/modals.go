@@ -49,13 +49,35 @@ func (m *Model) newPasswordInput(prompt string) *modal.Input {
 
 // newForm is a modal.Form of fields under note, enter labeled submitLabel,
 // in the theme's colors.
-func (m *Model) newForm(note, submitLabel string, fields ...*modal.Input) *modal.Form {
+func (m *Model) newForm(note, submitLabel string, fields ...modal.Field) *modal.Form {
 	f := modal.NewForm(note, fields...)
 	f.SubmitLabel = submitLabel
 	f.Styles.Note = lipgloss.NewStyle().Foreground(m.styles.colors.textMuted)
 	f.Styles.Error = m.styles.popupDanger
 	f.Styles.Status = lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan).Italic(true)
 	return f
+}
+
+// fieldStyles are a toggle's or choice's, in the theme's colors.
+func (m *Model) fieldStyles() modal.FieldStyles {
+	return modal.FieldStyles{
+		Blurred: lipgloss.NewStyle().Foreground(m.styles.colors.themFg),
+		Focused: lipgloss.NewStyle().Foreground(m.styles.colors.accentCyan),
+	}
+}
+
+// newToggle is an on/off form field in the theme's colors.
+func (m *Model) newToggle(label string, on bool) *modal.Toggle {
+	t := modal.NewToggle(label, on)
+	t.Styles = m.fieldStyles()
+	return t
+}
+
+// newChoice is a pick-one form field in the theme's colors.
+func (m *Model) newChoice(label, value string, options ...modal.ChoiceOption) *modal.Choice {
+	c := modal.NewChoice(label, value, options...)
+	c.Styles = m.fieldStyles()
+	return c
 }
 
 // newInput is a one-line text field styled and bound like kage's others.
