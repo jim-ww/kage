@@ -18,6 +18,7 @@ type fakeRoomDaemon struct {
 	starts   []string
 	nicks    []string
 	subjects []string
+	invites  []string
 	joinErr  error
 }
 
@@ -34,6 +35,11 @@ func (f *fakeRoomDaemon) SetRoomNick(accountIdx int, room, nick string) tea.Msg 
 func (f *fakeRoomDaemon) SetRoomSubject(accountIdx int, room, subject string) tea.Msg {
 	f.subjects = append(f.subjects, room+" "+subject)
 	return RoomSubjectSetMsg{AccountIdx: accountIdx, Room: room}
+}
+
+func (f *fakeRoomDaemon) InviteToRoom(accountIdx int, room, who string) tea.Msg {
+	f.invites = append(f.invites, room+" "+who)
+	return RoomInviteSentMsg{AccountIdx: accountIdx, Room: room, Who: who}
 }
 
 func (f *fakeRoomDaemon) StartChat(accountIdx int, address string) tea.Msg {
@@ -317,5 +323,19 @@ func TestChangeRoomSubject(t *testing.T) {
 	pressAndDeliver(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !slices.Equal(d.subjects, []string{testRoomAddr + " news"}) {
 		t.Errorf("subject changes = %v", d.subjects)
+	}
+}
+
+func TestInviteToRoom(t *testing.T) {
+	d := &fakeRoomDaemon{}
+	m := roomModel(t, d)
+	m = press(t, m, letter('m'))
+	m = press(t, m, letter('v'))
+	for _, r := range "xmpp:carol@example.test" {
+		m = press(t, m, letter(r))
+	}
+	pressAndDeliver(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !slices.Equal(d.invites, []string{testRoomAddr + " carol@example.test"}) {
+		t.Errorf("invites = %v", d.invites)
 	}
 }

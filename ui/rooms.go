@@ -137,6 +137,7 @@ func (m *Model) roomChatMenuItems(chat Chat) []contextMenuItem {
 		{label: "Participants", key: 'o', run: (*Model).openParticipants},
 		{label: "Change nick", key: 'n', run: (*Model).actionChangeRoomNick},
 		{label: "Change subject", key: 's', run: (*Model).actionChangeRoomSubject},
+		{label: "Invite", key: 'v', run: (*Model).actionInviteToRoom},
 		{label: "Encryption", key: 'e', run: (*Model).actionOpenEncryptionMenu},
 		{label: pin, key: 'p', run: (*Model).actionTogglePinChat},
 		{label: mute, key: 'm', run: (*Model).actionToggleMuteChat},
@@ -192,6 +193,29 @@ func (m *Model) actionChangeRoomSubject() tea.Cmd {
 				return nil
 			}
 			return func() tea.Msg { return daemon.SetRoomSubject(accountIdx, chat.Address, subject) }
+		},
+	})
+}
+
+// actionInviteToRoom asks whom to invite to the selected room.
+func (m *Model) actionInviteToRoom() tea.Cmd {
+	chat, ok := m.currentChat()
+	if !ok || !chat.Room {
+		return nil
+	}
+	if !chat.Joined {
+		return m.showNotification("not in the room")
+	}
+	accountIdx, daemon := m.currentAccount, m.daemon
+	return m.openModal(&modal.Modal[*Model]{
+		Title: "Invite to " + chat.Name,
+		Body:  m.newInput("", "someone@server", "Invite: ", "invite"),
+		OnSubmit: func(m *Model, v any) tea.Cmd {
+			who := parseAddress(v.(string)).addr
+			if who == "" {
+				return nil
+			}
+			return func() tea.Msg { return daemon.InviteToRoom(accountIdx, chat.Address, who) }
 		},
 	})
 }
@@ -544,6 +568,12 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, m.showNotification("changing the subject: " + msg.Err.Error()), true
 		}
 		return m, nil, true
+
+	case RoomInviteSentMsg:
+		if msg.Err != nil {
+			return m, m.showNotification("inviting " + msg.Who + ": " + msg.Err.Error()), true
+		}
+		return m, m.showNotification("invited " + msg.Who), true
 
 	case RoomLeftMsg:
 		if msg.Err != nil {

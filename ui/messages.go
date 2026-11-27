@@ -106,6 +106,13 @@ type RoomSubjectSetMsg struct {
 	Err        error
 }
 
+// RoomInviteSentMsg reports the result of Daemon.InviteToRoom.
+type RoomInviteSentMsg struct {
+	AccountIdx int
+	Room, Who  string
+	Err        error
+}
+
 // ChatStartedMsg reports the result of Daemon.StartChat.
 type ChatStartedMsg struct {
 	AccountIdx int

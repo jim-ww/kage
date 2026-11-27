@@ -230,6 +230,11 @@ func (c *ipcClient) SetRoomSubject(accountIdx int, room, subject string) tea.Msg
 	return ui.RoomSubjectSetMsg{AccountIdx: accountIdx, Room: room, Err: err}
 }
 
+func (c *ipcClient) InviteToRoom(accountIdx int, room, who string) tea.Msg {
+	_, err := do(c.conn, inviteToRoomReq{AccountIdx: accountIdx, Room: room, Who: who})
+	return ui.RoomInviteSentMsg{AccountIdx: accountIdx, Room: room, Who: who, Err: err}
+}
+
 func (c *ipcClient) StartChat(accountIdx int, address string) tea.Msg {
 	_, err := do(c.conn, startChatReq{AccountIdx: accountIdx, Address: address})
 	return ui.ChatStartedMsg{AccountIdx: accountIdx, Address: address, Err: err}

@@ -422,3 +422,32 @@ func TestRoomSubjectLive(t *testing.T) {
 		t.Errorf("subject = %q", st.subject)
 	}
 }
+
+// TestInviteToMembersOnlyRoom checks inviting someone to a members-only
+// room we own lets them in, where they were turned away before.
+func TestInviteToMembersOnlyRoom(t *testing.T) {
+	tlsConfig := devtestTLSConfig(t)
+	ctx := context.Background()
+	aliceA, alice := newRoomTestAccount(ctx, t, tlsConfig)
+	bobA, bob := newRoomTestAccount(ctx, t, tlsConfig)
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	room := "kagetest-" + hex.EncodeToString(b[:]) + "@conference.localhost"
+	if err := aliceA.JoinRoom(0, room, "alice", ""); err != nil {
+		t.Fatalf("alice creating the room: %v", err)
+	}
+	client := alice.client.Load()
+	if err := client.SetRoomConfig(ctx, room, map[string]string{"muc#roomconfig_membersonly": "1"}); err != nil {
+		t.Fatalf("making the room members-only: %v", err)
+	}
+	alice.refreshRoomInfo(ctx, client, room)
+	if err := bobA.JoinRoom(0, room, "bob", ""); err == nil {
+		t.Fatal("bob got into a members-only room uninvited")
+	}
+	if err := aliceA.InviteToRoom(0, room, bob.account.JID); err != nil {
+		t.Fatalf("inviting bob: %v", err)
+	}
+	if err := bobA.JoinRoom(0, room, "bob", ""); err != nil {
+		t.Fatalf("bob joining once invited: %v", err)
+	}
+}

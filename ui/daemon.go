@@ -88,6 +88,9 @@ type Daemon interface {
 	// SetRoomSubject changes a room's subject, once the room took it.
 	// Returns RoomSubjectSetMsg.
 	SetRoomSubject(accountIdx int, room, subject string) tea.Msg
+	// InviteToRoom invites someone to a room, making them a member of a
+	// members-only one we administer. Returns RoomInviteSentMsg.
+	InviteToRoom(accountIdx int, room, who string) tea.Msg
 	// StartChat makes a chat with address, locally: no roster item or
 	// subscription request. Returns ChatStartedMsg.
 	StartChat(accountIdx int, address string) tea.Msg

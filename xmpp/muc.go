@@ -488,3 +488,40 @@ func (c *Client) SetRoomSubject(ctx context.Context, room, id, subject string) e
 	payload := xmlstream.Wrap(xmlstream.Token(xml.CharData(subject)), xml.StartElement{Name: xml.Name{Local: "subject"}})
 	return c.session.Send(ctx, stanza.Message{To: to.Bare(), Type: stanza.GroupChatMessage, ID: id}.Wrap(payload))
 }
+
+// InviteToRoom invites to to room directly (XEP-0249), with the room's
+// password when it has one.
+func (c *Client) InviteToRoom(ctx context.Context, to, room, password, reason string) error {
+	toJID, err := jid.Parse(to)
+	if err != nil {
+		return fmt.Errorf("parsing invitee %q: %w", to, err)
+	}
+	attrs := []xml.Attr{{Name: xml.Name{Local: "jid"}, Value: room}}
+	if password != "" {
+		attrs = append(attrs, xml.Attr{Name: xml.Name{Local: "password"}, Value: password})
+	}
+	if reason != "" {
+		attrs = append(attrs, xml.Attr{Name: xml.Name{Local: "reason"}, Value: reason})
+	}
+	payload := xmlstream.Wrap(nil, xml.StartElement{Name: xml.Name{Space: "jabber:x:conference", Local: "x"}, Attr: attrs})
+	return c.session.Send(ctx, stanza.Message{To: toJID.Bare(), Type: stanza.NormalMessage, ID: randomID()}.Wrap(payload))
+}
+
+// InviteThroughRoom has room invite to (XEP-0045 §7.8.2): a members-only
+// room may make them a member for it, which a direct invitation can't.
+func (c *Client) InviteThroughRoom(ctx context.Context, room, to, reason string) error {
+	roomJID, err := jid.Parse(room)
+	if err != nil {
+		return fmt.Errorf("parsing room %q: %w", room, err)
+	}
+	var reasonEl xml.TokenReader
+	if reason != "" {
+		reasonEl = xmlstream.Wrap(xmlstream.Token(xml.CharData(reason)), xml.StartElement{Name: xml.Name{Local: "reason"}})
+	}
+	invite := xmlstream.Wrap(reasonEl, xml.StartElement{
+		Name: xml.Name{Local: "invite"},
+		Attr: []xml.Attr{{Name: xml.Name{Local: "to"}, Value: to}},
+	})
+	payload := xmlstream.Wrap(invite, xml.StartElement{Name: xml.Name{Space: mucUserNS, Local: "x"}})
+	return c.session.Send(ctx, stanza.Message{To: roomJID.Bare(), Type: stanza.NormalMessage, ID: randomID()}.Wrap(payload))
+}

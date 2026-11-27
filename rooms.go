@@ -1431,6 +1431,37 @@ func (a *adapter) SetRoomSubject(accountIdx int, room, subject string) error {
 	return err
 }
 
+// InviteToRoom invites who to room. A members-only room lets in only its
+// members: as its admin we make them one, and the room relays the
+// invitation, which may do so itself when we aren't.
+func (a *adapter) InviteToRoom(accountIdx int, room, who string) error {
+	s, client, err := a.online(accountIdx)
+	if err != nil {
+		return err
+	}
+	who = bareJID(strings.TrimSpace(who))
+	st, ok := s.room(room)
+	switch {
+	case !ok:
+		return fmt.Errorf("not in %s", room)
+	case !st.joined:
+		return errors.New("not in the room yet")
+	case who == "" || !strings.Contains(who, "@"):
+		return fmt.Errorf("%q isn't an address", who)
+	}
+	ctx := context.Background()
+	if !st.info.MembersOnly {
+		return client.InviteToRoom(ctx, who, room, st.password, "")
+	}
+	if own := st.occupants[st.nick].Affiliation; (own == "owner" || own == "admin") && !st.members[who] {
+		if err := client.SetAffiliation(ctx, room, who, "member"); err != nil {
+			return fmt.Errorf("making %s a member: %w", who, err)
+		}
+		s.updateRoom(room, func(st *roomState) { st.members[who] = true })
+	}
+	return client.InviteThroughRoom(ctx, room, who, "")
+}
+
 // roomSubjectBounced answers the SetRoomSubject waiting on ev's message,
 // reporting whether there was one.
 func (s *accountSession) roomSubjectBounced(ev xmpp.MessageBouncedEvent) bool {
