@@ -686,6 +686,9 @@ func (m Model) chatStatusLabel(chat Chat) string {
 	if chat.Typing {
 		label += " · typing..."
 	}
+	if typing := typingLabel(chat.TypingNicks); typing != "" {
+		label += " · " + typing
+	}
 	if m.currentAccount >= 0 && m.currentAccount < len(m.accounts) && m.accounts[m.currentAccount].SyncingHistory {
 		label += " · syncing history..."
 	}

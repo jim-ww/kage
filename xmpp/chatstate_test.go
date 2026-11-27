@@ -95,7 +95,7 @@ func TestChatStateSendReceive(t *testing.T) {
 	}
 	defer bob.Close()
 
-	if err := alice.SendChatState(ctx, "bob@localhost", ChatStateComposing); err != nil {
+	if err := alice.SendChatState(ctx, "bob@localhost", ChatStateComposing, SendOptions{}); err != nil {
 		t.Fatalf("SendChatState(composing): %v", err)
 	}
 	ev := waitForChatState(t, bob, 5*time.Second)
@@ -103,7 +103,7 @@ func TestChatStateSendReceive(t *testing.T) {
 		t.Fatalf("got state %v, want ChatStateComposing", ev.State)
 	}
 
-	if err := alice.SendChatState(ctx, "bob@localhost", ChatStateActive); err != nil {
+	if err := alice.SendChatState(ctx, "bob@localhost", ChatStateActive, SendOptions{}); err != nil {
 		t.Fatalf("SendChatState(active): %v", err)
 	}
 	ev = waitForChatState(t, bob, 5*time.Second)

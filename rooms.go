@@ -1462,6 +1462,39 @@ func (a *adapter) InviteToRoom(accountIdx int, room, who string) error {
 	return client.InviteThroughRoom(ctx, room, who, "")
 }
 
+// chatStateOptions is how to send a chat state to chat to, reporting
+// whether to send one: a room and a private chat in one take theirs
+// whenever chat states are on, as there's no knowing whether everyone in
+// it shows them.
+func (s *accountSession) chatStateOptions(to string) (xmpp.SendOptions, bool) {
+	switch {
+	case s.isRoom(to):
+		st, _ := s.room(to)
+		return xmpp.SendOptions{Groupchat: true}, chatStatesEnabled.Load() && st.joined
+	case s.isRoomPrivate(to):
+		return xmpp.SendOptions{MUCPrivate: true}, chatStatesEnabled.Load()
+	}
+	_, standalone := s.chatStatesTo(to)
+	return xmpp.SendOptions{}, standalone
+}
+
+// roomTyping broadcasts an occupant's chat state in a room, or in a
+// private chat with them; ours, echoed back, isn't shown.
+func (s *accountSession) roomTyping(srv *ipc.Server, accountIdx int, ev xmpp.ChatStateEvent) {
+	room, nick, _ := strings.Cut(ev.From, "/")
+	st, ok := s.room(room)
+	if !ok || nick == "" {
+		return
+	}
+	typing := ev.State == xmpp.ChatStateComposing
+	if s.isRoomPrivate(ev.From) {
+		broadcast(srv, ui.TypingMsg{AccountIdx: accountIdx, From: ev.From, Typing: typing})
+	}
+	if ev.Groupchat && nick != st.nick {
+		broadcast(srv, ui.TypingMsg{AccountIdx: accountIdx, From: room, Nick: nick, Typing: typing})
+	}
+}
+
 // roomSubjectBounced answers the SetRoomSubject waiting on ev's message,
 // reporting whether there was one.
 func (s *accountSession) roomSubjectBounced(ev xmpp.MessageBouncedEvent) bool {

@@ -1176,8 +1176,8 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 			go s.syncBookmarks(ctx, srv, accountIdx, client)
 		}
 	case xmpp.ChatStateEvent:
-		// Rooms show no one's typing, which a busy one would never stop.
 		if s.isRoom(bareJID(ev.From)) {
+			s.roomTyping(srv, accountIdx, ev)
 			return
 		}
 		s.noteChatStates(bareJID(ev.From), true)

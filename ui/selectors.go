@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -196,14 +198,15 @@ func (m Model) accountIndexByJID(jid string) int {
 }
 
 // peerTypingKey identifies one contact's typing state across accounts.
-func peerTypingKey(accountIdx int, from string) string {
-	return strconv.Itoa(accountIdx) + "\x00" + from
+func peerTypingKey(accountIdx int, from, nick string) string {
+	return strconv.Itoa(accountIdx) + "\x00" + from + "\x00" + nick
 }
 
-// setPeerTyping records a contact's XEP-0085 state on their chat row. A
-// "composing" also (re)arms the expiry timer that clears the indicator if no
-// contradicting state ever arrives — see peerTypingTimeout.
-func (m *Model) setPeerTyping(accountIdx int, from string, typing bool) tea.Cmd {
+// setPeerTyping records a contact's XEP-0085 state on their chat row, or
+// nick's in room from. A "composing" also (re)arms the expiry timer that
+// clears the indicator if no contradicting state ever arrives — see
+// peerTypingTimeout.
+func (m *Model) setPeerTyping(accountIdx int, from, nick string, typing bool) tea.Cmd {
 	if accountIdx < 0 || accountIdx >= len(m.accounts) {
 		return nil
 	}
@@ -212,16 +215,30 @@ func (m *Model) setPeerTyping(accountIdx int, from string, typing bool) tea.Cmd 
 		return nil
 	}
 	chat, ok := m.accounts[accountIdx].Chats[chatIdx].(Chat)
-	if !ok || (!typing && !chat.Typing) {
+	if !ok {
 		return nil
 	}
-	chat.Typing = typing
+	if nick == "" {
+		if !typing && !chat.Typing {
+			return nil
+		}
+		chat.Typing = typing
+	} else {
+		was := slices.Contains(chat.TypingNicks, nick)
+		if !typing && !was {
+			return nil
+		}
+		chat.TypingNicks = slices.DeleteFunc(slices.Clone(chat.TypingNicks), func(n string) bool { return n == nick })
+		if typing {
+			chat.TypingNicks = append(chat.TypingNicks, nick)
+		}
+	}
 	m.accounts[accountIdx].Chats[chatIdx] = chat
 
 	if m.peerTypingGen == nil {
 		m.peerTypingGen = map[string]int{}
 	}
-	key := peerTypingKey(accountIdx, from)
+	key := peerTypingKey(accountIdx, from, nick)
 	m.peerTypingGen[key]++
 	gen := m.peerTypingGen[key]
 
@@ -232,7 +249,20 @@ func (m *Model) setPeerTyping(accountIdx int, from string, typing bool) tea.Cmd 
 	if !typing {
 		return cmd
 	}
-	return tea.Batch(cmd, peerTypingTimer(accountIdx, from, gen))
+	return tea.Batch(cmd, peerTypingTimer(accountIdx, from, nick, gen))
+}
+
+// typingLabel is who in a room is typing, for the status bar; "" for
+// no one.
+func typingLabel(nicks []string) string {
+	switch n := len(nicks); {
+	case n == 0:
+		return ""
+	case n <= 3:
+		return strings.Join(nicks, ", ") + " typing..."
+	default:
+		return fmt.Sprintf("%d typing...", n)
+	}
 }
 
 // activeChatKey is the chat being viewed, "" if none, reported to the

@@ -521,6 +521,10 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			renamed = c.Nick != msg.Nick
 			c.Nick, c.Subject, c.Joined, c.JoinError, c.Occupants = msg.Nick, msg.Subject, msg.Joined, msg.JoinError, msg.Occupants
 			c.Private, c.EncryptionMode = msg.Private, msg.EncryptionMode
+			// Who left isn't typing anymore.
+			c.TypingNicks = slices.DeleteFunc(slices.Clone(c.TypingNicks), func(nick string) bool {
+				return !slices.ContainsFunc(msg.Occupants, func(o Occupant) bool { return o.Nick == nick })
+			})
 		})
 		cmds := []tea.Cmd{cmd}
 		// What mentions us is drawn by our nick.

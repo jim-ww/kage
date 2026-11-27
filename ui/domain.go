@@ -236,6 +236,8 @@ type Chat struct {
 
 	Presence Presence
 	Typing   bool // true while the peer has an active XEP-0085 "composing" state
+	// TypingNicks are who in a room is typing, the latest last.
+	TypingNicks []string
 
 	// Subscription is the roster's RFC 6121 presence subscription with this
 	// contact: "both", "to" (we see their presence, they don't see ours),

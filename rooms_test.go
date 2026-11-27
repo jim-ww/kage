@@ -406,3 +406,25 @@ func TestRoomRepliesToOwn(t *testing.T) {
 		}
 	}
 }
+
+// TestRoomTypingBroadcast checks an occupant's typing in a room reaches
+// the TUI by nick, and our own, echoed back, doesn't.
+func TestRoomTypingBroadcast(t *testing.T) {
+	srv, events := attachedClient(t)
+	s := roomSession(t)
+	s.roomTyping(srv, 0, xmpp.ChatStateEvent{From: testRoom + "/me", State: xmpp.ChatStateComposing, Groupchat: true})
+	s.roomTyping(srv, 0, xmpp.ChatStateEvent{From: testRoom + "/bob", State: xmpp.ChatStateComposing, Groupchat: true})
+	select {
+	case ev := <-events:
+		if got, ok := ev.(ui.TypingMsg); !ok || got.From != testRoom || got.Nick != "bob" || !got.Typing {
+			t.Fatalf("event = %#v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no typing broadcast")
+	}
+	select {
+	case ev := <-events:
+		t.Errorf("another event: %#v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

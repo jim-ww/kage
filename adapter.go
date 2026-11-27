@@ -740,14 +740,15 @@ func (a *adapter) SetTyping(tuiClient ipc.ClientID, accountIdx int, to string, c
 	if err != nil {
 		return err
 	}
-	if _, standalone := s.chatStatesTo(to); !standalone {
+	opts, ok := s.chatStateOptions(to)
+	if !ok {
 		return nil
 	}
 	state := xmpp.ChatStateActive
 	if composing {
 		state = xmpp.ChatStateComposing
 	}
-	if err := client.SendChatState(context.Background(), to, state); err != nil {
+	if err := client.SendChatState(context.Background(), to, state, opts); err != nil {
 		return err
 	}
 	a.markTyping(tuiClient, accountIdx, to, composing)
@@ -793,11 +794,12 @@ func (a *adapter) drainTyping(tuiClient ipc.ClientID) map[int]string {
 // TUI that went away while typing.
 func (a *adapter) clearTyping(tuiClient ipc.ClientID) {
 	for accountIdx, to := range a.drainTyping(tuiClient) {
-		_, client, err := a.online(accountIdx)
+		s, client, err := a.online(accountIdx)
 		if err != nil {
 			continue
 		}
-		if err := client.SendChatState(context.Background(), to, xmpp.ChatStateActive); err != nil {
+		opts, _ := s.chatStateOptions(to)
+		if err := client.SendChatState(context.Background(), to, xmpp.ChatStateActive, opts); err != nil {
 			slog.Warn("adapter: clearing typing state", "account", accountIdx, "to", to, "err", err)
 		}
 	}

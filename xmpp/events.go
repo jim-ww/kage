@@ -164,6 +164,9 @@ func (MessageBouncedEvent) isEvent() {}
 type ChatStateEvent struct {
 	From  string
 	State ChatState
+	// Groupchat is an occupant's state in the room From is in, not in a
+	// private chat with them.
+	Groupchat bool
 }
 
 func (ChatStateEvent) isEvent() {}
@@ -354,7 +357,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		// devices - not anything the contact is doing.
 		state, chatStates := msg.chatState()
 		if chatStates && !outgoing {
-			c.enqueue(ChatStateEvent{From: msg.From.String(), State: state})
+			c.enqueue(ChatStateEvent{From: msg.From.String(), State: state, Groupchat: msg.Type == stanza.GroupChatMessage})
 		}
 
 		if msg.Retract != nil {

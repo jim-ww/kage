@@ -24,7 +24,6 @@
 - group chats: per-room notification setting (all / mentions / none)
 - group chats: unread count only for mentions/private messages by default, like notifications
 - group chats: room avatars (vcard-temp avatar of the room)
-- group chats: show who's typing (chat states in rooms, bounded to a few names)
 - group chats: browse a server's public rooms (disco#items on its conference service) and search search.jabber.network
 - group chats: open xmpp: links clicked elsewhere (x-scheme-handler/xmpp desktop entry, `kage open <uri>` handing it to the TUI)
 - group chats: legacy bookmarks (XEP-0048) for servers/clients that only have those

@@ -23,7 +23,7 @@ func TestErrorBouncesAreNotIncoming(t *testing.T) {
 
 	sent := map[string]bool{}
 	for _, to := range []string{"nobody-here@localhost", "someone@unresolvable.invalid", "bob@localhost/no-such-resource"} {
-		if err := alice.SendChatState(ctx, to, ChatStateComposing); err != nil {
+		if err := alice.SendChatState(ctx, to, ChatStateComposing, SendOptions{}); err != nil {
 			t.Fatalf("chat state to %s: %v", to, err)
 		}
 		id, err := alice.Send(ctx, to, "bounce me", SendOptions{})

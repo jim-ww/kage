@@ -339,3 +339,36 @@ func TestInviteToRoom(t *testing.T) {
 		t.Errorf("invites = %v", d.invites)
 	}
 }
+
+// TestRoomTyping checks who's typing in a room shows by nick, and stops
+// with their message, their leaving, or the timeout.
+func TestRoomTyping(t *testing.T) {
+	m := roomModel(t, &fakeRoomDaemon{})
+	m.updateChatEverywhere(0, testRoomAddr, func(c *Chat) {
+		c.Occupants = []Occupant{{Nick: "bob"}, {Nick: "carol"}, {Nick: "me"}}
+	})
+	typing := func() []string { c, _ := m.chatByAddress(0, testRoomAddr); return c.TypingNicks }
+	m = updated(t, m, TypingMsg{AccountIdx: 0, From: testRoomAddr, Nick: "bob", Typing: true})
+	m = updated(t, m, TypingMsg{AccountIdx: 0, From: testRoomAddr, Nick: "carol", Typing: true})
+	if got := typing(); !slices.Equal(got, []string{"bob", "carol"}) {
+		t.Fatalf("typing = %v", got)
+	}
+	chat, _ := m.currentChat()
+	if label := m.chatStatusLabel(chat); !strings.Contains(label, "bob, carol typing") {
+		t.Errorf("status = %q", label)
+	}
+	m = updated(t, m, IncomingMessageMsg{AccountIdx: 0, From: testRoomAddr, Message: Message{ID: "x", Author: "bob", Content: "hi"}})
+	if got := typing(); !slices.Equal(got, []string{"carol"}) {
+		t.Fatalf("typing after bob's message = %v", got)
+	}
+	m = updated(t, m, RoomStateMsg{AccountIdx: 0, Room: testRoomAddr, Nick: "me", Joined: true, Occupants: []Occupant{{Nick: "bob"}, {Nick: "me"}}})
+	if got := typing(); len(got) != 0 {
+		t.Fatalf("typing after carol left = %v", got)
+	}
+	m = updated(t, m, TypingMsg{AccountIdx: 0, From: testRoomAddr, Nick: "bob", Typing: true})
+	gen := m.peerTypingGen[peerTypingKey(0, testRoomAddr, "bob")]
+	m = updated(t, m, peerTypingExpiredMsg{accountIdx: 0, from: testRoomAddr, nick: "bob", gen: gen})
+	if got := typing(); len(got) != 0 {
+		t.Errorf("typing after the timeout = %v", got)
+	}
+}

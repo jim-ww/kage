@@ -540,7 +540,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		// Their message ends their typing; not every client says "active".
 		var typingCmd tea.Cmd
 		if !msg.Message.IsMe {
-			typingCmd = m.setPeerTyping(msg.AccountIdx, msg.From, false)
+			typingCmd = tea.Batch(m.setPeerTyping(msg.AccountIdx, msg.From, "", false), m.setPeerTyping(msg.AccountIdx, msg.From, msg.Message.Author, false))
 		}
 		newMsg := msg.Message
 		newMsg.ReplyToID = msg.ReplyToID
@@ -1305,15 +1305,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 
 	case TypingMsg:
-		return m, m.setPeerTyping(msg.AccountIdx, msg.From, msg.Typing), true
+		return m, m.setPeerTyping(msg.AccountIdx, msg.From, msg.Nick, msg.Typing), true
 
 	case peerTypingExpiredMsg:
-		if m.peerTypingGen[peerTypingKey(msg.accountIdx, msg.from)] != msg.gen {
+		if m.peerTypingGen[peerTypingKey(msg.accountIdx, msg.from, msg.nick)] != msg.gen {
 			// A newer "composing" rearmed the timer, or something already
 			// cleared the indicator - this one is stale.
 			return m, nil, true
 		}
-		return m, m.setPeerTyping(msg.accountIdx, msg.from, false), true
+		return m, m.setPeerTyping(msg.accountIdx, msg.from, msg.nick, false), true
 
 	case IncomingCallMsg:
 		model, cmd := m.handleIncomingCallMsg(msg)
@@ -1410,7 +1410,7 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if chat.Presence == PresenceOffline {
 			// They can't still be typing from a resource that just went
 			// away, and the "active" that would have said so never comes.
-			cmd = tea.Batch(cmd, m.setPeerTyping(msg.AccountIdx, msg.From, false))
+			cmd = tea.Batch(cmd, m.setPeerTyping(msg.AccountIdx, msg.From, "", false))
 		}
 		return m, cmd, true
 	}

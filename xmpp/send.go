@@ -120,12 +120,20 @@ func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 // — no body, just the state. Typically sent as the user starts typing
 // (ChatStateComposing) and again once they stop without sending
 // (ChatStateActive) or send it another way.
-func (c *Client) SendChatState(ctx context.Context, to string, state ChatState) error {
+// opts' Groupchat and MUCPrivate send it to a room, or privately to an
+// occupant of one.
+func (c *Client) SendChatState(ctx context.Context, to string, state ChatState, opts SendOptions) error {
 	toJID, err := jid.Parse(to)
 	if err != nil {
 		return fmt.Errorf("parsing recipient %q: %w", to, err)
 	}
 	msg := messageBody{Message: stanza.Message{To: toJID, Type: stanza.ChatMessage, ID: randomID()}}
+	if opts.Groupchat {
+		msg.Type = stanza.GroupChatMessage
+	}
+	if opts.MUCPrivate {
+		msg.MUCUser = &mucInviteElem{}
+	}
 	msg.setChatState(state)
 	return c.session.Encode(ctx, msg)
 }

@@ -29,7 +29,7 @@ func newTypingTestModel(t *testing.T) Model {
 func TestPeerTypingExpires(t *testing.T) {
 	m := newTypingTestModel(t)
 
-	gen := m.peerTypingGen[peerTypingKey(0, "bob@example.test")]
+	gen := m.peerTypingGen[peerTypingKey(0, "bob@example.test", "")]
 	next, _ := m.Update(peerTypingExpiredMsg{accountIdx: 0, from: "bob@example.test", gen: gen})
 	m = next.(Model)
 	if m.accounts[0].Chats[0].(Chat).Typing {
@@ -41,7 +41,7 @@ func TestPeerTypingExpires(t *testing.T) {
 // clear an indicator that's current.
 func TestPeerTypingExpiryIgnoresStaleTimer(t *testing.T) {
 	m := newTypingTestModel(t)
-	staleGen := m.peerTypingGen[peerTypingKey(0, "bob@example.test")]
+	staleGen := m.peerTypingGen[peerTypingKey(0, "bob@example.test", "")]
 
 	next, _ := m.Update(TypingMsg{AccountIdx: 0, From: "bob@example.test", Typing: true})
 	m = next.(Model)

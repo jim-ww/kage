@@ -463,7 +463,9 @@ type DeviceNameMsg struct {
 type TypingMsg struct {
 	AccountIdx int
 	From       string // bare JID
-	Typing     bool
+	// Nick is who in room From is typing, "" for a contact.
+	Nick   string
+	Typing bool
 }
 
 // typingPauseTimeout is how long after the last keystroke we stop
@@ -492,13 +494,13 @@ const peerTypingTimeout = 30 * time.Second
 // unless Gen is still the chat's peerTypingGen.
 type peerTypingExpiredMsg struct {
 	accountIdx int
-	from       string
+	from, nick string
 	gen        int
 }
 
-func peerTypingTimer(accountIdx int, from string, gen int) tea.Cmd {
+func peerTypingTimer(accountIdx int, from, nick string, gen int) tea.Cmd {
 	return tea.Tick(peerTypingTimeout, func(time.Time) tea.Msg {
-		return peerTypingExpiredMsg{accountIdx: accountIdx, from: from, gen: gen}
+		return peerTypingExpiredMsg{accountIdx: accountIdx, from: from, nick: nick, gen: gen}
 	})
 }
 
