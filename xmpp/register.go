@@ -47,7 +47,7 @@ func Register(ctx context.Context, address, password string, tlsConfig *tls.Conf
 	var offered bool
 	session, err := xmpp.DialClientSession(
 		ctx, j,
-		xmpp.StartTLS(tlsConfig),
+		requiredStartTLS(tlsConfig),
 		registerFeature(username, password, &regErr, &offered),
 	)
 	if err != nil {
@@ -104,6 +104,21 @@ func (riq *registerIQ) WriteXML(w xmlstream.TokenWriter) (int, error) {
 	return xmlstream.Copy(w, riq.Wrap(riq.Query.TokenReader()))
 }
 
+// requiredStartTLS is StartTLS taken as required whether or not the server
+// says so: negotiation ends after a list with nothing required, so with
+// STARTTLS optional the stream would stop at TLS, before the register
+// feature the next list offers. Registration itself needs Secure, never
+// sending the password in the clear.
+func requiredStartTLS(cfg *tls.Config) xmpp.StreamFeature {
+	f := xmpp.StartTLS(cfg)
+	parse := f.Parse
+	f.Parse = func(ctx context.Context, d *xml.Decoder, start *xml.StartElement) (bool, interface{}, error) {
+		_, data, err := parse(ctx, d, start)
+		return true, data, err
+	}
+	return f
+}
+
 // registerFeature performs XEP-0077 registration as a stream feature
 // negotiation: it's advertised only pre-authentication (Prohibited: Authn),
 // so selecting it lets us send the registration IQs before SASL is even in
@@ -118,6 +133,7 @@ func (riq *registerIQ) WriteXML(w xmlstream.TokenWriter) (int, error) {
 func registerFeature(username, password string, outErr *error, offered *bool) xmpp.StreamFeature {
 	return xmpp.StreamFeature{
 		Name:       xml.Name{Space: registerFeatureNS, Local: "register"},
+		Necessary:  xmpp.Secure,
 		Prohibited: xmpp.Authn,
 		Parse: func(ctx context.Context, d *xml.Decoder, start *xml.StartElement) (bool, interface{}, error) {
 			parsed := struct {
