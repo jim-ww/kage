@@ -318,8 +318,16 @@ func (m Model) Update(msg tea.Msg) (retModel tea.Model, retCmd tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			isDownKey = keyMsg.String() == "down"
 		}
-		*m.input, cmd = m.input.Update(termTextInput(msg))
-		cmds = append(cmds, cmd)
+		completed := false
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+			if completed = keyMsg.String() == "tab" && m.completeNick(); !completed {
+				m.nickCompletion = nil
+			}
+		}
+		if !completed {
+			*m.input, cmd = m.input.Update(termTextInput(msg))
+			cmds = append(cmds, cmd)
+		}
 		if wasMultiline && isDownKey && m.composeValue() == oldValue &&
 			m.input.Line() == beforeLine && m.input.Column() == beforeCol {
 			m.fixStuckComposeCursorDown()

@@ -264,3 +264,38 @@ func TestMentionHighlighted(t *testing.T) {
 		}
 	}
 }
+
+// TestNickTabComplete checks tab completes a nick in the room, cycling
+// through the matches, addressing them at the start of a message.
+func TestNickTabComplete(t *testing.T) {
+	m := roomModel(t, &fakeRoomDaemon{})
+	m.updateChatEverywhere(0, testRoomAddr, func(c *Chat) {
+		c.Occupants = []Occupant{{Nick: "bob"}, {Nick: "Bobby"}, {Nick: "me"}, {Nick: "carol"}}
+	})
+	m.accounts[0].Messages[0] = []Message{{ID: "1", Author: "Bobby", Content: "hi"}}
+	m.enterChatPane()
+	tab := tea.KeyPressMsg{Code: tea.KeyTab}
+	for _, r := range "bo" {
+		m = press(t, m, letter(r))
+	}
+	m = press(t, m, tab)
+	if got := m.composeValue(); got != "Bobby: " {
+		t.Fatalf("after tab: %q", got)
+	}
+	m = press(t, m, tab)
+	if got := m.composeValue(); got != "bob: " {
+		t.Fatalf("after second tab: %q", got)
+	}
+	for _, r := range "see @c" {
+		m = press(t, m, letter(r))
+	}
+	m = press(t, m, tab)
+	if got := m.composeValue(); got != "bob: see @carol " {
+		t.Fatalf("mid-message: %q", got)
+	}
+	m = press(t, m, letter('m'))
+	m = press(t, m, tab)
+	if got := m.composeValue(); got != "bob: see @carol m" {
+		t.Errorf("our own nick completed: %q", got)
+	}
+}

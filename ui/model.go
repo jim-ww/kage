@@ -122,6 +122,9 @@ type Model struct {
 	// is what's in it. Reset when it changes other than by typing.
 	draftHistory []string
 	draftHistIdx int
+	// nickCompletion is the tab completion in progress in a room, nil for
+	// none.
+	nickCompletion *nickCompletion
 
 	// openChatAccountIdx/openChatAddress are the chat whose draft is in
 	// m.input, "" for none yet (see swapComposeDraft).
