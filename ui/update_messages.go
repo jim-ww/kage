@@ -991,11 +991,8 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		if !m.removeChatAt(msg.AccountIdx, idx) {
 			return m, nil, true
 		}
-		var removeCmd tea.Cmd
-		if msg.AccountIdx == m.currentAccount {
-			removeCmd = m.chats.SetItems(m.accounts[msg.AccountIdx].Chats)
-		}
-		return m, removeCmd, true
+		// The chat on screen may be the one gone.
+		return m, m.reselectAfterHide(msg.AccountIdx, idx), true
 
 	case ContactAddedMsg:
 		body := m.contactsOpen()

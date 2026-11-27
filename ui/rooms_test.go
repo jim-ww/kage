@@ -151,3 +151,20 @@ func TestMessageParticipant(t *testing.T) {
 		t.Errorf("current chat = %+v", chat)
 	}
 }
+
+// TestChatRemovedLeavesNoStalePane checks the chat on screen going away
+// (a room left) shows the next one, not the gone one's messages.
+func TestChatRemovedLeavesNoStalePane(t *testing.T) {
+	m := roomModel(t, &fakeRoomDaemon{})
+	m.accounts[0].Chats = append(m.accounts[0].Chats, Chat{Name: "Bob", Address: "bob@example.test"})
+	m.accounts[0].Messages[0] = []Message{{ID: "r1", Author: "bob", Content: "in the room"}}
+	m.chats.SetItems(m.accounts[0].Chats)
+	m.chats.Select(0)
+	m = updated(t, m, ChatRemovedMsg{AccountIdx: 0, Address: testRoomAddr})
+	if chat, ok := m.currentChat(); !ok || chat.Address != "bob@example.test" {
+		t.Fatalf("current chat = %+v", chat)
+	}
+	if msgs := m.currentMessages(); len(msgs) != 0 {
+		t.Errorf("messages shown = %+v", msgs)
+	}
+}
