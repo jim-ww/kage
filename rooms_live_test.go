@@ -386,3 +386,39 @@ func TestEncryptedRoomLive(t *testing.T) {
 		t.Errorf("alice's own message after its echoes: %+v", hist[0])
 	}
 }
+
+// TestRoomSubjectLive checks the owner's new subject reaches everyone,
+// and one from someone the room doesn't let is refused, not waited on.
+func TestRoomSubjectLive(t *testing.T) {
+	tlsConfig := devtestTLSConfig(t)
+	ctx := context.Background()
+	aliceA, _ := newRoomTestAccount(ctx, t, tlsConfig)
+	bobA, bob := newRoomTestAccount(ctx, t, tlsConfig)
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	room := "kagetest-" + hex.EncodeToString(b[:]) + "@conference.localhost"
+	if err := aliceA.JoinRoom(0, room, "alice", ""); err != nil {
+		t.Fatalf("alice creating the room: %v", err)
+	}
+	if err := bobA.JoinRoom(0, room, "bob", ""); err != nil {
+		t.Fatalf("bob joining: %v", err)
+	}
+	if err := aliceA.SetRoomSubject(0, room, "today: tests"); err != nil {
+		t.Fatalf("alice setting the subject: %v", err)
+	}
+	eventually(t, 5*time.Second, "bob seeing the subject", func() bool {
+		st, _ := bob.room(room)
+		return st.subject == "today: tests"
+	})
+	start := time.Now()
+	err := bobA.SetRoomSubject(0, room, "bob was here")
+	if err == nil {
+		t.Fatal("bob, a plain participant, changed the subject")
+	}
+	if time.Since(start) >= roomNickTimeout {
+		t.Errorf("bob's refusal timed out instead of bouncing: %v", err)
+	}
+	if st, _ := bob.room(room); st.subject != "today: tests" {
+		t.Errorf("subject = %q", st.subject)
+	}
+}

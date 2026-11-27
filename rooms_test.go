@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"slices"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 

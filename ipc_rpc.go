@@ -123,6 +123,7 @@ func init() {
 	handle(leaveRoomReq{})
 	handle(startChatReq{})
 	handle(setRoomNickReq{})
+	handle(setRoomSubjectReq{})
 	handle(resubscribeContactReq{})
 	handle(resyncChatReq{})
 	handle(setChatFlagReq{})
@@ -407,6 +408,15 @@ type setRoomNickReq struct {
 
 func (c setRoomNickReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.SetRoomNick(c.AccountIdx, c.Room, c.Nick)
+}
+
+type setRoomSubjectReq struct {
+	AccountIdx    int
+	Room, Subject string
+}
+
+func (c setRoomSubjectReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.SetRoomSubject(c.AccountIdx, c.Room, c.Subject)
 }
 
 type startChatReq struct {

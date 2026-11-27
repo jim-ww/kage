@@ -476,3 +476,15 @@ func (c *Client) SetAffiliation(ctx context.Context, room, who, affiliation stri
 	query := xmlstream.Wrap(item, xml.StartElement{Name: xml.Name{Space: mucAdminNS, Local: "query"}})
 	return c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.SetIQ, To: to.Bare()}, nil)
 }
+
+// SetRoomSubject asks room to change its subject, "" clearing it
+// (XEP-0045 §8.1), in a message with id: the room bounces it from an
+// occupant not allowed to, and sends everyone the new subject otherwise.
+func (c *Client) SetRoomSubject(ctx context.Context, room, id, subject string) error {
+	to, err := jid.Parse(room)
+	if err != nil {
+		return fmt.Errorf("parsing room %q: %w", room, err)
+	}
+	payload := xmlstream.Wrap(xmlstream.Token(xml.CharData(subject)), xml.StartElement{Name: xml.Name{Local: "subject"}})
+	return c.session.Send(ctx, stanza.Message{To: to.Bare(), Type: stanza.GroupChatMessage, ID: id}.Wrap(payload))
+}

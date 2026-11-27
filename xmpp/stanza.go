@@ -362,6 +362,10 @@ func runeOffsetToByte(s string, off int) int {
 	return -1
 }
 
+// NewID is a new random stanza ID, for a stanza whose answer is waited
+// for by it before it's sent.
+func NewID() string { return randomID() }
+
 // randomID generates a random stanza ID (128 bits, hex-encoded).
 func randomID() string {
 	var b [16]byte

@@ -14,10 +14,11 @@ import (
 
 type fakeRoomDaemon struct {
 	fakeSuccessSender
-	joins   []string
-	starts  []string
-	nicks   []string
-	joinErr error
+	joins    []string
+	starts   []string
+	nicks    []string
+	subjects []string
+	joinErr  error
 }
 
 func (f *fakeRoomDaemon) JoinRoom(accountIdx int, room, nick, password string) tea.Msg {
@@ -28,6 +29,11 @@ func (f *fakeRoomDaemon) JoinRoom(accountIdx int, room, nick, password string) t
 func (f *fakeRoomDaemon) SetRoomNick(accountIdx int, room, nick string) tea.Msg {
 	f.nicks = append(f.nicks, room+" "+nick)
 	return RoomNickSetMsg{AccountIdx: accountIdx, Room: room, Nick: nick}
+}
+
+func (f *fakeRoomDaemon) SetRoomSubject(accountIdx int, room, subject string) tea.Msg {
+	f.subjects = append(f.subjects, room+" "+subject)
+	return RoomSubjectSetMsg{AccountIdx: accountIdx, Room: room}
 }
 
 func (f *fakeRoomDaemon) StartChat(accountIdx int, address string) tea.Msg {
@@ -297,5 +303,19 @@ func TestNickTabComplete(t *testing.T) {
 	m = press(t, m, tab)
 	if got := m.composeValue(); got != "bob: see @carol m" {
 		t.Errorf("our own nick completed: %q", got)
+	}
+}
+
+func TestChangeRoomSubject(t *testing.T) {
+	d := &fakeRoomDaemon{}
+	m := roomModel(t, d)
+	m = press(t, m, letter('m'))
+	m = press(t, m, letter('s'))
+	for _, r := range "news" {
+		m = press(t, m, letter(r))
+	}
+	pressAndDeliver(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !slices.Equal(d.subjects, []string{testRoomAddr + " news"}) {
+		t.Errorf("subject changes = %v", d.subjects)
 	}
 }

@@ -136,6 +136,7 @@ func (m *Model) roomChatMenuItems(chat Chat) []contextMenuItem {
 	items := []contextMenuItem{
 		{label: "Participants", key: 'o', run: (*Model).openParticipants},
 		{label: "Change nick", key: 'n', run: (*Model).actionChangeRoomNick},
+		{label: "Change subject", key: 's', run: (*Model).actionChangeRoomSubject},
 		{label: "Encryption", key: 'e', run: (*Model).actionOpenEncryptionMenu},
 		{label: pin, key: 'p', run: (*Model).actionTogglePinChat},
 		{label: mute, key: 'm', run: (*Model).actionToggleMuteChat},
@@ -168,6 +169,29 @@ func (m *Model) actionChangeRoomNick() tea.Cmd {
 				return nil
 			}
 			return func() tea.Msg { return daemon.SetRoomNick(accountIdx, chat.Address, nick) }
+		},
+	})
+}
+
+// actionChangeRoomSubject asks for the selected room's new subject.
+func (m *Model) actionChangeRoomSubject() tea.Cmd {
+	chat, ok := m.currentChat()
+	if !ok || !chat.Room {
+		return nil
+	}
+	if !chat.Joined {
+		return m.showNotification("not in the room")
+	}
+	accountIdx, daemon := m.currentAccount, m.daemon
+	return m.openModal(&modal.Modal[*Model]{
+		Title: "Subject of " + chat.Name,
+		Body:  m.newInput(chat.Subject, "empty clears it", "Subject: ", "change"),
+		OnSubmit: func(m *Model, v any) tea.Cmd {
+			subject := strings.TrimSpace(v.(string))
+			if subject == chat.Subject {
+				return nil
+			}
+			return func() tea.Msg { return daemon.SetRoomSubject(accountIdx, chat.Address, subject) }
 		},
 	})
 }
@@ -514,6 +538,12 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, m.showNotification("changing nick: " + msg.Err.Error()), true
 		}
 		return m, m.showNotification("you're " + msg.Nick + " in " + msg.Room), true
+
+	case RoomSubjectSetMsg:
+		if msg.Err != nil {
+			return m, m.showNotification("changing the subject: " + msg.Err.Error()), true
+		}
+		return m, nil, true
 
 	case RoomLeftMsg:
 		if msg.Err != nil {

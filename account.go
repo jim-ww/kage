@@ -1757,6 +1757,9 @@ func (s *accountSession) mutateRoster(fn func(entries map[string]rosterEntry)) m
 // chat state, receipt or reaction of ours) has nothing to mark; it's only
 // logged.
 func (s *accountSession) handleBounce(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.MessageBouncedEvent) {
+	if s.roomSubjectBounced(ev) {
+		return
+	}
 	peer := bareJID(ev.From)
 	n, err := s.db.MarkMessageBounced(ctx, storage.MarkMessageBouncedParams{
 		AccountJid: s.account.JID,

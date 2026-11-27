@@ -54,6 +54,11 @@ type roomState struct {
 	// waiting for its answer.
 	pendingNick string
 	nickWaiter  chan error
+
+	// subjectID is the message SetRoomSubject sent, subjectWaiter waiting
+	// for the room's answer: the new subject, or the message bounced.
+	subjectID     string
+	subjectWaiter chan error
 }
 
 // roomSet is an account's rooms by bare JID. Their chats sit beside the
@@ -768,7 +773,13 @@ func joinErrorText(condition, reason string) string {
 
 // handleRoomSubject stores and broadcasts a room's new subject.
 func (s *accountSession) handleRoomSubject(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.RoomSubjectEvent) {
-	if !s.updateRoom(ev.Room, func(st *roomState) { st.subject = ev.Subject }) {
+	if !s.updateRoom(ev.Room, func(st *roomState) {
+		st.subject = ev.Subject
+		if st.subjectWaiter != nil && ev.Nick == st.nick {
+			st.subjectWaiter <- nil
+			st.subjectID, st.subjectWaiter = "", nil
+		}
+	}) {
 		return
 	}
 	if err := s.db.SetRoomSubject(ctx, storage.SetRoomSubjectParams{AccountJid: s.account.JID, Jid: ev.Room, Subject: ev.Subject}); err != nil {
@@ -1386,6 +1397,52 @@ func (a *adapter) SetRoomNick(accountIdx int, room, nick string) error {
 	}
 	s.persistRoom(ctx, room)
 	return nil
+}
+
+// SetRoomSubject changes room's subject, once the room took it.
+func (a *adapter) SetRoomSubject(accountIdx int, room, subject string) error {
+	s, client, err := a.online(accountIdx)
+	if err != nil {
+		return err
+	}
+	st, ok := s.room(room)
+	switch {
+	case !ok:
+		return fmt.Errorf("not in %s", room)
+	case !st.joined:
+		return errors.New("not in the room yet")
+	case st.subject == subject:
+		return nil
+	}
+	answer, id := make(chan error, 1), xmpp.NewID()
+	s.updateRoom(room, func(st *roomState) { st.subjectID, st.subjectWaiter = id, answer })
+	if err = client.SetRoomSubject(context.Background(), room, id, subject); err == nil {
+		select {
+		case err = <-answer:
+		case <-time.After(roomNickTimeout):
+			err = errors.New("the room didn't answer")
+		}
+	}
+	s.updateRoom(room, func(st *roomState) {
+		if st.subjectWaiter == answer {
+			st.subjectID, st.subjectWaiter = "", nil
+		}
+	})
+	return err
+}
+
+// roomSubjectBounced answers the SetRoomSubject waiting on ev's message,
+// reporting whether there was one.
+func (s *accountSession) roomSubjectBounced(ev xmpp.MessageBouncedEvent) bool {
+	answered := false
+	s.updateRoom(bareJID(ev.From), func(st *roomState) {
+		if st.subjectWaiter != nil && ev.ID != "" && ev.ID == st.subjectID {
+			st.subjectWaiter <- errors.New(cmp.Or(ev.Reason, "the room refused"))
+			st.subjectID, st.subjectWaiter = "", nil
+			answered = true
+		}
+	})
+	return answered
 }
 
 // presenceToRooms sends our new status to every room we're in: a room has
