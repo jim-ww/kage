@@ -186,9 +186,7 @@ func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int,
 	// can't mark up in ciphertext. Stripped even without a reply element:
 	// some clients send the quote alone.
 	body = stripReplyQuote(body)
-	if len(oobURLs) == 0 {
-		oobURLs = aesgcmURLsInBody(body)
-	}
+	oobURLs = messageAttachments(oobURLs, body)
 
 	from := peer // chats are keyed by bare JID (roster entries); From with a resource never matches
 
@@ -404,6 +402,16 @@ func stripReplyQuote(body string) string {
 		return body
 	}
 	return strings.Join(lines[i:], "\n")
+}
+
+// messageAttachments is a message's files: those marked as such
+// (XEP-0066), else the aesgcm:// links its body ends with, all an
+// encrypted file is - an <x oob> beside it would give the link away.
+func messageAttachments(oobURLs []string, body string) []string {
+	if len(oobURLs) > 0 {
+		return oobURLs
+	}
+	return aesgcmURLsInBody(body)
 }
 
 // aesgcmURLsInBody is the aesgcm:// URLs (XEP-0454) on body's last lines:

@@ -1624,9 +1624,7 @@ func (s *accountSession) processMAMItem(ctx context.Context, srv *ipc.Server, ac
 	}
 	// The in-band fallback quote some clients add to replies.
 	body = stripReplyQuote(body)
-	if len(oobURLs) == 0 {
-		oobURLs = aesgcmURLsInBody(body)
-	}
+	oobURLs = messageAttachments(oobURLs, body)
 	sent := bareJID(am.From) == ownBare
 	quotedAuthor, quotedPreview := resolveReplyQuote(ctx, s, peerJID, name, am.ReplyToID)
 	sealedBody, encrypted := encryptForStorage(s, body)

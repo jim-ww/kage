@@ -94,14 +94,9 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 		} else if s.isRoomPrivate(chatAddr) {
 			author = resourcePart(chatAddr)
 		}
-		// Rows persisted before the oobURLs column existed (or before a
-		// given message was re-synced since) have it empty even for a real
-		// aesgcm:// attachment - fall back to recognizing the scheme
-		// directly from the stored body, same as the live/MAM paths.
-		attachments := splitOOBURLs(row.Ooburls)
-		if len(attachments) == 0 {
-			attachments = aesgcmURLsInBody(pt)
-		}
+		// Rows persisted before the oobURLs column existed have it empty
+		// even for a real file.
+		attachments := messageAttachments(splitOOBURLs(row.Ooburls), pt)
 		msgs = append(msgs, ui.Message{
 			ID:            row.Idattr.String,
 			StoreID:       row.ID,

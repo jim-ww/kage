@@ -1032,11 +1032,7 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 		}
 	}
 	body = stripReplyQuote(body)
-	// An encrypted file is only its aesgcm:// link in the body: an <x oob>
-	// beside it would give the link away.
-	if len(ev.OOBURLs) == 0 {
-		ev.OOBURLs = aesgcmURLsInBody(body)
-	}
+	ev.OOBURLs = messageAttachments(ev.OOBURLs, body)
 
 	if ev.ReplaceID != "" {
 		if !s.roomSentBy(ctx, room, ev.ReplaceID, ev, own) {
@@ -1416,11 +1412,7 @@ func handlePrivateMessage(ctx context.Context, srv *ipc.Server, accountIdx int, 
 		decryptFailed = true
 	}
 	body = stripReplyQuote(body)
-	// An encrypted file is only its aesgcm:// link in the body: an <x oob>
-	// beside it would give the link away.
-	if len(ev.OOBURLs) == 0 {
-		ev.OOBURLs = aesgcmURLsInBody(body)
-	}
+	ev.OOBURLs = messageAttachments(ev.OOBURLs, body)
 
 	if ev.ReplaceID != "" {
 		sealedBody, encrypted := encryptForStorage(s, body)
