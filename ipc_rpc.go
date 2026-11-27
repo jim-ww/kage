@@ -127,6 +127,7 @@ func init() {
 	handle(inviteToRoomReq{})
 	handle(moderateOccupantReq{})
 	handle(roomSettingsReq{})
+	handle(createRoomReq{})
 	handle(saveRoomSettingsReq{})
 	handle(resubscribeContactReq{})
 	handle(resyncChatReq{})
@@ -439,6 +440,26 @@ type moderateOccupantReq struct {
 
 func (c moderateOccupantReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.ModerateOccupant(c.AccountIdx, c.Room, c.Nick, c.Action)
+}
+
+type createRoomReq struct {
+	AccountIdx      int
+	Name, Localpart string
+	Public          bool
+	Invitees        []string
+}
+
+func (c createRoomReq) run(d *daemonServer, _ ipc.ClientID) (createRoomReply, error) {
+	room, err := d.a.CreateRoom(c.AccountIdx, c.Name, c.Localpart, c.Public, c.Invitees)
+	// Created but not everyone invited is an answer, not a failure.
+	if room != "" && err != nil {
+		return createRoomReply{Room: room, InviteErr: err.Error()}, nil
+	}
+	return createRoomReply{Room: room}, err
+}
+
+type createRoomReply struct {
+	Room, InviteErr string
 }
 
 type roomSettingsReq struct {

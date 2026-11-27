@@ -642,6 +642,9 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 
+	case RoomCreatedMsg:
+		return m, m.handleRoomCreated(msg), true
+
 	case RoomSettingsMsg:
 		if msg.Err != nil {
 			return m, m.showNotification("reading the room's settings: " + msg.Err.Error()), true

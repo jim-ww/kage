@@ -286,6 +286,10 @@ func (m *Model) accountRowContextMenuItems(idx int) []contextMenuItem {
 			m.switchAccount(idx)
 			return m.openJoinRoom("", "")
 		}},
+		{label: "New group chat", run: func(m *Model) tea.Cmd {
+			m.switchAccount(idx)
+			return m.openCreateRoom()
+		}},
 		{label: "OMEMO devices", run: func(m *Model) tea.Cmd {
 			m.switchAccount(idx)
 			return m.openDeviceList()

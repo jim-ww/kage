@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -55,6 +56,10 @@ type roomState struct {
 	// waiting for its answer.
 	pendingNick string
 	nickWaiter  chan error
+
+	// creation is the configuration CreateRoom asked for the room it's
+	// creating, until the room is created with it.
+	creation *roomCreation
 
 	// subjectID is the message SetRoomSubject sent, subjectWaiter waiting
 	// for the room's answer: the new subject, or the message bounced.
@@ -517,6 +522,7 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 	var waiters []chan error
 	var failure error
 	var created, renamed, unknown, catchUp, private bool
+	var creation *roomCreation
 	ok := s.updateRoom(ev.Room, func(st *roomState) {
 		self := ev.Has(xmpp.MUCStatusSelf) || ev.Nick == st.nick
 		if ev.RealJID != "" {
@@ -543,6 +549,7 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 				st.nickWaiter, st.pendingNick = nil, ""
 			}
 			created = ev.Has(xmpp.MUCStatusCreated)
+			creation, st.creation = st.creation, nil
 			if !st.joined {
 				st.joined, st.joinErr = true, ""
 				waiters, st.waiters = st.waiters, nil
@@ -582,18 +589,34 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 			}
 		}()
 	}
+	if creation != nil && !created {
+		creation.done <- fmt.Errorf("%s already exists", ev.Room)
+	}
 	if created {
-		slog.Debug("created room; accepting its default configuration", "jid", s.account.JID, "room", ev.Room)
 		go func() {
 			client, err := s.liveClient()
 			if err != nil {
+				if creation != nil {
+					creation.done <- err
+				}
 				return
 			}
-			if err := client.ConfigureInstantRoom(ctx, ev.Room); err != nil {
+			if creation != nil {
+				slog.Debug("created room; configuring it", "jid", s.account.JID, "room", ev.Room)
+				err = client.SetRoomConfig(ctx, ev.Room, creation.config)
+			} else {
+				slog.Debug("created room; accepting its default configuration", "jid", s.account.JID, "room", ev.Room)
+				err = client.ConfigureInstantRoom(ctx, ev.Room)
+			}
+			if err != nil {
 				slog.Warn("configuring new room", "room", ev.Room, "err", err)
 			}
 			// Before it existed, it had nothing to say of itself.
 			s.refreshRoomInfo(ctx, client, ev.Room)
+			s.broadcastRoomState(srv, accountIdx, ev.Room)
+			if creation != nil {
+				creation.done <- err
+			}
 		}()
 	} else if catchUp {
 		go func() {
@@ -1112,6 +1135,12 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 // JoinRoom enters room as nick and bookmarks it, once the room let us in.
 // A room new to us that refuses is dropped again.
 func (a *adapter) JoinRoom(accountIdx int, room, nick, password string) error {
+	return a.joinRoom(accountIdx, room, "", nick, password, nil)
+}
+
+// joinRoom is JoinRoom, the room named name where we have none for it, and
+// configured by creation when our join creates it.
+func (a *adapter) joinRoom(accountIdx int, room, name, nick, password string, creation *roomCreation) error {
 	s, client, err := a.online(accountIdx)
 	if err != nil {
 		return err
@@ -1134,9 +1163,14 @@ func (a *adapter) JoinRoom(accountIdx int, room, nick, password string) error {
 	if known && prior.joined && prior.nick == nick {
 		return nil
 	}
-	s.putRoom(room, prior.name, nick, password, prior.bookmarked)
+	s.putRoom(room, cmp.Or(prior.name, name), nick, password, prior.bookmarked)
 	answer := make(chan error, 1)
-	s.updateRoom(room, func(st *roomState) { st.waiters = append(st.waiters, answer) })
+	s.updateRoom(room, func(st *roomState) {
+		st.waiters = append(st.waiters, answer)
+		if creation != nil {
+			st.creation = creation
+		}
+	})
 	if !known {
 		s.broadcastRoomChat(ctx, a.srv, accountIdx, room)
 	}
@@ -1167,6 +1201,123 @@ func (a *adapter) JoinRoom(accountIdx int, room, nick, password string) error {
 	s.persistRoom(ctx, room)
 	s.broadcastRoomChat(ctx, a.srv, accountIdx, room)
 	return nil
+}
+
+// roomCreation is how CreateRoom wants the room its join creates
+// configured, and where it waits to hear it was.
+type roomCreation struct {
+	config map[string]string
+	done   chan error
+}
+
+// roomCreateTimeout bounds waiting for a new room to be configured.
+const roomCreateTimeout = 20 * time.Second
+
+// CreateRoom makes a room named name on our server's group chat service,
+// at localpart (made up when ""), joins it as its owner and invites
+// invitees. A private group is members-only with everyone's address shown,
+// so encrypted; a public channel is open, anonymous and listed. Both stay
+// when everyone leaves. Inviting is best-effort: the room is returned with
+// an error naming whom it couldn't.
+func (a *adapter) CreateRoom(accountIdx int, name, localpart string, public bool, invitees []string) (string, error) {
+	_, client, err := a.online(accountIdx)
+	if err != nil {
+		return "", err
+	}
+	name = strings.TrimSpace(name)
+	ctx, cancel := context.WithTimeout(context.Background(), roomInfoTimeout)
+	defer cancel()
+	service, err := client.ConferenceService(ctx)
+	if err != nil {
+		return "", err
+	}
+	if service == "" {
+		return "", errors.New("your server has no group chat service")
+	}
+	localpart = strings.TrimSpace(localpart)
+	if localpart == "" && public {
+		localpart = roomSlug(name)
+	}
+	if localpart == "" {
+		localpart = randomRoomLocalpart()
+	}
+	j, err := jid.Parse(localpart + "@" + service)
+	if err != nil {
+		return "", fmt.Errorf("%q can't be a room's address", localpart)
+	}
+	room := j.Bare().String()
+	if _, err := client.RoomInfo(ctx, room); err == nil {
+		return "", fmt.Errorf("%s already exists", room)
+	} else if se := (stanza.Error{}); !errors.As(err, &se) || se.Condition != stanza.ItemNotFound {
+		return "", err
+	}
+
+	config := map[string]string{
+		"muc#roomconfig_roomname":       name,
+		"muc#roomconfig_persistentroom": "1",
+		"muc#roomconfig_membersonly":    "1",
+		"muc#roomconfig_whois":          "anyone",
+		"muc#roomconfig_publicroom":     "0",
+	}
+	if public {
+		config["muc#roomconfig_membersonly"], config["muc#roomconfig_whois"], config["muc#roomconfig_publicroom"] = "0", "moderators", "1"
+	}
+	creation := &roomCreation{config: config, done: make(chan error, 2)}
+	if err := a.joinRoom(accountIdx, room, name, "", "", creation); err != nil {
+		return "", err
+	}
+	select {
+	case err = <-creation.done:
+	case <-time.After(roomCreateTimeout):
+		err = errors.New("the room didn't answer")
+	}
+	if err != nil {
+		if leaveErr := a.LeaveRoom(accountIdx, room); leaveErr != nil {
+			slog.Warn("leaving a room that couldn't be set up", "room", room, "err", leaveErr)
+		}
+		return "", fmt.Errorf("setting up %s: %w", room, err)
+	}
+	var failed []string
+	for _, who := range invitees {
+		if err := a.InviteToRoom(accountIdx, room, who); err != nil {
+			slog.Warn("inviting to a new room", "room", room, "who", who, "err", err)
+			failed = append(failed, who)
+		}
+	}
+	if len(failed) > 0 {
+		return room, fmt.Errorf("couldn't invite %s", strings.Join(failed, ", "))
+	}
+	return room, nil
+}
+
+// roomSlug is name as a room's localpart: lowercase, words joined by -.
+func roomSlug(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r)
+			dash = false
+		default:
+			dash = true
+		}
+	}
+	return b.String()
+}
+
+// randomRoomLocalpart is a private group's address: one no one guesses.
+func randomRoomLocalpart() string {
+	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+	var b [12]byte
+	_, _ = rand.Read(b[:])
+	for i := range b {
+		b[i] = letters[int(b[i])%len(letters)]
+	}
+	return string(b[:])
 }
 
 // LeaveRoom exits room and drops its bookmark; history stays.

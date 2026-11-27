@@ -136,6 +136,14 @@ type RoomSettingOption struct {
 	Value, Label string
 }
 
+// RoomCreatedMsg reports the result of Daemon.CreateRoom: Room is set
+// once created, Err may still say whom it couldn't invite.
+type RoomCreatedMsg struct {
+	AccountIdx int
+	Room       string
+	Err        error
+}
+
 // RoomSettingsMsg reports the result of Daemon.RoomSettings.
 type RoomSettingsMsg struct {
 	AccountIdx int

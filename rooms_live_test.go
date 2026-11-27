@@ -10,6 +10,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -574,5 +575,46 @@ func TestRoomSettingsLive(t *testing.T) {
 		if s.Var == "muc#roomconfig_membersonly" && s.Value != "1" {
 			t.Errorf("members only read back as %q", s.Value)
 		}
+	}
+}
+
+// TestCreateRoomLive creates a private group inviting bob, who can then
+// get in, and a public channel by its name's address.
+func TestCreateRoomLive(t *testing.T) {
+	tlsConfig := devtestTLSConfig(t)
+	ctx := context.Background()
+	aliceA, alice := newRoomTestAccount(ctx, t, tlsConfig)
+	bobA, bob := newRoomTestAccount(ctx, t, tlsConfig)
+
+	room, err := aliceA.CreateRoom(0, "Secret plans", "", false, []string{bob.account.JID})
+	if err != nil {
+		t.Fatalf("creating the group: %v", err)
+	}
+	st, _ := alice.room(room)
+	if !strings.HasSuffix(room, "@conference.localhost") || st.name != "Secret plans" || !st.info.Private() || !st.bookmarked {
+		t.Fatalf("group %s: %+v", room, st)
+	}
+	if mode := resolveEncryptionMode(ctx, alice, room); mode != "omemo-v1" {
+		t.Errorf("group's encryption = %q", mode)
+	}
+	if err := bobA.JoinRoom(0, room, "bob", ""); err != nil {
+		t.Errorf("bob, invited, joining: %v", err)
+	}
+
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	name := "Kage test " + hex.EncodeToString(b[:])
+	channel, err := aliceA.CreateRoom(0, name, "", true, nil)
+	if err != nil {
+		t.Fatalf("creating the channel: %v", err)
+	}
+	if want := "kage-test-" + hex.EncodeToString(b[:]) + "@conference.localhost"; channel != want {
+		t.Errorf("channel at %s, want %s", channel, want)
+	}
+	if st, _ := alice.room(channel); st.info.Private() || st.info.MembersOnly {
+		t.Errorf("channel info %+v", st.info)
+	}
+	if _, err := aliceA.CreateRoom(0, name, "", true, nil); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("creating it again: %v", err)
 	}
 }

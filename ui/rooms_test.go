@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -492,5 +493,54 @@ func TestRoomSettings(t *testing.T) {
 	}
 	if m.modals.Find(roomSettingsModalID) != nil {
 		t.Error("settings screen still open after saving")
+	}
+}
+
+type fakeCreateDaemon struct {
+	fakeRoomDaemon
+	created []string
+}
+
+func (f *fakeCreateDaemon) CreateRoom(accountIdx int, name, localpart string, public bool, invitees []string) tea.Msg {
+	f.created = append(f.created, fmt.Sprintf("%s|%s|%v|%v", name, localpart, public, invitees))
+	return RoomCreatedMsg{AccountIdx: accountIdx, Room: "new@muc.example.test"}
+}
+
+// TestCreateRoomForm checks the new group chat form makes a private group
+// by default, inviting the contacts ticked, and opens it.
+func TestCreateRoomForm(t *testing.T) {
+	d := &fakeCreateDaemon{}
+	m := newTestModelWithSender(d, nil)
+	m.accounts = []Account{{Name: "me@example.test", Messages: map[int][]Message{}, Chats: []list.Item{
+		Chat{Name: "Zed", Address: "zed@example.test"},
+		Chat{Name: "Bob", Address: "bob@example.test"},
+		Chat{Name: "Room", Address: testRoomAddr, Room: true},
+	}}}
+	m.chats.SetItems(m.accounts[0].Chats)
+	m.openCreateRoom()
+	form := m.modals.Find(createRoomModalID).Body.(*modal.Form)
+	if len(form.Fields) != 5 {
+		t.Fatalf("fields = %d: name, kind, address, then Bob and Zed", len(form.Fields))
+	}
+	m = pressAndDeliver(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if form.Err() == "" || len(d.created) != 0 {
+		t.Fatalf("created without a name: %v", d.created)
+	}
+	for _, r := range "Tea" {
+		m = press(t, m, letter(r))
+	}
+	for range 3 {
+		m = press(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}) // Bob
+	m = pressAndDeliver(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !slices.Equal(d.created, []string{"Tea||false|[bob@example.test]"}) {
+		t.Fatalf("created %v", d.created)
+	}
+	if m.modals.Find(createRoomModalID) != nil {
+		t.Error("form still open")
+	}
+	if chat, ok := m.currentChat(); !ok || chat.Address != "new@muc.example.test" {
+		t.Errorf("current chat = %+v", chat)
 	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"mellium.im/xmlstream"
 	"mellium.im/xmpp/disco"
+	"mellium.im/xmpp/disco/items"
 	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/ping"
 	"mellium.im/xmpp/stanza"
@@ -520,6 +521,38 @@ func (c *Client) SetAffiliation(ctx context.Context, room, who, affiliation stri
 	})
 	query := xmlstream.Wrap(item, xml.StartElement{Name: xml.Name{Space: mucAdminNS, Local: "query"}})
 	return c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.SetIQ, To: to.Bare()}, nil)
+}
+
+// ConferenceService is our server's group chat service (XEP-0045 §6.1):
+// the first of its items that says it's one, "" when it has none.
+func (c *Client) ConferenceService(ctx context.Context) (string, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
+	iter := disco.FetchItems(ctx, items.Item{JID: c.JID.Domain()}, c.session)
+	var candidates []jid.JID
+	for iter.Next() {
+		if item := iter.Item(); item.Node == "" {
+			candidates = append(candidates, item.JID)
+		}
+	}
+	err := iter.Err()
+	// Closed before anything else is asked on the session.
+	iter.Close()
+	if err != nil {
+		return "", fmt.Errorf("listing the server's services: %w", err)
+	}
+	for _, j := range candidates {
+		info, err := disco.GetInfo(ctx, "", j, c.session)
+		if err != nil {
+			continue
+		}
+		for _, id := range info.Identity {
+			if id.Category == "conference" && id.Type == "text" {
+				return j.String(), nil
+			}
+		}
+	}
+	return "", nil
 }
 
 // SetRole sets nick's role in room (XEP-0045 §8): "none" kicks them,

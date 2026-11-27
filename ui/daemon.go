@@ -94,6 +94,10 @@ type Daemon interface {
 	// ModerateOccupant applies a Mod* action to nick in a room. Returns
 	// OccupantModeratedMsg.
 	ModerateOccupant(accountIdx int, room, nick, action string) tea.Msg
+	// CreateRoom makes a room on the account's server, as a private group
+	// or a public channel, joins it and invites invitees; localpart "" is
+	// made up. Slow, run as a tea.Cmd. Returns RoomCreatedMsg.
+	CreateRoom(accountIdx int, name, localpart string, public bool, invitees []string) tea.Msg
 	// RoomSettings reads a room's settings, for its owners; slow, run as a
 	// tea.Cmd. Returns RoomSettingsMsg.
 	RoomSettings(accountIdx int, room string) tea.Msg

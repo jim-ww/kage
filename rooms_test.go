@@ -461,3 +461,18 @@ func TestRoomUnreadOnlyForUs(t *testing.T) {
 		t.Errorf("unread = %d, want 2", got)
 	}
 }
+
+func TestRoomSlug(t *testing.T) {
+	for name, want := range map[string]string{
+		"Tea House":      "tea-house",
+		"  Go, Rust & C": "go-rust-c",
+		"Чай":            "",
+	} {
+		if got := roomSlug(name); got != want {
+			t.Errorf("roomSlug(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if a, b := randomRoomLocalpart(), randomRoomLocalpart(); len(a) != 12 || a == b {
+		t.Errorf("random localparts %q, %q", a, b)
+	}
+}

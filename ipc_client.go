@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -238,6 +239,14 @@ func (c *ipcClient) InviteToRoom(accountIdx int, room, who string) tea.Msg {
 func (c *ipcClient) ModerateOccupant(accountIdx int, room, nick, action string) tea.Msg {
 	_, err := do(c.conn, moderateOccupantReq{AccountIdx: accountIdx, Room: room, Nick: nick, Action: action})
 	return ui.OccupantModeratedMsg{AccountIdx: accountIdx, Room: room, Nick: nick, Action: action, Err: err}
+}
+
+func (c *ipcClient) CreateRoom(accountIdx int, name, localpart string, public bool, invitees []string) tea.Msg {
+	reply, err := do(c.conn, createRoomReq{AccountIdx: accountIdx, Name: name, Localpart: localpart, Public: public, Invitees: invitees})
+	if err == nil && reply.InviteErr != "" {
+		err = errors.New(reply.InviteErr)
+	}
+	return ui.RoomCreatedMsg{AccountIdx: accountIdx, Room: reply.Room, Err: err}
 }
 
 func (c *ipcClient) RoomSettings(accountIdx int, room string) tea.Msg {
