@@ -21,7 +21,6 @@
 - group chats, admin: member list (add/remove members, admins, owners - muc#admin affiliations)
 - group chats, admin: moderation - retract others' messages (XEP-0425)
 - group chats: per-room notification setting (all / mentions / none)
-- group chats: unread count only for mentions/private messages by default, like notifications
 - group chats: room avatars (vcard-temp avatar of the room)
 - group chats: browse a server's public rooms (disco#items on its conference service) and search search.jabber.network
 - group chats: open xmpp: links clicked elsewhere (x-scheme-handler/xmpp desktop entry, `kage open <uri>` handing it to the TUI)

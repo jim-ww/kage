@@ -836,6 +836,12 @@ func (s *accountSession) roomSentBy(ctx context.Context, room, id string, ev xmp
 	return row.Fromattr.String == ev.From
 }
 
+// roomMessageForUs reports whether msg in room is for us, as nick there:
+// naming us, or replying to one of ours.
+func (s *accountSession) roomMessageForUs(ctx context.Context, room, nick string, msg ui.Message) bool {
+	return !msg.IsMe && (ui.Mentions(msg.Content, nick) || s.repliesToOwn(ctx, room, msg.ReplyToID))
+}
+
 // repliesToOwn reports whether the stored message id in room is one of
 // ours.
 func (s *accountSession) repliesToOwn(ctx context.Context, room, id string) bool {
@@ -1067,11 +1073,14 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 		return &msg, true
 	}
 	broadcast(srv, ui.IncomingMessageMsg{AccountIdx: accountIdx, From: room, ReplyToID: replyTo, Message: msg})
-	countUnread(ctx, srv, s, room, []ui.Message{msg})
+	// A busy room would be unread, and notify, all day: only what's for us
+	// is.
+	forUs := s.roomMessageForUs(ctx, room, st.nick, msg)
+	if forUs {
+		countUnread(ctx, srv, s, room, []ui.Message{msg})
+	}
 	autoDownloadAttachments(srv, accountIdx, room, []ui.Message{msg})
-
-	// A busy room would notify all day: only what's for us does.
-	if (ui.Mentions(body, st.nick) || s.repliesToOwn(ctx, room, replyTo)) && shouldNotify(s.account.JID, room, decryptFailed, own) {
+	if forUs && shouldNotify(s.account.JID, room, decryptFailed, own) {
 		daemon.Notify(cmp.Or(st.name, room)+" · "+nick, notifyPreview(body, ev.OOBURLs))
 	}
 	return nil, true
@@ -1620,7 +1629,10 @@ func (s *accountSession) syncRoomArchive(ctx context.Context, srv *ipc.Server, a
 		slog.Debug("room archive page", "jid", s.account.JID, "room", room, "after", cursor, "items", len(res.Items), "new", len(msgs), "complete", res.Complete)
 		if len(msgs) > 0 {
 			broadcast(srv, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: room, Messages: msgs})
-			countUnread(ctx, srv, s, room, msgs)
+			st, _ := s.room(room)
+			countUnread(ctx, srv, s, room, slices.DeleteFunc(slices.Clone(msgs), func(m ui.Message) bool {
+				return !s.roomMessageForUs(ctx, room, st.nick, m)
+			}))
 			autoDownloadAttachments(srv, accountIdx, room, msgs)
 		}
 		// The latest page is all a first join reads; a later one reads on.

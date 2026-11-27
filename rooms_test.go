@@ -428,3 +428,36 @@ func TestRoomTypingBroadcast(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// TestRoomUnreadOnlyForUs checks a room's unread count grows only with
+// what names us or replies to us.
+func TestRoomUnreadOnlyForUs(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := attachedClient(t)
+	s := roomSession(t)
+	resetUnreadBadge(t)
+	unread := func() int {
+		t.Helper()
+		rows, err := s.db.ListChatUnread(ctx, s.account.JID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rows {
+			if r.Rosterjid == testRoom {
+				return int(r.Count)
+			}
+		}
+		return 0
+	}
+	for _, ev := range []xmpp.MessageEvent{
+		{ID: "a", From: testRoom + "/bob", Body: "chatter", Groupchat: true},
+		{ID: "b", From: testRoom + "/me", Body: "mine", Groupchat: true},
+		{ID: "c", From: testRoom + "/bob", Body: "me: look", Groupchat: true},
+		{ID: "d", From: testRoom + "/bob", Body: "agreed", ReplyToID: "b", Groupchat: true},
+	} {
+		handleIncomingMessage(ctx, srv, 0, s, ev)
+	}
+	if got := unread(); got != 2 {
+		t.Errorf("unread = %d, want 2", got)
+	}
+}
