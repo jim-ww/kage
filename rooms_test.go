@@ -476,3 +476,32 @@ func TestRoomSlug(t *testing.T) {
 		t.Errorf("random localparts %q, %q", a, b)
 	}
 }
+
+// TestRoomEncryptedFileIsAnAttachment checks an aesgcm:// link, all an
+// encrypted file is, comes in as an attachment, in the room and in a
+// private chat in it.
+func TestRoomEncryptedFileIsAnAttachment(t *testing.T) {
+	ctx := context.Background()
+	srv, events := attachedClient(t)
+	s := roomSession(t)
+	const link = "aesgcm://upload.example.com/f/pic.png#00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233"
+	msg, _ := roomMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "a", From: testRoom + "/bob", Body: link, Groupchat: true}, true)
+	if msg == nil || !slices.Equal(msg.Attachments, []string{link}) {
+		t.Fatalf("room message = %+v", msg)
+	}
+	handlePrivateMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "b", From: testRoom + "/bob", Body: link, MUCPrivate: true})
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-events:
+			if in, ok := ev.(ui.IncomingMessageMsg); ok {
+				if !slices.Equal(in.Message.Attachments, []string{link}) {
+					t.Fatalf("private message = %+v", in.Message)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("no private message broadcast")
+		}
+	}
+}
