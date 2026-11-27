@@ -74,7 +74,11 @@ func (m *Model) openJoinRoom(room, password string) tea.Cmd {
 		Body:  form,
 		OnAct: func(m *Model, v any) tea.Cmd {
 			fields := v.([]string)
-			room, nick, password := strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1]), fields[2]
+			link := parseAddress(fields[0])
+			room, nick, password := link.addr, strings.TrimSpace(fields[1]), fields[2]
+			if password == "" {
+				password = link.params["password"]
+			}
 			if room == "" {
 				form.SetError("room is required")
 				return nil

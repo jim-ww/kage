@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -170,7 +169,7 @@ func (m *Model) openAddContact() tea.Cmd {
 		Title: "Add contact",
 		Body:  form,
 		OnAct: func(m *Model, v any) tea.Cmd {
-			addr := strings.TrimSpace(v.([]string)[0])
+			addr := parseAddress(v.([]string)[0]).addr
 			body := m.contactsOpen()
 			if addr == "" || body == nil {
 				form.SetError("JID is required")

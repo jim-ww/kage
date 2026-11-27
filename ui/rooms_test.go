@@ -20,7 +20,7 @@ type fakeRoomDaemon struct {
 }
 
 func (f *fakeRoomDaemon) JoinRoom(accountIdx int, room, nick, password string) tea.Msg {
-	f.joins = append(f.joins, room+" as "+nick)
+	f.joins = append(f.joins, strings.TrimSpace(room+" as "+nick+" "+password))
 	return RoomJoinedMsg{AccountIdx: accountIdx, Room: room, Err: f.joinErr}
 }
 
@@ -166,5 +166,20 @@ func TestChatRemovedLeavesNoStalePane(t *testing.T) {
 	}
 	if msgs := m.currentMessages(); len(msgs) != 0 {
 		t.Errorf("messages shown = %+v", msgs)
+	}
+}
+
+// TestJoinRoomFormTakesALink checks a pasted xmpp: link joins its room,
+// with the password it carries.
+func TestJoinRoomFormTakesALink(t *testing.T) {
+	d := &fakeRoomDaemon{}
+	m := newTestModelWithSender(d, nil)
+	m.accounts = []Account{{Name: "me@example.test", Messages: map[int][]Message{}}}
+	m.openJoinRoom("xmpp:"+testRoomAddr+"?join;password=pw", "")
+	for range 3 {
+		m = pressAndDeliver(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	}
+	if !slices.Equal(d.joins, []string{testRoomAddr + " as me pw"}) {
+		t.Fatalf("joins = %v", d.joins)
 	}
 }
