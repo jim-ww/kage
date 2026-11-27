@@ -10,6 +10,7 @@
 
 - Multi-account XMPP chat with a persistent background daemon (keeps you connected/notified while the TUI isn't running)
 - End-to-end encryption: OMEMO (v1/v2) and GPG, selectable per chat
+- Group chats (MUC), with rooms bookmarked and kept in sync across your clients; unencrypted for now
 - Encrypted local message history (SQLite, optional password-derived key)
 - Voice/video calls (Jingle signaling, WebRTC via pion) and screen sharing
 - File transfer/attachments, message editing, replies, reactions, read receipts

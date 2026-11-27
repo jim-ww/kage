@@ -25,7 +25,7 @@
 - account logount option (that also cleans up OMEMO devices)
 - add image preview for file manager? same way we have avatars
 - ux: open chat composer (textbox) of message size (with limits)
-- group chat support + list group chat participants, ability to see their info, start chat with any participant
+- group chats: OMEMO in members-only non-anonymous rooms; room MAM (XEP-0313 against the room) instead of join history; occupant-id (XEP-0421) to tell senders apart across nick changes; room config/moderation (kick, ban, roles)
 - select & yank text in draft with mouse
 - chat view: vim motions for textinput (visual/insert mode emulation)
 - preview files text contents (in separate viewport?)
