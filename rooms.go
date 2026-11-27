@@ -824,6 +824,18 @@ func (s *accountSession) roomSentBy(ctx context.Context, room, id string, ev xmp
 	return row.Fromattr.String == ev.From
 }
 
+// repliesToOwn reports whether the stored message id in room is one of
+// ours.
+func (s *accountSession) repliesToOwn(ctx context.Context, room, id string) bool {
+	if id == "" {
+		return false
+	}
+	row, err := s.db.GetMessageSenderByIDAttr(ctx, storage.GetMessageSenderByIDAttrParams{
+		AccountJid: s.account.JID, RosterJid: nullString(room), IDAttr: nullString(id),
+	})
+	return err == nil && row.Sent
+}
+
 // roomOccupantOf is the occupant JID of whoever sent the stored message id
 // in room, "" if unknown.
 func (s *accountSession) roomOccupantOf(ctx context.Context, room, id string) string {
@@ -1047,7 +1059,7 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 	autoDownloadAttachments(srv, accountIdx, room, []ui.Message{msg})
 
 	// A busy room would notify all day: only what's for us does.
-	if ui.Mentions(body, st.nick) && shouldNotify(s.account.JID, room, decryptFailed, own) {
+	if (ui.Mentions(body, st.nick) || s.repliesToOwn(ctx, room, replyTo)) && shouldNotify(s.account.JID, room, decryptFailed, own) {
 		daemon.Notify(cmp.Or(st.name, room)+" · "+nick, notifyPreview(body, ev.OOBURLs))
 	}
 	return nil, true

@@ -393,3 +393,16 @@ func TestRoomArchiveItems(t *testing.T) {
 		t.Errorf("archive cursor = %q, %v", ref.String, err)
 	}
 }
+
+func TestRoomRepliesToOwn(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := attachedClient(t)
+	s := roomSession(t)
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "a", From: testRoom + "/bob", Body: "hi", Groupchat: true})
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "b", From: testRoom + "/me", Body: "mine", Groupchat: true})
+	for id, want := range map[string]bool{"a": false, "b": true, "": false, "gone": false} {
+		if got := s.repliesToOwn(ctx, testRoom, id); got != want {
+			t.Errorf("repliesToOwn(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
