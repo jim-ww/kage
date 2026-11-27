@@ -91,6 +91,9 @@ type Daemon interface {
 	// InviteToRoom invites someone to a room, making them a member of a
 	// members-only one we administer. Returns RoomInviteSentMsg.
 	InviteToRoom(accountIdx int, room, who string) tea.Msg
+	// ModerateOccupant applies a Mod* action to nick in a room. Returns
+	// OccupantModeratedMsg.
+	ModerateOccupant(accountIdx int, room, nick, action string) tea.Msg
 	// StartChat makes a chat with address, locally: no roster item or
 	// subscription request. Returns ChatStartedMsg.
 	StartChat(accountIdx int, address string) tea.Msg

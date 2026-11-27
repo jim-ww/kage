@@ -19,7 +19,6 @@
 - ux: open chat composer (textbox) of message size (with limits)
 - group chats, admin: room settings (name, password, members-only, ...) via the muc#owner config form
 - group chats, admin: member list (add/remove members, admins, owners - muc#admin affiliations)
-- group chats, admin: kick, ban, grant/revoke voice and moderator
 - group chats, admin: moderation - retract others' messages (XEP-0425)
 - group chats: per-room notification setting (all / mentions / none)
 - group chats: unread count only for mentions/private messages by default, like notifications

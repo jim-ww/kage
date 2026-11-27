@@ -106,6 +106,23 @@ type RoomSubjectSetMsg struct {
 	Err        error
 }
 
+// Moderation actions on a room's occupant, for Daemon.ModerateOccupant.
+const (
+	ModKick        = "kick"
+	ModBan         = "ban"
+	ModVoice       = "voice"
+	ModRevokeVoice = "revoke-voice"
+	ModModerator   = "moderator"
+	ModUnmoderator = "unmoderator"
+)
+
+// OccupantModeratedMsg reports the result of Daemon.ModerateOccupant.
+type OccupantModeratedMsg struct {
+	AccountIdx         int
+	Room, Nick, Action string
+	Err                error
+}
+
 // RoomInviteSentMsg reports the result of Daemon.InviteToRoom.
 type RoomInviteSentMsg struct {
 	AccountIdx int

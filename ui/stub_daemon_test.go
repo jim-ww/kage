@@ -33,6 +33,7 @@ func (stubDaemon) JoinRoom(int, string, string, string) tea.Msg                {
 func (stubDaemon) SetRoomNick(int, string, string) tea.Msg                     { return nil }
 func (stubDaemon) SetRoomSubject(int, string, string) tea.Msg                  { return nil }
 func (stubDaemon) InviteToRoom(int, string, string) tea.Msg                    { return nil }
+func (stubDaemon) ModerateOccupant(int, string, string, string) tea.Msg        { return nil }
 func (stubDaemon) StartChat(int, string) tea.Msg                               { return nil }
 func (stubDaemon) LeaveRoom(int, string) tea.Msg                               { return nil }
 func (stubDaemon) ResyncChat(int, string) tea.Msg                              { return nil }

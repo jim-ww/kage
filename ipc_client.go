@@ -235,6 +235,11 @@ func (c *ipcClient) InviteToRoom(accountIdx int, room, who string) tea.Msg {
 	return ui.RoomInviteSentMsg{AccountIdx: accountIdx, Room: room, Who: who, Err: err}
 }
 
+func (c *ipcClient) ModerateOccupant(accountIdx int, room, nick, action string) tea.Msg {
+	_, err := do(c.conn, moderateOccupantReq{AccountIdx: accountIdx, Room: room, Nick: nick, Action: action})
+	return ui.OccupantModeratedMsg{AccountIdx: accountIdx, Room: room, Nick: nick, Action: action, Err: err}
+}
+
 func (c *ipcClient) StartChat(accountIdx int, address string) tea.Msg {
 	_, err := do(c.conn, startChatReq{AccountIdx: accountIdx, Address: address})
 	return ui.ChatStartedMsg{AccountIdx: accountIdx, Address: address, Err: err}

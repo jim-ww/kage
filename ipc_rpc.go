@@ -125,6 +125,7 @@ func init() {
 	handle(setRoomNickReq{})
 	handle(setRoomSubjectReq{})
 	handle(inviteToRoomReq{})
+	handle(moderateOccupantReq{})
 	handle(resubscribeContactReq{})
 	handle(resyncChatReq{})
 	handle(setChatFlagReq{})
@@ -427,6 +428,15 @@ type inviteToRoomReq struct {
 
 func (c inviteToRoomReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.InviteToRoom(c.AccountIdx, c.Room, c.Who)
+}
+
+type moderateOccupantReq struct {
+	AccountIdx         int
+	Room, Nick, Action string
+}
+
+func (c moderateOccupantReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.ModerateOccupant(c.AccountIdx, c.Room, c.Nick, c.Action)
 }
 
 type startChatReq struct {

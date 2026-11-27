@@ -451,3 +451,69 @@ func TestInviteToMembersOnlyRoom(t *testing.T) {
 		t.Fatalf("bob joining once invited: %v", err)
 	}
 }
+
+// TestModerateOccupantLive runs the owner's moderation on a real room:
+// voice, moderator, kick, then a ban that keeps them out.
+func TestModerateOccupantLive(t *testing.T) {
+	tlsConfig := devtestTLSConfig(t)
+	ctx := context.Background()
+	aliceA, alice := newRoomTestAccount(ctx, t, tlsConfig)
+	bobA, bob := newRoomTestAccount(ctx, t, tlsConfig)
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	room := "kagetest-" + hex.EncodeToString(b[:]) + "@conference.localhost"
+	if err := aliceA.JoinRoom(0, room, "alice", ""); err != nil {
+		t.Fatalf("alice creating the room: %v", err)
+	}
+	join := func() {
+		t.Helper()
+		if err := bobA.JoinRoom(0, room, "bob", ""); err != nil {
+			t.Fatalf("bob joining: %v", err)
+		}
+		eventually(t, 5*time.Second, "alice seeing bob", func() bool {
+			st, _ := alice.room(room)
+			_, in := st.occupants["bob"]
+			return in
+		})
+	}
+	role := func(want string) {
+		t.Helper()
+		eventually(t, 5*time.Second, "bob's role "+want, func() bool {
+			st, _ := alice.room(room)
+			return st.occupants["bob"].Role == want
+		})
+	}
+	join()
+	for _, step := range []struct{ action, role string }{
+		{ui.ModRevokeVoice, "visitor"},
+		{ui.ModVoice, "participant"},
+		{ui.ModModerator, "moderator"},
+		{ui.ModUnmoderator, "participant"},
+	} {
+		if err := aliceA.ModerateOccupant(0, room, "bob", step.action); err != nil {
+			t.Fatalf("%s: %v", step.action, err)
+		}
+		role(step.role)
+	}
+	if err := bobA.ModerateOccupant(0, room, "alice", ui.ModKick); err == nil {
+		t.Error("bob, a participant, kicked the owner")
+	}
+	if err := aliceA.ModerateOccupant(0, room, "bob", ui.ModKick); err != nil {
+		t.Fatalf("kicking bob: %v", err)
+	}
+	eventually(t, 5*time.Second, "bob out of the room", func() bool {
+		st, _ := bob.room(room)
+		return !st.joined && st.joinErr != ""
+	})
+	join()
+	if err := aliceA.ModerateOccupant(0, room, "bob", ui.ModBan); err != nil {
+		t.Fatalf("banning bob: %v", err)
+	}
+	eventually(t, 5*time.Second, "bob banned", func() bool {
+		st, _ := bob.room(room)
+		return !st.joined
+	})
+	if err := bobA.JoinRoom(0, room, "bob", ""); err == nil {
+		t.Error("bob got back in after the ban")
+	}
+}

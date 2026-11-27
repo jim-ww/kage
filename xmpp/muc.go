@@ -477,6 +477,24 @@ func (c *Client) SetAffiliation(ctx context.Context, room, who, affiliation stri
 	return c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.SetIQ, To: to.Bare()}, nil)
 }
 
+// SetRole sets nick's role in room (XEP-0045 §8): "none" kicks them,
+// "visitor" and "participant" take and give voice, "moderator" makes them
+// one.
+func (c *Client) SetRole(ctx context.Context, room, nick, role string) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
+	to, err := jid.Parse(room)
+	if err != nil {
+		return fmt.Errorf("parsing room %q: %w", room, err)
+	}
+	item := xmlstream.Wrap(nil, xml.StartElement{
+		Name: xml.Name{Local: "item"},
+		Attr: []xml.Attr{{Name: xml.Name{Local: "nick"}, Value: nick}, {Name: xml.Name{Local: "role"}, Value: role}},
+	})
+	query := xmlstream.Wrap(item, xml.StartElement{Name: xml.Name{Space: mucAdminNS, Local: "query"}})
+	return c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.SetIQ, To: to.Bare()}, nil)
+}
+
 // SetRoomSubject asks room to change its subject, "" clearing it
 // (XEP-0045 §8.1), in a message with id: the room bounces it from an
 // occupant not allowed to, and sends everyone the new subject otherwise.

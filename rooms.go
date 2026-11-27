@@ -19,6 +19,7 @@ import (
 	"github.com/jim-ww/kage/xmpp"
 	omemolib "github.com/jim-ww/omemo-go"
 	"mellium.im/xmpp/jid"
+	"mellium.im/xmpp/stanza"
 )
 
 // roomState is one room (XEP-0045) the account is in, or trying to be.
@@ -1493,6 +1494,61 @@ func (s *accountSession) roomTyping(srv *ipc.Server, accountIdx int, ev xmpp.Cha
 	if ev.Groupchat && nick != st.nick {
 		broadcast(srv, ui.TypingMsg{AccountIdx: accountIdx, From: room, Nick: nick, Typing: typing})
 	}
+}
+
+// ModerateOccupant kicks, bans, gives or takes voice from, or makes or
+// unmakes a moderator of nick in room. A ban is of their address, which
+// the room must have shown us.
+func (a *adapter) ModerateOccupant(accountIdx int, room, nick, action string) error {
+	s, client, err := a.online(accountIdx)
+	if err != nil {
+		return err
+	}
+	st, ok := s.room(room)
+	switch {
+	case !ok:
+		return fmt.Errorf("not in %s", room)
+	case !st.joined:
+		return errors.New("not in the room yet")
+	}
+	o, ok := st.occupants[nick]
+	if !ok {
+		return fmt.Errorf("%s isn't in the room", nick)
+	}
+	ctx := context.Background()
+	switch action {
+	case ui.ModKick:
+		err = client.SetRole(ctx, room, nick, "none")
+	case ui.ModVoice, ui.ModUnmoderator:
+		err = client.SetRole(ctx, room, nick, "participant")
+	case ui.ModRevokeVoice:
+		err = client.SetRole(ctx, room, nick, "visitor")
+	case ui.ModModerator:
+		err = client.SetRole(ctx, room, nick, "moderator")
+	case ui.ModBan:
+		if o.JID == "" {
+			return fmt.Errorf("the room doesn't show %s's address", nick)
+		}
+		err = client.SetAffiliation(ctx, room, o.JID, "outcast")
+	default:
+		return fmt.Errorf("unknown action %q", action)
+	}
+	return moderationError(err)
+}
+
+// moderationError says what a room's refusal of a moderation means.
+func moderationError(err error) error {
+	var se stanza.Error
+	if !errors.As(err, &se) {
+		return err
+	}
+	switch se.Condition {
+	case stanza.Forbidden, stanza.NotAllowed:
+		return errors.New("the room doesn't let you")
+	case stanza.ItemNotFound:
+		return errors.New("they're not in the room")
+	}
+	return err
 }
 
 // roomSubjectBounced answers the SetRoomSubject waiting on ev's message,

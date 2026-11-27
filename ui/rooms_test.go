@@ -19,6 +19,7 @@ type fakeRoomDaemon struct {
 	nicks    []string
 	subjects []string
 	invites  []string
+	mods     []string
 	joinErr  error
 }
 
@@ -40,6 +41,11 @@ func (f *fakeRoomDaemon) SetRoomSubject(accountIdx int, room, subject string) te
 func (f *fakeRoomDaemon) InviteToRoom(accountIdx int, room, who string) tea.Msg {
 	f.invites = append(f.invites, room+" "+who)
 	return RoomInviteSentMsg{AccountIdx: accountIdx, Room: room, Who: who}
+}
+
+func (f *fakeRoomDaemon) ModerateOccupant(accountIdx int, room, nick, action string) tea.Msg {
+	f.mods = append(f.mods, action+" "+nick)
+	return OccupantModeratedMsg{AccountIdx: accountIdx, Room: room, Nick: nick, Action: action}
 }
 
 func (f *fakeRoomDaemon) StartChat(accountIdx int, address string) tea.Msg {
@@ -370,5 +376,54 @@ func TestRoomTyping(t *testing.T) {
 	m = updated(t, m, peerTypingExpiredMsg{accountIdx: 0, from: testRoomAddr, nick: "bob", gen: gen})
 	if got := typing(); len(got) != 0 {
 		t.Errorf("typing after the timeout = %v", got)
+	}
+}
+
+// TestModerationItems checks the participant menu offers what our role
+// and affiliation allow over theirs, and nothing over ourselves.
+func TestModerationItems(t *testing.T) {
+	bob := Occupant{Nick: "bob", JID: "bob@example.test", Affiliation: "none", Role: "participant"}
+	admin := Occupant{Nick: "ann", JID: "ann@example.test", Affiliation: "admin", Role: "moderator"}
+	for _, tc := range []struct {
+		name   string
+		me     Occupant
+		target Occupant
+		want   []string
+	}{
+		{"participant", Occupant{Nick: "me", Role: "participant"}, bob, nil},
+		{"moderator", Occupant{Nick: "me", Role: "moderator"}, bob, []string{"Take voice", "Kick"}},
+		{"moderator on an admin", Occupant{Nick: "me", Role: "moderator"}, admin, nil},
+		{"admin", Occupant{Nick: "me", Role: "moderator", Affiliation: "admin"}, bob, []string{"Take voice", "Kick", "Make moderator", "Ban"}},
+		{"admin on an admin", Occupant{Nick: "me", Role: "moderator", Affiliation: "admin"}, admin, nil},
+		{"owner on an admin", Occupant{Nick: "me", Role: "moderator", Affiliation: "owner"}, admin, []string{"Ban"}},
+		{"ourselves", Occupant{Nick: "me", Role: "moderator", Affiliation: "owner"}, Occupant{Nick: "me", Role: "moderator", Affiliation: "owner"}, nil},
+	} {
+		m := roomModel(t, &fakeRoomDaemon{})
+		m.updateChatEverywhere(0, testRoomAddr, func(c *Chat) { c.Occupants = []Occupant{tc.me, tc.target} })
+		var got []string
+		for _, it := range m.moderationItems(0, testRoomAddr, tc.target) {
+			got = append(got, it.label)
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestKickConfirmed(t *testing.T) {
+	d := &fakeRoomDaemon{}
+	m := roomModel(t, d)
+	m.updateChatEverywhere(0, testRoomAddr, func(c *Chat) {
+		c.Occupants = []Occupant{{Nick: "bob", Role: "participant"}, {Nick: "me", Role: "moderator"}}
+	})
+	m.openParticipants()
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = press(t, m, letter('k'))
+	if len(d.mods) != 0 {
+		t.Fatalf("kicked unconfirmed: %v", d.mods)
+	}
+	pressAndDeliver(t, m, letter('y'))
+	if !slices.Equal(d.mods, []string{ModKick + " bob"}) {
+		t.Errorf("moderations = %v", d.mods)
 	}
 }

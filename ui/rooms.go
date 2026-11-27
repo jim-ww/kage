@@ -370,11 +370,12 @@ func (m *Model) occupantMenuItems(accountIdx int, o Occupant) []contextMenuItem 
 		daemon := m.daemon
 		return func() tea.Msg { return daemon.StartChat(accountIdx, occupant) }
 	}}
+	moderation := m.moderationItems(accountIdx, room, o)
 	if o.JID == "" {
-		return []contextMenuItem{private, mention}
+		return append([]contextMenuItem{private, mention}, moderation...)
 	}
 	daemon, addr := m.daemon, o.JID
-	return []contextMenuItem{
+	return append([]contextMenuItem{
 		private,
 		{label: "Message", key: 'c', run: func(m *Model) tea.Cmd {
 			if m.chatIndexByAddress(accountIdx, addr) >= 0 {
@@ -389,7 +390,58 @@ func (m *Model) occupantMenuItems(accountIdx int, o Occupant) []contextMenuItem 
 			}
 			return m.showNotification("address copied")
 		}},
+	}, moderation...)
+}
+
+// affiliationRank orders affiliations by what they may do to each other.
+var affiliationRank = map[string]int{"owner": 3, "admin": 2, "member": 1}
+
+// moderationItems is what we may do to occupant o of room as its
+// moderator or admin (XEP-0045 §8, §9): nothing to ourselves, nor to an
+// admin or owner as a mere moderator.
+func (m *Model) moderationItems(accountIdx int, room string, o Occupant) []contextMenuItem {
+	chat, ok := m.chatByAddress(accountIdx, room)
+	if !ok || !chat.Joined || o.Nick == chat.Nick {
+		return nil
 	}
+	var me Occupant
+	for _, oc := range chat.Occupants {
+		if oc.Nick == chat.Nick {
+			me = oc
+		}
+	}
+	daemon, nick := m.daemon, o.Nick
+	act := func(action string) func(*Model) tea.Cmd {
+		return func(*Model) tea.Cmd {
+			return func() tea.Msg { return daemon.ModerateOccupant(accountIdx, room, nick, action) }
+		}
+	}
+	confirmed := func(title, detail, action string) func(*Model) tea.Cmd {
+		return func(m *Model) tea.Cmd { return m.confirm(title, detail, act(action)) }
+	}
+	privileged := affiliationRank[o.Affiliation] >= affiliationRank["admin"]
+	var items []contextMenuItem
+	if me.Role == "moderator" && !privileged {
+		switch o.Role {
+		case "visitor":
+			items = append(items, contextMenuItem{label: "Give voice", key: 'v', run: act(ModVoice)})
+		case "participant":
+			items = append(items, contextMenuItem{label: "Take voice", key: 'v', run: act(ModRevokeVoice)})
+		}
+		items = append(items, contextMenuItem{label: "Kick", key: 'k', run: confirmed("Kick "+nick+"?", "They can join again.", ModKick)})
+	}
+	if affiliationRank[me.Affiliation] >= affiliationRank["admin"] && affiliationRank[o.Affiliation] < affiliationRank[me.Affiliation] {
+		switch {
+		case o.Role == "moderator" && !privileged:
+			items = append(items, contextMenuItem{label: "Remove moderator", key: 'o', run: act(ModUnmoderator)})
+		case o.Role != "moderator":
+			items = append(items, contextMenuItem{label: "Make moderator", key: 'o', run: act(ModModerator)})
+		}
+		if o.JID != "" {
+			items = append(items, contextMenuItem{label: "Ban", key: 'b', run: confirmed("Ban "+nick+"?", "Their address can't join again until unbanned.", ModBan)})
+		}
+	}
+	return items
 }
 
 // participantsRoom is the room the participants screen is open for, ""
@@ -572,6 +624,12 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case RoomSubjectSetMsg:
 		if msg.Err != nil {
 			return m, m.showNotification("changing the subject: " + msg.Err.Error()), true
+		}
+		return m, nil, true
+
+	case OccupantModeratedMsg:
+		if msg.Err != nil {
+			return m, m.showNotification(strings.ReplaceAll(msg.Action, "-", " ") + " " + msg.Nick + ": " + msg.Err.Error()), true
 		}
 		return m, nil, true
 
