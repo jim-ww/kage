@@ -24,7 +24,6 @@
 - group chats: room avatars (vcard-temp avatar of the room)
 - group chats: browse a server's public rooms (disco#items on its conference service) and search search.jabber.network
 - group chats: open xmpp: links clicked elsewhere (x-scheme-handler/xmpp desktop entry, `kage open <uri>` handing it to the TUI)
-- group chats: legacy bookmarks (XEP-0048) for servers/clients that only have those
 - select & yank text in draft with mouse
 - chat view: vim motions for textinput (visual/insert mode emulation)
 - preview files text contents (in separate viewport?)

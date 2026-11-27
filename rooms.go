@@ -427,6 +427,7 @@ func (s *accountSession) syncBookmarks(ctx context.Context, srv *ipc.Server, acc
 		slog.Warn("fetching bookmarks", "jid", s.account.JID, "err", err)
 		return
 	}
+	bookmarks = s.importLegacyBookmarks(ctx, client, bookmarks)
 	listed := map[string]bool{}
 	for _, b := range bookmarks {
 		st, known := s.room(b.Room)
@@ -459,6 +460,28 @@ func (s *accountSession) syncBookmarks(ctx context.Context, srv *ipc.Server, acc
 			s.forgetRoom(ctx, srv, accountIdx, addr)
 		}
 	}
+}
+
+// importLegacyBookmarks adds to bookmarks the rooms to join only our
+// legacy bookmarks (XEP-0048) have, an older client's, publishing them
+// beside the rest.
+func (s *accountSession) importLegacyBookmarks(ctx context.Context, client *xmpp.Client, bookmarks []xmpp.Bookmark) []xmpp.Bookmark {
+	legacy, err := client.LegacyBookmarks(ctx)
+	if err != nil {
+		slog.Debug("fetching legacy bookmarks", "jid", s.account.JID, "err", err)
+		return bookmarks
+	}
+	for _, b := range legacy {
+		if !b.Autojoin || slices.ContainsFunc(bookmarks, func(have xmpp.Bookmark) bool { return have.Room == b.Room }) {
+			continue
+		}
+		slog.Debug("importing a legacy room bookmark", "jid", s.account.JID, "room", b.Room)
+		if err := client.PublishBookmark(ctx, b); err != nil {
+			slog.Warn("publishing an imported room bookmark", "room", b.Room, "err", err)
+		}
+		bookmarks = append(bookmarks, b)
+	}
+	return bookmarks
 }
 
 // forgetRoom drops addr's room and chat; its history stays.
@@ -1162,6 +1185,10 @@ func (a *adapter) LeaveRoom(accountIdx int, room string) error {
 	}
 	if err := client.RemoveBookmark(ctx, room); err != nil {
 		slog.Warn("removing room bookmark", "room", room, "err", err)
+	}
+	// Or the next sync would bring it back from there.
+	if err := client.RemoveLegacyBookmark(ctx, room); err != nil {
+		slog.Warn("removing legacy room bookmark", "room", room, "err", err)
 	}
 	s.forgetRoom(ctx, a.srv, accountIdx, room)
 	return nil
