@@ -198,6 +198,7 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 		if err := client.SetPresence(ctx, show); err != nil {
 			return fmt.Errorf("updating presence: %w", err)
 		}
+		sess.presenceToRooms(ctx, client, show)
 		broadcast(a.srv, ui.AccountStatusChangedMsg{Index: accountIdx, Status: status})
 		return nil
 	}

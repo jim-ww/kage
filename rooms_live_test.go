@@ -150,6 +150,28 @@ func TestGroupChatLive(t *testing.T) {
 		return len(hist) == 2 && hist[1].Content == "thanks" && hist[1].Author == "bob"
 	})
 
+	// A new nick for alice, which bob can't then take; her status follows.
+	if err := aliceA.SetRoomNick(0, room, "alicia"); err != nil {
+		t.Fatalf("alice changing nick: %v", err)
+	}
+	eventually(t, 5*time.Second, "bob seeing alice as alicia", func() bool {
+		st, _ := bob.room(room)
+		_, old := st.occupants["alice"]
+		_, renamed := st.occupants["alicia"]
+		return renamed && !old
+	})
+	if err := bobA.SetRoomNick(0, room, "alicia"); err == nil || err.Error() != "that nick is taken in the room" {
+		t.Errorf("bob taking alice's nick: %v", err)
+	}
+	if st, _ := bob.room(room); st.nick != "bob" || !st.joined {
+		t.Errorf("bob after the refused nick change: nick %q joined %v", st.nick, st.joined)
+	}
+	alice.presenceToRooms(ctx, alice.client.Load(), "away")
+	eventually(t, 5*time.Second, "bob seeing alicia away", func() bool {
+		st, _ := bob.room(room)
+		return st.occupants["alicia"].Presence == ui.PresenceAway
+	})
+
 	if err := bobA.LeaveRoom(0, room); err != nil {
 		t.Fatalf("bob leaving: %v", err)
 	}

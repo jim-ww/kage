@@ -41,6 +41,11 @@ type roomState struct {
 
 	// waiters are JoinRoom calls waiting for the room's answer.
 	waiters []chan error
+
+	// pendingNick is the nick SetRoomNick asked the room for, nickWaiter
+	// waiting for its answer.
+	pendingNick string
+	nickWaiter  chan error
 }
 
 // roomSet is an account's rooms by bare JID. Their chats sit beside the
@@ -480,6 +485,10 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 			}
 			renamed = st.nick != ev.Nick
 			st.nick, st.occupantID = ev.Nick, ev.OccupantID
+			if st.nickWaiter != nil && ev.Nick == st.pendingNick {
+				st.nickWaiter <- nil
+				st.nickWaiter, st.pendingNick = nil, ""
+			}
 			created = ev.Has(xmpp.MUCStatusCreated)
 			if !st.joined {
 				st.joined, st.joinErr = true, ""
@@ -574,6 +583,11 @@ func (s *accountSession) handlePresenceError(srv *ipc.Server, accountIdx int, ev
 	reason := joinErrorText(ev.Condition, ev.Reason)
 	ok := s.updateRoom(room, func(st *roomState) {
 		if st.joined {
+			// A nick change refused.
+			if st.nickWaiter != nil && resourcePart(ev.From) == st.pendingNick {
+				st.nickWaiter <- errors.New(reason)
+				st.nickWaiter, st.pendingNick = nil, ""
+			}
 			return
 		}
 		st.joinErr = reason
@@ -1147,5 +1161,66 @@ func (s *accountSession) checkRooms(ctx context.Context, ping func(ctx context.C
 		}
 		slog.Warn("the room dropped us; rejoining", "jid", s.account.JID, "room", room)
 		rejoin(room)
+	}
+}
+
+// roomNickTimeout is how long SetRoomNick waits for the room to answer.
+const roomNickTimeout = 15 * time.Second
+
+// SetRoomNick changes our nick in room (XEP-0045 §7.6), and in its
+// bookmark once the room took it.
+func (a *adapter) SetRoomNick(accountIdx int, room, nick string) error {
+	s, client, err := a.online(accountIdx)
+	if err != nil {
+		return err
+	}
+	nick = strings.TrimSpace(nick)
+	if err := xmpp.ValidRoomNick(room, nick); err != nil {
+		return err
+	}
+	st, ok := s.room(room)
+	switch {
+	case !ok:
+		return fmt.Errorf("not in %s", room)
+	case !st.joined:
+		return errors.New("not in the room yet")
+	case st.nick == nick:
+		return nil
+	}
+	answer := make(chan error, 1)
+	s.updateRoom(room, func(st *roomState) { st.pendingNick, st.nickWaiter = nick, answer })
+	ctx := context.Background()
+	if err := client.SetRoomPresence(ctx, room, nick, presenceShow(accountStatus(s.account.Status))); err != nil {
+		s.updateRoom(room, func(st *roomState) { st.pendingNick, st.nickWaiter = "", nil })
+		return err
+	}
+	select {
+	case err = <-answer:
+	case <-time.After(roomNickTimeout):
+		s.updateRoom(room, func(st *roomState) { st.pendingNick, st.nickWaiter = "", nil })
+		err = errors.New("the room didn't answer")
+	}
+	if err != nil {
+		return err
+	}
+	st, _ = s.room(room)
+	if st.bookmarked {
+		if err := client.PublishBookmark(ctx, xmpp.Bookmark{Room: room, Name: st.name, Nick: st.nick, Password: st.password, Autojoin: true}); err != nil {
+			slog.Warn("updating room bookmark's nick", "room", room, "err", err)
+		}
+	}
+	s.persistRoom(ctx, room)
+	return nil
+}
+
+// presenceToRooms sends our new status to every room we're in: a room has
+// only the presence sent to it.
+func (s *accountSession) presenceToRooms(ctx context.Context, client *xmpp.Client, show string) {
+	for _, room := range s.roomAddrs() {
+		if st, ok := s.room(room); ok && st.joined {
+			if err := client.SetRoomPresence(ctx, room, st.nick, show); err != nil {
+				slog.Warn("sending status to room", "room", room, "err", err)
+			}
+		}
 	}
 }

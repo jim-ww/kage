@@ -16,12 +16,18 @@ type fakeRoomDaemon struct {
 	fakeSuccessSender
 	joins   []string
 	starts  []string
+	nicks   []string
 	joinErr error
 }
 
 func (f *fakeRoomDaemon) JoinRoom(accountIdx int, room, nick, password string) tea.Msg {
 	f.joins = append(f.joins, strings.TrimSpace(room+" as "+nick+" "+password))
 	return RoomJoinedMsg{AccountIdx: accountIdx, Room: room, Err: f.joinErr}
+}
+
+func (f *fakeRoomDaemon) SetRoomNick(accountIdx int, room, nick string) tea.Msg {
+	f.nicks = append(f.nicks, room+" "+nick)
+	return RoomNickSetMsg{AccountIdx: accountIdx, Room: room, Nick: nick}
 }
 
 func (f *fakeRoomDaemon) StartChat(accountIdx int, address string) tea.Msg {
@@ -208,5 +214,21 @@ func TestPrivateMessageParticipant(t *testing.T) {
 	m = updated(t, m, RoomStateMsg{AccountIdx: 0, Room: testRoomAddr, Joined: true, Occupants: []Occupant{{Nick: "anon", Presence: PresenceAway}}})
 	if c, _ := m.chatByAddress(0, testRoomAddr+"/anon"); c.Presence != PresenceAway {
 		t.Errorf("private chat presence = %v", c.Presence)
+	}
+}
+
+func TestChangeRoomNick(t *testing.T) {
+	d := &fakeRoomDaemon{}
+	m := roomModel(t, d)
+	m = press(t, m, letter('m'))
+	m = press(t, m, letter('n'))
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	for _, r := range "neo" {
+		m = press(t, m, letter(r))
+	}
+	pressAndDeliver(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !slices.Equal(d.nicks, []string{testRoomAddr + " neo"}) {
+		t.Errorf("nick changes = %v", d.nicks)
 	}
 }

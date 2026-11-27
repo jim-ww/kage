@@ -112,6 +112,7 @@ func (m *Model) roomChatMenuItems(chat Chat) []contextMenuItem {
 	}
 	items := []contextMenuItem{
 		{label: "Participants", key: 'o', run: (*Model).openParticipants},
+		{label: "Change nick", key: 'n', run: (*Model).actionChangeRoomNick},
 		{label: pin, key: 'p', run: (*Model).actionTogglePinChat},
 		{label: mute, key: 'm', run: (*Model).actionToggleMuteChat},
 	}
@@ -125,6 +126,26 @@ func (m *Model) roomChatMenuItems(chat Chat) []contextMenuItem {
 		contextMenuItem{label: "Info", key: 'i', run: (*Model).actionChatInfo},
 		contextMenuItem{label: "Leave", key: 'l', run: (*Model).actionLeaveRoom},
 	)
+}
+
+// actionChangeRoomNick asks for our new nick in the selected room.
+func (m *Model) actionChangeRoomNick() tea.Cmd {
+	chat, ok := m.currentChat()
+	if !ok || !chat.Room {
+		return nil
+	}
+	accountIdx, daemon := m.currentAccount, m.daemon
+	return m.openModal(&modal.Modal[*Model]{
+		Title: "Nick in " + chat.Name,
+		Body:  m.newInput(chat.Nick, "nick", "Nick: ", "change"),
+		OnSubmit: func(m *Model, v any) tea.Cmd {
+			nick := strings.TrimSpace(v.(string))
+			if nick == "" || nick == chat.Nick {
+				return nil
+			}
+			return func() tea.Msg { return daemon.SetRoomNick(accountIdx, chat.Address, nick) }
+		},
+	})
 }
 
 // rejoinRoom enters chat's room again, as the nick we had.
@@ -449,6 +470,12 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			return m, m.showNotification("joining " + msg.Room + ": " + msg.Err.Error()), true
 		}
 		return m, nil, true
+
+	case RoomNickSetMsg:
+		if msg.Err != nil {
+			return m, m.showNotification("changing nick: " + msg.Err.Error()), true
+		}
+		return m, m.showNotification("you're " + msg.Nick + " in " + msg.Room), true
 
 	case RoomLeftMsg:
 		if msg.Err != nil {

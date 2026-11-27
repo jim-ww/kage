@@ -83,6 +83,8 @@ type Daemon interface {
 	// LeaveRoom exits a group chat and drops its bookmark; history stays.
 	// Returns RoomLeftMsg.
 	LeaveRoom(accountIdx int, room string) tea.Msg
+	// SetRoomNick changes our nick in a room. Returns RoomNickSetMsg.
+	SetRoomNick(accountIdx int, room, nick string) tea.Msg
 	// StartChat makes a chat with address, locally: no roster item or
 	// subscription request. Returns ChatStartedMsg.
 	StartChat(accountIdx int, address string) tea.Msg

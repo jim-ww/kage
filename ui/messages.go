@@ -92,6 +92,13 @@ type RoomLeftMsg struct {
 	Err        error
 }
 
+// RoomNickSetMsg reports the result of Daemon.SetRoomNick.
+type RoomNickSetMsg struct {
+	AccountIdx int
+	Room, Nick string
+	Err        error
+}
+
 // ChatStartedMsg reports the result of Daemon.StartChat.
 type ChatStartedMsg struct {
 	AccountIdx int
