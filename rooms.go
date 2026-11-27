@@ -1047,33 +1047,10 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 	autoDownloadAttachments(srv, accountIdx, room, []ui.Message{msg})
 
 	// A busy room would notify all day: only what's for us does.
-	if mentions(body, st.nick) && shouldNotify(s.account.JID, room, decryptFailed, own) {
+	if ui.Mentions(body, st.nick) && shouldNotify(s.account.JID, room, decryptFailed, own) {
 		daemon.Notify(cmp.Or(st.name, room)+" · "+nick, notifyPreview(body, ev.OOBURLs))
 	}
 	return nil, true
-}
-
-// mentions reports whether body names nick, as a word of its own.
-func mentions(body, nick string) bool {
-	if nick == "" {
-		return false
-	}
-	lower, n := strings.ToLower(body), strings.ToLower(nick)
-	for i := 0; ; {
-		j := strings.Index(lower[i:], n)
-		if j < 0 {
-			return false
-		}
-		start, end := i+j, i+j+len(n)
-		if (start == 0 || !isWordByte(lower[start-1])) && (end == len(lower) || !isWordByte(lower[end])) {
-			return true
-		}
-		i = start + 1
-	}
-}
-
-func isWordByte(b byte) bool {
-	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 0x80
 }
 
 // JoinRoom enters room as nick and bookmarks it, once the room let us in.

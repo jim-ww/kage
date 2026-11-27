@@ -232,3 +232,35 @@ func TestChangeRoomNick(t *testing.T) {
 		t.Errorf("nick changes = %v", d.nicks)
 	}
 }
+
+func TestMentions(t *testing.T) {
+	for body, want := range map[string]bool{
+		"hey Alice, look": true,
+		"alice":           true,
+		"@alice:":         true,
+		"malice":          false,
+		"alicebob":        false,
+		"nothing here":    false,
+	} {
+		if got := Mentions(body, "alice"); got != want {
+			t.Errorf("Mentions(%q) = %v, want %v", body, got, want)
+		}
+	}
+}
+
+// TestMentionHighlighted checks a room message naming our nick, or
+// replying to us, is told apart from the rest.
+func TestMentionHighlighted(t *testing.T) {
+	m := roomModel(t, &fakeRoomDaemon{})
+	msgs := []Message{
+		{ID: "a", Author: "bob", Content: "hi all"},
+		{ID: "b", Author: "bob", Content: "me: look"},
+		{ID: "c", Author: "me", Content: "mine", IsMe: true},
+		{ID: "d", Author: "bob", Content: "sure", ReplyToID: "c"},
+	}
+	for i, want := range []bool{false, true, false, true} {
+		if got := m.isForUs(msgs[i], messageIndexByID(msgs, msgs[i].ReplyToID), msgs); got != want {
+			t.Errorf("isForUs(%q) = %v, want %v", msgs[i].Content, got, want)
+		}
+	}
+}

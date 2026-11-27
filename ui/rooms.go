@@ -100,6 +100,29 @@ func defaultRoomNick(accountJID string) string {
 	return accountJID
 }
 
+// Mentions reports whether body names nick, as a word of its own.
+func Mentions(body, nick string) bool {
+	if nick == "" {
+		return false
+	}
+	lower, n := strings.ToLower(body), strings.ToLower(nick)
+	for i := 0; ; {
+		j := strings.Index(lower[i:], n)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(n)
+		if (start == 0 || !isWordByte(lower[start-1])) && (end == len(lower) || !isWordByte(lower[end])) {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 0x80
+}
+
 // roomChatMenuItems is the chat menu for a room: what applies to a group
 // chat of the contact's actions, and what only a room has.
 func (m *Model) roomChatMenuItems(chat Chat) []contextMenuItem {
@@ -443,11 +466,17 @@ func (m *Model) updateChatEverywhere(accountIdx int, address string, fn func(*Ch
 func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case RoomStateMsg:
+		renamed := false
 		cmd, _ := m.updateChatEverywhere(msg.AccountIdx, msg.Room, func(c *Chat) {
+			renamed = c.Nick != msg.Nick
 			c.Nick, c.Subject, c.Joined, c.JoinError, c.Occupants = msg.Nick, msg.Subject, msg.Joined, msg.JoinError, msg.Occupants
 			c.Private, c.EncryptionMode = msg.Private, msg.EncryptionMode
 		})
 		cmds := []tea.Cmd{cmd}
+		// What mentions us is drawn by our nick.
+		if chat, ok := m.currentChat(); renamed && ok && msg.AccountIdx == m.currentAccount && chat.Address == msg.Room {
+			m.refreshViewport()
+		}
 		// A private chat's other is present while they're in the room.
 		presence := make(map[string]Presence, len(msg.Occupants))
 		for _, o := range msg.Occupants {

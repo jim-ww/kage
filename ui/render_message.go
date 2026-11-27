@@ -278,16 +278,20 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 		nameStyle = m.styles.messageNickMe
 	}
 	name := senderDisplayName(msg.Author)
-	label := strings.Repeat(" ", max(0, nameWidth-cells.BlockWidth(name))) + name
+	replyIdx := messageIndexByID(allMsgs, msg.ReplyToID)
+	if m.isForUs(msg, replyIdx, allMsgs) {
+		nameStyle = m.styles.messageMention
+	}
+	padding := strings.Repeat(" ", max(0, nameWidth-cells.BlockWidth(name)))
+	label := padding + name
 	prefixWidth := cells.BlockWidth(label) + 1 // trailing space between name and what follows it
 	pad := strings.Repeat(" ", prefixWidth)
 
-	headerLine := nameStyle.Render(label)
+	headerLine := padding + nameStyle.Render(name)
 	if label != "" {
 		headerLine += " "
 	}
 	hasTextQuoteReply := false
-	replyIdx := messageIndexByID(allMsgs, msg.ReplyToID)
 	hasReply := replyIdx >= 0
 	switch {
 	case replyIdx >= 0:
@@ -443,6 +447,19 @@ func (m Model) renderMessage(msg Message, msgIdx, totalWidth int, allMsgs []Mess
 	}
 
 	return divider + strings.Join(lines, "\n")
+}
+
+// isForUs reports whether msg in a room is for us: naming our nick, or
+// replying to one of ours.
+func (m Model) isForUs(msg Message, replyIdx int, allMsgs []Message) bool {
+	if msg.IsMe || msg.Retracted {
+		return false
+	}
+	chat, ok := m.currentChat()
+	if !ok || !chat.Room {
+		return false
+	}
+	return Mentions(msg.Content, chat.Nick) || replyIdx >= 0 && allMsgs[replyIdx].IsMe
 }
 
 // collapsedPrefix is as much of body as can show in its first rows wrapped

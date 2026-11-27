@@ -290,21 +290,6 @@ func TestRoomRecipients(t *testing.T) {
 	}
 }
 
-func TestMentions(t *testing.T) {
-	for body, want := range map[string]bool{
-		"hey Alice, look": true,
-		"alice":           true,
-		"@alice:":         true,
-		"malice":          false,
-		"alicebob":        false,
-		"nothing here":    false,
-	} {
-		if got := mentions(body, "alice"); got != want {
-			t.Errorf("mentions(%q) = %v, want %v", body, got, want)
-		}
-	}
-}
-
 // TestRoomsLoadedAsChats checks stored rooms come back as room chats.
 func TestRoomsLoadedAsChats(t *testing.T) {
 	ctx := context.Background()

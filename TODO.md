@@ -24,7 +24,6 @@
 - group chats: change the subject
 - group chats: invite someone (XEP-0249 direct invitation, mediated for members-only rooms)
 - group chats: tab-complete nicks in the compose box
-- group chats: highlight messages that mention our nick
 - group chats: per-room notification setting (all / mentions / none)
 - group chats: unread count only for mentions/private messages by default, like notifications
 - group chats: room avatars (vcard-temp avatar of the room)

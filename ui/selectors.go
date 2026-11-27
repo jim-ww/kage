@@ -9,6 +9,9 @@ import (
 )
 
 func (m Model) currentChatIndex() int {
+	if m.chats == nil {
+		return -1
+	}
 	idx := m.chats.GlobalIndex()
 	if idx < 0 || idx >= len(m.chats.Items()) {
 		return -1

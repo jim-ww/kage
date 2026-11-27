@@ -36,6 +36,7 @@ type uiStyles struct {
 	messageHoverPrefix    lipgloss.Style
 	messageNickMe         lipgloss.Style
 	messageNickThem       lipgloss.Style
+	messageMention        lipgloss.Style
 	messageBar            lipgloss.Style
 	messageMuted          lipgloss.Style
 	sidebarStatus         lipgloss.Style
@@ -89,6 +90,7 @@ func newUIStyles(theme Theme) *uiStyles {
 			Foreground(colors.nickMe),
 		messageNickThem: lipgloss.NewStyle().
 			Foreground(colors.nickThem),
+		messageMention: onAccent(colors.nickThem),
 		// messageBar draws the selected-message left-edge indicator - red,
 		// reusing the same semantic color as popupDanger/DND rather than
 		// adding a new theme field just for this one glyph.
