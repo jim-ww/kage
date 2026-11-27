@@ -47,3 +47,8 @@ VirtualHost "localhost"
 		certificate = "@DIR@/certs/localhost.crt";
 		key = "@DIR@/certs/localhost.key";
 	}
+
+-- XEP-0045 rooms, for the group chat tests. Anyone may create one.
+Component "conference.localhost" "muc"
+	restrict_room_creation = false
+	modules_enabled = { "muc_mam" }
