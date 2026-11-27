@@ -244,8 +244,10 @@ func (m *Model) actionLeaveRoom() tea.Cmd {
 
 // roomInfoLines is the info screen's content for a room.
 func roomInfoLines(chat Chat) []modal.Line {
+	link := "xmpp:" + chat.Address + "?join"
 	lines := []modal.Line{
 		{Text: "Address: " + chat.Address, Value: chat.Address},
+		{Text: "Link: " + link, Value: link},
 		{Text: "Nick: " + chat.Nick},
 		{Text: "Status: " + roomStatus(chat)},
 	}

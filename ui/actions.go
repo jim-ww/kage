@@ -217,7 +217,7 @@ func (m *Model) cancelPending() {
 }
 
 // actionChatInfo shows what's known about the current chat's contact; its
-// address line copies the address.
+// address line, and a room's link, copy themselves.
 func (m *Model) actionChatInfo() tea.Cmd {
 	chat, ok := m.currentChat()
 	if !ok {
@@ -231,7 +231,7 @@ func (m *Model) actionChatInfo() tea.Cmd {
 		lines = m.privateInfoLines(chat)
 	}
 	text := modal.NewText(lines...)
-	text.ActLabel = "copy address"
+	text.ActLabel = "copy"
 	title := chat.Name
 	if title == "" {
 		title = chat.Address
@@ -243,7 +243,7 @@ func (m *Model) actionChatInfo() tea.Cmd {
 			if err := clipboard.WriteAll(v.(string)); err != nil {
 				return m.showNotification("copy failed")
 			}
-			return m.showNotification("address copied")
+			return m.showNotification("copied " + v.(string))
 		},
 	})
 }
