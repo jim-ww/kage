@@ -229,7 +229,7 @@ FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
 	AND oobURLs IS NOT NULL AND oobURLs != ''
-ORDER BY delay DESC, id DESC;
+ORDER BY delay, id;
 
 -- name: ListMessagesByRoster :many
 SELECT *

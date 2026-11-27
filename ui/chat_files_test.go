@@ -29,22 +29,22 @@ func filesOf(m Model) *searchResultsBody {
 
 // TestChatFilesTabListsAttachmentsAndJumps guards the search's Files tab:
 // enter there opens the files list busy, ChatFilesMsg fills it with one row
-// per attachment, newest first, each with its name, size and date, the
+// per attachment, oldest first with the cursor on the newest, each with its name, size and date, the
 // filter narrows by name, and picking a row jumps the chat to its message.
 func TestChatFilesTabListsAttachmentsAndJumps(t *testing.T) {
 	AttachmentsDir = t.TempDir()
 	t.Cleanup(func() { AttachmentsDir = "" })
 	day := time.Date(2025, time.March, 4, 10, 0, 0, 0, time.Local)
-	files := []Message{ // newest first, as ChatFiles lists them
-		{ID: "b", StoreID: 2, SentAt: day.Add(time.Hour), IsMe: true, Attachments: []string{"https://up.example.test/2/cat.png", "https://up.example.test/3/dog%20pic.jpg"}},
+	files := []Message{ // oldest first, as ChatFiles lists them
 		{ID: "a", StoreID: 1, SentAt: day, Attachments: []string{"https://up.example.test/1/report.pdf"}},
+		{ID: "b", StoreID: 2, SentAt: day.Add(time.Hour), IsMe: true, Attachments: []string{"https://up.example.test/2/cat.png", "https://up.example.test/3/dog%20pic.jpg"}},
 	}
 	loader := &fakeHistoryLoader{fakeSuccessSender: &fakeSuccessSender{}, response: HistoryWindowMsg{Messages: files}}
-	m := newTestModelWithMessages(files[1:], filesAndLoad{loader, files})
+	m := newTestModelWithMessages(files[:1], filesAndLoad{loader, files})
 	m.width, m.termHeight = 120, 30
 	m.updateSizes()
-	m.attachmentSizes = map[string]int64{files[1].Attachments[0]: 2048}
-	m.attachmentSizeFailed = map[string]bool{files[0].Attachments[0]: true, files[0].Attachments[1]: true}
+	m.attachmentSizes = map[string]int64{files[0].Attachments[0]: 2048}
+	m.attachmentSizeFailed = map[string]bool{files[1].Attachments[0]: true, files[1].Attachments[1]: true}
 
 	m = run(t, m, tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl})
 	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
@@ -68,13 +68,16 @@ func TestChatFilesTabListsAttachmentsAndJumps(t *testing.T) {
 	for i, it := range body.Items {
 		rows[i] = it.Label
 	}
-	for i, want := range []string{"cat.png", "dog pic.jpg", "report.pdf"} {
+	for i, want := range []string{"report.pdf", "cat.png", "dog pic.jpg"} {
 		if !strings.Contains(rows[i], want) {
-			t.Fatalf("row %d = %q, want %q (newest first)", i, rows[i], want)
+			t.Fatalf("row %d = %q, want %q (oldest first)", i, rows[i], want)
 		}
 	}
-	if !strings.Contains(rows[2], "2.0 KB") || !strings.Contains(rows[2], "4 Mar 2025") {
-		t.Fatalf("row %q lacks its size or date", rows[2])
+	if body.Cursor() != 2 {
+		t.Fatalf("cursor on row %d, want the newest (2)", body.Cursor())
+	}
+	if !strings.Contains(rows[0], "2.0 KB") || !strings.Contains(rows[0], "4 Mar 2025") {
+		t.Fatalf("row %q lacks its size or date", rows[0])
 	}
 
 	body.filter = "reprot"
@@ -101,7 +104,7 @@ func TestChatFilesLongListWorksInView(t *testing.T) {
 	t.Cleanup(func() { AttachmentsDir = "" })
 	files := make([]Message, 5000)
 	for i := range files {
-		files[i] = Message{StoreID: int64(i + 1), SentAt: time.Unix(int64(1e9-i), 0), Attachments: []string{fmt.Sprintf("https://up.example.test/%d/f.bin", i)}}
+		files[i] = Message{StoreID: int64(i + 1), SentAt: time.Unix(int64(1e9+i), 0), Attachments: []string{fmt.Sprintf("https://up.example.test/%d/f.bin", i)}}
 	}
 	m := newTestModelWithMessages(nil, filesAndLoad{&fakeHistoryLoader{fakeSuccessSender: &fakeSuccessSender{}}, files})
 	m.width, m.termHeight = 120, 30
@@ -114,8 +117,8 @@ func TestChatFilesLongListWorksInView(t *testing.T) {
 	if end-start >= 100 || end-start == 0 {
 		t.Fatalf("window = %d..%d, want a screenful", start, end)
 	}
-	if body.Items[end].Label != "" {
-		t.Fatal("a row out of view got labelled")
+	if end != len(files) || body.Items[start-1].Label != "" {
+		t.Fatal("list didn't open on the newest rows, or a row out of view got labelled")
 	}
 	want, ok := cmd().(chatFileSizesMsg)
 	if !ok || len(want.targets) != end-start {
@@ -123,13 +126,13 @@ func TestChatFilesLongListWorksInView(t *testing.T) {
 	}
 
 	for range end - start {
-		m = run(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+		m = run(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
 	}
 	body = filesOf(m)
-	if _, newEnd := body.Window(); newEnd == end || body.Items[newEnd-1].Label == "" {
-		t.Fatal("scrolling down didn't label the rows coming into view")
+	if newStart, _ := body.Window(); newStart == start || body.Items[newStart].Label == "" {
+		t.Fatal("scrolling up didn't label the rows coming into view")
 	}
-	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m = next.(Model)
 	if _, ok := nonIdleCmd(cmd).(chatFileSizesMsg); !ok {
 		t.Fatal("scrolling to new rows didn't ask for their sizes")

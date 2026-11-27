@@ -1578,7 +1578,7 @@ FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
 	AND oobURLs IS NOT NULL AND oobURLs != ''
-ORDER BY delay DESC, id DESC
+ORDER BY delay, id
 `
 
 type ListAttachmentsByRosterParams struct {

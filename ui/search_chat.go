@@ -257,6 +257,8 @@ func (b *searchResultsBody) relist() {
 		b.Empty = "no files"
 	}
 	b.SetItems(make([]modal.MenuItem, len(b.shown))...)
+	// Rows run oldest to newest: start on the newest, like the chat does.
+	b.SetCursor(len(b.shown) - 1)
 	b.listed++
 	b.label()
 }

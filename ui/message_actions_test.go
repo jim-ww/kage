@@ -422,8 +422,8 @@ func TestSearchChatOpensPromptRunsSearchAndJumpsToResult(t *testing.T) {
 	}
 	next, _ = m.Update(windowMsg)
 	m = next.(Model)
-	if m.selectedMsg != 0 {
-		t.Fatalf("selectedMsg after picking first result = %d, want 0", m.selectedMsg)
+	if m.selectedMsg != 2 {
+		t.Fatalf("selectedMsg after picking the newest result = %d, want 2", m.selectedMsg)
 	}
 	if got := m.accounts[0].Messages[0]; len(got) != len(fullHistory) {
 		t.Fatalf("chat's loaded window has %d messages, want %d (the full history)", len(got), len(fullHistory))

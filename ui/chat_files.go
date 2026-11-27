@@ -16,7 +16,7 @@ const chatFilesModalID = "chat-files"
 // dates line up whatever the sizes.
 const sizeColumn = 8
 
-// openChatFiles lists every attachment in the current chat, newest first,
+// openChatFiles lists every attachment in the current chat, oldest first,
 // narrowed by filter (a name, empty for all): the search results' list,
 // with names, sizes and dates for rows. Busy until ChatFilesMsg brings
 // them; picking one jumps the chat to its message.

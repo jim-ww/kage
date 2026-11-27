@@ -292,7 +292,7 @@ func (a *adapter) SearchHistory(accountIdx int, to, query string) (ui.HistorySea
 }
 
 // ChatFiles lists the messages of to's whole history carrying attachments,
-// newest first: only their IDs, times, directions and URLs, read straight
+// oldest first: only their IDs, times, directions and URLs, read straight
 // from storage with nothing decrypted.
 func (a *adapter) ChatFiles(accountIdx int, to string) (ui.ChatFilesMsg, error) {
 	sess, err := a.session(accountIdx)

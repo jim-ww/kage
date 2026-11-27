@@ -144,7 +144,7 @@ func TestSearchResultsFixedFootprint(t *testing.T) {
 // follows the cursor.
 func TestSearchResultsPreviewSelected(t *testing.T) {
 	long := "needle " + strings.Repeat("word ", 30) + "tailend"
-	history := []Message{{Content: long}, {Content: "needle short"}}
+	history := []Message{{Content: "needle short"}, {Content: long}}
 	m := searchResultsWith(t, history, []int{0, 1})
 	body := resultsOf(m)
 	if body.previewRows() == 0 {
@@ -153,9 +153,9 @@ func TestSearchResultsPreviewSelected(t *testing.T) {
 	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "tailend") {
 		t.Fatalf("preview doesn't show the selected match's whole text:\n%s", view)
 	}
-	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	m = run(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
 	if got := ansi.Strip(resultsOf(m).preview()); got != "needle short" {
-		t.Fatalf("preview after moving down = %q, want the second match", got)
+		t.Fatalf("preview after moving up = %q, want the first match", got)
 	}
 }
 
@@ -220,8 +220,8 @@ func TestSearchResultDate(t *testing.T) {
 func TestSearchResultsMoveByPhysicalKey(t *testing.T) {
 	history := []Message{{Content: "a q"}, {Content: "b q"}, {Content: "c q"}}
 	m := searchResultsWith(t, history, []int{0, 1, 2})
-	m = run(t, m, tea.KeyPressMsg{Code: 'о', Text: "о", BaseCode: 'j'})
+	m = run(t, m, tea.KeyPressMsg{Code: 'л', Text: "л", BaseCode: 'k'})
 	if got := resultsOf(m).Cursor(); got != 1 {
-		t.Fatalf("cursor after the j key on a Cyrillic layout = %d, want 1", got)
+		t.Fatalf("cursor after the k key on a Cyrillic layout = %d, want 1", got)
 	}
 }

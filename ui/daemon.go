@@ -60,7 +60,7 @@ type Daemon interface {
 	// containing query.
 	SearchHistory(accountIdx int, to, query string) tea.Cmd
 	// ChatFiles lists the messages of a chat's whole stored history that
-	// carry attachments, newest first.
+	// carry attachments, oldest first.
 	ChatFiles(accountIdx int, to string) tea.Cmd
 	// MessageDays lists the local days a chat has stored messages on,
 	// oldest first.
