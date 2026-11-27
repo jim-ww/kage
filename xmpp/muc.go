@@ -137,6 +137,10 @@ type mucInviteElem struct {
 		From   string `xml:"from,attr"`
 		Reason string `xml:"http://jabber.org/protocol/muc#user reason"`
 	} `xml:"http://jabber.org/protocol/muc#user invite"`
+	// Item is the sender's real JID on a message from a room's archive.
+	Item *struct {
+		JID string `xml:"jid,attr"`
+	} `xml:"http://jabber.org/protocol/muc#user item,omitempty"`
 	Password string      `xml:"http://jabber.org/protocol/muc#user password,omitempty"`
 	Status   []mucStatus `xml:"http://jabber.org/protocol/muc#user status"`
 }

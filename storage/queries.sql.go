@@ -656,6 +656,30 @@ func (q *Queries) GetLatestMessageDelay(ctx context.Context, arg GetLatestMessag
 	return column_1, err
 }
 
+const getLatestRoomStanzaID = `-- name: GetLatestRoomStanzaID :one
+SELECT roomStanzaID
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND roomStanzaID IS NOT NULL
+ORDER BY delay DESC, id DESC
+LIMIT 1
+`
+
+type GetLatestRoomStanzaIDParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+// The stanza-id of a room's newest stored message that has one: where to
+// read its archive on from.
+func (q *Queries) GetLatestRoomStanzaID(ctx context.Context, arg GetLatestRoomStanzaIDParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getLatestRoomStanzaID, arg.AccountJid, arg.RosterJid)
+	var roomstanzaid sql.NullString
+	err := row.Scan(&roomstanzaid)
+	return roomstanzaid, err
+}
+
 const getLocalKeySalt = `-- name: GetLocalKeySalt :one
 SELECT salt
 FROM localKeySalt

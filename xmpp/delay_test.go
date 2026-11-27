@@ -3,6 +3,8 @@ package xmpp
 import (
 	"testing"
 	"time"
+
+	"mellium.im/xmpp/jid"
 )
 
 func TestSentAt(t *testing.T) {
@@ -88,8 +90,8 @@ func TestArchiveResultSentAt(t *testing.T) {
 		t.Helper()
 		c := &Client{}
 		ch := make(chan ArchivedMessage, 1)
-		c.mamWaiters = map[string]chan ArchivedMessage{"q1": ch}
-		c.dispatchArchiveResult(r)
+		c.mamWaiters = map[string]mamWaiter{"q1": {ch: ch}}
+		c.dispatchArchiveResult(r, jid.JID{})
 		select {
 		case am := <-ch:
 			return am

@@ -8,6 +8,7 @@ import (
 
 	"mellium.im/xmlstream"
 	"mellium.im/xmpp/form"
+	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/paging"
 	"mellium.im/xmpp/stanza"
 )
@@ -56,6 +57,11 @@ type ArchivedMessage struct {
 	// OOBURLs are the XEP-0066 out-of-band URLs this archived item explicitly
 	// marked as file attachments, if any.
 	OOBURLs []string
+
+	// From a room's archive only: OccupantID is the room's id for the sender
+	// (XEP-0421), RealJID their bare JID where the room shows it.
+	OccupantID string
+	RealJID    string
 }
 
 // mamResultElem is the <result/> wrapper XEP-0313 attaches to a <message/>
@@ -73,15 +79,26 @@ type mamForwarded struct {
 	Message messageBody `xml:"message"`
 }
 
-// dispatchArchiveResult hands a MAM <result/> to the FetchArchive waiting on
-// its queryid, if any.
-func (c *Client) dispatchArchiveResult(r *mamResultElem) {
+// mamWaiter is a FetchArchive waiting for its results, which only archive
+// may send: "" for our own account's.
+type mamWaiter struct {
+	ch      chan ArchivedMessage
+	archive string
+}
+
+// dispatchArchiveResult hands a MAM <result/> from from to the FetchArchive
+// waiting on its queryid, if any and if from is the archive it asked.
+func (c *Client) dispatchArchiveResult(r *mamResultElem, from jid.JID) {
 	c.mamMu.Lock()
-	ch, ok := c.mamWaiters[r.QueryID]
+	w, ok := c.mamWaiters[r.QueryID]
 	c.mamMu.Unlock()
 	if !ok {
 		return
 	}
+	if w.archive == "" && !c.fromOwnAccount(from) || w.archive != "" && from.String() != w.archive {
+		return
+	}
+	ch := w.ch
 
 	msg := r.Forwarded.Message
 	// A chat state alone falls to the default case below and is dropped; one
@@ -93,6 +110,16 @@ func (c *Client) dispatchArchiveResult(r *mamResultElem) {
 		From:      msg.From.String(),
 		To:        msg.To.String(),
 		ID:        msg.selfID(),
+	}
+	if w.archive != "" {
+		if msg.OccupantID != nil {
+			am.OccupantID = msg.OccupantID.ID
+		}
+		if msg.MUCUser != nil && msg.MUCUser.Item != nil {
+			if real, err := jid.Parse(msg.MUCUser.Item.JID); err == nil && msg.MUCUser.Item.JID != "" {
+				am.RealJID = real.Bare().String()
+			}
+		}
 	}
 	// Left zero without a stamp: the caller decides what an unknown time
 	// means (see syncArchiveForContact's cursor).
@@ -165,27 +192,54 @@ type ArchivePage struct {
 // afterArchiveID ("" for the start), oldest first. Page on with Last until
 // Complete.
 func (c *Client) FetchArchive(ctx context.Context, peerJID, afterArchiveID string, max uint64) (ArchivePage, error) {
-	return c.fetchArchive(ctx, peerJID, afterArchiveID, time.Time{}, max)
+	return c.fetchArchive(ctx, archiveQuery{with: peerJID, after: afterArchiveID, max: max})
+}
+
+// FetchRoomArchive fetches a page of room's own archive (XEP-0313 §5.1.2)
+// after afterArchiveID, oldest first, or for "" its latest page.
+func (c *Client) FetchRoomArchive(ctx context.Context, room, afterArchiveID string, max uint64) (ArchivePage, error) {
+	return c.fetchArchive(ctx, archiveQuery{archive: room, after: afterArchiveID, latest: afterArchiveID == "", max: max})
 }
 
 // FetchArchiveSince is FetchArchive from the time since (MAM <start>) rather
 // than an id, for a cursor id the server stopped resolving (see
 // recoverMAMCursor); zero since for the start.
 func (c *Client) FetchArchiveSince(ctx context.Context, peerJID string, since time.Time, max uint64) (ArchivePage, error) {
-	return c.fetchArchive(ctx, peerJID, "", since, max)
+	return c.fetchArchive(ctx, archiveQuery{with: peerJID, since: since, max: max})
 }
 
-func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID string, since time.Time, max uint64) (ArchivePage, error) {
+// archiveQuery is one MAM query: of archive ("" for our own account's),
+// with with ("" for everyone), after an id or since a time, or its latest
+// page.
+type archiveQuery struct {
+	archive, with string
+	after         string
+	since         time.Time
+	latest        bool
+	max           uint64
+}
+
+func (c *Client) fetchArchive(ctx context.Context, q archiveQuery) (ArchivePage, error) {
 	ctx, cancel := c.bound(ctx)
 	defer cancel()
 	queryID := randomID()
+	max := q.max
+
+	var to jid.JID
+	if q.archive != "" {
+		var err error
+		if to, err = jid.Parse(q.archive); err != nil {
+			return ArchivePage{}, fmt.Errorf("parsing archive %q: %w", q.archive, err)
+		}
+		to = to.Bare()
+	}
 
 	ch := make(chan ArchivedMessage, max+8)
 	c.mamMu.Lock()
 	if c.mamWaiters == nil {
-		c.mamWaiters = make(map[string]chan ArchivedMessage)
+		c.mamWaiters = make(map[string]mamWaiter)
 	}
-	c.mamWaiters[queryID] = ch
+	c.mamWaiters[queryID] = mamWaiter{ch: ch, archive: to.String()}
 	c.mamMu.Unlock()
 	defer func() {
 		c.mamMu.Lock()
@@ -193,12 +247,12 @@ func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 		c.mamMu.Unlock()
 	}()
 
-	fields := []form.Field{
-		form.Hidden("FORM_TYPE", form.Value(mamNS)),
-		form.JID("with", form.Value(peerJID)),
+	fields := []form.Field{form.Hidden("FORM_TYPE", form.Value(mamNS))}
+	if q.with != "" {
+		fields = append(fields, form.JID("with", form.Value(q.with)))
 	}
-	if !since.IsZero() {
-		fields = append(fields, form.Text("start", form.Value(since.UTC().Format(time.RFC3339))))
+	if !q.since.IsZero() {
+		fields = append(fields, form.Text("start", form.Value(q.since.UTC().Format(time.RFC3339))))
 	}
 	d := form.New(fields...)
 	submission, ok := d.Submit()
@@ -206,16 +260,21 @@ func (c *Client) fetchArchive(ctx context.Context, peerJID, afterArchiveID strin
 		return ArchivePage{}, fmt.Errorf("building mam query form")
 	}
 
-	rsm := paging.RequestNext{Max: max, After: afterArchiveID}
+	var rsm xml.TokenReader
+	if q.latest {
+		rsm = (&paging.RequestPrev{Max: max}).TokenReader()
+	} else {
+		rsm = (&paging.RequestNext{Max: max, After: q.after}).TokenReader()
+	}
 	query := xmlstream.Wrap(
-		xmlstream.MultiReader(submission, rsm.TokenReader()),
+		xmlstream.MultiReader(submission, rsm),
 		xml.StartElement{
 			Name: xml.Name{Space: mamNS, Local: "query"},
 			Attr: []xml.Attr{{Name: xml.Name{Local: "queryid"}, Value: queryID}},
 		},
 	)
 
-	iq := stanza.IQ{Type: stanza.SetIQ, ID: randomID()}
+	iq := stanza.IQ{Type: stanza.SetIQ, ID: randomID(), To: to}
 	rc, err := c.session.SendIQElement(ctx, query, iq)
 	if err != nil {
 		return ArchivePage{}, fmt.Errorf("sending mam query: %w", err)

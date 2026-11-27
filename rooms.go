@@ -374,7 +374,9 @@ func (s *accountSession) sendJoin(ctx context.Context, srv *ipc.Server, accountI
 		clear(st.occupants)
 	})
 	slog.Debug("joining room", "jid", s.account.JID, "room", addr, "nick", st.nick, "since", since)
-	opts := xmpp.JoinOptions{Password: st.password, Show: presenceShow(accountStatus(s.account.Status)), Since: since}
+	// A room with an archive is read from it once in (see syncRoomArchive),
+	// all of what was missed rather than a few of the latest.
+	opts := xmpp.JoinOptions{Password: st.password, Show: presenceShow(accountStatus(s.account.Status)), Since: since, NoHistory: st.info.MAM}
 	if err := client.JoinRoom(ctx, addr, st.nick, opts); err != nil {
 		slog.Warn("joining room", "jid", s.account.JID, "room", addr, "err", err)
 		s.updateRoom(addr, func(st *roomState) { st.joinErr = err.Error() })
@@ -472,7 +474,7 @@ func (s *accountSession) forgetRoom(ctx context.Context, srv *ipc.Server, accoun
 func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.RoomPresenceEvent) {
 	var waiters []chan error
 	var failure error
-	var created, renamed, unknown bool
+	var created, renamed, unknown, catchUp bool
 	ok := s.updateRoom(ev.Room, func(st *roomState) {
 		self := ev.Has(xmpp.MUCStatusSelf) || ev.Nick == st.nick
 		if ev.Available {
@@ -494,6 +496,7 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 				st.joined, st.joinErr = true, ""
 				waiters, st.waiters = st.waiters, nil
 				unknown = st.info == (xmpp.RoomInfo{})
+				catchUp = st.info.MAM
 			}
 			return
 		}
@@ -532,6 +535,12 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 			}
 			// Before it existed, it had nothing to say of itself.
 			s.refreshRoomInfo(ctx, client, ev.Room)
+		}()
+	} else if catchUp {
+		go func() {
+			if client, err := s.liveClient(); err == nil {
+				s.syncRoomArchive(ctx, srv, accountIdx, client, ev.Room)
+			}
 		}()
 	} else if unknown {
 		go func() {
@@ -707,10 +716,19 @@ func (s *accountSession) roomOccupantOf(ctx context.Context, room, id string) st
 // whether ev was one in ours. Rooms are plaintext: an encrypted message in
 // one is stored as unreadable.
 func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, ev xmpp.MessageEvent) bool {
+	_, ok := roomMessage(ctx, srv, accountIdx, s, ev, false)
+	return ok
+}
+
+// roomMessage applies a message in a room: stores it, or the correction,
+// retraction or reactions it is. A new message from the room's archive
+// (archived) is returned for the caller to broadcast in its batch; a live
+// one is broadcast, counted and maybe notified about here.
+func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, ev xmpp.MessageEvent, archived bool) (*ui.Message, bool) {
 	room := bareJID(ev.From)
 	st, ok := s.room(room)
 	if !ok {
-		return false
+		return nil, false
 	}
 	nick := resourcePart(ev.From)
 	own := ev.Groupchat && st.ownInRoom(nick, ev.OccupantID)
@@ -736,14 +754,14 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 			AccountIdx: accountIdx, From: room, MessageID: target,
 			Reactions: loadReactionsForMessage(ctx, s, room, target),
 		})
-		return true
+		return nil, true
 	}
 
 	if ev.RetractID != "" {
 		target := s.roomTargetID(ctx, room, ev.RetractID)
 		if !s.roomSentBy(ctx, room, target, ev, own) {
 			slog.Warn("dropping a room retraction not from the message's sender", "room", room, "from", ev.From)
-			return true
+			return nil, true
 		}
 		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
 			AccountJid: s.account.JID, IDAttr: nullString(target), RosterJid: nullString(room), Sent: own,
@@ -751,7 +769,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 			slog.Warn("persisting room retraction", "err", err)
 		}
 		broadcast(srv, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: room, RetractID: target})
-		return true
+		return nil, true
 	}
 
 	body := ev.Body
@@ -765,7 +783,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 	if ev.ReplaceID != "" {
 		if !s.roomSentBy(ctx, room, ev.ReplaceID, ev, own) {
 			slog.Warn("dropping a room correction not from the message's sender", "room", room, "from", ev.From)
-			return true
+			return nil, true
 		}
 		sealedBody, encrypted := encryptForStorage(s, body)
 		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
@@ -775,7 +793,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 			slog.Warn("persisting room correction", "err", err)
 		}
 		broadcast(srv, ui.MessageCorrectedMsg{AccountIdx: accountIdx, From: room, ReplaceID: ev.ReplaceID, NewContent: body})
-		return true
+		return nil, true
 	}
 
 	if ev.ID != "" {
@@ -799,7 +817,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 				}
 				broadcast(srv, ui.MessageDeliveredMsg{AccountIdx: accountIdx, From: room, MessageID: ev.ID})
 			}
-			return true
+			return nil, true
 		}
 	}
 
@@ -834,7 +852,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 	})
 	if err != nil {
 		slog.Warn("persisting room message", "room", room, "err", err)
-		return true
+		return nil, true
 	}
 	if ev.RoomStanzaID != "" && ev.ID != "" {
 		if err := s.db.SetRoomStanzaID(ctx, storage.SetRoomStanzaIDParams{
@@ -856,6 +874,10 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 		QuotedAuthor:  quotedAuthor,
 		QuotedPreview: quotedPreview,
 	}
+	msg.ReplyToID = replyTo
+	if archived {
+		return &msg, true
+	}
 	broadcast(srv, ui.IncomingMessageMsg{AccountIdx: accountIdx, From: room, ReplyToID: replyTo, Message: msg})
 	countUnread(ctx, srv, s, room, []ui.Message{msg})
 	autoDownloadAttachments(srv, accountIdx, room, []ui.Message{msg})
@@ -864,7 +886,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 	if mentions(body, st.nick) && shouldNotify(s.account.JID, room, decryptFailed, own) {
 		daemon.Notify(cmp.Or(st.name, room)+" · "+nick, notifyPreview(body, ev.OOBURLs))
 	}
-	return true
+	return nil, true
 }
 
 // mentions reports whether body names nick, as a word of its own.
@@ -1223,4 +1245,80 @@ func (s *accountSession) presenceToRooms(ctx context.Context, client *xmpp.Clien
 			}
 		}
 	}
+}
+
+// Room archive catch-up (XEP-0313 §5.1.2): the latest page on a first
+// join, else everything after the newest message stored, within reason.
+const (
+	roomArchivePage     = 100
+	roomArchiveFirst    = 50
+	roomArchiveMaxPages = 20
+)
+
+// syncRoomArchive reads what room's archive has that we don't, after the
+// newest stored message the room gave an id to.
+func (s *accountSession) syncRoomArchive(ctx context.Context, srv *ipc.Server, accountIdx int, client *xmpp.Client, room string) {
+	cursor := ""
+	if ref, err := s.db.GetLatestRoomStanzaID(ctx, storage.GetLatestRoomStanzaIDParams{
+		AccountJid: s.account.JID, RosterJid: nullString(room),
+	}); err == nil && ref.Valid {
+		cursor = ref.String
+	}
+	for page := 0; page < roomArchiveMaxPages; page++ {
+		pageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		max := uint64(roomArchivePage)
+		if cursor == "" {
+			max = roomArchiveFirst
+		}
+		res, err := client.FetchRoomArchive(pageCtx, room, cursor, max)
+		cancel()
+		if err != nil {
+			slog.Warn("reading room archive", "jid", s.account.JID, "room", room, "after", cursor, "err", err)
+			return
+		}
+		// One the room no longer knows: start over from its latest.
+		if cursor != "" && len(res.Items) == 0 && res.Last == "" && !res.Complete {
+			cursor = ""
+			continue
+		}
+		var msgs []ui.Message
+		for _, am := range res.Items {
+			if msg, _ := roomMessage(ctx, srv, accountIdx, s, roomArchiveEvent(am), true); msg != nil {
+				msgs = append(msgs, *msg)
+			}
+		}
+		slog.Debug("room archive page", "jid", s.account.JID, "room", room, "after", cursor, "items", len(res.Items), "new", len(msgs), "complete", res.Complete)
+		if len(msgs) > 0 {
+			broadcast(srv, ui.HistorySyncedMsg{AccountIdx: accountIdx, From: room, Messages: msgs})
+			countUnread(ctx, srv, s, room, msgs)
+			autoDownloadAttachments(srv, accountIdx, room, msgs)
+		}
+		// The latest page is all a first join reads; a later one reads on.
+		if cursor == "" || res.Complete || res.Last == "" || res.Last == cursor {
+			return
+		}
+		cursor = res.Last
+	}
+}
+
+// roomArchiveEvent is an item of a room's archive as the message it was.
+func roomArchiveEvent(am xmpp.ArchivedMessage) xmpp.MessageEvent {
+	ev := xmpp.MessageEvent{
+		ID:               cmp.Or(am.ID, am.ArchiveID),
+		From:             am.From,
+		Body:             am.Body,
+		SentAt:           am.SentAt,
+		ReplaceID:        am.ReplaceID,
+		ReplyToID:        am.ReplyToID,
+		RetractID:        am.RetractID,
+		ReactionTargetID: am.ReactionTargetID,
+		Reactions:        am.Reactions,
+		Encrypted:        am.Encrypted,
+		EncryptedV1:      am.EncryptedV1,
+		OOBURLs:          am.OOBURLs,
+		Groupchat:        true,
+		RoomStanzaID:     am.ArchiveID,
+		OccupantID:       am.OccupantID,
+	}
+	return ev
 }

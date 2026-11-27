@@ -342,3 +342,23 @@ func TestRoomSelfPingRejoins(t *testing.T) {
 		t.Errorf("rejoined %v", rejoined)
 	}
 }
+
+// TestRoomArchiveItems checks an item of a room's archive is stored as the
+// live message would be, known by the room's id when it has none of its
+// own, and only once.
+func TestRoomArchiveItems(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := attachedClient(t)
+	s := roomSession(t)
+	am := xmpp.ArchivedMessage{ArchiveID: "s1", From: testRoom + "/bob", Body: "earlier", SentAt: time.Unix(100, 0), OccupantID: "occ-bob"}
+	msg, ok := roomMessage(ctx, srv, 0, s, roomArchiveEvent(am), true)
+	if !ok || msg == nil || msg.ID != "s1" || msg.Author != "bob" {
+		t.Fatalf("archived message = %+v", msg)
+	}
+	if again, _ := roomMessage(ctx, srv, 0, s, roomArchiveEvent(am), true); again != nil {
+		t.Errorf("stored twice: %+v", again)
+	}
+	if ref, err := s.db.GetLatestRoomStanzaID(ctx, storage.GetLatestRoomStanzaIDParams{AccountJid: s.account.JID, RosterJid: nullString(testRoom)}); err != nil || ref.String != "s1" {
+		t.Errorf("archive cursor = %q, %v", ref.String, err)
+	}
+}

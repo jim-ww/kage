@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"strings"
 	"testing"
+
+	"mellium.im/xmpp/jid"
 )
 
 func TestMAMResultDecode(t *testing.T) {
@@ -76,8 +78,8 @@ func TestDispatchArchiveResultChatState(t *testing.T) {
 
 			c := &Client{}
 			ch := make(chan ArchivedMessage, 1)
-			c.mamWaiters = map[string]chan ArchivedMessage{"q1": ch}
-			c.dispatchArchiveResult(msg.MAMResult)
+			c.mamWaiters = map[string]mamWaiter{"q1": {ch: ch}}
+			c.dispatchArchiveResult(msg.MAMResult, jid.JID{})
 
 			select {
 			case <-ch:
@@ -129,8 +131,8 @@ No, just late.</body>
 
 	c := &Client{}
 	ch := make(chan ArchivedMessage, 1)
-	c.mamWaiters = map[string]chan ArchivedMessage{"q1": ch}
-	c.dispatchArchiveResult(r)
+	c.mamWaiters = map[string]mamWaiter{"q1": {ch: ch}}
+	c.dispatchArchiveResult(r, jid.JID{})
 
 	select {
 	case am := <-ch:

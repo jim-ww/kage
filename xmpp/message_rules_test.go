@@ -235,7 +235,7 @@ func TestArchiveResultsOnlyFromOwnAccount(t *testing.T) {
 	}
 	for from, want := range map[string]bool{"alice@example.test": true, "mallory@example.test": false} {
 		ch := make(chan ArchivedMessage, 1)
-		c := &Client{JID: jid.MustParse("alice@example.test/laptop"), mamWaiters: map[string]chan ArchivedMessage{"q1": ch}}
+		c := &Client{JID: jid.MustParse("alice@example.test/laptop"), mamWaiters: map[string]mamWaiter{"q1": {ch: ch}}}
 		serveMessageTo(t, c, result(from))
 		if got := len(ch) == 1; got != want {
 			t.Errorf("result from %s taken: %v, want %v", from, got, want)

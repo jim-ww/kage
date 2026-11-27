@@ -300,3 +300,42 @@ func TestSelfPingResult(t *testing.T) {
 		}
 	}
 }
+
+// TestRoomArchiveResultsOnlyFromTheRoom checks a room's archive result is
+// taken from that room alone, with who sent it.
+func TestRoomArchiveResultsOnlyFromTheRoom(t *testing.T) {
+	result := func(from string) string {
+		return `<message xmlns="jabber:client" from="` + from + `" to="alice@example.test/laptop">
+			<result xmlns="urn:xmpp:mam:2" queryid="q1" id="arch1"><forwarded xmlns="urn:xmpp:forward:0">
+				<delay xmlns="urn:xmpp:delay" stamp="2026-01-01T10:00:00Z"/>
+				<message xmlns="jabber:client" from="room@muc.example.test/bob" type="groupchat" id="g1">
+					<body>hi</body>
+					<occupant-id xmlns="urn:xmpp:occupant-id:0" id="occ-bob"/>
+					<x xmlns="http://jabber.org/protocol/muc#user"><item jid="bob@example.test/pc"/></x>
+				</message>
+			</forwarded></result>
+		</message>`
+	}
+	for from, want := range map[string]bool{
+		"room@muc.example.test":  true,
+		"other@muc.example.test": false,
+		"alice@example.test":     false,
+	} {
+		ch := make(chan ArchivedMessage, 1)
+		c := &Client{JID: jid.MustParse("alice@example.test/laptop"), mamWaiters: map[string]mamWaiter{"q1": {ch: ch, archive: "room@muc.example.test"}}}
+		serveMessageTo(t, c, result(from))
+		select {
+		case am := <-ch:
+			if !want {
+				t.Errorf("result from %s taken", from)
+			}
+			if am.From != "room@muc.example.test/bob" || am.OccupantID != "occ-bob" || am.RealJID != "bob@example.test" || am.ArchiveID != "arch1" {
+				t.Errorf("archived = %+v", am)
+			}
+		default:
+			if want {
+				t.Errorf("result from %s dropped", from)
+			}
+		}
+	}
+}

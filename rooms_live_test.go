@@ -254,3 +254,56 @@ func TestBookmarkedElsewhereJoined(t *testing.T) {
 		return ok && st.joined && st.bookmarked
 	})
 }
+
+// TestRoomArchiveCatchUp checks joining a room with an archive reads what
+// was said before from it, once, and again only what came after.
+func TestRoomArchiveCatchUp(t *testing.T) {
+	tlsConfig := devtestTLSConfig(t)
+	ctx := context.Background()
+	aliceA, _ := newRoomTestAccount(ctx, t, tlsConfig)
+	bobA, bob := newRoomTestAccount(ctx, t, tlsConfig)
+
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	room := "kagetest-" + hex.EncodeToString(b[:]) + "@conference.localhost"
+	if err := aliceA.JoinRoom(0, room, "alice", ""); err != nil {
+		t.Fatalf("creating the room: %v", err)
+	}
+	for _, body := range []string{"one", "two", "three"} {
+		if _, err := aliceA.Send(0, room, body, ui.SendOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(300 * time.Millisecond) // archived
+
+	if err := bobA.JoinRoom(0, room, "bob", ""); err != nil {
+		t.Fatalf("bob joining: %v", err)
+	}
+	if st, _ := bob.room(room); !st.info.MAM {
+		t.Fatalf("room has no archive: %+v", st.info)
+	}
+	eventually(t, 5*time.Second, "bob reading the room's archive", func() bool {
+		hist := loadHistory(ctx, bob, room, room)
+		return len(hist) == 3 && hist[0].Content == "one" && hist[2].Content == "three" && hist[0].Author == "alice"
+	})
+
+	// Rejoining reads only what's new.
+	client := bob.client.Load()
+	if err := client.LeaveRoom(ctx, room, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 5*time.Second, "bob out", func() bool { st, _ := bob.room(room); return !st.joined })
+	if _, err := aliceA.Send(0, room, "four", ui.SendOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	bob.sendJoin(ctx, bobA.srv, 0, client, room)
+	eventually(t, 5*time.Second, "bob catching up", func() bool {
+		hist := loadHistory(ctx, bob, room, room)
+		return len(hist) == 4 && hist[3].Content == "four"
+	})
+	time.Sleep(300 * time.Millisecond)
+	if hist := loadHistory(ctx, bob, room, room); len(hist) != 4 {
+		t.Errorf("history after catching up = %d messages", len(hist))
+	}
+}

@@ -266,10 +266,9 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		}
 
 		if msg.MAMResult != nil {
-			// Our archive is our account's to send from, like carbons.
-			if c.fromOwnAccount(msg.From) {
-				c.dispatchArchiveResult(msg.MAMResult)
-			}
+			// Only from the archive asked: our account's, like carbons, or
+			// the room queried.
+			c.dispatchArchiveResult(msg.MAMResult, msg.From)
 			return
 		}
 

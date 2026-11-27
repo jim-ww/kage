@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"mellium.im/xmpp/jid"
 )
 
 // TestStripReplyFallbackCodePoints pins XEP-0426 counting: XEP-0428's
@@ -141,12 +143,12 @@ func TestDispatchArchiveResultReplyNonASCII(t *testing.T) {
 
 	c := &Client{}
 	ch := make(chan ArchivedMessage, 1)
-	c.mamWaiters = map[string]chan ArchivedMessage{"q1": ch}
+	c.mamWaiters = map[string]mamWaiter{"q1": {ch: ch}}
 	c.dispatchArchiveResult(&mamResultElem{
 		QueryID:   "q1",
 		ID:        "arch1",
 		Forwarded: mamForwarded{Message: msg},
-	})
+	}, jid.JID{})
 
 	select {
 	case am := <-ch:

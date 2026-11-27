@@ -1064,3 +1064,15 @@ WHERE accountJID = sqlc.arg(account_jid);
 DELETE FROM roomPrivates
 WHERE accountJID = sqlc.arg(account_jid)
 	AND room = sqlc.arg(room);
+
+
+-- name: GetLatestRoomStanzaID :one
+-- The stanza-id of a room's newest stored message that has one: where to
+-- read its archive on from.
+SELECT roomStanzaID
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND roomStanzaID IS NOT NULL
+ORDER BY delay DESC, id DESC
+LIMIT 1;

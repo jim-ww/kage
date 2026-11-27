@@ -62,7 +62,7 @@ type Client struct {
 	// by their queryid — populated by handleStanza as MAM <result/> messages
 	// stream in, ahead of the <iq> fin that FetchArchive is blocked on.
 	mamMu      sync.Mutex
-	mamWaiters map[string]chan ArchivedMessage
+	mamWaiters map[string]mamWaiter
 
 	// life ends with the stream (see bound); nil for a Client not from Dial.
 	life    context.Context
