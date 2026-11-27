@@ -25,7 +25,21 @@
 - account logount option (that also cleans up OMEMO devices)
 - add image preview for file manager? same way we have avatars
 - ux: open chat composer (textbox) of message size (with limits)
-- group chats: OMEMO in members-only non-anonymous rooms; room MAM (XEP-0313 against the room) instead of join history; occupant-id (XEP-0421) to tell senders apart across nick changes; room config/moderation (kick, ban, roles)
+- group chats, admin: room settings (name, password, members-only, ...) via the muc#owner config form
+- group chats, admin: member list (add/remove members, admins, owners - muc#admin affiliations)
+- group chats, admin: kick, ban, grant/revoke voice and moderator
+- group chats, admin: moderation - retract others' messages (XEP-0425)
+- group chats: change the subject
+- group chats: invite someone (XEP-0249 direct invitation, mediated for members-only rooms)
+- group chats: tab-complete nicks in the compose box
+- group chats: highlight messages that mention our nick
+- group chats: per-room notification setting (all / mentions / none)
+- group chats: unread count only for mentions/private messages by default, like notifications
+- group chats: room avatars (vcard-temp avatar of the room)
+- group chats: show who's typing (chat states in rooms, bounded to a few names)
+- group chats: browse a server's public rooms (disco#items on its conference service) and search search.jabber.network
+- group chats: open xmpp: links clicked elsewhere (x-scheme-handler/xmpp desktop entry, `kage open <uri>` handing it to the TUI)
+- group chats: legacy bookmarks (XEP-0048) for servers/clients that only have those
 - select & yank text in draft with mouse
 - chat view: vim motions for textinput (visual/insert mode emulation)
 - preview files text contents (in separate viewport?)
