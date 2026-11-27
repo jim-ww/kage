@@ -78,6 +78,41 @@ type ContactAddedMsg struct {
 	Err        error
 }
 
+// RoomJoinedMsg reports the result of Daemon.JoinRoom.
+type RoomJoinedMsg struct {
+	AccountIdx int
+	Room       string
+	Err        error
+}
+
+// RoomLeftMsg reports the result of Daemon.LeaveRoom.
+type RoomLeftMsg struct {
+	AccountIdx int
+	Room       string
+	Err        error
+}
+
+// RoomStateMsg is a room's state as it changed: who's in it, its subject
+// and whether we are.
+type RoomStateMsg struct {
+	AccountIdx int
+	Room       string
+	Nick       string
+	Subject    string
+	Joined     bool
+	JoinError  string
+	Occupants  []Occupant
+}
+
+// RoomInviteMsg is an invitation to Room from From.
+type RoomInviteMsg struct {
+	AccountIdx int
+	Room       string
+	From       string
+	Reason     string
+	Password   string
+}
+
 // BlockedSetMsg reports the result of Daemon.SetBlocked.
 type BlockedSetMsg struct {
 	AccountIdx int

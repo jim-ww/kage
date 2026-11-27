@@ -210,6 +210,16 @@ func (c *ipcClient) SetBlocked(accountIdx int, address string, blocked bool) tea
 	return ui.BlockedSetMsg{AccountIdx: accountIdx, Address: address, Blocked: blocked, Err: err}
 }
 
+func (c *ipcClient) JoinRoom(accountIdx int, room, nick, password string) tea.Msg {
+	_, err := do(c.conn, joinRoomReq{AccountIdx: accountIdx, Room: room, Nick: nick, Password: password})
+	return ui.RoomJoinedMsg{AccountIdx: accountIdx, Room: room, Err: err}
+}
+
+func (c *ipcClient) LeaveRoom(accountIdx int, room string) tea.Msg {
+	_, err := do(c.conn, leaveRoomReq{AccountIdx: accountIdx, Room: room})
+	return ui.RoomLeftMsg{AccountIdx: accountIdx, Room: room, Err: err}
+}
+
 func (c *ipcClient) ResubscribeContact(accountIdx int, address string) tea.Msg {
 	_, err := do(c.conn, resubscribeContactReq{AccountIdx: accountIdx, Address: address})
 	return ui.ContactResubscribedMsg{AccountIdx: accountIdx, Address: address, Err: err}

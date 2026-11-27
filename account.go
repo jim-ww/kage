@@ -72,6 +72,9 @@ type accountSession struct {
 	// blocked is the server's blocklist (XEP-0191), for showing it.
 	blocked blockedSet
 
+	// rooms are the group chats (XEP-0045) the account is in (rooms.go).
+	rooms roomSet
+
 	// chatStates is what each contact (bare JID) has shown of chat states
 	// (XEP-0085): true once they've sent one, false once they've sent a
 	// message without; absent until either. See chatStatesTo.
@@ -650,6 +653,8 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		return nil, ui.Account{}, fmt.Errorf("account %s: loading local roster: %w", acct.JID, err)
 	}
 	slog.Debug("local roster loaded", "jid", acct.JID, "contacts", len(rows))
+	// Before any chat is built: a room's is built differently.
+	roomRows := sess.loadRooms(ctx)
 
 	unreadRows, err := queries.ListChatUnread(ctx, acct.JID)
 	if err != nil {
@@ -663,6 +668,11 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 	// chat row could never be cleared.
 	badge := make(map[string]int, len(unread))
 	for _, r := range rows {
+		if n := unread[r.Jid]; n > 0 {
+			badge[r.Jid] = n
+		}
+	}
+	for _, r := range roomRows {
 		if n := unread[r.Jid]; n > 0 {
 			badge[r.Jid] = n
 		}
@@ -691,6 +701,19 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		entries[r.Jid] = rosterEntry{Name: r.Name, Subs: r.Subs}
 		chat, hist, hasMore := sess.newChat(ctx, r.Jid, r.Name, pendingByPeer[r.Jid])
 		chat.Unread, chat.Draft, chat.Subscription = unread[r.Jid], drafts[r.Jid], r.Subs
+		if len(hist) > 0 {
+			messages[i] = hist
+		}
+		chats = append(chats, chat)
+		historyMore[i] = hasMore
+	}
+	for _, r := range roomRows {
+		if _, contact := entries[r.Jid]; contact {
+			continue
+		}
+		i := len(chats)
+		chat, hist, hasMore := sess.newRoomChat(ctx, r.Jid)
+		chat.Unread, chat.Draft = unread[r.Jid], drafts[r.Jid]
 		if len(hist) > 0 {
 			messages[i] = hist
 		}
@@ -927,7 +950,10 @@ func superviseAccount(ctx context.Context, srv *ipc.Server, a *adapter, accountI
 	go keepAlive(ctx, s, keepAliveInterval)
 
 	for {
+		// Every new stream has to enter its rooms again.
+		go enterRooms(ctx, srv, accountIdx, s)
 		listen(ctx, srv, accountIdx, s)
+		s.roomsOffline(srv, accountIdx)
 
 		client := s.client.Load()
 		if client.Closed() || ctx.Err() != nil {
@@ -1113,7 +1139,27 @@ func dispatchEvent(ctx context.Context, srv *ipc.Server, accountIdx int, s *acco
 		s.handleJingle(ctx, srv, accountIdx, ev)
 	case xmpp.MessageBouncedEvent:
 		s.handleBounce(ctx, srv, accountIdx, ev)
+	case xmpp.RoomPresenceEvent:
+		s.handleRoomPresence(ctx, srv, accountIdx, ev)
+	case xmpp.PresenceErrorEvent:
+		if !s.handlePresenceError(srv, accountIdx, ev) {
+			slog.Debug("presence error", "jid", s.account.JID, "from", ev.From, "reason", ev.Reason)
+		}
+	case xmpp.RoomSubjectEvent:
+		s.handleRoomSubject(ctx, srv, accountIdx, ev)
+	case xmpp.RoomInviteEvent:
+		if !s.isRoom(ev.Room) {
+			broadcast(srv, ui.RoomInviteMsg{AccountIdx: accountIdx, Room: ev.Room, From: ev.From, Reason: ev.Reason, Password: ev.Password})
+		}
+	case xmpp.BookmarksChangedEvent:
+		if client, err := s.liveClient(); err == nil {
+			go s.syncBookmarks(ctx, srv, accountIdx, client)
+		}
 	case xmpp.ChatStateEvent:
+		// Rooms show no one's typing, which a busy one would never stop.
+		if s.isRoom(bareJID(ev.From)) {
+			return
+		}
 		s.noteChatStates(bareJID(ev.From), true)
 		broadcast(srv, ui.TypingMsg{
 			AccountIdx: accountIdx,

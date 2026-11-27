@@ -85,6 +85,17 @@ func (d *daemonServer) listAccounts() []ui.Account {
 					uiAcct.Chats[ci] = chat
 				}
 			}
+			// Who's in a room, and whether we are, is the live session's.
+			for ci, item := range uiAcct.Chats {
+				chat, ok := item.(ui.Chat)
+				if !ok || !chat.Room {
+					continue
+				}
+				if st, ok := sessions[i].room(chat.Address); ok {
+					applyRoomState(&chat, st)
+					uiAcct.Chats[ci] = chat
+				}
+			}
 		}
 		out[i] = uiAcct
 		slog.Debug("listAccounts: account snapshot built", "jid", acct.JID, "chats", len(uiAcct.Chats), "elapsed", time.Since(acctStart))

@@ -242,6 +242,7 @@ type Room struct {
 	Nick       string `db:"nick"`
 	Password   string `db:"password"`
 	Subject    string `db:"subject"`
+	Bookmarked bool   `db:"bookmarked"`
 }
 
 type Rostergroup struct {

@@ -203,9 +203,9 @@ func (a *adapter) SetAccountStatus(accountIdx int, status ui.Presence) error {
 	}
 
 	// Was offline (never dialed, or previously disconnected) - dial it now.
-	existing := 0
+	existing := len(sess.roomAddrs())
 	if roster := sess.roster.Load(); roster != nil {
-		existing = len(*roster)
+		existing += len(*roster)
 	}
 	newChats, newMessages, newHistoryMore, err := connectAccountLive(ctx, sess, existing, show)
 	if err != nil {
@@ -1073,10 +1073,21 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		return "", ui.ErrQueued
 	}
 
+	// A room takes messages only from its occupants.
+	room := s.isRoom(to)
+	if st, _ := s.room(to); room && !st.joined {
+		return "", errors.New("not in the room yet")
+	}
+
 	if opts.ReactionTargetID != "" {
+		target := opts.ReactionTargetID
+		if room {
+			target = s.roomStanzaRef(ctx, to, target)
+		}
 		id, err := client.Send(ctx, to, "", xmpp.SendOptions{
-			ReactionTargetID: opts.ReactionTargetID,
+			ReactionTargetID: target,
 			Reactions:        opts.Reactions,
+			Groupchat:        room,
 		})
 		if err != nil {
 			return "", err
@@ -1097,7 +1108,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 
 	if opts.RetractID != "" {
 		// Nothing to encrypt; our own copy is only flagged.
-		id, err := client.Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID})
+		id, err := client.Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID, Groupchat: room})
 		if err != nil {
 			return "", err
 		}
@@ -1131,6 +1142,11 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		ReplyToID:    opts.ReplyToID,
 		QuotedAuthor: opts.QuotedAuthor,
 		QuotedBody:   opts.QuotedBody,
+		Groupchat:    room,
+	}
+	if room && opts.ReplyToID != "" {
+		sendOpts.ReplyToJID = s.roomOccupantOf(ctx, to, opts.ReplyToID)
+		sendOpts.ReplyToID = s.roomStanzaRef(ctx, to, opts.ReplyToID)
 	}
 
 	e2eEncrypted := false
@@ -1259,6 +1275,10 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		quotedPreview = opts.QuotedBody
 	}
 
+	stanzaType := "chat"
+	if room {
+		stanzaType = "groupchat"
+	}
 	sentAt := s.now()
 	sealedBody, encrypted := encryptForStorage(s, body)
 	storeID, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
@@ -1271,7 +1291,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		Encrypted:         encrypted,
 		E2eEncrypted:      e2eEncrypted,
 		E2eeMethod:        nullString(e2eeMethod),
-		StanzaType:        "chat",
+		StanzaType:        stanzaType,
 		RosterJid:         nullString(to),
 		ReplyToIDAttr:     nullString(opts.ReplyToID),
 		ReplyQuoteAuthor:  nullString(quotedAuthor),

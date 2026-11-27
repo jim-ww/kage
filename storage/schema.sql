@@ -374,6 +374,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 	nick       TEXT NOT NULL,
 	password   TEXT NOT NULL DEFAULT '',
 	subject    TEXT NOT NULL DEFAULT '',
+	bookmarked BOOLEAN NOT NULL DEFAULT FALSE, -- seen in the bookmarks: its bookmark gone, the room was left elsewhere
 
 	PRIMARY KEY (accountJID, jid)
 ) WITHOUT ROWID;

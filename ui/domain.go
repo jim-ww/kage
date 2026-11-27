@@ -277,6 +277,29 @@ type Chat struct {
 
 	// Draft is the chat's unsent text.
 	Draft string
+
+	// Room marks a group chat (XEP-0045), Address being the room's JID.
+	// The fields below are a room's only.
+	Room bool
+	// Nick is ours in the room.
+	Nick    string
+	Subject string
+	// Joined is set while we're in the room; JoinError says why we aren't,
+	// "" while joining.
+	Joined    bool
+	JoinError string
+	// Occupants are who's in the room, sorted by nick.
+	Occupants []Occupant
+}
+
+// Occupant is someone in a room (XEP-0045).
+type Occupant struct {
+	Nick string
+	// JID is their real bare JID, "" where the room hides it.
+	JID         string
+	Affiliation string // owner, admin, member or none
+	Role        string // moderator, participant or visitor
+	Presence    Presence
 }
 
 // Title implements list.Item. The presence dot and the contact-tinted name

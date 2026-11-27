@@ -76,6 +76,7 @@ var events = []any{
 	ui.HistorySyncedMsg{}, ui.HistorySyncStartedMsg{}, ui.HistorySyncFinishedMsg{},
 	ui.IncomingCallMsg{}, ui.CallStateMsg{}, ui.MissedCallMsg{},
 	ui.MessageDecryptedMsg{}, ui.GPGLockedMsg{}, ui.AttachmentCachedMsg{},
+	ui.RoomStateMsg{}, ui.RoomInviteMsg{},
 }
 
 // isEvent reports whether ev's type is registered as an event.
@@ -118,6 +119,8 @@ func init() {
 	handle(addContactReq{})
 	handle(removeContactReq{})
 	handle(setBlockedReq{})
+	handle(joinRoomReq{})
+	handle(leaveRoomReq{})
 	handle(resubscribeContactReq{})
 	handle(resyncChatReq{})
 	handle(setChatFlagReq{})
@@ -375,6 +378,24 @@ type setBlockedReq struct {
 
 func (c setBlockedReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
 	return none{}, d.a.SetBlocked(c.AccountIdx, c.Address, c.Blocked)
+}
+
+type joinRoomReq struct {
+	AccountIdx           int
+	Room, Nick, Password string
+}
+
+func (c joinRoomReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.JoinRoom(c.AccountIdx, c.Room, c.Nick, c.Password)
+}
+
+type leaveRoomReq struct {
+	AccountIdx int
+	Room       string
+}
+
+func (c leaveRoomReq) run(d *daemonServer, _ ipc.ClientID) (none, error) {
+	return none{}, d.a.LeaveRoom(c.AccountIdx, c.Room)
 }
 
 type resubscribeContactReq struct {

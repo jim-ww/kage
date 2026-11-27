@@ -894,7 +894,7 @@ WHERE encrypted = TRUE;
 -- target in its own currently-open UI state, the recipient only has
 -- storage to check. Best-effort: a miss just means no fallback snapshot,
 -- not a failed send.
-SELECT id, sent, idAttr, body, encrypted
+SELECT id, sent, idAttr, body, encrypted, fromAttr, stanzaType
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid)
@@ -966,13 +966,14 @@ SELECT EXISTS (
 
 
 -- name: UpsertRoom :exec
-INSERT INTO rooms (accountJID, jid, name, nick, password)
-VALUES (sqlc.arg(account_jid), sqlc.arg(jid), sqlc.arg(name), sqlc.arg(nick), sqlc.arg(password))
+INSERT INTO rooms (accountJID, jid, name, nick, password, bookmarked)
+VALUES (sqlc.arg(account_jid), sqlc.arg(jid), sqlc.arg(name), sqlc.arg(nick), sqlc.arg(password), sqlc.arg(bookmarked))
 ON CONFLICT(accountJID, jid) DO UPDATE
 SET
 	name = excluded.name,
 	nick = excluded.nick,
-	password = excluded.password;
+	password = excluded.password,
+	bookmarked = excluded.bookmarked;
 
 
 -- name: SetRoomSubject :exec
@@ -989,7 +990,7 @@ WHERE accountJID = sqlc.arg(account_jid)
 
 
 -- name: ListRooms :many
-SELECT jid, name, nick, password, subject
+SELECT jid, name, nick, password, subject, bookmarked
 FROM rooms
 WHERE accountJID = sqlc.arg(account_jid);
 
@@ -1034,3 +1035,12 @@ WHERE accountJID = sqlc.arg(account_jid)
 	AND idAttr = sqlc.arg(id_attr)
 ORDER BY id DESC
 LIMIT 1;
+
+
+-- name: GetLatestMessageDelay :one
+-- When a chat's newest stored message was sent, 0 for none: what a room
+-- is asked for history since on joining.
+SELECT CAST(COALESCE(MAX(delay), 0) AS INTEGER)
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid);

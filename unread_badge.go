@@ -118,7 +118,7 @@ func countUnread(ctx context.Context, srv *ipc.Server, s *accountSession, chatAd
 			delta++
 		}
 	}
-	if delta == 0 || !s.inRoster(chatAddress) || clientFocus.chatVisible(focusedChatKey(s.account.JID, chatAddress)) {
+	if delta == 0 || !s.hasChat(chatAddress) || clientFocus.chatVisible(focusedChatKey(s.account.JID, chatAddress)) {
 		return
 	}
 	count, err := s.db.BumpChatUnread(ctx, storage.BumpChatUnreadParams{

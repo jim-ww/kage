@@ -619,6 +619,27 @@ func (q *Queries) GetIDAttrByRoomStanzaID(ctx context.Context, arg GetIDAttrByRo
 	return idattr, err
 }
 
+const getLatestMessageDelay = `-- name: GetLatestMessageDelay :one
+SELECT CAST(COALESCE(MAX(delay), 0) AS INTEGER)
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+`
+
+type GetLatestMessageDelayParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+}
+
+// When a chat's newest stored message was sent, 0 for none: what a room
+// is asked for history since on joining.
+func (q *Queries) GetLatestMessageDelay(ctx context.Context, arg GetLatestMessageDelayParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getLatestMessageDelay, arg.AccountJid, arg.RosterJid)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getLocalKeySalt = `-- name: GetLocalKeySalt :one
 SELECT salt
 FROM localKeySalt
@@ -716,7 +737,7 @@ func (q *Queries) GetMessageSenderByIDAttr(ctx context.Context, arg GetMessageSe
 }
 
 const getMessageSnippetByIDAttr = `-- name: GetMessageSnippetByIDAttr :one
-SELECT id, sent, idAttr, body, encrypted
+SELECT id, sent, idAttr, body, encrypted, fromAttr, stanzaType
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -732,11 +753,13 @@ type GetMessageSnippetByIDAttrParams struct {
 }
 
 type GetMessageSnippetByIDAttrRow struct {
-	ID        int64          `db:"id"`
-	Sent      bool           `db:"sent"`
-	Idattr    sql.NullString `db:"idattr"`
-	Body      sql.NullString `db:"body"`
-	Encrypted bool           `db:"encrypted"`
+	ID         int64          `db:"id"`
+	Sent       bool           `db:"sent"`
+	Idattr     sql.NullString `db:"idattr"`
+	Body       sql.NullString `db:"body"`
+	Encrypted  bool           `db:"encrypted"`
+	Fromattr   sql.NullString `db:"fromattr"`
+	Stanzatype string         `db:"stanzatype"`
 }
 
 // Looks up the message a live/MAM reply's <reply/> element points at, so its
@@ -754,6 +777,8 @@ func (q *Queries) GetMessageSnippetByIDAttr(ctx context.Context, arg GetMessageS
 		&i.Idattr,
 		&i.Body,
 		&i.Encrypted,
+		&i.Fromattr,
+		&i.Stanzatype,
 	)
 	return i, err
 }
@@ -2419,17 +2444,18 @@ func (q *Queries) ListReactionsForMessage(ctx context.Context, arg ListReactions
 }
 
 const listRooms = `-- name: ListRooms :many
-SELECT jid, name, nick, password, subject
+SELECT jid, name, nick, password, subject, bookmarked
 FROM rooms
 WHERE accountJID = ?1
 `
 
 type ListRoomsRow struct {
-	Jid      string `db:"jid"`
-	Name     string `db:"name"`
-	Nick     string `db:"nick"`
-	Password string `db:"password"`
-	Subject  string `db:"subject"`
+	Jid        string `db:"jid"`
+	Name       string `db:"name"`
+	Nick       string `db:"nick"`
+	Password   string `db:"password"`
+	Subject    string `db:"subject"`
+	Bookmarked bool   `db:"bookmarked"`
 }
 
 func (q *Queries) ListRooms(ctx context.Context, accountJid string) ([]ListRoomsRow, error) {
@@ -2447,6 +2473,7 @@ func (q *Queries) ListRooms(ctx context.Context, accountJid string) ([]ListRooms
 			&i.Nick,
 			&i.Password,
 			&i.Subject,
+			&i.Bookmarked,
 		); err != nil {
 			return nil, err
 		}
@@ -3262,13 +3289,14 @@ func (q *Queries) UpsertPGPPeerKey(ctx context.Context, arg UpsertPGPPeerKeyPara
 }
 
 const upsertRoom = `-- name: UpsertRoom :exec
-INSERT INTO rooms (accountJID, jid, name, nick, password)
-VALUES (?1, ?2, ?3, ?4, ?5)
+INSERT INTO rooms (accountJID, jid, name, nick, password, bookmarked)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
 ON CONFLICT(accountJID, jid) DO UPDATE
 SET
 	name = excluded.name,
 	nick = excluded.nick,
-	password = excluded.password
+	password = excluded.password,
+	bookmarked = excluded.bookmarked
 `
 
 type UpsertRoomParams struct {
@@ -3277,6 +3305,7 @@ type UpsertRoomParams struct {
 	Name       string `db:"name"`
 	Nick       string `db:"nick"`
 	Password   string `db:"password"`
+	Bookmarked bool   `db:"bookmarked"`
 }
 
 func (q *Queries) UpsertRoom(ctx context.Context, arg UpsertRoomParams) error {
@@ -3286,6 +3315,7 @@ func (q *Queries) UpsertRoom(ctx context.Context, arg UpsertRoomParams) error {
 		arg.Name,
 		arg.Nick,
 		arg.Password,
+		arg.Bookmarked,
 	)
 	return err
 }

@@ -76,6 +76,13 @@ type Daemon interface {
 	// SetBlocked blocks or unblocks a contact on the server (XEP-0191);
 	// network I/O, run as a tea.Cmd. Returns BlockedSetMsg.
 	SetBlocked(accountIdx int, address string, blocked bool) tea.Msg
+	// JoinRoom enters a group chat (XEP-0045) as nick, bookmarking it
+	// (XEP-0402); slow, run as a tea.Cmd. Returns RoomJoinedMsg once the
+	// room let us in or refused.
+	JoinRoom(accountIdx int, room, nick, password string) tea.Msg
+	// LeaveRoom exits a group chat and drops its bookmark; history stays.
+	// Returns RoomLeftMsg.
+	LeaveRoom(accountIdx int, room string) tea.Msg
 	// ResyncChat re-walks a chat's server archive for messages an earlier
 	// sync missed; slow, run as a tea.Cmd. Returns ChatResyncedMsg.
 	ResyncChat(accountIdx int, address string) tea.Msg

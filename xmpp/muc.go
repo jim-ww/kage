@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mellium.im/xmlstream"
+	"mellium.im/xmpp/disco"
 	"mellium.im/xmpp/jid"
 	"mellium.im/xmpp/stanza"
 )
@@ -209,4 +210,24 @@ func ValidRoomNick(room, nick string) error {
 	}
 	_, err := occupantJID(room, nick)
 	return err
+}
+
+// RoomName is the name room gives itself (XEP-0045 §6.4), "" if none.
+func (c *Client) RoomName(ctx context.Context, room string) (string, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
+	j, err := jid.Parse(room)
+	if err != nil {
+		return "", fmt.Errorf("parsing room %q: %w", room, err)
+	}
+	info, err := disco.GetInfo(ctx, "", j.Bare(), c.session)
+	if err != nil {
+		return "", err
+	}
+	for _, id := range info.Identity {
+		if id.Category == "conference" {
+			return id.Name, nil
+		}
+	}
+	return "", nil
 }
