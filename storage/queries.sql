@@ -963,3 +963,74 @@ SELECT EXISTS (
 		AND rosterJID = sqlc.arg(roster_jid)
 		AND idAttr = sqlc.arg(id_attr)
 );
+
+
+-- name: UpsertRoom :exec
+INSERT INTO rooms (accountJID, jid, name, nick, password)
+VALUES (sqlc.arg(account_jid), sqlc.arg(jid), sqlc.arg(name), sqlc.arg(nick), sqlc.arg(password))
+ON CONFLICT(accountJID, jid) DO UPDATE
+SET
+	name = excluded.name,
+	nick = excluded.nick,
+	password = excluded.password;
+
+
+-- name: SetRoomSubject :exec
+UPDATE rooms
+SET subject = sqlc.arg(subject)
+WHERE accountJID = sqlc.arg(account_jid)
+	AND jid = sqlc.arg(jid);
+
+
+-- name: DeleteRoom :exec
+DELETE FROM rooms
+WHERE accountJID = sqlc.arg(account_jid)
+	AND jid = sqlc.arg(jid);
+
+
+-- name: ListRooms :many
+SELECT jid, name, nick, password, subject
+FROM rooms
+WHERE accountJID = sqlc.arg(account_jid);
+
+
+-- name: SetRoomStanzaID :exec
+-- The stanza-id a room gave a message, learned from its copy of it: for
+-- our own message, its echo (XEP-0045 7.4).
+UPDATE messages
+SET roomStanzaID = sqlc.arg(room_stanza_id)
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND idAttr = sqlc.arg(id_attr);
+
+
+-- name: GetIDAttrByRoomStanzaID :one
+SELECT idAttr
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND roomStanzaID = sqlc.arg(room_stanza_id)
+ORDER BY id DESC
+LIMIT 1;
+
+
+-- name: GetRoomStanzaIDByIDAttr :one
+SELECT roomStanzaID
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND idAttr = sqlc.arg(id_attr)
+ORDER BY id DESC
+LIMIT 1;
+
+
+-- name: GetMessageSenderByIDAttr :one
+-- Who sent a message: in a room every occupant's message is "received", so
+-- only fromAttr tells whose it is to correct or retract.
+SELECT sent, fromAttr
+FROM messages
+WHERE accountJID = sqlc.arg(account_jid)
+	AND rosterJID = sqlc.arg(roster_jid)
+	AND idAttr = sqlc.arg(id_attr)
+ORDER BY id DESC
+LIMIT 1;

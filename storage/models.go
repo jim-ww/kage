@@ -120,6 +120,7 @@ type Message struct {
 	Calldirection     sql.NullString `db:"calldirection"`
 	Calloutcome       sql.NullString `db:"calloutcome"`
 	Calldurationsecs  sql.NullInt64  `db:"calldurationsecs"`
+	Roomstanzaid      sql.NullString `db:"roomstanzaid"`
 }
 
 type Messagereaction struct {
@@ -232,6 +233,15 @@ type Purgedmessage struct {
 	Rosterjid  string         `db:"rosterjid"`
 	Idattr     sql.NullString `db:"idattr"`
 	Archiveid  sql.NullString `db:"archiveid"`
+}
+
+type Room struct {
+	Accountjid string `db:"accountjid"`
+	Jid        string `db:"jid"`
+	Name       string `db:"name"`
+	Nick       string `db:"nick"`
+	Password   string `db:"password"`
+	Subject    string `db:"subject"`
 }
 
 type Rostergroup struct {

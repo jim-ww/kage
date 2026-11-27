@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	callDirection TEXT, -- call log rows only (stanzaType = 'call'): 'incoming' or 'outgoing'
 	callOutcome   TEXT, -- call log rows only: 'answered', 'missed', 'declined', or 'failed'
 	callDurationSecs INTEGER, -- call log rows only: meaningful when callOutcome = 'answered'
+	roomStanzaID  TEXT, -- XEP-0359 stanza-id a room (XEP-0045) gave this message, which replies, reactions and retractions in the room refer to it by
 
 	UNIQUE (accountJID, originID, fromAttr),
 	UNIQUE (accountJID, archiveID)
@@ -361,6 +362,20 @@ CREATE TABLE IF NOT EXISTS omemoPeerProtocol (
 	probedAt   INTEGER NOT NULL, -- unix seconds
 
 	PRIMARY KEY (accountJID, peerJID)
+) WITHOUT ROWID;
+
+
+-- Rooms (XEP-0045) the account is in, mirroring its bookmarks (XEP-0402)
+-- so they're listed offline. Their chats are keyed by jid like a contact's.
+CREATE TABLE IF NOT EXISTS rooms (
+	accountJID TEXT NOT NULL,
+	jid        TEXT NOT NULL,
+	name       TEXT NOT NULL DEFAULT '',
+	nick       TEXT NOT NULL,
+	password   TEXT NOT NULL DEFAULT '',
+	subject    TEXT NOT NULL DEFAULT '',
+
+	PRIMARY KEY (accountJID, jid)
 ) WITHOUT ROWID;
 
 

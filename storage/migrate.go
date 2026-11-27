@@ -56,6 +56,7 @@ var addedColumns = []struct{ table, column, decl string }{
 	{"mamSyncCursor", "lastSentAt", "INTEGER NOT NULL DEFAULT 0"},
 	{"messages", "replyQuoteAuthor", "TEXT"},
 	{"messages", "replyQuotePreview", "TEXT"},
+	{"messages", "roomStanzaID", "TEXT"},
 }
 
 func addColumns(ctx context.Context, db *sql.DB) error {

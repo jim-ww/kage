@@ -390,6 +390,22 @@ func (q *Queries) DeleteReactionsByReactor(ctx context.Context, arg DeleteReacti
 	return err
 }
 
+const deleteRoom = `-- name: DeleteRoom :exec
+DELETE FROM rooms
+WHERE accountJID = ?1
+	AND jid = ?2
+`
+
+type DeleteRoomParams struct {
+	AccountJid string `db:"account_jid"`
+	Jid        string `db:"jid"`
+}
+
+func (q *Queries) DeleteRoom(ctx context.Context, arg DeleteRoomParams) error {
+	_, err := q.db.ExecContext(ctx, deleteRoom, arg.AccountJid, arg.Jid)
+	return err
+}
+
 const deleteRosterByJID = `-- name: DeleteRosterByJID :exec
 DELETE FROM rosterJIDs
 WHERE accountJID = ?1
@@ -580,6 +596,29 @@ func (q *Queries) GetDiscoIdentitiesByJID(ctx context.Context, jid string) ([]Ge
 	return items, nil
 }
 
+const getIDAttrByRoomStanzaID = `-- name: GetIDAttrByRoomStanzaID :one
+SELECT idAttr
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND roomStanzaID = ?3
+ORDER BY id DESC
+LIMIT 1
+`
+
+type GetIDAttrByRoomStanzaIDParams struct {
+	AccountJid   string         `db:"account_jid"`
+	RosterJid    sql.NullString `db:"roster_jid"`
+	RoomStanzaID sql.NullString `db:"room_stanza_id"`
+}
+
+func (q *Queries) GetIDAttrByRoomStanzaID(ctx context.Context, arg GetIDAttrByRoomStanzaIDParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getIDAttrByRoomStanzaID, arg.AccountJid, arg.RosterJid, arg.RoomStanzaID)
+	var idattr sql.NullString
+	err := row.Scan(&idattr)
+	return idattr, err
+}
+
 const getLocalKeySalt = `-- name: GetLocalKeySalt :one
 SELECT salt
 FROM localKeySalt
@@ -644,6 +683,36 @@ func (q *Queries) GetMessageDelayByArchiveID(ctx context.Context, arg GetMessage
 	var delay int64
 	err := row.Scan(&delay)
 	return delay, err
+}
+
+const getMessageSenderByIDAttr = `-- name: GetMessageSenderByIDAttr :one
+SELECT sent, fromAttr
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND idAttr = ?3
+ORDER BY id DESC
+LIMIT 1
+`
+
+type GetMessageSenderByIDAttrParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+}
+
+type GetMessageSenderByIDAttrRow struct {
+	Sent     bool           `db:"sent"`
+	Fromattr sql.NullString `db:"fromattr"`
+}
+
+// Who sent a message: in a room every occupant's message is "received", so
+// only fromAttr tells whose it is to correct or retract.
+func (q *Queries) GetMessageSenderByIDAttr(ctx context.Context, arg GetMessageSenderByIDAttrParams) (GetMessageSenderByIDAttrRow, error) {
+	row := q.db.QueryRowContext(ctx, getMessageSenderByIDAttr, arg.AccountJid, arg.RosterJid, arg.IDAttr)
+	var i GetMessageSenderByIDAttrRow
+	err := row.Scan(&i.Sent, &i.Fromattr)
+	return i, err
 }
 
 const getMessageSnippetByIDAttr = `-- name: GetMessageSnippetByIDAttr :one
@@ -902,6 +971,29 @@ func (q *Queries) GetPGPPeerKey(ctx context.Context, arg GetPGPPeerKeyParams) (s
 	var fingerprint string
 	err := row.Scan(&fingerprint)
 	return fingerprint, err
+}
+
+const getRoomStanzaIDByIDAttr = `-- name: GetRoomStanzaIDByIDAttr :one
+SELECT roomStanzaID
+FROM messages
+WHERE accountJID = ?1
+	AND rosterJID = ?2
+	AND idAttr = ?3
+ORDER BY id DESC
+LIMIT 1
+`
+
+type GetRoomStanzaIDByIDAttrParams struct {
+	AccountJid string         `db:"account_jid"`
+	RosterJid  sql.NullString `db:"roster_jid"`
+	IDAttr     sql.NullString `db:"id_attr"`
+}
+
+func (q *Queries) GetRoomStanzaIDByIDAttr(ctx context.Context, arg GetRoomStanzaIDByIDAttrParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getRoomStanzaIDByIDAttr, arg.AccountJid, arg.RosterJid, arg.IDAttr)
+	var roomstanzaid sql.NullString
+	err := row.Scan(&roomstanzaid)
+	return roomstanzaid, err
 }
 
 const getRosterVersion = `-- name: GetRosterVersion :one
@@ -1845,7 +1937,7 @@ func (q *Queries) ListMessageQuarterHours(ctx context.Context, arg ListMessageQu
 }
 
 const listMessagesByRoster = `-- name: ListMessagesByRoster :many
-SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, roomstanzaid
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1900,6 +1992,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 			&i.Calldirection,
 			&i.Calloutcome,
 			&i.Calldurationsecs,
+			&i.Roomstanzaid,
 		); err != nil {
 			return nil, err
 		}
@@ -1915,7 +2008,7 @@ func (q *Queries) ListMessagesByRoster(ctx context.Context, arg ListMessagesByRo
 }
 
 const listMessagesByRosterAtOrAfter = `-- name: ListMessagesByRosterAtOrAfter :many
-SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, roomstanzaid
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -1992,6 +2085,7 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 			&i.Calldirection,
 			&i.Calloutcome,
 			&i.Calldurationsecs,
+			&i.Roomstanzaid,
 		); err != nil {
 			return nil, err
 		}
@@ -2007,7 +2101,7 @@ func (q *Queries) ListMessagesByRosterAtOrAfter(ctx context.Context, arg ListMes
 }
 
 const listMessagesByRosterBefore = `-- name: ListMessagesByRosterBefore :many
-SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs
+SELECT id, accountjid, sent, toattr, fromattr, idattr, body, encrypted, e2eencrypted, e2eemethod, originid, stanzatype, received, delay, rosterjid, archiveid, replytoidattr, replyquoteauthor, replyquotepreview, retracted, edited, delivered, serveracked, sendfailed, ooburls, calldirection, calloutcome, calldurationsecs, roomstanzaid
 FROM messages
 WHERE accountJID = ?1
 	AND rosterJID = ?2
@@ -2087,6 +2181,7 @@ func (q *Queries) ListMessagesByRosterBefore(ctx context.Context, arg ListMessag
 			&i.Calldirection,
 			&i.Calloutcome,
 			&i.Calldurationsecs,
+			&i.Roomstanzaid,
 		); err != nil {
 			return nil, err
 		}
@@ -2310,6 +2405,49 @@ func (q *Queries) ListReactionsForMessage(ctx context.Context, arg ListReactions
 	for rows.Next() {
 		var i ListReactionsForMessageRow
 		if err := rows.Scan(&i.Fromjid, &i.Emoji); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRooms = `-- name: ListRooms :many
+SELECT jid, name, nick, password, subject
+FROM rooms
+WHERE accountJID = ?1
+`
+
+type ListRoomsRow struct {
+	Jid      string `db:"jid"`
+	Name     string `db:"name"`
+	Nick     string `db:"nick"`
+	Password string `db:"password"`
+	Subject  string `db:"subject"`
+}
+
+func (q *Queries) ListRooms(ctx context.Context, accountJid string) ([]ListRoomsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRooms, accountJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRoomsRow
+	for rows.Next() {
+		var i ListRoomsRow
+		if err := rows.Scan(
+			&i.Jid,
+			&i.Name,
+			&i.Nick,
+			&i.Password,
+			&i.Subject,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2847,6 +2985,51 @@ func (q *Queries) SetOmemoTrust(ctx context.Context, arg SetOmemoTrustParams) er
 	return err
 }
 
+const setRoomStanzaID = `-- name: SetRoomStanzaID :exec
+UPDATE messages
+SET roomStanzaID = ?1
+WHERE accountJID = ?2
+	AND rosterJID = ?3
+	AND idAttr = ?4
+`
+
+type SetRoomStanzaIDParams struct {
+	RoomStanzaID sql.NullString `db:"room_stanza_id"`
+	AccountJid   string         `db:"account_jid"`
+	RosterJid    sql.NullString `db:"roster_jid"`
+	IDAttr       sql.NullString `db:"id_attr"`
+}
+
+// The stanza-id a room gave a message, learned from its copy of it: for
+// our own message, its echo (XEP-0045 7.4).
+func (q *Queries) SetRoomStanzaID(ctx context.Context, arg SetRoomStanzaIDParams) error {
+	_, err := q.db.ExecContext(ctx, setRoomStanzaID,
+		arg.RoomStanzaID,
+		arg.AccountJid,
+		arg.RosterJid,
+		arg.IDAttr,
+	)
+	return err
+}
+
+const setRoomSubject = `-- name: SetRoomSubject :exec
+UPDATE rooms
+SET subject = ?1
+WHERE accountJID = ?2
+	AND jid = ?3
+`
+
+type SetRoomSubjectParams struct {
+	Subject    string `db:"subject"`
+	AccountJid string `db:"account_jid"`
+	Jid        string `db:"jid"`
+}
+
+func (q *Queries) SetRoomSubject(ctx context.Context, arg SetRoomSubjectParams) error {
+	_, err := q.db.ExecContext(ctx, setRoomSubject, arg.Subject, arg.AccountJid, arg.Jid)
+	return err
+}
+
 const truncateRoster = `-- name: TruncateRoster :exec
 DELETE FROM rosterJIDs
 WHERE accountJID = ?1
@@ -3075,6 +3258,35 @@ type UpsertPGPPeerKeyParams struct {
 
 func (q *Queries) UpsertPGPPeerKey(ctx context.Context, arg UpsertPGPPeerKeyParams) error {
 	_, err := q.db.ExecContext(ctx, upsertPGPPeerKey, arg.AccountJid, arg.Jid, arg.Fingerprint)
+	return err
+}
+
+const upsertRoom = `-- name: UpsertRoom :exec
+INSERT INTO rooms (accountJID, jid, name, nick, password)
+VALUES (?1, ?2, ?3, ?4, ?5)
+ON CONFLICT(accountJID, jid) DO UPDATE
+SET
+	name = excluded.name,
+	nick = excluded.nick,
+	password = excluded.password
+`
+
+type UpsertRoomParams struct {
+	AccountJid string `db:"account_jid"`
+	Jid        string `db:"jid"`
+	Name       string `db:"name"`
+	Nick       string `db:"nick"`
+	Password   string `db:"password"`
+}
+
+func (q *Queries) UpsertRoom(ctx context.Context, arg UpsertRoomParams) error {
+	_, err := q.db.ExecContext(ctx, upsertRoom,
+		arg.AccountJid,
+		arg.Jid,
+		arg.Name,
+		arg.Nick,
+		arg.Password,
+	)
 	return err
 }
 
