@@ -13,7 +13,8 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/enescakir/emoji v1.0.0
 	github.com/gen2brain/malgo v0.11.25
-	github.com/jim-ww/omemo-go v0.1.4
+	github.com/jim-ww/omemo-go v0.2.0
+	github.com/mattn/go-runewidth v0.0.23
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pion/interceptor v0.1.47
 	github.com/pion/opus v0.1.1-0.20260806214105-56fe97fcac80
@@ -49,7 +50,6 @@ require (
 	github.com/jim-ww/xochimilco v0.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pion/datachannel v1.6.2 // indirect

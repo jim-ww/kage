@@ -307,3 +307,82 @@ func TestRoomArchiveCatchUp(t *testing.T) {
 		t.Errorf("history after catching up = %d messages", len(hist))
 	}
 }
+
+// newOmemoRoomTestAccount is newRoomTestAccount with OMEMO set up.
+func newOmemoRoomTestAccount(ctx context.Context, t *testing.T, tlsConfig *tls.Config) (*adapter, *accountSession) {
+	t.Helper()
+	a, s := newRoomTestAccount(ctx, t, tlsConfig)
+	setupOmemo(ctx, s)
+	if s.omemoV1() == nil {
+		t.Fatalf("setupOmemo(%s): no legacy OMEMO", s.account.JID)
+	}
+	return a, s
+}
+
+// TestEncryptedRoomLive checks a private room (members-only, showing real
+// JIDs) is encrypted for every member by default, both ways, corrections
+// too, and that our own echo doesn't undo what we sent.
+func TestEncryptedRoomLive(t *testing.T) {
+	tlsConfig := devtestTLSConfig(t)
+	ctx := context.Background()
+	aliceA, alice := newOmemoRoomTestAccount(ctx, t, tlsConfig)
+	bobA, bob := newOmemoRoomTestAccount(ctx, t, tlsConfig)
+
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	room := "kagetest-" + hex.EncodeToString(b[:]) + "@conference.localhost"
+	if err := aliceA.JoinRoom(0, room, "alice", ""); err != nil {
+		t.Fatalf("creating the room: %v", err)
+	}
+	client := alice.client.Load()
+	if err := client.SetRoomConfig(ctx, room, map[string]string{
+		"muc#roomconfig_membersonly": "1",
+		"muc#roomconfig_whois":       "anyone",
+	}); err != nil {
+		t.Fatalf("making the room private: %v", err)
+	}
+	if err := client.SetAffiliation(ctx, room, bob.account.JID, "member"); err != nil {
+		t.Fatalf("making bob a member: %v", err)
+	}
+	alice.refreshRoomInfo(ctx, client, room)
+	if mode := resolveEncryptionMode(ctx, alice, room); mode != "omemo-v1" {
+		t.Fatalf("private room's encryption = %q", mode)
+	}
+
+	if err := bobA.JoinRoom(0, room, "bob", ""); err != nil {
+		t.Fatalf("bob joining: %v", err)
+	}
+	if mode := resolveEncryptionMode(ctx, bob, room); mode != "omemo-v1" {
+		t.Fatalf("bob's view of the room's encryption = %q", mode)
+	}
+	eventually(t, 5*time.Second, "alice seeing bob", func() bool { return slices.Contains(alice.roomRecipients(room), bob.account.JID) })
+
+	id, err := aliceA.Send(0, room, "secret plan", ui.SendOptions{})
+	if err != nil {
+		t.Fatalf("alice sending: %v", err)
+	}
+	eventually(t, 5*time.Second, "bob reading alice's encrypted message", func() bool {
+		hist := loadHistory(ctx, bob, room, room)
+		return len(hist) == 1 && hist[0].Content == "secret plan" && hist[0].Encrypted && hist[0].EncMethod == "omemo-v1"
+	})
+
+	if _, err := bobA.Send(0, room, "got it", ui.SendOptions{}); err != nil {
+		t.Fatalf("bob sending: %v", err)
+	}
+	eventually(t, 5*time.Second, "alice reading bob's encrypted message", func() bool {
+		hist := loadHistory(ctx, alice, room, room)
+		return len(hist) == 2 && hist[1].Content == "got it" && hist[1].Encrypted
+	})
+
+	if _, err := aliceA.Send(0, room, "secret plan B", ui.SendOptions{ReplaceID: id}); err != nil {
+		t.Fatalf("alice correcting: %v", err)
+	}
+	eventually(t, 5*time.Second, "bob seeing the correction", func() bool {
+		hist := loadHistory(ctx, bob, room, room)
+		return len(hist) == 2 && hist[0].Content == "secret plan B" && hist[0].Edited
+	})
+	time.Sleep(500 * time.Millisecond) // alice's own echoes
+	if hist := loadHistory(ctx, alice, room, room); hist[0].Content != "secret plan B" || !hist[0].Delivered {
+		t.Errorf("alice's own message after its echoes: %+v", hist[0])
+	}
+}

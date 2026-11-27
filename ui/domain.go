@@ -290,6 +290,9 @@ type Chat struct {
 	JoinError string
 	// Occupants are who's in the room, sorted by nick.
 	Occupants []Occupant
+	// Private marks a room OMEMO can be used in: members-only, showing
+	// every member's real JID.
+	Private bool
 
 	// PrivateRoom marks a private chat with an occupant of that room
 	// (XEP-0045 §7.5), Address being their occupant JID room/nick.

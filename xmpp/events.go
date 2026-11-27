@@ -80,6 +80,10 @@ type MessageEvent struct {
 	// OccupantID is the room's id for the sender (XEP-0421), to be trusted
 	// only if the room says it stamps them (RoomInfo.OccupantID).
 	OccupantID string
+
+	// RealJID is the sender's bare JID where a room's archive says it
+	// (ArchivedMessage.RealJID): live, it's known from their presence.
+	RealJID string
 }
 
 func (MessageEvent) isEvent() {}

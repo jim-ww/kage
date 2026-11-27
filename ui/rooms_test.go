@@ -59,7 +59,7 @@ func TestRoomChatMenu(t *testing.T) {
 			t.Errorf("room menu %q lacks %q", labels, want)
 		}
 	}
-	for _, unwanted := range []string{"Rename", "Encryption", "Block", "Re-sync"} {
+	for _, unwanted := range []string{"Rename", "Block", "Re-sync"} {
 		if strings.Contains(labels, unwanted) {
 			t.Errorf("room menu %q has %q", labels, unwanted)
 		}

@@ -93,6 +93,7 @@ func (d *daemonServer) listAccounts() []ui.Account {
 				}
 				if st, ok := sessions[i].room(chat.Address); ok && chat.Room {
 					applyRoomState(&chat, st)
+					chat.EncryptionMode = sessions[i].roomEncryptionMode(ctx, chat.Address)
 					uiAcct.Chats[ci] = chat
 				}
 				if st, ok := sessions[i].room(chat.PrivateRoom); ok && chat.PrivateRoom != "" {

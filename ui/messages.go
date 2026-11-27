@@ -116,6 +116,9 @@ type RoomStateMsg struct {
 	Joined     bool
 	JoinError  string
 	Occupants  []Occupant
+	// Private and EncryptionMode are as Chat's.
+	Private        bool
+	EncryptionMode string
 }
 
 // RoomInviteMsg is an invitation to Room from From.

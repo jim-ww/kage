@@ -113,6 +113,7 @@ func (m *Model) roomChatMenuItems(chat Chat) []contextMenuItem {
 	items := []contextMenuItem{
 		{label: "Participants", key: 'o', run: (*Model).openParticipants},
 		{label: "Change nick", key: 'n', run: (*Model).actionChangeRoomNick},
+		{label: "Encryption", key: 'e', run: (*Model).actionOpenEncryptionMenu},
 		{label: pin, key: 'p', run: (*Model).actionTogglePinChat},
 		{label: mute, key: 'm', run: (*Model).actionToggleMuteChat},
 	}
@@ -180,7 +181,14 @@ func roomInfoLines(chat Chat) []modal.Line {
 	if chat.Subject != "" {
 		lines = append(lines, modal.Line{Text: "Subject: " + chat.Subject})
 	}
-	lines = append(lines, modal.Line{Text: "Encryption: none (group chats are plaintext)"})
+	encryption := "none: the room isn't private (members-only, showing members' addresses)"
+	switch {
+	case chat.Private && chat.EncryptionMode == "none":
+		encryption = "none (turned off)"
+	case chat.Private:
+		encryption = "OMEMO, for every member"
+	}
+	lines = append(lines, modal.Line{Text: "Encryption: " + encryption})
 	notifications := "on mentions"
 	if chat.Muted {
 		notifications = "muted"
@@ -437,6 +445,7 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	case RoomStateMsg:
 		cmd, _ := m.updateChatEverywhere(msg.AccountIdx, msg.Room, func(c *Chat) {
 			c.Nick, c.Subject, c.Joined, c.JoinError, c.Occupants = msg.Nick, msg.Subject, msg.Joined, msg.JoinError, msg.Occupants
+			c.Private, c.EncryptionMode = msg.Private, msg.EncryptionMode
 		})
 		cmds := []tea.Cmd{cmd}
 		// A private chat's other is present while they're in the room.

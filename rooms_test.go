@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"path/filepath"
 	"testing"
 	"time"
@@ -237,10 +238,55 @@ func TestRoomJoinRefused(t *testing.T) {
 	}
 }
 
-func TestRoomEncryptionIsNone(t *testing.T) {
+// TestRoomEncryption checks a room is encrypted by default only when
+// private, can be turned off there, and a private chat in one never is.
+func TestRoomEncryption(t *testing.T) {
+	ctx := context.Background()
 	s := roomSession(t)
-	if mode := resolveEncryptionMode(context.Background(), s, testRoom); mode != "none" {
-		t.Errorf("room encryption = %q", mode)
+	if mode := resolveEncryptionMode(ctx, s, testRoom); mode != "none" {
+		t.Errorf("open room's encryption = %q", mode)
+	}
+	s.updateRoom(testRoom, func(st *roomState) { st.info.MembersOnly, st.info.NonAnonymous = true, true })
+	if mode := resolveEncryptionMode(ctx, s, testRoom); mode != "omemo-v1" {
+		t.Errorf("private room's encryption = %q", mode)
+	}
+	if err := s.db.SetChatEncryptionMode(ctx, storage.SetChatEncryptionModeParams{AccountJid: s.account.JID, RosterJid: testRoom, Mode: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	if mode := resolveEncryptionMode(ctx, s, testRoom); mode != "none" {
+		t.Errorf("private room turned off = %q", mode)
+	}
+	s.updateRoom(testRoom, func(st *roomState) { st.privates["bob"] = true })
+	if mode := resolveEncryptionMode(ctx, s, testRoom+"/bob"); mode != "none" {
+		t.Errorf("private chat's encryption = %q", mode)
+	}
+}
+
+// TestRoomRecipients checks a room's message is encrypted for its members
+// and everyone in it, once each, and not for us.
+func TestRoomRecipients(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := attachedClient(t)
+	s := roomSession(t)
+	s.updateRoom(testRoom, func(st *roomState) { st.members["carol@example.com"] = true })
+	for _, ev := range []xmpp.RoomPresenceEvent{
+		{Room: testRoom, Nick: "bob", RealJID: "bob@example.com", Affiliation: "member", Available: true},
+		{Room: testRoom, Nick: "dave", RealJID: "dave@example.com", Affiliation: "none", Available: true},
+		{Room: testRoom, Nick: "me", RealJID: "me@example.com", Affiliation: "owner", Available: true, StatusCodes: []int{xmpp.MUCStatusSelf}},
+	} {
+		s.handleRoomPresence(ctx, srv, 0, ev)
+	}
+	want := []string{"bob@example.com", "carol@example.com", "dave@example.com"}
+	if got := s.roomRecipients(testRoom); !slices.Equal(got, want) {
+		t.Errorf("recipients = %v, want %v", got, want)
+	}
+	// Bob left and was made a non-member: no longer one.
+	s.handleRoomPresence(ctx, srv, 0, xmpp.RoomPresenceEvent{Room: testRoom, Nick: "bob", RealJID: "bob@example.com", Affiliation: "none"})
+	if got := s.roomRecipients(testRoom); slices.Contains(got, "bob@example.com") {
+		t.Errorf("recipients after bob's removal = %v", got)
+	}
+	if st, _ := s.room(testRoom); st.realJIDs["bob"] != "bob@example.com" {
+		t.Error("bob's address forgotten: his earlier messages couldn't be decrypted")
 	}
 }
 

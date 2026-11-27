@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/jim-ww/kage/storage"
 	"github.com/jim-ww/kage/ui"
 	"github.com/jim-ww/kage/xmpp"
+	omemolib "github.com/jim-ww/omemo-go"
 	"mellium.im/xmpp/jid"
 )
 
@@ -38,6 +40,12 @@ type roomState struct {
 
 	// privates are the nicks we have a private chat with (XEP-0045 §7.5).
 	privates map[string]bool
+
+	// members are the room's owners, admins and members by bare JID, and
+	// realJIDs every nick's bare JID seen this session, its occupant gone
+	// or not: who an encrypted message is for, and from.
+	members  map[string]bool
+	realJIDs map[string]string
 
 	// waiters are JoinRoom calls waiting for the room's answer.
 	waiters []chan error
@@ -131,6 +139,8 @@ func (s *accountSession) room(addr string) (roomState, bool) {
 	for k, v := range st.privates {
 		cp.privates[k] = v
 	}
+	cp.members = maps.Clone(st.members)
+	cp.realJIDs = maps.Clone(st.realJIDs)
 	cp.waiters = nil
 	return cp, true
 }
@@ -167,7 +177,7 @@ func (s *accountSession) putRoom(addr, name, nick, password string, bookmarked b
 	}
 	st, ok := s.rooms.rooms[addr]
 	if !ok {
-		st = &roomState{occupants: map[string]ui.Occupant{}, privates: map[string]bool{}}
+		st = &roomState{occupants: map[string]ui.Occupant{}, privates: map[string]bool{}, members: map[string]bool{}, realJIDs: map[string]string{}}
 		s.rooms.rooms[addr] = st
 	}
 	st.name, st.nick, st.password, st.bookmarked = cmp.Or(name, st.name), nick, password, bookmarked
@@ -267,7 +277,7 @@ func applyRoomState(chat *ui.Chat, st roomState) {
 	chat.Room = true
 	chat.Nick, chat.Subject, chat.Joined, chat.JoinError = st.nick, st.subject, st.joined, st.joinErr
 	chat.Occupants = sortedOccupants(st.occupants)
-	chat.EncryptionMode = "none"
+	chat.Private = st.info.Private()
 }
 
 func sortedOccupants(m map[string]ui.Occupant) []ui.Occupant {
@@ -319,6 +329,9 @@ func (s *accountSession) broadcastRoomState(srv *ipc.Server, accountIdx int, add
 			Joined:     st.joined,
 			JoinError:  st.joinErr,
 			Occupants:  sortedOccupants(st.occupants),
+			Private:    st.info.Private(),
+			// What the room became decides what's sent to it.
+			EncryptionMode: s.roomEncryptionMode(context.Background(), addr),
 		})
 	})
 }
@@ -474,9 +487,18 @@ func (s *accountSession) forgetRoom(ctx context.Context, srv *ipc.Server, accoun
 func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server, accountIdx int, ev xmpp.RoomPresenceEvent) {
 	var waiters []chan error
 	var failure error
-	var created, renamed, unknown, catchUp bool
+	var created, renamed, unknown, catchUp, private bool
 	ok := s.updateRoom(ev.Room, func(st *roomState) {
 		self := ev.Has(xmpp.MUCStatusSelf) || ev.Nick == st.nick
+		if ev.RealJID != "" {
+			st.realJIDs[ev.Nick] = ev.RealJID
+			switch ev.Affiliation {
+			case "owner", "admin", "member":
+				st.members[ev.RealJID] = true
+			case "none", "outcast":
+				delete(st.members, ev.RealJID)
+			}
+		}
 		if ev.Available {
 			st.occupants[ev.Nick] = ui.Occupant{
 				Nick: ev.Nick, JID: ev.RealJID, Affiliation: ev.Affiliation, Role: ev.Role,
@@ -497,6 +519,7 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 				waiters, st.waiters = st.waiters, nil
 				unknown = st.info == (xmpp.RoomInfo{})
 				catchUp = st.info.MAM
+				private = st.info.Private()
 			}
 			return
 		}
@@ -522,6 +545,13 @@ func (s *accountSession) handleRoomPresence(ctx context.Context, srv *ipc.Server
 	}
 	if renamed {
 		s.persistRoom(ctx, ev.Room)
+	}
+	if private {
+		go func() {
+			if client, err := s.liveClient(); err == nil {
+				s.refreshRoomMembers(ctx, client, ev.Room)
+			}
+		}()
 	}
 	if created {
 		slog.Debug("created room; accepting its default configuration", "jid", s.account.JID, "room", ev.Room)
@@ -561,7 +591,107 @@ func (s *accountSession) refreshRoomInfo(ctx context.Context, client *xmpp.Clien
 		slog.Warn("asking room what it is", "room", room, "err", err)
 		return
 	}
-	s.updateRoom(room, func(st *roomState) { st.info = info })
+	var joined bool
+	s.updateRoom(room, func(st *roomState) { st.info, joined = info, st.joined })
+	if joined && info.Private() {
+		s.refreshRoomMembers(ctx, client, room)
+	}
+}
+
+// refreshRoomMembers reads who's affiliated with room, whom its encrypted
+// messages are for whether they're in it or not.
+func (s *accountSession) refreshRoomMembers(ctx context.Context, client *xmpp.Client, room string) {
+	ctx, cancel := context.WithTimeout(ctx, roomInfoTimeout)
+	defer cancel()
+	members, err := client.RoomMembers(ctx, room)
+	if err != nil {
+		// The room may keep its member list to its admins: who's in it, and
+		// who was seen in it, is what's left.
+		slog.Debug("reading room members", "room", room, "err", err)
+		return
+	}
+	s.updateRoom(room, func(st *roomState) {
+		for _, m := range members {
+			st.members[m] = true
+		}
+	})
+}
+
+// roomRecipients is whom a message encrypted for room is for: its members
+// and everyone in it, but us.
+func (s *accountSession) roomRecipients(room string) []string {
+	st, _ := s.room(room)
+	set := maps.Clone(st.members)
+	for _, o := range st.occupants {
+		if o.JID != "" {
+			set[o.JID] = true
+		}
+	}
+	delete(set, bareJID(s.account.JID))
+	return slices.Sorted(maps.Keys(set))
+}
+
+// roomEncryptionMode is room's outgoing encryption: legacy OMEMO, what
+// group chats use everywhere, by default in a private room (members-only,
+// showing real JIDs), and only there; else none.
+func (s *accountSession) roomEncryptionMode(ctx context.Context, room string) string {
+	st, _ := s.room(room)
+	if !st.info.Private() {
+		return "none"
+	}
+	mode, err := s.db.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{AccountJid: s.account.JID, RosterJid: room})
+	if err == nil && mode == "none" {
+		return "none"
+	}
+	return "omemo-v1"
+}
+
+// decryptRoomMessage decrypts an encrypted message in room, from the
+// sender's real JID: their presence says it, or the room's archive. Failing
+// that, the text says why. keyTransport is set for one with no content.
+func (s *accountSession) decryptRoomMessage(ctx context.Context, room string, st roomState, ev xmpp.MessageEvent, own bool) (body string, failed, keyTransport bool) {
+	sender := cmp.Or(ev.RealJID, st.realJIDs[resourcePart(ev.From)])
+	if own {
+		sender = bareJID(s.account.JID)
+	}
+	if sender == "" {
+		return "[message could not be decrypted: the room doesn't say who sent it]", true, false
+	}
+	var mgr *omemolib.Manager
+	var protocol omemolib.Protocol
+	var enc *omemolib.EncryptedMessage
+	var err error
+	if ev.EncryptedV1 != nil {
+		protocol = omemolib.ProtocolV1
+		enc, err = xmpp.DecodeOmemoMessageV1(ev.EncryptedV1, sender)
+	} else {
+		protocol = omemolib.ProtocolV2
+		enc, err = xmpp.DecodeOmemoMessage(ev.Encrypted, sender)
+	}
+	if err != nil {
+		return "[message could not be decrypted: " + err.Error() + "]", true, false
+	}
+	if mgr = s.omemoManagerFor(protocol); mgr == nil {
+		s.waitOmemoReady(ctx, omemoSetupGrace)
+		mgr = s.omemoManagerFor(protocol)
+	}
+	if mgr == nil {
+		return "[message could not be decrypted: omemo isn't ready]", true, false
+	}
+	pt, err := mgr.DecryptMessage(ctx, enc)
+	switch {
+	case errors.Is(err, omemolib.ErrOwnDeviceKeyMissing):
+		return "[message could not be decrypted: not encrypted for this device]", true, false
+	case err != nil:
+		slog.Warn("decrypting room message", "room", room, "from", ev.From, "sender", sender, "err", err)
+		if errors.Is(err, omemolib.ErrUnknownSession) || errors.Is(err, omemolib.ErrPreKeyNotFound) {
+			healBrokenSession(ctx, s, mgr, protocol, enc.Sender, sender)
+		}
+		return "[message could not be decrypted: " + err.Error() + "]", true, false
+	case pt == nil:
+		return "", false, true
+	}
+	return string(pt), false, false
 }
 
 // presenceFromShow maps a <show/> value to a Presence of someone available.
@@ -772,31 +902,9 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 		return nil, true
 	}
 
-	body := ev.Body
-	decryptFailed := false
-	if ev.Encrypted != nil || ev.EncryptedV1 != nil {
-		body = "[message could not be decrypted: encrypted group chats aren't supported]"
-		decryptFailed = true
-	}
-	body = stripReplyQuote(body)
-
-	if ev.ReplaceID != "" {
-		if !s.roomSentBy(ctx, room, ev.ReplaceID, ev, own) {
-			slog.Warn("dropping a room correction not from the message's sender", "room", room, "from", ev.From)
-			return nil, true
-		}
-		sealedBody, encrypted := encryptForStorage(s, body)
-		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
-			AccountJid: s.account.JID, Body: sealedBody, Encrypted: encrypted, Edited: true,
-			IDAttr: nullString(ev.ReplaceID), RosterJid: nullString(room), Sent: own,
-		}); err != nil {
-			slog.Warn("persisting room correction", "err", err)
-		}
-		broadcast(srv, ui.MessageCorrectedMsg{AccountIdx: accountIdx, From: room, ReplaceID: ev.ReplaceID, NewContent: body})
-		return nil, true
-	}
-
-	if ev.ID != "" {
+	// Before any decrypt: a message's key is used up the first time, and the
+	// archive brings again what came live.
+	if ev.ID != "" && ev.ReplaceID == "" {
 		if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
 			AccountJid: s.account.JID, RosterJid: nullString(room), IDAttr: nullString(ev.ID),
 		}); err == nil && exists {
@@ -821,6 +929,58 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 		}
 	}
 
+	if ev.ReplaceID != "" && ev.ID != "" {
+		if applied, err := s.db.CorrectionAppliedByIDAttr(ctx, storage.CorrectionAppliedByIDAttrParams{
+			AccountJid: s.account.JID, RosterJid: room, IDAttr: nullString(ev.ID),
+		}); err == nil && applied {
+			return nil, true
+		}
+	}
+
+	e2e := ev.Encrypted != nil || ev.EncryptedV1 != nil
+	e2eeMethod := ""
+	switch {
+	case ev.EncryptedV1 != nil:
+		e2eeMethod = "omemo-v1"
+	case ev.Encrypted != nil:
+		e2eeMethod = "omemo-v2"
+	}
+	body, decryptFailed := ev.Body, false
+	if e2e {
+		s.omemoMu.Lock()
+		defer s.omemoMu.Unlock()
+		var keyTransport bool
+		body, decryptFailed, keyTransport = s.decryptRoomMessage(ctx, room, st, ev, own)
+		if keyTransport {
+			return nil, true
+		}
+	}
+	body = stripReplyQuote(body)
+
+	if ev.ReplaceID != "" {
+		if !s.roomSentBy(ctx, room, ev.ReplaceID, ev, own) {
+			slog.Warn("dropping a room correction not from the message's sender", "room", room, "from", ev.From)
+			return nil, true
+		}
+		sealedBody, encrypted := encryptForStorage(s, body)
+		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
+			AccountJid: s.account.JID, Body: sealedBody, Encrypted: encrypted, Edited: true,
+			E2eEncrypted: e2e, E2eeMethod: nullString(e2eeMethod),
+			IDAttr: nullString(ev.ReplaceID), RosterJid: nullString(room), Sent: own,
+		}); err != nil {
+			slog.Warn("persisting room correction", "err", err)
+		}
+		if ev.ID != "" {
+			if err := s.db.InsertAppliedCorrection(ctx, storage.InsertAppliedCorrectionParams{
+				AccountJid: s.account.JID, RosterJid: room, IDAttr: nullString(ev.ID),
+			}); err != nil {
+				slog.Warn("recording applied room correction", "err", err)
+			}
+		}
+		broadcast(srv, ui.MessageCorrectedMsg{AccountIdx: accountIdx, From: room, ReplaceID: ev.ReplaceID, NewContent: body, Encrypted: e2e, EncMethod: e2eeMethod})
+		return nil, true
+	}
+
 	author := cmp.Or(nick, st.name, room)
 	if own {
 		author = "me"
@@ -842,6 +1002,8 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 		Body:              sealedBody,
 		Encrypted:         encrypted,
 		StanzaType:        stanzaType,
+		E2eEncrypted:      e2e,
+		E2eeMethod:        nullString(e2eeMethod),
 		Delay:             sentAt.Unix(),
 		RosterJid:         nullString(room),
 		ReplyToIDAttr:     nullString(replyTo),
@@ -869,6 +1031,8 @@ func roomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accoun
 		Content:       body,
 		SentAt:        sentAt,
 		IsMe:          own,
+		Encrypted:     e2e,
+		EncMethod:     e2eeMethod,
 		Attachments:   ev.OOBURLs,
 		DecryptFailed: decryptFailed,
 		QuotedAuthor:  quotedAuthor,
@@ -1319,6 +1483,39 @@ func roomArchiveEvent(am xmpp.ArchivedMessage) xmpp.MessageEvent {
 		Groupchat:        true,
 		RoomStanzaID:     am.ArchiveID,
 		OccupantID:       am.OccupantID,
+		RealJID:          am.RealJID,
 	}
 	return ev
+}
+
+// encryptForRoom encrypts plaintext once for every recipient in room (see
+// roomRecipients), with device lists not refreshed lately fetched again.
+func encryptForRoom(ctx context.Context, s *accountSession, mgr *omemolib.Manager, protocol omemolib.Protocol, room string, plaintext []byte) (*omemolib.EncryptedMessage, error) {
+	recipients := s.roomRecipients(room)
+	if len(recipients) == 0 {
+		return nil, errors.New("no one in the room to encrypt for yet")
+	}
+	for _, r := range recipients {
+		refreshPeerDevicesIfStale(ctx, s, protocol, r, mgr.SyncDevices)
+	}
+	enc, deviceErrs, err := mgr.EncryptMessageTo(ctx, recipients, plaintext)
+	if err != nil {
+		return nil, fmt.Errorf("omemo-encrypting for %s: %w (device errors: %v)", room, err, deviceErrs)
+	}
+	// Each member someone can't read for is told about in the log: a
+	// message to the room otherwise looks sent to all.
+	keyed := map[omemolib.DeviceID]bool{}
+	for _, k := range enc.Keys {
+		keyed[k.Device] = true
+	}
+	for _, r := range recipients {
+		devices, err := mgr.KnownDevices(ctx, r)
+		if err != nil || !slices.ContainsFunc(devices, func(d omemolib.DeviceID) bool { return keyed[d] }) {
+			slog.Warn("send: room message carries no key for a member; they won't read it", "room", room, "member", r, "devices", devices, "err", err)
+		}
+	}
+	for _, de := range deviceErrs {
+		slog.Debug("send: room message not encrypted for a device", "room", room, "device_jid", de.Device.JID, "device_id", de.Device.ID, "err", de.Err)
+	}
+	return enc, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -387,4 +388,91 @@ func selfPingResult(err error) SelfPingResult {
 		return NotJoined
 	}
 	return PingUnknown
+}
+
+// mucAdminNS is XEP-0045's for affiliation lists.
+const mucAdminNS = "http://jabber.org/protocol/muc#admin"
+
+// RoomMembers is the bare JIDs affiliated with room as owner, admin or
+// member (XEP-0045 §9.5): everyone a message in a private room is
+// encrypted for, online or not. A list the room won't show us is left out;
+// only all of them refused is an error.
+func (c *Client) RoomMembers(ctx context.Context, room string) ([]string, error) {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
+	to, err := jid.Parse(room)
+	if err != nil {
+		return nil, fmt.Errorf("parsing room %q: %w", room, err)
+	}
+	var members []string
+	var lastErr error
+	got := 0
+	for _, affiliation := range []string{"owner", "admin", "member"} {
+		query := xmlstream.Wrap(
+			xmlstream.Wrap(nil, xml.StartElement{
+				Name: xml.Name{Local: "item"},
+				Attr: []xml.Attr{{Name: xml.Name{Local: "affiliation"}, Value: affiliation}},
+			}),
+			xml.StartElement{Name: xml.Name{Space: mucAdminNS, Local: "query"}},
+		)
+		var resp struct {
+			Items []struct {
+				JID string `xml:"jid,attr"`
+			} `xml:"http://jabber.org/protocol/muc#admin item"`
+		}
+		if err := c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.GetIQ, To: to.Bare()}, &resp); err != nil {
+			lastErr = err
+			continue
+		}
+		got++
+		for _, item := range resp.Items {
+			if j, err := jid.Parse(item.JID); err == nil && item.JID != "" {
+				members = append(members, j.Bare().String())
+			}
+		}
+	}
+	if got == 0 {
+		return nil, fmt.Errorf("reading room members: %w", lastErr)
+	}
+	slices.Sort(members)
+	return slices.Compact(members), nil
+}
+
+// SetRoomConfig submits values for fields of room's configuration form
+// (XEP-0045 §10.2), e.g. "muc#roomconfig_membersonly": "1"; the rest keep
+// what they are.
+func (c *Client) SetRoomConfig(ctx context.Context, room string, values map[string]string) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
+	to, err := jid.Parse(room)
+	if err != nil {
+		return fmt.Errorf("parsing room %q: %w", room, err)
+	}
+	fields := []xml.TokenReader{formField("FORM_TYPE", "http://jabber.org/protocol/muc#roomconfig", "hidden")}
+	for _, name := range slices.Sorted(maps.Keys(values)) {
+		fields = append(fields, formField(name, values[name], ""))
+	}
+	submit := xmlstream.Wrap(xmlstream.MultiReader(fields...), xml.StartElement{
+		Name: xml.Name{Space: "jabber:x:data", Local: "x"},
+		Attr: []xml.Attr{{Name: xml.Name{Local: "type"}, Value: "submit"}},
+	})
+	query := xmlstream.Wrap(submit, xml.StartElement{Name: xml.Name{Space: mucOwnerNS, Local: "query"}})
+	return c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.SetIQ, To: to.Bare()}, nil)
+}
+
+// SetAffiliation makes who (a bare JID) owner, admin, member, outcast or
+// none in room (XEP-0045 §9, §10).
+func (c *Client) SetAffiliation(ctx context.Context, room, who, affiliation string) error {
+	ctx, cancel := c.bound(ctx)
+	defer cancel()
+	to, err := jid.Parse(room)
+	if err != nil {
+		return fmt.Errorf("parsing room %q: %w", room, err)
+	}
+	item := xmlstream.Wrap(nil, xml.StartElement{
+		Name: xml.Name{Local: "item"},
+		Attr: []xml.Attr{{Name: xml.Name{Local: "affiliation"}, Value: affiliation}, {Name: xml.Name{Local: "jid"}, Value: who}},
+	})
+	query := xmlstream.Wrap(item, xml.StartElement{Name: xml.Name{Space: mucAdminNS, Local: "query"}})
+	return c.session.UnmarshalIQElement(ctx, query, stanza.IQ{Type: stanza.SetIQ, To: to.Bare()}, nil)
 }

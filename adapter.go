@@ -1159,7 +1159,14 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 	case "omemo-v1", "omemo-v2":
 		protocol, mgr := resolveOmemoManagerForMode(ctx, s, mode, to)
 		slog.Debug("send: using omemo encryption", "protocol", protocol, "jid", s.account.JID, "to", to)
-		if mgr != nil {
+		if mgr != nil && room {
+			enc, err := encryptForRoom(ctx, s, mgr, protocol, to, []byte(plaintext))
+			if err != nil {
+				return "", err
+			}
+			sendOpts.EncryptedV1 = xmpp.EncodeOmemoMessageV1(enc)
+			e2eeMethod, wireBody, e2eEncrypted = "omemo-v1", "", true
+		} else if mgr != nil {
 			// The plain body, no envelope with attachment metadata: other
 			// clients would show it as text.
 			refreshPeerDevicesIfStale(ctx, s, protocol, to, mgr.SyncDevices)
@@ -1222,6 +1229,15 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		return "", err
 	}
 
+	if opts.ReplaceID != "" && room {
+		// The room sends it back: applied already, and not decryptable by
+		// us, who sent it.
+		if err := s.db.InsertAppliedCorrection(ctx, storage.InsertAppliedCorrectionParams{
+			AccountJid: s.account.JID, RosterJid: to, IDAttr: nullString(id),
+		}); err != nil {
+			slog.Warn("recording our room correction", "err", err)
+		}
+	}
 	if opts.ReplaceID != "" {
 		// A correction amends the original message in place; it isn't a new
 		// row in history.

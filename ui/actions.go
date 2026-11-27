@@ -141,13 +141,20 @@ func (m *Model) actionOpenEncryptionMenu() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if chat.InRoom() {
-		return m.showNotification("group chats are plaintext")
+	modes := encryptionModes
+	switch {
+	case chat.PrivateRoom != "":
+		return m.showNotification("private messages in a room go through it, unencrypted")
+	case chat.Room && !chat.Private:
+		return m.showNotification("only a private room (members-only, showing members' addresses) can be encrypted")
+	case chat.Room:
+		// What groups use everywhere.
+		modes = []string{"omemo-v1", "none"}
 	}
 
 	current := m.encryptionModeOrDefault(chat.EncryptionMode)
-	menuItems := make([]contextMenuItem, 0, len(encryptionModes))
-	for _, mode := range encryptionModes {
+	menuItems := make([]contextMenuItem, 0, len(modes))
+	for _, mode := range modes {
 		if mode == "gpg" && !m.useGPG {
 			continue
 		}
