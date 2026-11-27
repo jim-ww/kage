@@ -413,7 +413,7 @@ func (m *Model) actionRenameChat() tea.Cmd {
 	if !ok {
 		return m.showNotification("no chat selected")
 	}
-	if chat.Room {
+	if chat.InRoom() {
 		return m.showNotification("a group chat is named by its owners")
 	}
 

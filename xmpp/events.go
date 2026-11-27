@@ -69,8 +69,8 @@ type MessageEvent struct {
 	// sender's occupant JID, room/nick.
 	Groupchat bool
 
-	// MUCPrivate is set for a message an occupant of a room sent us
-	// privately, From being its occupant JID.
+	// MUCPrivate is set for a message sent privately between occupants of a
+	// room: From (To, for an Outgoing one) is the other's occupant JID.
 	MUCPrivate bool
 
 	// RoomStanzaID is the id a room assigned its message (XEP-0359), which
@@ -329,7 +329,7 @@ func (c *Client) handleStanza(t xmlstream.TokenReadEncoder, start *xml.StartElem
 		// Stamps what a message in a room carries on every event made of it.
 		room := func(ev MessageEvent) MessageEvent {
 			ev.Groupchat = groupchat
-			ev.MUCPrivate = !groupchat && msg.MUCUser != nil && !outgoing
+			ev.MUCPrivate = !groupchat && msg.MUCUser != nil
 			if groupchat && msg.StanzaID != nil && msg.StanzaID.By == msg.From.Bare().String() {
 				ev.RoomStanzaID = msg.StanzaID.ID
 			}

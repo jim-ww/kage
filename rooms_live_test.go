@@ -127,6 +127,29 @@ func TestGroupChatLive(t *testing.T) {
 		return len(hist) == 2 && hist[1].Author == "bob"
 	})
 
+	// Privately, to bob alone: his chat with alice in the room, not the
+	// room's.
+	if err := aliceA.StartChat(0, room+"/bob"); err != nil {
+		t.Fatalf("alice starting a private chat: %v", err)
+	}
+	if _, err := aliceA.Send(0, room+"/bob", "just for you", ui.SendOptions{}); err != nil {
+		t.Fatalf("alice sending privately: %v", err)
+	}
+	eventually(t, 5*time.Second, "bob getting alice's private message", func() bool {
+		hist := loadHistory(ctx, bob, room+"/alice", "alice")
+		return len(hist) == 1 && hist[0].Content == "just for you" && hist[0].Author == "alice"
+	})
+	if hist := loadHistory(ctx, bob, room, room); len(hist) != 2 {
+		t.Errorf("bob's room chat after the private message: %+v", hist)
+	}
+	if _, err := bobA.Send(0, room+"/alice", "thanks", ui.SendOptions{}); err != nil {
+		t.Fatalf("bob answering privately: %v", err)
+	}
+	eventually(t, 5*time.Second, "alice getting bob's private answer", func() bool {
+		hist := loadHistory(ctx, alice, room+"/bob", "bob")
+		return len(hist) == 2 && hist[1].Content == "thanks" && hist[1].Author == "bob"
+	})
+
 	if err := bobA.LeaveRoom(0, room); err != nil {
 		t.Fatalf("bob leaving: %v", err)
 	}

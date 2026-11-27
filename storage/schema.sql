@@ -381,6 +381,17 @@ CREATE TABLE IF NOT EXISTS rooms (
 ) WITHOUT ROWID;
 
 
+-- Private chats with occupants of a room (XEP-0045 §7.5), keyed like
+-- their messages by the occupant JID room/nick.
+CREATE TABLE IF NOT EXISTS roomPrivates (
+	accountJID TEXT NOT NULL,
+	room       TEXT NOT NULL,
+	nick       TEXT NOT NULL,
+
+	PRIMARY KEY (accountJID, room, nick)
+) WITHOUT ROWID;
+
+
 -- Roster storage
 
 CREATE TABLE IF NOT EXISTS rosterVer (

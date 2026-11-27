@@ -677,6 +677,11 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 			badge[r.Jid] = n
 		}
 	}
+	for _, addr := range sess.privateAddrs() {
+		if n := unread[addr]; n > 0 {
+			badge[addr] = n
+		}
+	}
 	unreadBadge.seedAccount(acct.JID, badge)
 
 	draftRows, err := queries.ListChatDrafts(ctx, acct.JID)
@@ -714,6 +719,16 @@ func connectAccountLocal(ctx context.Context, acct config.Account, queries *stor
 		i := len(chats)
 		chat, hist, hasMore := sess.newRoomChat(ctx, r.Jid)
 		chat.Unread, chat.Draft = unread[r.Jid], drafts[r.Jid]
+		if len(hist) > 0 {
+			messages[i] = hist
+		}
+		chats = append(chats, chat)
+		historyMore[i] = hasMore
+	}
+	for _, addr := range sess.privateAddrs() {
+		i := len(chats)
+		chat, hist, hasMore := sess.newPrivateChat(ctx, addr)
+		chat.Unread, chat.Draft = unread[addr], drafts[addr]
 		if len(hist) > 0 {
 			messages[i] = hist
 		}

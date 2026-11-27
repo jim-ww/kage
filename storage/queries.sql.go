@@ -406,6 +406,22 @@ func (q *Queries) DeleteRoom(ctx context.Context, arg DeleteRoomParams) error {
 	return err
 }
 
+const deleteRoomPrivates = `-- name: DeleteRoomPrivates :exec
+DELETE FROM roomPrivates
+WHERE accountJID = ?1
+	AND room = ?2
+`
+
+type DeleteRoomPrivatesParams struct {
+	AccountJid string `db:"account_jid"`
+	Room       string `db:"room"`
+}
+
+func (q *Queries) DeleteRoomPrivates(ctx context.Context, arg DeleteRoomPrivatesParams) error {
+	_, err := q.db.ExecContext(ctx, deleteRoomPrivates, arg.AccountJid, arg.Room)
+	return err
+}
+
 const deleteRosterByJID = `-- name: DeleteRosterByJID :exec
 DELETE FROM rosterJIDs
 WHERE accountJID = ?1
@@ -2451,6 +2467,40 @@ func (q *Queries) ListReactionsForMessage(ctx context.Context, arg ListReactions
 	return items, nil
 }
 
+const listRoomPrivates = `-- name: ListRoomPrivates :many
+SELECT room, nick
+FROM roomPrivates
+WHERE accountJID = ?1
+`
+
+type ListRoomPrivatesRow struct {
+	Room string `db:"room"`
+	Nick string `db:"nick"`
+}
+
+func (q *Queries) ListRoomPrivates(ctx context.Context, accountJid string) ([]ListRoomPrivatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRoomPrivates, accountJid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRoomPrivatesRow
+	for rows.Next() {
+		var i ListRoomPrivatesRow
+		if err := rows.Scan(&i.Room, &i.Nick); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRooms = `-- name: ListRooms :many
 SELECT jid, name, nick, password, subject, bookmarked
 FROM rooms
@@ -3325,6 +3375,23 @@ func (q *Queries) UpsertRoom(ctx context.Context, arg UpsertRoomParams) error {
 		arg.Password,
 		arg.Bookmarked,
 	)
+	return err
+}
+
+const upsertRoomPrivate = `-- name: UpsertRoomPrivate :exec
+INSERT INTO roomPrivates (accountJID, room, nick)
+VALUES (?1, ?2, ?3)
+ON CONFLICT DO NOTHING
+`
+
+type UpsertRoomPrivateParams struct {
+	AccountJid string `db:"account_jid"`
+	Room       string `db:"room"`
+	Nick       string `db:"nick"`
+}
+
+func (q *Queries) UpsertRoomPrivate(ctx context.Context, arg UpsertRoomPrivateParams) error {
+	_, err := q.db.ExecContext(ctx, upsertRoomPrivate, arg.AccountJid, arg.Room, arg.Nick)
 	return err
 }
 

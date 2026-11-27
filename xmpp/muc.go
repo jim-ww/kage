@@ -135,7 +135,7 @@ type mucInviteElem struct {
 		From   string `xml:"from,attr"`
 		Reason string `xml:"http://jabber.org/protocol/muc#user reason"`
 	} `xml:"http://jabber.org/protocol/muc#user invite"`
-	Password string      `xml:"http://jabber.org/protocol/muc#user password"`
+	Password string      `xml:"http://jabber.org/protocol/muc#user password,omitempty"`
 	Status   []mucStatus `xml:"http://jabber.org/protocol/muc#user status"`
 }
 

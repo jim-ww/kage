@@ -1073,9 +1073,9 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		return "", ui.ErrQueued
 	}
 
-	// A room takes messages only from its occupants.
-	room := s.isRoom(to)
-	if st, _ := s.room(to); room && !st.joined {
+	// A room takes messages only from its occupants, private ones too.
+	room, private := s.isRoom(to), s.isRoomPrivate(to)
+	if st, _ := s.room(bareJID(to)); (room || private) && !st.joined {
 		return "", errors.New("not in the room yet")
 	}
 
@@ -1088,6 +1088,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 			ReactionTargetID: target,
 			Reactions:        opts.Reactions,
 			Groupchat:        room,
+			MUCPrivate:       private,
 		})
 		if err != nil {
 			return "", err
@@ -1108,7 +1109,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 
 	if opts.RetractID != "" {
 		// Nothing to encrypt; our own copy is only flagged.
-		id, err := client.Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID, Groupchat: room})
+		id, err := client.Send(ctx, to, "", xmpp.SendOptions{RetractID: opts.RetractID, Groupchat: room, MUCPrivate: private})
 		if err != nil {
 			return "", err
 		}
@@ -1143,6 +1144,7 @@ func (a *adapter) send(ctx context.Context, accountIdx int, to, body string, opt
 		QuotedAuthor: opts.QuotedAuthor,
 		QuotedBody:   opts.QuotedBody,
 		Groupchat:    room,
+		MUCPrivate:   private,
 	}
 	if room && opts.ReplyToID != "" {
 		sendOpts.ReplyToJID = s.roomOccupantOf(ctx, to, opts.ReplyToID)

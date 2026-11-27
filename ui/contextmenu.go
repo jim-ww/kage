@@ -193,6 +193,9 @@ func (m *Model) chatItemContextMenuItems(idx int) []contextMenuItem {
 	if chat, ok := m.chats.Items()[idx].(Chat); ok && chat.Room {
 		return m.roomChatMenuItems(chat)
 	}
+	if chat, ok := m.chats.Items()[idx].(Chat); ok && chat.PrivateRoom != "" {
+		return m.privateChatMenuItems(chat)
+	}
 	if chat, ok := m.chats.Items()[idx].(Chat); ok {
 		if chat.Blocked {
 			block = "Unblock contact"

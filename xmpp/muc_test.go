@@ -246,3 +246,37 @@ func TestRoomConfigChanged(t *testing.T) {
 		t.Errorf("events = %+v", events)
 	}
 }
+
+// TestMUCPrivateSend checks a private message to an occupant goes as a
+// chat message to their occupant JID, marked as one from a room.
+func TestMUCPrivateSend(t *testing.T) {
+	msg, err := newMessage("room@muc.example.test/bob", "psst", SendOptions{MUCPrivate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := xml.NewEncoder(&out).Encode(msg); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, want := range []string{`to="room@muc.example.test/bob"`, `type="chat"`, `<x xmlns="http://jabber.org/protocol/muc#user"></x>`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stanza %s lacks %s", got, want)
+		}
+	}
+}
+
+// TestMUCPrivateCarbon checks a private message our other device sent is
+// marked private too, not taken for one to a contact.
+func TestMUCPrivateCarbon(t *testing.T) {
+	_, events := serveMessage(t, `<message xmlns="jabber:client" from="alice@example.test" to="alice@example.test/laptop">
+		<sent xmlns="urn:xmpp:carbons:2"><forwarded xmlns="urn:xmpp:forward:0">
+			<message xmlns="jabber:client" from="alice@example.test/phone" to="room@muc.example.test/bob" type="chat" id="p1">
+				<body>psst</body><x xmlns="http://jabber.org/protocol/muc#user"/>
+			</message>
+		</forwarded></sent>
+	</message>`)
+	if msgs := messages(events); len(msgs) != 1 || !msgs[0].MUCPrivate || !msgs[0].Outgoing || msgs[0].To != "room@muc.example.test/bob" {
+		t.Errorf("messages = %+v", msgs)
+	}
+}

@@ -297,6 +297,10 @@ type SendOptions struct {
 	// ReplyToJID is who wrote the message replied to, for XEP-0461's to:
 	// in a room, their occupant JID. "" means "to".
 	ReplyToJID string
+
+	// MUCPrivate sends privately to an occupant of a room, "to" being their
+	// occupant JID, marked so as XEP-0045 §7.5 has it.
+	MUCPrivate bool
 }
 
 const retractFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."

@@ -279,7 +279,7 @@ func (s *accountSession) omemoManagerFor(protocol omemolib.Protocol) *omemolib.M
 // default.
 func resolveEncryptionMode(ctx context.Context, s *accountSession, peerJID string) string {
 	// Rooms are plaintext: OMEMO in one needs every occupant's real JID.
-	if s.isRoom(peerJID) {
+	if s.isGroup(peerJID) {
 		return "none"
 	}
 	mode, err := s.db.GetChatEncryptionMode(ctx, storage.GetChatEncryptionModeParams{

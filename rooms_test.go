@@ -42,7 +42,6 @@ func TestRoomMessageAuthors(t *testing.T) {
 	for _, ev := range []xmpp.MessageEvent{
 		{ID: "a", From: testRoom + "/bob", Body: "hi", Groupchat: true, SentAt: time.Unix(100, 0)},
 		{ID: "b", From: testRoom + "/me", Body: "from my phone", Groupchat: true, SentAt: time.Unix(101, 0)},
-		{ID: "c", From: testRoom + "/carol", Body: "psst", MUCPrivate: true, SentAt: time.Unix(102, 0)},
 	} {
 		handleIncomingMessage(ctx, srv, 0, s, ev)
 	}
@@ -50,7 +49,7 @@ func TestRoomMessageAuthors(t *testing.T) {
 	want := []struct {
 		author string
 		me     bool
-	}{{"bob", false}, {"me", true}, {"carol (private)", false}}
+	}{{"bob", false}, {"me", true}}
 	if len(hist) != len(want) {
 		t.Fatalf("history = %+v", hist)
 	}
@@ -58,6 +57,62 @@ func TestRoomMessageAuthors(t *testing.T) {
 		if hist[i].Author != w.author || hist[i].IsMe != w.me {
 			t.Errorf("message %d: author %q me %v, want %q %v", i, hist[i].Author, hist[i].IsMe, w.author, w.me)
 		}
+	}
+}
+
+// TestPrivateMessageHasItsOwnChat checks a message an occupant sends us
+// privately, and our answer from another device, go to a chat of their
+// own, never into the room's for everyone to see.
+func TestPrivateMessageHasItsOwnChat(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := attachedClient(t)
+	s := roomSession(t)
+	carol := testRoom + "/carol"
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "p1", From: carol, Body: "psst", MUCPrivate: true, SentAt: time.Unix(100, 0)})
+	handleIncomingMessage(ctx, srv, 0, s, xmpp.MessageEvent{ID: "p2", From: s.account.JID + "/phone", To: carol, Outgoing: true, Body: "yes?", MUCPrivate: true, SentAt: time.Unix(101, 0)})
+
+	if hist := roomHistory(t, s); len(hist) != 0 {
+		t.Fatalf("private messages in the room's chat: %+v", hist)
+	}
+	if !s.isRoomPrivate(carol) || !s.hasChat(carol) {
+		t.Fatal("no private chat with carol")
+	}
+	hist := loadHistory(ctx, s, carol, "carol")
+	if len(hist) != 2 || hist[0].Author != "carol" || hist[0].IsMe || hist[1].Author != "me" || !hist[1].IsMe {
+		t.Fatalf("private history = %+v", hist)
+	}
+	if mode := resolveEncryptionMode(ctx, s, carol); mode != "none" {
+		t.Errorf("private chat encryption = %q", mode)
+	}
+
+	_, acct, err := connectAccountLocal(ctx, s.account, s.db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, item := range acct.Chats {
+		if c := item.(ui.Chat); c.Address == carol {
+			found = c.PrivateRoom == testRoom && !c.Room
+		}
+	}
+	if !found {
+		t.Errorf("private chat not listed on load: %+v", acct.Chats)
+	}
+
+	s.forgetRoom(ctx, srv, 0, testRoom)
+	if s.hasChat(carol) {
+		t.Error("private chat kept after leaving its room")
+	}
+}
+
+// TestPrivateMessageNotThroughUnknownRoom checks a private message through
+// a room we're not in is dropped, not made a contact's chat.
+func TestPrivateMessageNotThroughUnknownRoom(t *testing.T) {
+	srv, _ := attachedClient(t)
+	s := roomSession(t)
+	handleIncomingMessage(context.Background(), srv, 0, s, xmpp.MessageEvent{ID: "p", From: "other@muc.example.com/bob", Body: "hi", MUCPrivate: true})
+	if s.hasChat("other@muc.example.com") || s.hasChat("other@muc.example.com/bob") {
+		t.Error("a chat was made for it")
 	}
 }
 

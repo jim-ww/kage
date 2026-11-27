@@ -19,11 +19,17 @@ import (
 // handleIncomingMessage decrypts, stores and broadcasts an incoming message,
 // a correction (XEP-0308) or retraction, which only flags (XEP-0424).
 func handleIncomingMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, msgEv xmpp.MessageEvent) {
-	if (msgEv.Groupchat || msgEv.MUCPrivate) && handleRoomMessage(ctx, srv, accountIdx, s, msgEv) {
+	if msgEv.Groupchat {
+		handleRoomMessage(ctx, srv, accountIdx, s, msgEv)
 		return
 	}
-	if msgEv.Groupchat {
-		return // a room we're not in
+	if msgEv.MUCPrivate {
+		// Not to be taken for the room's own chat: one through a room we're
+		// not in has nowhere to go.
+		if !handlePrivateMessage(ctx, srv, accountIdx, s, msgEv) {
+			slog.Debug("dropping a private message through a room we're not in", "from", msgEv.From, "to", msgEv.To)
+		}
+		return
 	}
 	// A "sent" carbon (XEP-0280) is from our own JID; its chat is To.
 	peer := bareJID(msgEv.From)

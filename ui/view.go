@@ -680,6 +680,9 @@ func (m Model) chatStatusLabel(chat Chat) string {
 	if chat.Room {
 		label += " · " + roomStatus(chat)
 	}
+	if chat.PrivateRoom != "" {
+		label += " · " + m.privateStatus(chat)
+	}
 	if chat.Typing {
 		label += " · typing..."
 	}

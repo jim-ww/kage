@@ -104,6 +104,9 @@ func newMessage(to, body string, opts SendOptions) (messageBody, error) {
 	if opts.RetractID == "" && opts.ReactionTargetID == "" && !opts.Groupchat {
 		msg.Request = &struct{}{}
 	}
+	if opts.MUCPrivate {
+		msg.MUCUser = &mucInviteElem{}
+	}
 	for _, u := range opts.OOBURLs {
 		msg.OOB = append(msg.OOB, oobElem{URL: u})
 	}

@@ -290,7 +290,15 @@ type Chat struct {
 	JoinError string
 	// Occupants are who's in the room, sorted by nick.
 	Occupants []Occupant
+
+	// PrivateRoom marks a private chat with an occupant of that room
+	// (XEP-0045 §7.5), Address being their occupant JID room/nick.
+	PrivateRoom string
 }
+
+// InRoom reports whether c is a room's chat or a private one in a room:
+// plaintext, no calls, no roster item.
+func (c Chat) InRoom() bool { return c.Room || c.PrivateRoom != "" }
 
 // Occupant is someone in a room (XEP-0045).
 type Occupant struct {

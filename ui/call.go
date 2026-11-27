@@ -385,7 +385,7 @@ func (m *Model) callMenuItems() (string, []contextMenuItem) {
 	c := m.call
 	if c == nil || !m.callInProgress() {
 		chat, ok := m.currentChat()
-		if !ok || chat.Address == "" || chat.Room || (m.selectedView != viewChat && m.selectedView != viewChats) {
+		if !ok || chat.Address == "" || chat.InRoom() || (m.selectedView != viewChat && m.selectedView != viewChats) {
 			return "Calls", devices
 		}
 		accountIdx, to := m.currentAccount, chat.Address

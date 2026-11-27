@@ -183,3 +183,30 @@ func TestJoinRoomFormTakesALink(t *testing.T) {
 		t.Fatalf("joins = %v", d.joins)
 	}
 }
+
+// TestPrivateMessageParticipant checks a participant can be messaged
+// privately through the room, even with their address hidden.
+func TestPrivateMessageParticipant(t *testing.T) {
+	d := &fakeRoomDaemon{}
+	m := roomModel(t, d)
+	m.updateChatEverywhere(0, testRoomAddr, func(c *Chat) { c.Occupants = []Occupant{{Nick: "anon"}, {Nick: "me"}} })
+	m.openParticipants()
+	m = press(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = pressAndDeliver(t, m, letter('p'))
+	if !slices.Equal(d.starts, []string{testRoomAddr + "/anon"}) {
+		t.Fatalf("started chats = %v", d.starts)
+	}
+	chat, ok := m.currentChat()
+	if !ok || chat.Address != testRoomAddr+"/anon" {
+		t.Fatalf("current chat = %+v", chat)
+	}
+	// The daemon's row comes after its answer.
+	m = updated(t, m, ChatAddedMsg{AccountIdx: 0, Chat: Chat{Name: "anon · Room", Address: testRoomAddr + "/anon", PrivateRoom: testRoomAddr}})
+	if c, _ := m.chatByAddress(0, testRoomAddr+"/anon"); c.PrivateRoom != testRoomAddr || c.Name != "anon · Room" {
+		t.Fatalf("private chat = %+v", c)
+	}
+	m = updated(t, m, RoomStateMsg{AccountIdx: 0, Room: testRoomAddr, Joined: true, Occupants: []Occupant{{Nick: "anon", Presence: PresenceAway}}})
+	if c, _ := m.chatByAddress(0, testRoomAddr+"/anon"); c.Presence != PresenceAway {
+		t.Errorf("private chat presence = %v", c.Presence)
+	}
+}

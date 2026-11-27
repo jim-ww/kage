@@ -141,7 +141,7 @@ func (m *Model) actionOpenEncryptionMenu() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if chat.Room {
+	if chat.InRoom() {
 		return m.showNotification("group chats are plaintext")
 	}
 
@@ -217,8 +217,11 @@ func (m *Model) actionChatInfo() tea.Cmd {
 		return m.showNotification("no chat selected")
 	}
 	lines := m.chatInfoLines(chat)
-	if chat.Room {
+	switch {
+	case chat.Room:
 		lines = roomInfoLines(chat)
+	case chat.PrivateRoom != "":
+		lines = m.privateInfoLines(chat)
 	}
 	text := modal.NewText(lines...)
 	text.ActLabel = "copy address"

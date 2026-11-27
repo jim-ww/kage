@@ -36,6 +36,9 @@ type roomState struct {
 	joinErr   string
 	occupants map[string]ui.Occupant
 
+	// privates are the nicks we have a private chat with (XEP-0045 §7.5).
+	privates map[string]bool
+
 	// waiters are JoinRoom calls waiting for the room's answer.
 	waiters []chan error
 }
@@ -82,9 +85,28 @@ func (s *accountSession) isRoom(addr string) bool {
 	return ok
 }
 
-// hasChat reports whether addr has a chat row: a roster entry or a room.
+// hasChat reports whether addr has a chat row: a roster entry, a room or
+// a private chat in one.
 func (s *accountSession) hasChat(addr string) bool {
-	return s.inRoster(addr) || s.isRoom(addr)
+	return s.inRoster(addr) || s.isRoom(addr) || s.isRoomPrivate(addr)
+}
+
+// isRoomPrivate reports whether addr, an occupant JID, has a private chat.
+func (s *accountSession) isRoomPrivate(addr string) bool {
+	nick := resourcePart(addr)
+	if nick == "" {
+		return false
+	}
+	s.rooms.mu.Lock()
+	defer s.rooms.mu.Unlock()
+	st, ok := s.rooms.rooms[bareJID(addr)]
+	return ok && st.privates[nick]
+}
+
+// isGroup reports whether addr's chat is a room's or a private one in a
+// room: plaintext, no calls, no roster.
+func (s *accountSession) isGroup(addr string) bool {
+	return s.isRoom(addr) || s.isRoomPrivate(addr)
 }
 
 // room is a copy of addr's state, without its waiters.
@@ -99,6 +121,10 @@ func (s *accountSession) room(addr string) (roomState, bool) {
 	cp.occupants = make(map[string]ui.Occupant, len(st.occupants))
 	for k, v := range st.occupants {
 		cp.occupants[k] = v
+	}
+	cp.privates = make(map[string]bool, len(st.privates))
+	for k, v := range st.privates {
+		cp.privates[k] = v
 	}
 	cp.waiters = nil
 	return cp, true
@@ -136,7 +162,7 @@ func (s *accountSession) putRoom(addr, name, nick, password string, bookmarked b
 	}
 	st, ok := s.rooms.rooms[addr]
 	if !ok {
-		st = &roomState{occupants: map[string]ui.Occupant{}}
+		st = &roomState{occupants: map[string]ui.Occupant{}, privates: map[string]bool{}}
 		s.rooms.rooms[addr] = st
 	}
 	st.name, st.nick, st.password, st.bookmarked = cmp.Or(name, st.name), nick, password, bookmarked
@@ -166,7 +192,61 @@ func (s *accountSession) loadRooms(ctx context.Context) []storage.ListRoomsRow {
 		s.putRoom(r.Jid, r.Name, r.Nick, r.Password, r.Bookmarked)
 		s.updateRoom(r.Jid, func(st *roomState) { st.subject = r.Subject })
 	}
+	privates, err := s.db.ListRoomPrivates(ctx, s.account.JID)
+	if err != nil {
+		slog.Warn("loading private chats in rooms", "jid", s.account.JID, "err", err)
+	}
+	for _, p := range privates {
+		s.updateRoom(p.Room, func(st *roomState) { st.privates[p.Nick] = true })
+	}
 	return rows
+}
+
+// privateAddrs is every private chat's occupant JID, by room.
+func (s *accountSession) privateAddrs() []string {
+	var out []string
+	for _, room := range s.roomAddrs() {
+		st, _ := s.room(room)
+		for nick := range st.privates {
+			out = append(out, room+"/"+nick)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// newPrivateChat is the private chat with occupant addr, with its latest
+// page of history.
+func (s *accountSession) newPrivateChat(ctx context.Context, addr string) (chat ui.Chat, hist []ui.Message, hasMore bool) {
+	room, nick := bareJID(addr), resourcePart(addr)
+	st, _ := s.room(room)
+	chat, hist, hasMore = s.newChat(ctx, addr, nick+" · "+cmp.Or(st.name, room), nil)
+	chat.PrivateRoom = room
+	chat.EncryptionMode = "none"
+	if o, in := st.occupants[nick]; in {
+		chat.Presence = o.Presence
+	}
+	return chat, hist, hasMore
+}
+
+// ensurePrivateChat gives occupant addr a private chat, broadcast, if it
+// has none yet.
+func (s *accountSession) ensurePrivateChat(ctx context.Context, srv *ipc.Server, accountIdx int, addr string) {
+	room, nick := bareJID(addr), resourcePart(addr)
+	added := false
+	s.updateRoom(room, func(st *roomState) {
+		if !st.privates[nick] {
+			st.privates[nick], added = true, true
+		}
+	})
+	if !added {
+		return
+	}
+	if err := s.db.UpsertRoomPrivate(ctx, storage.UpsertRoomPrivateParams{AccountJid: s.account.JID, Room: room, Nick: nick}); err != nil {
+		slog.Warn("persisting private chat", "with", addr, "err", err)
+	}
+	chat, hist, _ := s.newPrivateChat(ctx, addr)
+	broadcast(srv, ui.ChatAddedMsg{AccountIdx: accountIdx, Chat: chat, Messages: hist})
 }
 
 // newRoomChat is addr's chat row, with its latest page of history.
@@ -371,6 +451,16 @@ func (s *accountSession) forgetRoom(ctx context.Context, srv *ipc.Server, accoun
 	}
 	forgetChat(ctx, s.db, s.account.JID, addr)
 	broadcast(srv, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: addr})
+	// Private chats go through the room, gone with it.
+	if st != nil {
+		if err := s.db.DeleteRoomPrivates(ctx, storage.DeleteRoomPrivatesParams{AccountJid: s.account.JID, Room: addr}); err != nil {
+			slog.Warn("deleting private chats", "room", addr, "err", err)
+		}
+		for nick := range st.privates {
+			forgetChat(ctx, s.db, s.account.JID, addr+"/"+nick)
+			broadcast(srv, ui.ChatRemovedMsg{AccountIdx: accountIdx, Address: addr + "/" + nick})
+		}
+	}
 }
 
 // handleRoomPresence applies an occupant's presence to their room.
@@ -599,9 +689,9 @@ func (s *accountSession) roomOccupantOf(ctx context.Context, room, id string) st
 	return row.Fromattr.String
 }
 
-// handleRoomMessage stores and broadcasts a message in a room, or one an
-// occupant sent us privately, reporting whether ev was either. Rooms are
-// plaintext: an encrypted message in one is stored as unreadable.
+// handleRoomMessage stores and broadcasts a message in a room, reporting
+// whether ev was one in ours. Rooms are plaintext: an encrypted message in
+// one is stored as unreadable.
 func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, ev xmpp.MessageEvent) bool {
 	room := bareJID(ev.From)
 	st, ok := s.room(room)
@@ -700,9 +790,6 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 	}
 
 	author := cmp.Or(nick, st.name, room)
-	if ev.MUCPrivate {
-		author = nick + " (private)"
-	}
 	if own {
 		author = "me"
 	}
@@ -714,9 +801,6 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 		sentAt = s.now()
 	}
 	stanzaType := "groupchat"
-	if ev.MUCPrivate {
-		stanzaType = "chat"
-	}
 	sealedBody, encrypted := encryptForStorage(s, body)
 	storeID, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
 		AccountJid:        s.account.JID,
@@ -763,7 +847,7 @@ func handleRoomMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *
 	autoDownloadAttachments(srv, accountIdx, room, []ui.Message{msg})
 
 	// A busy room would notify all day: only what's for us does.
-	if (ev.MUCPrivate || mentions(body, st.nick)) && shouldNotify(s.account.JID, room, decryptFailed, own) {
+	if mentions(body, st.nick) && shouldNotify(s.account.JID, room, decryptFailed, own) {
 		daemon.Notify(cmp.Or(st.name, room)+" · "+nick, notifyPreview(body, ev.OOBURLs))
 	}
 	return true
@@ -884,6 +968,130 @@ func (a *adapter) StartChat(accountIdx int, address string) error {
 	if err != nil {
 		return fmt.Errorf("%q isn't an address", address)
 	}
-	ensureChat(context.Background(), a.srv, accountIdx, s, j.Bare().String())
+	ctx := context.Background()
+	// An occupant JID: a private chat through their room.
+	if s.isRoom(j.Bare().String()) && j.Resourcepart() != "" {
+		s.ensurePrivateChat(ctx, a.srv, accountIdx, j.String())
+		return nil
+	}
+	ensureChat(ctx, a.srv, accountIdx, s, j.Bare().String())
 	return nil
+}
+
+// handlePrivateMessage stores and broadcasts a message sent privately
+// between us and an occupant of one of our rooms, reporting whether ev was
+// one. Only the two of us and the room relaying it see it.
+func handlePrivateMessage(ctx context.Context, srv *ipc.Server, accountIdx int, s *accountSession, ev xmpp.MessageEvent) bool {
+	peer := ev.From
+	if ev.Outgoing {
+		peer = ev.To
+	}
+	room, nick := bareJID(peer), resourcePart(peer)
+	if !s.isRoom(room) || nick == "" {
+		return false
+	}
+	s.ensurePrivateChat(ctx, srv, accountIdx, peer)
+
+	if ev.ReactionTargetID != "" {
+		reactor := peer
+		if ev.Outgoing {
+			reactor = meReactorJID
+		}
+		if err := replaceReactions(ctx, s, peer, ev.ReactionTargetID, reactor, ev.Reactions); err != nil {
+			slog.Warn("persisting private reactions", "with", peer, "err", err)
+		}
+		broadcast(srv, ui.MessageReactionsMsg{
+			AccountIdx: accountIdx, From: peer, MessageID: ev.ReactionTargetID,
+			Reactions: loadReactionsForMessage(ctx, s, peer, ev.ReactionTargetID),
+		})
+		return true
+	}
+	if ev.RetractID != "" {
+		if _, err := s.db.MarkMessageRetracted(ctx, storage.MarkMessageRetractedParams{
+			AccountJid: s.account.JID, IDAttr: nullString(ev.RetractID), RosterJid: nullString(peer), Sent: ev.Outgoing,
+		}); err != nil {
+			slog.Warn("persisting private retraction", "err", err)
+		}
+		broadcast(srv, ui.MessageRetractedMsg{AccountIdx: accountIdx, From: peer, RetractID: ev.RetractID})
+		return true
+	}
+
+	body := ev.Body
+	decryptFailed := false
+	if ev.Encrypted != nil || ev.EncryptedV1 != nil {
+		body = "[message could not be decrypted: encrypted private messages in rooms aren't supported]"
+		decryptFailed = true
+	}
+	body = stripReplyQuote(body)
+
+	if ev.ReplaceID != "" {
+		sealedBody, encrypted := encryptForStorage(s, body)
+		if _, err := s.db.UpdateMessageBodyByID(ctx, storage.UpdateMessageBodyByIDParams{
+			AccountJid: s.account.JID, Body: sealedBody, Encrypted: encrypted, Edited: true,
+			IDAttr: nullString(ev.ReplaceID), RosterJid: nullString(peer), Sent: ev.Outgoing,
+		}); err != nil {
+			slog.Warn("persisting private correction", "err", err)
+		}
+		broadcast(srv, ui.MessageCorrectedMsg{AccountIdx: accountIdx, From: peer, ReplaceID: ev.ReplaceID, NewContent: body})
+		return true
+	}
+
+	if ev.ID != "" {
+		if exists, err := s.db.MessageExistsByIDAttr(ctx, storage.MessageExistsByIDAttrParams{
+			AccountJid: s.account.JID, RosterJid: nullString(peer), IDAttr: nullString(ev.ID),
+		}); err == nil && exists {
+			return true
+		}
+	}
+
+	author := nick
+	if ev.Outgoing {
+		author = "me"
+	}
+	st, _ := s.room(room)
+	quotedAuthor, quotedPreview := resolveReplyQuote(ctx, s, peer, nick, ev.ReplyToID)
+	sentAt := ev.SentAt
+	if sentAt.IsZero() {
+		sentAt = s.now()
+	}
+	sealedBody, encrypted := encryptForStorage(s, body)
+	storeID, err := s.db.InsertMessage(ctx, storage.InsertMessageParams{
+		AccountJid:        s.account.JID,
+		Sent:              ev.Outgoing,
+		FromAttr:          nullString(ev.From),
+		ToAttr:            nullString(ev.To),
+		IDAttr:            nullString(ev.ID),
+		Body:              sealedBody,
+		Encrypted:         encrypted,
+		StanzaType:        "chat",
+		Delay:             sentAt.Unix(),
+		RosterJid:         nullString(peer),
+		ReplyToIDAttr:     nullString(ev.ReplyToID),
+		ReplyQuoteAuthor:  nullString(quotedAuthor),
+		ReplyQuotePreview: nullString(quotedPreview),
+		OobUrls:           joinOOBURLs(ev.OOBURLs),
+	})
+	if err != nil {
+		slog.Warn("persisting private message", "with", peer, "err", err)
+		return true
+	}
+	msg := ui.Message{
+		ID:            ev.ID,
+		StoreID:       storeID,
+		Author:        author,
+		Content:       body,
+		SentAt:        sentAt,
+		IsMe:          ev.Outgoing,
+		Attachments:   ev.OOBURLs,
+		DecryptFailed: decryptFailed,
+		QuotedAuthor:  quotedAuthor,
+		QuotedPreview: quotedPreview,
+	}
+	broadcast(srv, ui.IncomingMessageMsg{AccountIdx: accountIdx, From: peer, ReplyToID: ev.ReplyToID, Message: msg})
+	countUnread(ctx, srv, s, peer, []ui.Message{msg})
+	autoDownloadAttachments(srv, accountIdx, peer, []ui.Message{msg})
+	if shouldNotify(s.account.JID, peer, decryptFailed, ev.Outgoing) {
+		daemon.Notify(nick+" · "+cmp.Or(st.name, room), notifyPreview(body, ev.OOBURLs))
+	}
+	return true
 }

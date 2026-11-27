@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -257,14 +258,22 @@ func (m *Model) occupantMenuItems(accountIdx int, o Occupant) []contextMenuItem 
 		m.input.InsertString(o.Nick + ": ")
 		return m.enterChatPane()
 	}}
-	if o.JID == "" {
-		return []contextMenuItem{
-			mention,
-			{label: "Message (the room hides their address)", run: func(*Model) tea.Cmd { return nil }},
+	// Through the room: the room's service relays it, no one else sees it.
+	room := m.participantsRoom()
+	private := contextMenuItem{label: "Private message", key: 'p', run: func(m *Model) tea.Cmd {
+		occupant := room + "/" + o.Nick
+		if m.chatIndexByAddress(accountIdx, occupant) >= 0 {
+			return m.openChatByAddress(accountIdx, occupant)
 		}
+		daemon := m.daemon
+		return func() tea.Msg { return daemon.StartChat(accountIdx, occupant) }
+	}}
+	if o.JID == "" {
+		return []contextMenuItem{private, mention}
 	}
 	daemon, addr := m.daemon, o.JID
 	return []contextMenuItem{
+		private,
 		{label: "Message", key: 'c', run: func(m *Model) tea.Cmd {
 			if m.chatIndexByAddress(accountIdx, addr) >= 0 {
 				return m.openChatByAddress(accountIdx, addr)
@@ -278,6 +287,57 @@ func (m *Model) occupantMenuItems(accountIdx int, o Occupant) []contextMenuItem 
 			}
 			return m.showNotification("address copied")
 		}},
+	}
+}
+
+// participantsRoom is the room the participants screen is open for, ""
+// with none open.
+func (m Model) participantsRoom() string {
+	if md := m.modals.Find(participantsModalID); md != nil {
+		return md.Body.(*participantsBody).room
+	}
+	return ""
+}
+
+// privateChatMenuItems is the chat menu for a private chat in a room.
+func (m *Model) privateChatMenuItems(chat Chat) []contextMenuItem {
+	pin, mute := "Pin chat", "Mute notifications"
+	if chat.Pinned {
+		pin = "Unpin chat"
+	}
+	if chat.Muted {
+		mute = "Unmute notifications"
+	}
+	return []contextMenuItem{
+		{label: pin, key: 'p', run: (*Model).actionTogglePinChat},
+		{label: mute, key: 'm', run: (*Model).actionToggleMuteChat},
+		{label: "Hide chat", key: 'h', run: (*Model).actionHideChat},
+		{label: "Info", key: 'i', run: (*Model).actionChatInfo},
+	}
+}
+
+// privateStatus is a private chat's state for the status bar: whether the
+// other is still in the room, through which it goes.
+func (m Model) privateStatus(chat Chat) string {
+	room, ok := m.chatByAddress(m.currentAccount, chat.PrivateRoom)
+	nick := strings.TrimPrefix(chat.Address, chat.PrivateRoom+"/")
+	switch {
+	case !ok:
+		return "private"
+	case !room.Joined:
+		return "private · not in the room"
+	case !slices.ContainsFunc(room.Occupants, func(o Occupant) bool { return o.Nick == nick }):
+		return "private · " + nick + " left the room"
+	}
+	return "private · through " + room.Name
+}
+
+// privateInfoLines is the info screen's content for a private chat.
+func (m Model) privateInfoLines(chat Chat) []modal.Line {
+	return []modal.Line{
+		{Text: "Address: " + chat.Address, Value: chat.Address},
+		{Text: "Status: " + m.privateStatus(chat)},
+		{Text: "Encryption: none (the room's service relays it, and can read it)"},
 	}
 }
 
@@ -357,8 +417,22 @@ func (m Model) handleRoomMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		cmd, _ := m.updateChatEverywhere(msg.AccountIdx, msg.Room, func(c *Chat) {
 			c.Nick, c.Subject, c.Joined, c.JoinError, c.Occupants = msg.Nick, msg.Subject, msg.Joined, msg.JoinError, msg.Occupants
 		})
+		cmds := []tea.Cmd{cmd}
+		// A private chat's other is present while they're in the room.
+		presence := make(map[string]Presence, len(msg.Occupants))
+		for _, o := range msg.Occupants {
+			presence[msg.Room+"/"+o.Nick] = o.Presence
+		}
+		if msg.AccountIdx >= 0 && msg.AccountIdx < len(m.accounts) {
+			for _, item := range m.accounts[msg.AccountIdx].Chats {
+				if c, ok := item.(Chat); ok && c.PrivateRoom == msg.Room && c.Presence != presence[c.Address] {
+					cmd, _ := m.updateChatEverywhere(msg.AccountIdx, c.Address, func(c *Chat) { c.Presence = presence[c.Address] })
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
 		m.refreshParticipants()
-		return m, cmd, true
+		return m, tea.Batch(cmds...), true
 
 	case RoomJoinedMsg:
 		if md := m.modals.Find(joinRoomModalID); md != nil {

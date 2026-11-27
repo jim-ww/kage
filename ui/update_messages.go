@@ -942,7 +942,15 @@ func (m Model) handleEventMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			}
 			renamed := msg.Chat.Name != "" && chat.Name != msg.Chat.Name
 			resubscribed := chat.Subscription != msg.Chat.Subscription || chat.SubscriptionPending != msg.Chat.SubscriptionPending
-			if !renamed && !resubscribed {
+			// A row made ahead of the daemon's (see openChatByAddress)
+			// learns what kind of chat it is.
+			retyped := chat.Room != msg.Chat.Room || chat.PrivateRoom != msg.Chat.PrivateRoom
+			if retyped {
+				chat.Room, chat.PrivateRoom, chat.EncryptionMode = msg.Chat.Room, msg.Chat.PrivateRoom, msg.Chat.EncryptionMode
+				chat.Nick, chat.Subject, chat.Joined, chat.JoinError, chat.Occupants = msg.Chat.Nick, msg.Chat.Subject, msg.Chat.Joined, msg.Chat.JoinError, msg.Chat.Occupants
+				chat.Presence = msg.Chat.Presence
+			}
+			if !renamed && !resubscribed && !retyped {
 				return m, nil, true
 			}
 			if renamed {

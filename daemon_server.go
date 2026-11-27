@@ -88,11 +88,15 @@ func (d *daemonServer) listAccounts() []ui.Account {
 			// Who's in a room, and whether we are, is the live session's.
 			for ci, item := range uiAcct.Chats {
 				chat, ok := item.(ui.Chat)
-				if !ok || !chat.Room {
+				if !ok {
 					continue
 				}
-				if st, ok := sessions[i].room(chat.Address); ok {
+				if st, ok := sessions[i].room(chat.Address); ok && chat.Room {
 					applyRoomState(&chat, st)
+					uiAcct.Chats[ci] = chat
+				}
+				if st, ok := sessions[i].room(chat.PrivateRoom); ok && chat.PrivateRoom != "" {
+					chat.Presence = st.occupants[resourcePart(chat.Address)].Presence
 					uiAcct.Chats[ci] = chat
 				}
 			}

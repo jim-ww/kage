@@ -1046,3 +1046,21 @@ SELECT CAST(COALESCE(MAX(delay), 0) AS INTEGER)
 FROM messages
 WHERE accountJID = sqlc.arg(account_jid)
 	AND rosterJID = sqlc.arg(roster_jid);
+
+
+-- name: UpsertRoomPrivate :exec
+INSERT INTO roomPrivates (accountJID, room, nick)
+VALUES (sqlc.arg(account_jid), sqlc.arg(room), sqlc.arg(nick))
+ON CONFLICT DO NOTHING;
+
+
+-- name: ListRoomPrivates :many
+SELECT room, nick
+FROM roomPrivates
+WHERE accountJID = sqlc.arg(account_jid);
+
+
+-- name: DeleteRoomPrivates :exec
+DELETE FROM roomPrivates
+WHERE accountJID = sqlc.arg(account_jid)
+	AND room = sqlc.arg(room);

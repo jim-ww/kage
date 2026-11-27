@@ -246,6 +246,12 @@ type Room struct {
 	Bookmarked bool   `db:"bookmarked"`
 }
 
+type Roomprivate struct {
+	Accountjid string `db:"accountjid"`
+	Room       string `db:"room"`
+	Nick       string `db:"nick"`
+}
+
 type Rostergroup struct {
 	ID         int64  `db:"id"`
 	Accountjid string `db:"accountjid"`

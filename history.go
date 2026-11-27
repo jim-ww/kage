@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 	"math"
@@ -89,7 +90,9 @@ func buildMessages(ctx context.Context, s *accountSession, chatAddr, chatName st
 		if row.Sent {
 			author = "me"
 		} else if s.isRoom(chatAddr) {
-			author = roomAuthor(row.Fromattr.String, row.Stanzatype, chatName)
+			author = roomAuthor(row.Fromattr.String, chatName)
+		} else if s.isRoomPrivate(chatAddr) {
+			author = resourcePart(chatAddr)
 		}
 		// Rows persisted before the oobURLs column existed (or before a
 		// given message was re-synced since) have it empty even for a real
@@ -303,7 +306,9 @@ func resolveReplyQuote(ctx context.Context, s *accountSession, chatAddr, chatNam
 	if row.Sent {
 		author = "me"
 	} else if s.isRoom(chatAddr) {
-		author = roomAuthor(row.Fromattr.String, row.Stanzatype, chatName)
+		author = roomAuthor(row.Fromattr.String, chatName)
+	} else if s.isRoomPrivate(chatAddr) {
+		author = resourcePart(chatAddr)
 	}
 	return author, ui.MessagePreviewContent(ui.Message{Content: pt, IsMe: row.Sent, Author: author})
 }
@@ -376,15 +381,8 @@ func messageIndexByIDs(msgs []ui.Message, id string) int {
 	return -1
 }
 
-// roomAuthor is who a stored room message is from: its sender's nick,
-// marked when they sent it privately; the room itself for none.
-func roomAuthor(from, stanzaType, roomName string) string {
-	nick := resourcePart(from)
-	switch {
-	case nick == "":
-		return roomName
-	case stanzaType == "chat":
-		return nick + " (private)"
-	}
-	return nick
+// roomAuthor is who a stored room message is from: its sender's nick, the
+// room itself for none.
+func roomAuthor(from, roomName string) string {
+	return cmp.Or(resourcePart(from), roomName)
 }
